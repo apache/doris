@@ -21,6 +21,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -55,6 +56,7 @@ import java.util.stream.Stream;
 
 public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBin.class);
+    private static final int DEFAULT_INTERVAL_SECONDS = 30; // 30 seconds
     // erase meta at least after minEraseLatency milliseconds
     // to avoid erase log ahead of drop log
     private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
@@ -66,7 +68,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private Map<Long, Long> idToRecycleTime;
 
     public CatalogRecycleBin() {
-        super("recycle bin");
+        super("recycle bin", FeConstants.runningUnitTest ? 10L : DEFAULT_INTERVAL_SECONDS * 1000L);
         idToDatabase = Maps.newHashMap();
         idToTable = Maps.newHashMap();
         idToPartition = Maps.newHashMap();
@@ -124,7 +126,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     public synchronized boolean recycleDatabase(Database db, Set<String> tableNames, Set<Long> tableIds,
-                                                boolean isReplay, long replayRecycleTime) {
+                                                boolean isReplay, boolean isForceDrop, long replayRecycleTime) {
         long recycleTime = 0;
         if (idToDatabase.containsKey(db.getId())) {
             LOG.error("db[{}] already in recycle bin.", db.getId());
@@ -137,17 +139,21 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         // recycle db
         RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames, tableIds);
         idToDatabase.put(db.getId(), databaseInfo);
-        if (!isReplay || replayRecycleTime == 0) {
+        if (isForceDrop) {
+            // The 'force drop' database should be recycle immediately.
+            recycleTime = 0;
+        } else if (!isReplay || replayRecycleTime == 0) {
             recycleTime = System.currentTimeMillis();
         } else {
             recycleTime = replayRecycleTime;
         }
         idToRecycleTime.put(db.getId(), recycleTime);
-        LOG.info("recycle db[{}-{}]", db.getId(), db.getFullName());
+        LOG.info("recycle db[{}-{}], is force drop: {}", db.getId(), db.getFullName(), isForceDrop);
         return true;
     }
 
-    public synchronized boolean recycleTable(long dbId, Table table, boolean isReplay, long replayRecycleTime) {
+    public synchronized boolean recycleTable(long dbId, Table table, boolean isReplay,
+                                             boolean isForceDrop, long replayRecycleTime) {
         long recycleTime = 0;
         if (idToTable.containsKey(table.getId())) {
             LOG.error("table[{}] already in recycle bin.", table.getId());
@@ -156,14 +162,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // recycle table
         RecycleTableInfo tableInfo = new RecycleTableInfo(dbId, table);
-        if (!isReplay || replayRecycleTime == 0) {
+        if (isForceDrop) {
+            // The 'force drop' table should be recycle immediately.
+            recycleTime = 0;
+        } else if (!isReplay || replayRecycleTime == 0) {
             recycleTime = System.currentTimeMillis();
         } else {
             recycleTime = replayRecycleTime;
         }
         idToRecycleTime.put(table.getId(), recycleTime);
         idToTable.put(table.getId(), tableInfo);
-        LOG.info("recycle table[{}-{}]", table.getId(), table.getName());
+        LOG.info("recycle table[{}-{}], is force drop: {}", table.getId(), table.getName(), isForceDrop);
         return true;
     }
 
@@ -192,6 +201,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     public synchronized void setRecycleTimeByIdForReplay(long id, Long recycleTime) {
         idToRecycleTime.put(id, recycleTime);
+    }
+
+    public synchronized boolean isRecyclePartition(long dbId, long tableId, long partitionId) {
+        return idToDatabase.containsKey(dbId) || idToTable.containsKey(tableId)
+                || idToPartition.containsKey(partitionId);
+    }
+
+    public synchronized void getRecycleIds(Set<Long> dbIds, Set<Long> tableIds, Set<Long> partitionIds) {
+        dbIds.addAll(idToDatabase.keySet());
+        tableIds.addAll(idToTable.keySet());
+        partitionIds.addAll(idToPartition.keySet());
     }
 
     private synchronized boolean isExpire(long id, long currentTimeMs) {
@@ -408,8 +428,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         LOG.info("before replay erase table[{}]", tableId);
         RecycleTableInfo tableInfo = idToTable.remove(tableId);
         idToRecycleTime.remove(tableId);
+        if (tableInfo == null) {
+            // FIXME(walter): Sometimes `eraseTable` in 'DROP DB ... FORCE' may be executed earlier than
+            // finish drop db, especially in the case of drop db with many tables.
+            return;
+        }
         Table table = tableInfo.getTable();
-        if (table.getType() == TableType.OLAP && !Env.isCheckpointThread()) {
+        if (table.getType() == TableType.OLAP) {
             Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, true);
         }
         LOG.info("replay erase table[{}]", tableId);
@@ -519,16 +544,16 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         Partition partition = partitionInfo.getPartition();
-        if (!Env.isCheckpointThread()) {
-            Env.getCurrentEnv().onErasePartition(partition);
-        }
+        Env.getCurrentEnv().onErasePartition(partition);
 
         LOG.info("replay erase partition[{}]", partitionId);
     }
 
     public synchronized Database recoverDatabase(String dbName, long dbId) throws DdlException {
         RecycleDatabaseInfo dbInfo = null;
-        long recycleTime = -1;
+        // The recycle time of the force dropped tables and databases will be set to zero, use 1 here to
+        // skip these databases and tables.
+        long recycleTime = 1;
         Iterator<Map.Entry<Long, RecycleDatabaseInfo>> iterator = idToDatabase.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecycleDatabaseInfo> entry = iterator.next();
@@ -607,7 +632,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                                              String newTableName) throws DdlException {
         // make sure to get db lock
         Table table = null;
-        long recycleTime = -1;
+        // The recycle time of the force dropped tables and databases will be set to zero, use 1 here to
+        // skip these databases and tables.
+        long recycleTime = 1;
         long dbId = db.getId();
         Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
         while (iterator.hasNext()) {

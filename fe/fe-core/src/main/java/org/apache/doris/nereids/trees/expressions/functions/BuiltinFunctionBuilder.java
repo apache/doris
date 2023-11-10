@@ -83,7 +83,7 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
             if (isVariableLength) {
                 return builderMethod.newInstance(toVariableLengthArguments(arguments));
             } else {
-                return builderMethod.newInstance(arguments.stream().toArray(Object[]::new));
+                return builderMethod.newInstance(arguments.toArray());
             }
         } catch (Throwable t) {
             String argString = arguments.stream()

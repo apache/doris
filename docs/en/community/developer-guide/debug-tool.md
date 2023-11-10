@@ -254,6 +254,10 @@ The directory where the heap dump file is located is `${DORIS_HOME}/log` by defa
 
 ##### 3. jemalloc heap dump profiling
 
+```
+Requires addr2line 2.35.2, see below QA 1.
+```
+
 1. A single heap dump file generates plain text analysis results
     ```shell
     jeprof lib/doris_be heap_dump_file_1
@@ -281,6 +285,41 @@ The directory where the heap dump file is located is `${DORIS_HOME}/log` by defa
     ```shell
     jeprof --pdf lib/doris_be --base=heap_dump_file_1 heap_dump_file_2 > result.pdf
     ```
+
+##### 4. QA
+
+1. Many errors occurred after running jeprof: `addr2line: Dwarf Error: found dwarf version xxx, this reader only handles version xxx`
+
+After GCC 11, DWARF-v5 is used by default, which requires Binutils 2.35.2 and above. Doris Ldb_toolchain uses GCC 11. See: https://gcc.gnu.org/gcc-11/changes.html.
+
+Replace addr2line to 2.35.2, refer to:
+```
+// Download addr2line source code
+wget https://ftp.gnu.org/gnu/binutils/binutils-2.35.tar.bz2
+
+//Install dependencies, if needed
+yum install make gcc gcc-c++ binutils
+
+// Compile & install addr2line
+tar -xvf binutils-2.35.tar.bz2
+cd binutils-2.35
+./configure --prefix=/usr/local
+make
+make install
+
+// verify
+addr2line -h
+
+// Replace addr2line
+chmod +x addr2line
+mv /usr/bin/addr2line /usr/bin/addr2line.bak
+mv /bin/addr2line /bin/addr2line.bak
+cp addr2line /bin/addr2line
+cp addr2line /usr/bin/addr2line
+hash -r
+```
+
+Note that you cannot use addr2line 2.3.9, which may be incompatible and cause memory to keep growing.
 
 #### LSAN
 

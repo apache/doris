@@ -48,6 +48,8 @@ public class NetUtils {
     public static final String HTTPS_PORT_SUGGESTION = "Please change the 'https_port' in fe.conf and try again. "
             + "But you need to make sure that ALL FEs https_port are same.";
     public static final String RPC_PORT_SUGGESTION = "Please change the 'rpc_port' in fe.conf and try again.";
+    public static final String ARROW_FLIGHT_SQL_SUGGESTION =
+            "Please change the 'arrow_flight_sql_port' in fe.conf and try again.";
 
     // Target format is "host:port"
     public static InetSocketAddress createSocketAddr(String target) {

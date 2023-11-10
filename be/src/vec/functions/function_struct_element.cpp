@@ -69,7 +69,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto struct_type = check_and_get_data_type<DataTypeStruct>(
                 block.get_by_position(arguments[0]).type.get());
         auto struct_col = check_and_get_column<ColumnStruct>(

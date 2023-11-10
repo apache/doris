@@ -29,8 +29,8 @@
 
 #include "agent/task_worker_pool.h"
 #include "agent/topic_subscriber.h"
-#include "agent/user_resource_listener.h"
 #include "agent/utils.h"
+#include "agent/workload_group_listener.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -38,10 +38,6 @@
 #include "olap/options.h"
 #include "olap/snapshot_manager.h"
 #include "runtime/exec_env.h"
-
-namespace doris {
-class TopicListener;
-} // namespace doris
 
 using std::string;
 using std::vector;
@@ -134,9 +130,10 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 
 #if !defined(BE_TEST) && !defined(__APPLE__)
     // Add subscriber here and register listeners
-    TopicListener* user_resource_listener = new UserResourceListener(exec_env, master_info);
-    LOG(INFO) << "Register user resource listener";
-    _topic_subscriber->register_listener(doris::TTopicType::type::RESOURCE, user_resource_listener);
+    std::unique_ptr<TopicListener> wg_listener = std::make_unique<WorkloadGroupListener>(exec_env);
+    LOG(INFO) << "Register workload group listener";
+    _topic_subscriber->register_listener(doris::TTopicInfoType::type::WORKLOAD_GROUP,
+                                         std::move(wg_listener));
 #endif
 }
 

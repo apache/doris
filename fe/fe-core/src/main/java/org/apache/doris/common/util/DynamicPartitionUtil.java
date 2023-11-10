@@ -639,6 +639,10 @@ public class DynamicPartitionUtil {
         } else {
             replicaAlloc = olapTable.getDefaultReplicaAllocation();
         }
+        if (olapTable.getMinLoadReplicaNum() > replicaAlloc.getTotalReplicaNum()) {
+            throw new DdlException("Failed to check min load replica num [" + olapTable.getMinLoadReplicaNum()
+                    + "]  <= dynamic partition replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
+        }
         checkReplicaAllocation(replicaAlloc, hotPartitionNum, db);
 
         if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS)) {
@@ -674,7 +678,8 @@ public class DynamicPartitionUtil {
                 && tableProperty.getDynamicPartitionProperty().isExist()
                 && tableProperty.getDynamicPartitionProperty().getEnable()) {
             throw new DdlException("Cannot add/drop partition on a Dynamic Partition Table, "
-                    + "Use command `ALTER TABLE tbl_name SET (\"dynamic_partition.enable\" = \"false\")` firstly.");
+                    + "Use command `ALTER TABLE " + olapTable.getName()
+                    + " SET (\"dynamic_partition.enable\" = \"false\")` firstly.");
         }
     }
 

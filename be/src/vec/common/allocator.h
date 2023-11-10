@@ -47,7 +47,6 @@
 #include <cstdlib>
 #include <string>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef THREAD_SANITIZER
 /// Thread sanitizer does not intercept mremap. The usage of mremap will lead to false positives.

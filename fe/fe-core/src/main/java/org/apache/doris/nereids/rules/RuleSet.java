@@ -73,6 +73,8 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
+import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
+import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
@@ -82,6 +84,7 @@ import org.apache.doris.nereids.rules.rewrite.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughPartitionTopN;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughRepeat;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSetOperation;
@@ -89,7 +92,6 @@ import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSort;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.PushdownProjectThroughLimit;
-import org.apache.doris.nereids.rules.rewrite.TransformOuterJoinToAntiJoin;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -121,6 +123,7 @@ public class RuleSet {
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
+            new CreatePartitionTopNFromWindow(),
             new PushdownFilterThroughProject(),
             new PushdownFilterThroughSort(),
             new PushdownJoinOtherCondition(),
@@ -129,15 +132,17 @@ public class RuleSet {
             new PushdownFilterThroughAggregation(),
             new PushdownFilterThroughRepeat(),
             new PushdownFilterThroughSetOperation(),
-            new PushdownFilterThroughWindow(),
             new PushdownProjectThroughLimit(),
             new EliminateOuterJoin(),
-            new TransformOuterJoinToAntiJoin(),
+            new ConvertOuterJoinToAntiJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeGenerates(),
             new MergeLimits(),
-            new PushdownAliasThroughJoin());
+            new PushdownAliasThroughJoin(),
+            new PushdownFilterThroughWindow(),
+            new PushdownFilterThroughPartitionTopN()
+    );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalCTEProducerToPhysicalCTEProducer())
@@ -175,6 +180,14 @@ public class RuleSet {
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .build();
 
+    // left-zig-zag tree is used when column stats are not available.
+    public static final List<Rule> LEFT_ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
+            .add(JoinCommute.LEFT_ZIG_ZAG)
+            .add(InnerJoinLAsscom.LEFT_ZIG_ZAG)
+            .add(InnerJoinLAsscomProject.LEFT_ZIG_ZAG)
+            .addAll(OTHER_REORDER_RULES)
+            .build();
+
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.ZIG_ZAG)
             .add(InnerJoinLAsscom.INSTANCE)
@@ -183,8 +196,6 @@ public class RuleSet {
 
     public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.BUSHY)
-            .add(InnerJoinLAsscom.INSTANCE)
-            .add(InnerJoinLAsscomProject.INSTANCE)
             .add(InnerJoinLeftAssociate.INSTANCE)
             .add(InnerJoinLeftAssociateProject.INSTANCE)
             .add(InnerJoinRightAssociate.INSTANCE)
@@ -215,6 +226,10 @@ public class RuleSet {
 
     public List<Rule> getZigZagTreeJoinReorder() {
         return ZIG_ZAG_TREE_JOIN_REORDER_RULES;
+    }
+
+    public List<Rule> getLeftZigZagTreeJoinReorder() {
+        return LEFT_ZIG_ZAG_TREE_JOIN_REORDER;
     }
 
     public List<Rule> getBushyTreeJoinReorder() {

@@ -23,8 +23,6 @@ import io.netty.util.Timeout;
 import io.netty.util.TimerTask;
 import lombok.Getter;
 
-import java.util.UUID;
-
 /**
  * This class represents a timer task that can be scheduled by a Netty timer.
  * When the timer task is triggered, it produces a Job task using the Disruptor.
@@ -36,16 +34,17 @@ public class TimerJobTask implements TimerTask {
     private final Long jobId;
 
     // more fields should be added here and record in feature
-    private final Long taskId = UUID.randomUUID().getMostSignificantBits();
+    private final Long taskId;
 
     private final Long startTimestamp;
 
     private final TaskDisruptor taskDisruptor;
 
-    public TimerJobTask(Long jobId, Long startTimestamp, TaskDisruptor taskDisruptor) {
+    public TimerJobTask(Long jobId, Long taskId, Long startTimestamp, TaskDisruptor taskDisruptor) {
         this.jobId = jobId;
         this.startTimestamp = startTimestamp;
         this.taskDisruptor = taskDisruptor;
+        this.taskId = taskId;
     }
 
     @Override
@@ -53,6 +52,6 @@ public class TimerJobTask implements TimerTask {
         if (timeout.isCancelled()) {
             return;
         }
-        taskDisruptor.tryPublish(jobId);
+        taskDisruptor.tryPublish(jobId, taskId);
     }
 }

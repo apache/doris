@@ -26,13 +26,14 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -40,6 +41,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -57,6 +59,7 @@ import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
@@ -80,6 +83,9 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
     private static final String TBL_PROP_INSERT_ONLY = "insert_only";
+
+    private static final String TBL_PROP_TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
+
     private static final String NUM_ROWS = "numRows";
 
     static {
@@ -109,6 +115,9 @@ public class HMSExternalTable extends ExternalTable {
 
     // No as precise as row count in TableStats, but better than none.
     private long estimatedRowCount = -1;
+
+    // record the event update time when enable hms event listener
+    protected volatile long eventUpdateTime;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
@@ -193,9 +202,15 @@ public class HMSExternalTable extends ExternalTable {
      */
     private boolean supportedHiveTable() {
         String inputFileFormat = remoteTable.getSd().getInputFormat();
-        boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        if (inputFileFormat == null) {
+            return false;
+        }
+        boolean supportedFileFormat = SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        if (!supportedFileFormat) {
+            throw new IllegalArgumentException("Unsupported hive input format: " + inputFileFormat);
+        }
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
-        return supportedFileFormat;
+        return true;
     }
 
     /**
@@ -266,11 +281,6 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public long getCreateTime() {
-        return 0;
-    }
-
-    @Override
-    public long getUpdateTime() {
         return 0;
     }
 
@@ -400,6 +410,20 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
+    public List<Column> initSchemaAndUpdateTime() {
+        org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
+                .getTable(dbName, name);
+        // try to use transient_lastDdlTime from hms client
+        schemaUpdateTime = MapUtils.isNotEmpty(table.getParameters())
+                && table.getParameters().containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)
+                ? Long.parseLong(table.getParameters().get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000
+                // use current timestamp if lastDdlTime does not exist (hive views don't have this prop)
+                : System.currentTimeMillis();
+        return initSchema();
+    }
+
+
+    @Override
     public List<Column> initSchema() {
         makeSureInitialized();
         List<Column> columns;
@@ -435,7 +459,7 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long estimatedRowCount() {
         try {
-            TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
+            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
             if (tableStats != null) {
                 long rowCount = tableStats.rowCount;
                 LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
@@ -627,6 +651,53 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             builder.setMaxValue(Double.MAX_VALUE);
         }
+    }
+
+    public void setEventUpdateTime(long updateTime) {
+        this.eventUpdateTime = updateTime;
+    }
+
+    @Override
+    // get the max value of `schemaUpdateTime` and `eventUpdateTime`
+    // eventUpdateTime will be refreshed after processing events with hms event listener enabled
+    public long getUpdateTime() {
+        return Math.max(this.schemaUpdateTime, this.eventUpdateTime);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        estimatedRowCount = -1;
+    }
+
+    @Override
+    public List<Long> getChunkSizes() {
+        HiveMetaStoreCache.HivePartitionValues partitionValues = StatisticsUtil.getPartitionValuesForTable(this);
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions
+                = StatisticsUtil.getFilesForPartitions(this, partitionValues, 0);
+        List<Long> result = Lists.newArrayList();
+        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
+            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
+                result.add(file.getLength());
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public long getDataSize(boolean singleReplica) {
+        long totalSize = StatisticsUtil.getTotalSizeFromHMS(this);
+        // Usually, we can get total size from HMS parameter.
+        if (totalSize > 0) {
+            return totalSize;
+        }
+        // If not found the size in HMS, calculate it by sum all files' size in table.
+        List<Long> chunkSizes = getChunkSizes();
+        long total = 0;
+        for (long size : chunkSizes) {
+            total += size;
+        }
+        return total;
     }
 }
 

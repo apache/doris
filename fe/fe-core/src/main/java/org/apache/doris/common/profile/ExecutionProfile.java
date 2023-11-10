@@ -31,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -63,6 +64,10 @@ public class ExecutionProfile {
     // instance id -> dummy value
     private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
 
+    private int waitCount = 0;
+
+    private TUniqueId queryId;
+
     public ExecutionProfile(TUniqueId queryId, int fragmentNum) {
         executionProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
@@ -74,6 +79,7 @@ public class ExecutionProfile {
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
         executionProfile.addChild(loadChannelProfile);
+        this.queryId = queryId;
     }
 
     public RuntimeProfile getExecutionProfile() {
@@ -117,14 +123,18 @@ public class ExecutionProfile {
         if (profileDoneSignal != null) {
             // count down to zero to notify all objects waiting for this
             profileDoneSignal.countDownToZero(new Status());
-            LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks()
+            LOG.info("Query {} unfinished instance: {}", DebugUtil.printId(queryId),  profileDoneSignal.getLeftMarks()
                     .stream().map(e -> DebugUtil.printId(e.getKey())).toArray());
         }
     }
 
     public void markOneInstanceDone(TUniqueId fragmentInstanceId) {
         if (profileDoneSignal != null) {
-            profileDoneSignal.markedCountDown(fragmentInstanceId, -1L);
+            if (profileDoneSignal.markedCountDown(fragmentInstanceId, -1L)) {
+                LOG.info("Mark instance {} done succeed", DebugUtil.printId(fragmentInstanceId));
+            } else {
+                LOG.warn("Mark instance {} done failed", DebugUtil.printId(fragmentInstanceId));
+            }
         }
     }
 
@@ -132,6 +142,16 @@ public class ExecutionProfile {
         if (profileDoneSignal == null) {
             return true;
         }
+
+        waitCount++;
+
+        for (Entry<TUniqueId, Long> entry : profileDoneSignal.getLeftMarks()) {
+            if (waitCount > 2) {
+                LOG.info("Query {} waiting instance {}, waitCount: {}",
+                        DebugUtil.printId(queryId), DebugUtil.printId(entry.getKey()), waitCount);
+            }
+        }
+
         return profileDoneSignal.await(waitTimeS, TimeUnit.SECONDS);
     }
 

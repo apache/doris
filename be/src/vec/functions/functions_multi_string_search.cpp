@@ -76,7 +76,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto haystack_column = block.get_by_position(arguments[0]).column;
         auto haystack_ptr = haystack_column;
 

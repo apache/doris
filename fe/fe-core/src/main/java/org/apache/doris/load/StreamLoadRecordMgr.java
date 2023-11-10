@@ -142,6 +142,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         Map<String, StreamLoadRecord> labelToStreamLoadRecord = dbIdToLabelToStreamLoadRecord.get(dbId);
         if (!labelToStreamLoadRecord.containsKey(label)) {
             labelToStreamLoadRecord.put(label, streamLoadRecord);
+        } else if (labelToStreamLoadRecord.get(label).getFinishTime().compareTo(streamLoadRecord.getFinishTime()) < 0) {
+            labelToStreamLoadRecord.put(label, streamLoadRecord);
         }
         writeUnlock();
     }

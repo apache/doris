@@ -47,7 +47,6 @@ import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
-import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
@@ -85,6 +84,7 @@ public class JdbcExecutor {
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
     private DruidDataSource druidDataSource = null;
+    private byte[] druidDataSourceLock = new byte[0];
     private int minPoolSize;
     private int maxPoolSize;
     private int minIdleSize;
@@ -147,11 +147,15 @@ public class JdbcExecutor {
             int columnCount = resultSetMetaData.getColumnCount();
             resultColumnTypeNames = new ArrayList<>(columnCount);
             block = new ArrayList<>(columnCount);
-            for (int i = 0; i < columnCount; ++i) {
-                if (!isNebula()) {
-                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+            if (isNebula()) {
+                for (int i = 0; i < columnCount; ++i) {
+                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
                 }
-                block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+            } else {
+                for (int i = 0; i < columnCount; ++i) {
+                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+                }
             }
             return columnCount;
         } catch (SQLException e) {
@@ -168,16 +172,7 @@ public class JdbcExecutor {
     }
 
     public int write(Map<String, String> params) throws UdfRuntimeException {
-        String[] requiredFields = params.get("required_fields").split(",");
-        String[] types = params.get("columns_types").split("#");
-        long metaAddress = Long.parseLong(params.get("meta_address"));
-        // Get sql string from configuration map
-        ColumnType[] columnTypes = new ColumnType[types.length];
-        for (int i = 0; i < types.length; i++) {
-            columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
-        }
-        VectorTable batchTable = new VectorTable(columnTypes, requiredFields, metaAddress);
-        // todo: insert the batch table by PreparedStatement
+        VectorTable batchTable = VectorTable.createReadableTable(params);
         // Can't release or close batchTable, it's released by c++
         try {
             insert(batchTable);
@@ -366,16 +361,22 @@ public class JdbcExecutor {
         try {
             int columnCount = resultSetMetaData.getColumnCount();
             curBlockRows = 0;
-            do {
-                for (int i = 0; i < columnCount; ++i) {
-                    if (isNebula()) {
+
+            if (isNebula()) {
+                do {
+                    for (int i = 0; i < columnCount; ++i) {
                         block.get(i)[curBlockRows] = UdfUtils.convertObject((ValueWrapper) resultSet.getObject(i + 1));
-                    } else {
+                    }
+                    curBlockRows++;
+                } while (curBlockRows < batchSize && resultSet.next());
+            } else {
+                do {
+                    for (int i = 0; i < columnCount; ++i) {
                         block.get(i)[curBlockRows] = resultSet.getObject(i + 1);
                     }
-                }
-                curBlockRows++;
-            } while (curBlockRows < batchSize && resultSet.next());
+                    curBlockRows++;
+                } while (curBlockRows < batchSize && resultSet.next());
+            }
         } catch (SQLException e) {
             throw new UdfRuntimeException("get next block failed: ", e);
         }
@@ -410,29 +411,41 @@ public class JdbcExecutor {
                 ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
                 druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
                 if (druidDataSource == null) {
-                    DruidDataSource ds = new DruidDataSource();
-                    ds.setDriverClassLoader(classLoader);
-                    ds.setDriverClassName(driverClass);
-                    ds.setUrl(jdbcUrl);
-                    ds.setUsername(jdbcUser);
-                    ds.setPassword(jdbcPassword);
-                    ds.setMinIdle(minIdleSize);
-                    ds.setInitialSize(minPoolSize);
-                    ds.setMaxActive(maxPoolSize);
-                    ds.setMaxWait(maxWaitTime);
-                    ds.setTestWhileIdle(true);
-                    ds.setTestOnBorrow(false);
-                    setValidationQuery(ds, tableType);
-                    ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
-                    ds.setMinEvictableIdleTimeMillis(maxIdleTime);
-                    druidDataSource = ds;
-                    // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
-                    // jdbcPassword) as key.
-                    // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
-                    // time greater than 10 minutes. then connection will be retrieved.
-                    JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
+                    synchronized (druidDataSourceLock) {
+                        druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                        if (druidDataSource == null) {
+                            long start = System.currentTimeMillis();
+                            DruidDataSource ds = new DruidDataSource();
+                            ds.setDriverClassLoader(classLoader);
+                            ds.setDriverClassName(driverClass);
+                            ds.setUrl(jdbcUrl);
+                            ds.setUsername(jdbcUser);
+                            ds.setPassword(jdbcPassword);
+                            ds.setMinIdle(minIdleSize);
+                            ds.setInitialSize(minPoolSize);
+                            ds.setMaxActive(maxPoolSize);
+                            ds.setMaxWait(maxWaitTime);
+                            ds.setTestWhileIdle(true);
+                            ds.setTestOnBorrow(false);
+                            setValidationQuery(ds, tableType);
+                            ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
+                            ds.setMinEvictableIdleTimeMillis(maxIdleTime);
+                            druidDataSource = ds;
+                            // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
+                            // jdbcPassword) as key.
+                            // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
+                            // time greater than 10 minutes. then connection will be retrieved.
+                            JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
+                            LOG.info("init datasource [" + (jdbcUrl + jdbcUser) + "] cost: " + (
+                                    System.currentTimeMillis() - start) + " ms");
+                        }
+                    }
                 }
+
+                long start = System.currentTimeMillis();
                 conn = druidDataSource.getConnection();
+                LOG.info("get connection [" + (jdbcUrl + jdbcUser) + "] cost: " + (System.currentTimeMillis() - start)
+                        + " ms");
                 if (op == TJdbcOperation.READ) {
                     conn.setAutoCommit(false);
                     Preconditions.checkArgument(sql != null);
@@ -1982,21 +1995,50 @@ public class JdbcExecutor {
     static {
         CK_ARRAY_CONVERTERS.put(String[].class, res -> Arrays.toString((String[]) res));
         CK_ARRAY_CONVERTERS.put(boolean[].class, res -> Arrays.toString((boolean[]) res));
+        CK_ARRAY_CONVERTERS.put(Boolean[].class, res -> Arrays.toString((Boolean[]) res));
         CK_ARRAY_CONVERTERS.put(byte[].class, res -> Arrays.toString((byte[]) res));
         CK_ARRAY_CONVERTERS.put(Byte[].class, res -> Arrays.toString((Byte[]) res));
         CK_ARRAY_CONVERTERS.put(LocalDate[].class, res -> Arrays.toString((LocalDate[]) res));
         CK_ARRAY_CONVERTERS.put(LocalDateTime[].class, res -> Arrays.toString((LocalDateTime[]) res));
         CK_ARRAY_CONVERTERS.put(float[].class, res -> Arrays.toString((float[]) res));
+        CK_ARRAY_CONVERTERS.put(Float[].class, res -> Arrays.toString((Float[]) res));
         CK_ARRAY_CONVERTERS.put(double[].class, res -> Arrays.toString((double[]) res));
+        CK_ARRAY_CONVERTERS.put(Double[].class, res -> Arrays.toString((Double[]) res));
         CK_ARRAY_CONVERTERS.put(short[].class, res -> Arrays.toString((short[]) res));
+        CK_ARRAY_CONVERTERS.put(Short[].class, res -> Arrays.toString((Short[]) res));
         CK_ARRAY_CONVERTERS.put(int[].class, res -> Arrays.toString((int[]) res));
+        CK_ARRAY_CONVERTERS.put(Integer[].class, res -> Arrays.toString((Integer[]) res));
         CK_ARRAY_CONVERTERS.put(long[].class, res -> Arrays.toString((long[]) res));
+        CK_ARRAY_CONVERTERS.put(Long[].class, res -> Arrays.toString((Long[]) res));
         CK_ARRAY_CONVERTERS.put(BigInteger[].class, res -> Arrays.toString((BigInteger[]) res));
         CK_ARRAY_CONVERTERS.put(BigDecimal[].class, res -> Arrays.toString((BigDecimal[]) res));
-        CK_ARRAY_CONVERTERS.put(Inet4Address[].class, res -> Arrays.toString(Arrays.stream((Inet4Address[]) res)
-                .map(InetAddress::getHostAddress).toArray(String[]::new)));
-        CK_ARRAY_CONVERTERS.put(Inet6Address[].class, res -> Arrays.toString(Arrays.stream((Inet6Address[]) res)
-                .map(addr -> simplifyIPv6Address(addr.getHostAddress())).toArray(String[]::new)));
+        CK_ARRAY_CONVERTERS.put(Inet4Address[].class, res -> {
+            if (res == null) {
+                return "null";
+            } else {
+                return Arrays.toString(Arrays.stream((Inet4Address[]) res)
+                        .map(addr -> addr == null ? "null" : addr.getHostAddress())
+                        .toArray(String[]::new));
+            }
+        });
+
+        CK_ARRAY_CONVERTERS.put(Inet6Address[].class, res -> {
+            if (res == null) {
+                return "null";
+            } else {
+                return Arrays.toString(Arrays.stream((Inet6Address[]) res)
+                        .map(addr -> addr == null ? "null" : simplifyIPv6Address(addr.getHostAddress()))
+                        .toArray(String[]::new));
+            }
+        });
+        CK_ARRAY_CONVERTERS.put(com.clickhouse.data.value.UnsignedByte[].class,
+                res -> Arrays.toString((com.clickhouse.data.value.UnsignedByte[]) res));
+        CK_ARRAY_CONVERTERS.put(com.clickhouse.data.value.UnsignedShort[].class,
+                res -> Arrays.toString((com.clickhouse.data.value.UnsignedShort[]) res));
+        CK_ARRAY_CONVERTERS.put(com.clickhouse.data.value.UnsignedInteger[].class,
+                res -> Arrays.toString((com.clickhouse.data.value.UnsignedInteger[]) res));
+        CK_ARRAY_CONVERTERS.put(com.clickhouse.data.value.UnsignedLong[].class,
+                res -> Arrays.toString((com.clickhouse.data.value.UnsignedLong[]) res));
         CK_ARRAY_CONVERTERS.put(UUID[].class, res -> Arrays.toString((UUID[]) res));
     }
 
@@ -2140,3 +2182,4 @@ public class JdbcExecutor {
         return i;
     }
 }
+

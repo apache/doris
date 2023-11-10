@@ -45,11 +45,12 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
 #include "util/string_parser.hpp"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -428,14 +429,14 @@ Status read_write_test_file(const std::string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     } else {
         if (errno != ENOENT) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     }
 
@@ -647,6 +648,24 @@ bool valid_bool(const std::string& value_str) {
     StringParser::ParseResult result;
     StringParser::string_to_bool(value_str.c_str(), value_str.length(), &result);
     return result == StringParser::PARSE_SUCCESS;
+}
+
+bool valid_ipv4(const std::string& value_str) {
+    if (value_str.size() == 0) {
+        return false;
+    }
+
+    vectorized::IPv4 value = 0;
+    return IPv4Value::from_string(value, value_str);
+}
+
+bool valid_ipv6(const std::string& value_str) {
+    if (value_str.size() == 0) {
+        return false;
+    }
+
+    vectorized::IPv6 value;
+    return IPv6Value::from_string(value, value_str);
 }
 
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...) {

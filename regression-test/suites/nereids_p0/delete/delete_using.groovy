@@ -29,7 +29,6 @@ suite('nereids_delete_using') {
         distributed by hash(id, id1)
         properties(
             'replication_num'='1',
-            "function_column.sequence_col" = "c4",
             "enable_unique_key_merge_on_write" = "true"
         );
     '''

@@ -47,9 +47,7 @@ public:
     // Initialize BlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
 
-    Status next_block_with_aggregation(Block* block, bool* eof) override {
-        return (this->*_next_block_func)(block, eof);
-    }
+    Status next_block_with_aggregation(Block* block, bool* eof) override;
 
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 
@@ -107,7 +105,7 @@ private:
     std::vector<IteratorRowRef> _stored_row_ref;
 
     std::vector<bool> _stored_has_null_tag;
-    std::vector<bool> _stored_has_string_tag;
+    std::vector<bool> _stored_has_variable_length_tag;
 
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 

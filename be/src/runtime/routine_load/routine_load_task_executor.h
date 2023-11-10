@@ -51,6 +51,8 @@ public:
 
     ~RoutineLoadTaskExecutor();
 
+    void stop();
+
     // submit a routine load task
     Status submit_task(const TRoutineLoadTask& task);
 

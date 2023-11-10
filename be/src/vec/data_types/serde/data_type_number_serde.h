@@ -55,14 +55,16 @@ class DataTypeNumberSerDe : public DataTypeSerDe {
 public:
     using ColumnType = ColumnVector<T>;
 
-    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                    FormatOptions& options) const override;
-    void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
-                                  BufferWritable& bw, FormatOptions& options) const override;
-    Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+    DataTypeNumberSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options) const override;
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options) const override;
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
 
-    Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
 
@@ -85,6 +87,15 @@ public:
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
+
+    Status write_column_to_orc(const std::string& timezone, const IColumn& column,
+                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
+    void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                rapidjson::Document::AllocatorType& allocator,
+                                int row_num) const override;
+    void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
     template <bool is_binary_format>
@@ -274,6 +285,61 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
+    }
+}
+
+template <typename T>
+void DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                    rapidjson::Document::AllocatorType& allocator,
+                                                    int row_num) const {
+    const auto& data = reinterpret_cast<const ColumnType&>(column).get_data();
+    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> || std::is_same_v<T, Int32>) {
+        result.SetInt(data[row_num]);
+    } else if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16> ||
+                         std::is_same_v<T, UInt32>) {
+        result.SetUint(data[row_num]);
+    } else if constexpr (std::is_same_v<T, Int64>) {
+        result.SetInt64(data[row_num]);
+    } else if constexpr (std::is_same_v<T, UInt64>) {
+        result.SetUint64(data[row_num]);
+    } else if constexpr (std::is_same_v<T, float>) {
+        result.SetFloat(data[row_num]);
+    } else if constexpr (std::is_same_v<T, double>) {
+        result.SetDouble(data[row_num]);
+    } else {
+        LOG(FATAL) << "unknown column type " << column.get_name() << " for writing to jsonb";
+    }
+}
+
+template <typename T>
+void DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
+                                                     const rapidjson::Value& value) const {
+    auto& col = reinterpret_cast<ColumnType&>(column);
+    switch (value.GetType()) {
+    case rapidjson::Type::kNumberType:
+        if (value.IsUint()) {
+            col.insert_value((T)value.GetUint());
+        } else if (value.IsInt()) {
+            col.insert_value((T)value.GetInt());
+        } else if (value.IsUint64()) {
+            col.insert_value((T)value.GetUint64());
+        } else if (value.IsInt64()) {
+            col.insert_value((T)value.GetInt64());
+        } else if (value.IsFloat() || value.IsDouble()) {
+            col.insert_value((T)value.GetDouble());
+        } else {
+            CHECK(false) << "Improssible";
+        }
+        break;
+    case rapidjson::Type::kFalseType:
+        col.insert_value((T)0);
+        break;
+    case rapidjson::Type::kTrueType:
+        col.insert_value((T)1);
+        break;
+    default:
+        col.insert_default();
+        break;
     }
 }
 

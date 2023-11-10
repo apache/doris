@@ -38,7 +38,7 @@ std::string PrintFrontendInfos(const std::vector<TFrontendInfo>& fe_infos);
 // A desirable scenario would be to call this function WHENEVER whenever we need to print instance information.
 // By using a fixed format, we would be able to identify all the paths in which this instance is executed.
 // InstanceId|FragmentIdx|QueryId
-std::string PrintInstanceStandardInfo(const TUniqueId& qid, const int fid, const TUniqueId& iid);
+std::string PrintInstanceStandardInfo(const TUniqueId& qid, const TUniqueId& iid);
 
 // Returns a string "<product version number> (build <build hash>)"
 // If compact == false, this string is appended: "\nBuilt on <build time>"

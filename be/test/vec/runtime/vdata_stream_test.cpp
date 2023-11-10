@@ -192,9 +192,9 @@ TEST_F(VDataStreamTest, BasicTest) {
     VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
                              dests, send_query_statistics_with_every_batch);
     sender.set_query_statistics(std::make_shared<QueryStatistics>());
-    sender.init(tsink);
-    sender.prepare(&runtime_stat);
-    sender.open(&runtime_stat);
+    static_cast<void>(sender.init(tsink));
+    static_cast<void>(sender.prepare(&runtime_stat));
+    static_cast<void>(sender.open(&runtime_stat));
 
     auto vec = vectorized::ColumnVector<Int32>::create();
     auto& data = vec->get_data();
@@ -204,14 +204,14 @@ TEST_F(VDataStreamTest, BasicTest) {
     vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
     vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
     vectorized::Block block({type_and_name});
-    sender.send(&runtime_stat, &block);
+    static_cast<void>(sender.send(&runtime_stat, &block));
 
     Status exec_status;
-    sender.close(&runtime_stat, exec_status);
+    static_cast<void>(sender.close(&runtime_stat, exec_status));
 
     Block block_2;
     bool eos;
-    recv->get_next(&block_2, &eos);
+    static_cast<void>(recv->get_next(&block_2, &eos));
 
     EXPECT_EQ(block_2.rows(), 1024);
 

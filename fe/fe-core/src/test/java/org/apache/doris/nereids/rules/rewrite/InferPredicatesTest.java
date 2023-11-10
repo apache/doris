@@ -322,12 +322,15 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                             logicalFilter(
                                 logicalOlapScan()
                             ).when(filer -> filer.getPredicate().toSql().contains("id > 1")),
-                            logicalAggregate(
-                                logicalProject(
+                            logicalProject(
+                                logicalAggregate(
+                                    logicalProject(
                                         logicalFilter(
-                                        logicalOlapScan()
-                                ).when(filer -> filer.getPredicate().toSql().contains("sid > 1"))
-                            ))
+                                            logicalOlapScan()
+                                        ).when(filer -> filer.getPredicate().toSql().contains("sid > 1"))
+                                   )
+                                )
+                            )
                         )
                     )
                 );

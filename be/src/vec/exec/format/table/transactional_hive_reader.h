@@ -41,7 +41,7 @@ class TFileRangeDesc;
 class TFileScanRangeParams;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 

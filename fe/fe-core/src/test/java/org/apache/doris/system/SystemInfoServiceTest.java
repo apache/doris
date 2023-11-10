@@ -97,7 +97,7 @@ public class SystemInfoServiceTest {
         System.out.println(Env.getCurrentEnvJournalVersion());
 
         BackendHbResponse writeResponse = new BackendHbResponse(1L, 1234, 1234, 1234, 1234, 1234, "test",
-                Tag.VALUE_COMPUTATION, false);
+                Tag.VALUE_COMPUTATION, false, 1234);
 
         // Write objects to file
         File file1 = new File("./BackendHbResponseSerialization");

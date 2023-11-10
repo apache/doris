@@ -270,4 +270,8 @@ public abstract class FileScanNode extends ExternalScanNode {
         long fileLength = last.getOffset() + last.getLength() - 1L;
         throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
     }
+
+    public long getReadPartitionNum() {
+        return this.readPartitionNum;
+    }
 }

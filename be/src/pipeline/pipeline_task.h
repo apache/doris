@@ -100,6 +100,7 @@ inline const char* get_state_name(PipelineTaskState idx) {
     case PipelineTaskState::BLOCKED_FOR_RF:
         return "BLOCKED_FOR_RF";
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -122,18 +123,16 @@ public:
 
     // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
     // this task will enter the `PENDING_FINISH` state.
-    virtual Status try_close();
+    virtual Status try_close(Status exec_status);
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    virtual Status close();
+    virtual Status close(Status exec_status);
 
     void put_in_runnable_queue() {
         _schedule_time++;
         _wait_worker_watcher.start();
     }
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
-    void start_schedule_watcher() { _wait_schedule_watcher.start(); }
-    void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
@@ -183,6 +182,8 @@ public:
         _previous_schedule_id = id;
     }
 
+    virtual void release_dependency() {}
+
     bool has_dependency();
 
     OperatorPtr get_root() { return _root; }
@@ -192,6 +193,7 @@ public:
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
     void set_task_queue(TaskQueue* task_queue);
+    TaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
 
@@ -237,7 +239,7 @@ public:
         }
     }
 
-    void set_close_pipeline_time() {
+    virtual void set_close_pipeline_time() {
         if (!_is_close_pipeline) {
             _close_pipeline_time = _pipeline_task_watcher.elapsed_time();
             _is_close_pipeline = true;
@@ -247,6 +249,8 @@ public:
 
     TUniqueId instance_id() const { return _state->fragment_instance_id(); }
 
+    void set_parent_profile(RuntimeProfile* profile) { _parent_profile = profile; }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -255,8 +259,8 @@ protected:
     }
 
     virtual Status _open();
-    void _init_profile();
-    void _fresh_profile_counter();
+    virtual void _init_profile();
+    virtual void _fresh_profile_counter();
 
     uint32_t _index;
     PipelinePtr _pipeline;
@@ -305,13 +309,14 @@ protected:
     RuntimeProfile::Counter* _wait_source_timer;
     MonotonicStopWatch _wait_bf_watcher;
     RuntimeProfile::Counter* _wait_bf_timer;
+    RuntimeProfile::Counter* _wait_bf_counts;
     MonotonicStopWatch _wait_sink_watcher;
     RuntimeProfile::Counter* _wait_sink_timer;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer;
+    RuntimeProfile::Counter* _wait_dependency_counts;
+    RuntimeProfile::Counter* _pending_finish_counts;
     // TODO we should calculate the time between when really runnable and runnable
-    MonotonicStopWatch _wait_schedule_watcher;
-    RuntimeProfile::Counter* _wait_schedule_timer;
     RuntimeProfile::Counter* _yield_counts;
     RuntimeProfile::Counter* _core_change_times;
 
@@ -345,6 +350,9 @@ protected:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer;
+    std::shared_ptr<QueryStatistics> _query_statistics;
+    Status _collect_query_statistics();
+    bool _collect_query_statistics_with_every_batch = false;
 
 private:
     Operators _operators; // left is _source, right is _root

@@ -22,6 +22,11 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_export_basic", "p0") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
+    
     // check whether the FE config 'enable_outfile_to_local' is true
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
@@ -332,9 +337,8 @@ suite("test_export_basic", "p0") {
         check_path_exists.call("${outFilePath}")
 
         // exec export
-        // TODO(ftw): EXPORT TABLE ${table_export_name} PARTITION (more_than_70) where id >100
         sql """
-            EXPORT TABLE ${table_export_name} PARTITION (more_than_70)
+            EXPORT TABLE ${table_export_name} PARTITION (more_than_70) where id >100
             TO "file://${outFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
@@ -377,7 +381,7 @@ suite("test_export_basic", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(81, json.NumberTotalRows)
+                assertEquals(50, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
             }
         }
@@ -429,6 +433,136 @@ suite("test_export_basic", "p0") {
         assertTrue(res[0][0] > res[1][0])
 
     } finally {
+        delete_files.call("${outFilePath}")
+    }
+
+
+    // 6. test columns property
+    uuid = UUID.randomUUID().toString()
+    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    label = "label_${uuid}"
+    try {
+        // check export path
+        check_path_exists.call("${outFilePath}")
+
+        // exec export
+        sql """
+            EXPORT TABLE ${table_export_name} PARTITION (more_than_70) where age >100
+            TO "file://${outFilePath}/"
+            PROPERTIES(
+                "label" = "${label}",
+                "format" = "csv",
+                "column_separator"=",",
+                "columns" = "id, name"
+            );
+        """
+        waiting_export.call(label)
+        
+        // check file amounts
+        check_file_amounts.call("${outFilePath}", 1)
+
+        // check data correctness
+        sql """ DROP TABLE IF EXISTS ${table_load_name} """
+        sql """
+        CREATE TABLE IF NOT EXISTS ${table_load_name} (
+            `id` int(11) NULL,
+            `name` string NULL
+            )
+            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
+        """
+
+        File[] files = new File("${outFilePath}").listFiles()
+        String file_path = files[0].getAbsolutePath()
+        streamLoad {
+            table "${table_load_name}"
+
+            set 'column_separator', ','
+            set 'columns', 'id, name'
+            set 'strict_mode', 'true'
+
+            file "${file_path}"
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(67, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
+
+        qt_select_load6 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
+    
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
+        delete_files.call("${outFilePath}")
+    }
+
+    // 7. test columns property 2
+    uuid = UUID.randomUUID().toString()
+    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    label = "label_${uuid}"
+    try {
+        // check export path
+        check_path_exists.call("${outFilePath}")
+
+        // exec export
+        sql """
+            EXPORT TABLE ${table_export_name} PARTITION (more_than_70) where age >100
+            TO "file://${outFilePath}/"
+            PROPERTIES(
+                "label" = "${label}",
+                "format" = "csv",
+                "column_separator"=",",
+                "columns" = "id"
+            );
+        """
+        waiting_export.call(label)
+        
+        // check file amounts
+        check_file_amounts.call("${outFilePath}", 1)
+
+        // check data correctness
+        sql """ DROP TABLE IF EXISTS ${table_load_name} """
+        sql """
+        CREATE TABLE IF NOT EXISTS ${table_load_name} (
+            `id` int(11) NULL
+            )
+            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
+        """
+
+        File[] files = new File("${outFilePath}").listFiles()
+        String file_path = files[0].getAbsolutePath()
+        streamLoad {
+            table "${table_load_name}"
+
+            set 'column_separator', ','
+            set 'columns', 'id'
+            set 'strict_mode', 'true'
+
+            file "${file_path}"
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(67, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
+
+        qt_select_load7 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
+    
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")
     }
 }

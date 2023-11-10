@@ -117,7 +117,8 @@ public class SelectListItem {
     }
 
     /**
-     * Return a column label for the select list item.
+     * Return a column label for the select list item. Without generate column name
+     * automatically.
      */
     public String toColumnLabel() {
         Preconditions.checkState(!isStar());
@@ -130,6 +131,22 @@ public class SelectListItem {
             return analyticExpr.getFnCall().toSql() + " OVER(...)";
         }
         return expr.toColumnLabel();
+    }
+
+    /**
+     * Return a column label for the select list item. Support to generate
+     * column label automatically when can not get the column label exactly.
+     * Need the position of selectListItem to generate column label
+     */
+    public String toColumnLabel(int position) {
+        Preconditions.checkState(!isStar(), "select item should not be star when get column label");
+        if (alias != null) {
+            return alias;
+        }
+        if (expr instanceof SlotRef) {
+            return expr.getExprName();
+        }
+        return "__" + expr.getExprName() + "_" + position;
     }
 
     public void setAlias(String alias) {

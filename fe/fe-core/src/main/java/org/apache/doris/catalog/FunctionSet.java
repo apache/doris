@@ -29,6 +29,7 @@ import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -387,17 +388,19 @@ public class FunctionSet<T> {
             }
             Type[] args = specializedFunction.getArgs();
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
+            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
             for (int i = 0; i < args.length; i++) {
                 if (args[i].hasTemplateType()) {
                     hasTemplateType = true;
-                    args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false);
+                    args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false,
+                            enableDecimal256);
                 }
             }
             if (specializedFunction.getReturnType().hasTemplateType()) {
                 hasTemplateType = true;
                 specializedFunction.setReturnType(
                         specializedFunction.getReturnType().specializeTemplateType(
-                        requestFunction.getReturnType(), specializedTypeMap, true));
+                        requestFunction.getReturnType(), specializedTypeMap, true, enableDecimal256));
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("specializedFunction signature: {}, return type: {}",
@@ -571,6 +574,8 @@ public class FunctionSet<T> {
     public static final String GROUP_UNIQ_ARRAY = "group_uniq_array";
 
     public static final String GROUP_ARRAY = "group_array";
+
+    public static final String ARRAY_AGG = "array_agg";
 
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
@@ -1316,15 +1321,6 @@ public class FunctionSet<T> {
                 true, false, true, true));
 
         //vec percentile and percentile_approx
-        addBuiltin(AggregateFunction.createBuiltin("percentile",
-                Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
-                "",
-                "",
-                "",
-                "",
-                "",
-                false, true, false, true));
-
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
                 "",
@@ -1401,6 +1397,9 @@ public class FunctionSet<T> {
             addBuiltin(
                     AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(ARRAY_AGG, Lists.newArrayList(t), new ArrayType(t), t, "", "", "", "", "",
+                    true, false, true, true));
 
             //first_value/last_value for array
             addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
@@ -1670,6 +1669,13 @@ public class FunctionSet<T> {
             builtinFunctions.addAll(entry.getValue());
         }
         return builtinFunctions;
+    }
+
+    public List<Function> getAllFunctions() {
+        List<Function> functions = Lists.newArrayList();
+        vectorizedFunctions.forEach((k, v) -> functions.addAll(v));
+        tableFunctions.forEach((k, v) -> functions.addAll(v));
+        return functions;
     }
 
     public static final String EXPLODE_SPLIT = "explode_split";

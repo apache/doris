@@ -66,8 +66,8 @@ public class DecommissionTest {
         FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 200;
-        FeConstants.tablet_schedule_interval_ms = 2000;
+        Config.tablet_schedule_interval_ms = 2000;
+        Config.tablet_checker_interval_ms = 200;
         Config.tablet_repair_delay_factor_second = 1;
         Config.enable_round_robin_create_tablet = true;
         Config.schedule_slot_num_per_hdd_path = 10000;
@@ -85,7 +85,7 @@ public class DecommissionTest {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
             tDisk1.setRootPath("/home/doris1.HDD");
-            tDisk1.setDiskTotalCapacity(20000000);
+            tDisk1.setDiskTotalCapacity(10L << 30);
             tDisk1.setDataUsedCapacity(1);
             tDisk1.setUsed(true);
             tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
@@ -95,7 +95,7 @@ public class DecommissionTest {
 
             TDisk tDisk2 = new TDisk();
             tDisk2.setRootPath("/home/doris2.HHD");
-            tDisk2.setDiskTotalCapacity(20000000);
+            tDisk2.setDiskTotalCapacity(10L << 30);
             tDisk2.setDataUsedCapacity(1);
             tDisk2.setUsed(true);
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);

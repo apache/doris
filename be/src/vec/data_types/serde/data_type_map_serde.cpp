@@ -18,6 +18,8 @@
 #include "data_type_map_serde.h"
 
 #include "arrow/array/builder_nested.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "util/jsonb_document.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -29,13 +31,15 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeMapSerDe::serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
-                                                BufferWritable& bw, FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
-}
-void DataTypeMapSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                                   BufferWritable& bw,
                                                   FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                    BufferWritable& bw,
+                                                    FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -54,23 +58,132 @@ void DataTypeMapSerDe::serialize_one_cell_to_text(const IColumn& column, int row
             bw.write(&options.collection_delim, 1);
             bw.write(" ", 1);
         }
-        key_serde->serialize_one_cell_to_text(nested_keys_column, i, bw, options);
+        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options));
         bw.write(&options.map_key_delim, 1);
-        value_serde->serialize_one_cell_to_text(nested_values_column, i, bw, options);
+        RETURN_IF_ERROR(
+                value_serde->serialize_one_cell_to_json(nested_values_column, i, bw, options));
     }
     bw.write("}", 1);
+    return Status::OK();
 }
 
-Status DataTypeMapSerDe::deserialize_column_from_text_vector(IColumn& column,
+Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
+        IColumn& column, Slice& slice, const FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+    auto& array_column = assert_cast<ColumnMap&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_key_column = array_column.get_keys();
+    IColumn& nested_val_column = array_column.get_values();
+    DCHECK(nested_key_column.is_nullable());
+    DCHECK(nested_val_column.is_nullable());
+
+    char collection_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
+    char map_kv_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level + 1);
+
+    std::vector<Slice> key_slices;
+    std::vector<Slice> value_slices;
+
+    for (size_t i = 0, from = 0, kv = 0; i <= slice.size; i++) {
+        /*
+         *  In hive , when you special map key and value delimiter as ':'
+         *  for map<int,timestamp> column , the query result is correct , but
+         *  for map<timestamp, int> column and map<timestamp,timestamp> column , the query result is incorrect,
+         *  because this field have many '_map_kv_delimiter'.
+         *
+         *  So i use 'kv <= from' in order to get _map_kv_delimiter that appears first.
+         * */
+        if (i < slice.size && slice[i] == map_kv_delimiter && kv <= from) {
+            kv = i;
+            continue;
+        }
+        if ((i == slice.size || slice[i] == collection_delimiter) && i >= kv + 1) {
+            key_slices.push_back({slice.data + from, kv - from});
+            value_slices.push_back({slice.data + kv + 1, i - 1 - kv});
+            from = i + 1;
+            kv = from;
+        }
+    }
+
+    int num_keys = 0, num_values = 0;
+    Status st;
+    st = key_serde->deserialize_column_from_hive_text_vector(
+            nested_key_column, key_slices, &num_keys, options,
+            hive_text_complex_type_delimiter_level + 2);
+    if (st != Status::OK()) {
+        return st;
+    }
+
+    st = value_serde->deserialize_column_from_hive_text_vector(
+            nested_val_column, value_slices, &num_values, options,
+            hive_text_complex_type_delimiter_level + 2);
+    if (st != Status::OK()) {
+        return st;
+    }
+
+    CHECK(num_keys == num_values);
+
+    offsets.push_back(offsets.back() + num_values);
+    return Status::OK();
+}
+
+Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
+    DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
+    return Status::OK();
+}
+
+void DataTypeMapSerDe::serialize_one_cell_to_hive_text(
+        const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const ColumnMap& map_column = assert_cast<const ColumnMap&>(*ptr);
+    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+
+    size_t start = offsets[row_num - 1];
+    size_t end = offsets[row_num];
+
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+
+    char collection_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
+    char map_kv_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level + 1);
+
+    for (size_t i = start; i < end; ++i) {
+        if (i != start) {
+            bw.write(collection_delimiter);
+        }
+        key_serde->serialize_one_cell_to_hive_text(nested_keys_column, i, bw, options,
+                                                   hive_text_complex_type_delimiter_level + 2);
+        bw.write(map_kv_delimiter);
+        value_serde->serialize_one_cell_to_hive_text(nested_values_column, i, bw, options,
+                                                     hive_text_complex_type_delimiter_level + 2);
+    }
+}
+
+Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
                                                              int* num_deserialized,
                                                              const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
-Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+
+Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                         const FormatOptions& options) const {
-    DCHECK(!slice.empty());
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& array_column = assert_cast<ColumnMap&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_key_column = array_column.get_keys();
@@ -89,7 +202,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
     }
     // empty map
     if (slice.size == 2) {
-        offsets.push_back(offsets.back());
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
         return Status::OK();
     }
 
@@ -110,10 +224,17 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
     bool key_added = false;
     int idx = 0;
     int elem_deserialized = 0;
+    char quote_char = 0;
     for (; idx < slice_size; ++idx) {
         char c = slice[idx];
         if (c == '"' || c == '\'') {
-            has_quote = !has_quote;
+            if (!has_quote) {
+                quote_char = c;
+                has_quote = !has_quote;
+            } else if (has_quote && quote_char == c) {
+                quote_char = 0;
+                has_quote = !has_quote;
+            }
         } else if (c == '\\' && idx + 1 < slice_size) { //escaped
             ++idx;
         } else if (!has_quote && (c == '[' || c == '{')) {
@@ -127,15 +248,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (options.converted_from_string &&
-                (next.starts_with("\"") || next.starts_with("'"))) {
-                next.remove_prefix(1);
-            }
-            if (options.converted_from_string && (next.ends_with("\"") || next.ends_with("'"))) {
-                next.remove_suffix(1);
-            }
             if (Status st =
-                        key_serde->deserialize_one_cell_from_text(nested_key_column, next, options);
+                        key_serde->deserialize_one_cell_from_json(nested_key_column, next, options);
                 !st.ok()) {
                 nested_key_column.pop_back(elem_deserialized);
                 nested_val_column.pop_back(elem_deserialized);
@@ -151,9 +265,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (options.converted_from_string) next.trim_quote();
 
-            if (Status st = value_serde->deserialize_one_cell_from_text(nested_val_column, next,
+            if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
                                                                         options);
                 !st.ok()) {
                 nested_key_column.pop_back(elem_deserialized + 1);
@@ -171,10 +284,9 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
     if (!has_quote && nested_level == 0 && idx == slice_size && idx != start_pos && key_added) {
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
-        if (options.converted_from_string) next.trim_quote();
 
         if (Status st =
-                    value_serde->deserialize_one_cell_from_text(nested_val_column, next, options);
+                    value_serde->deserialize_one_cell_from_json(nested_val_column, next, options);
             !st.ok()) {
             nested_key_column.pop_back(elem_deserialized + 1);
             nested_val_column.pop_back(elem_deserialized);
@@ -183,6 +295,15 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
         ++elem_deserialized;
     }
 
+    if (nested_key_column.size() != nested_val_column.size()) {
+        // nested key and value should always same size otherwise we should popback wrong data
+        nested_key_column.pop_back(nested_key_column.size() - offsets.back());
+        nested_val_column.pop_back(nested_val_column.size() - offsets.back());
+        DCHECK(nested_key_column.size() == nested_val_column.size());
+        return Status::InvalidArgument(
+                "deserialize map error key_size({}) not equal to value_size{}",
+                nested_key_column.size(), nested_val_column.size());
+    }
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return Status::OK();
 }
@@ -230,7 +351,8 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
             MutableColumnPtr value_mutable_data = nested_values_column.clone_empty();
             for (size_t i = offsets[r - 1]; i < offsets[r]; ++i) {
                 if (keys_nullmap_data[i] == 1) {
-                    continue;
+                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                           "Can not write null value of map key to arrow.");
                 }
                 key_mutable_data->insert_from(nested_keys_column, i);
                 value_mutable_data->insert_from(nested_values_column, i);
@@ -295,7 +417,8 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
             }
         }
         if (nested_keys_column.is_null_at(j)) {
-            if (0 != result.push_string("NULL", strlen("NULL"))) {
+            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
+                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
@@ -317,7 +440,8 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
             return Status::InternalError("pack mysql buffer failed.");
         }
         if (nested_values_column.is_null_at(j)) {
-            if (0 != result.push_string("NULL", strlen("NULL"))) {
+            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
+                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
@@ -353,6 +477,43 @@ Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
                                                MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                             const NullMap* null_map,
+                                             orc::ColumnVectorBatch* orc_col_batch, int start,
+                                             int end, std::vector<StringRef>& buffer_list) const {
+    orc::MapVectorBatch* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
+    cur_batch->offsets[0] = 0;
+
+    auto& map_column = assert_cast<const ColumnMap&>(column);
+    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+
+    cur_batch->keys->resize(nested_keys_column.size());
+    cur_batch->elements->resize(nested_values_column.size());
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        size_t offset = offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+
+        if (cur_batch->notNull[row_id] == 1) {
+            static_cast<void>(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
+                                                             cur_batch->keys.get(), offset,
+                                                             next_offset, buffer_list));
+            static_cast<void>(value_serde->write_column_to_orc(timezone, nested_values_column,
+                                                               nullptr, cur_batch->elements.get(),
+                                                               offset, next_offset, buffer_list));
+        }
+
+        cur_batch->offsets[row_id + 1] = next_offset;
+    }
+    cur_batch->keys->numElements = nested_keys_column.size();
+    cur_batch->elements->numElements = nested_values_column.size();
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

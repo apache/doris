@@ -711,7 +711,7 @@ public class Auth implements Writable {
                 revokeInternal(info.getUserIdent(), info.getRole(), info.getWorkloadGroupPattern(), info.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
             } else {
-                revokeInternal(info.getUserIdent(), info.getRoles(), false);
+                revokeInternal(info.getUserIdent(), info.getRoles(), true /* is replay */);
             }
         } catch (DdlException e) {
             LOG.error("should not happened", e);
@@ -1581,6 +1581,9 @@ public class Auth implements Writable {
         userRoleManager.addUserRole(userIdent, roleManager.getUserDefaultRoleName(userIdent));
     }
 
+    public Set<String> getAllUser() {
+        return userManager.getNameToUsers().keySet();
+    }
 
     /**
      * This is a bug that if created a normal user and grant it with ADMIN_PRIV/RESOURCE_PRIV/NODE_PRIV

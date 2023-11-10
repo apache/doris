@@ -24,7 +24,7 @@ config = Config(
     "",
     "127.0.0.1",
     9030,
-    "regression_test_nereids_tpch_p0",
+    "tpch",
     2,
     50,
     True,

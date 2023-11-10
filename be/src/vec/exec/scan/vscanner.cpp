@@ -62,12 +62,6 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
 }
 
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
-    // debug case failure, to be removed
-    if (state->enable_profile()) {
-        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
-                     << (_parent ? _parent->get_name() : _local_state->get_name())
-                     << ": VScanner::get_block";
-    }
     // only empty block should be here
     DCHECK(block->rows() == 0);
     // scanner running time
@@ -101,6 +95,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                     break;
                 }
                 _num_rows_read += block->rows();
+                _num_byte_read += block->allocated_bytes();
             }
 
             // 2. Filter the output block finally.
@@ -197,6 +192,7 @@ void VScanner::_update_counters_before_close() {
     if (_parent) {
         COUNTER_UPDATE(_parent->_scan_cpu_timer, _scan_cpu_timer);
         COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);
+        COUNTER_UPDATE(_parent->_byte_read_counter, _num_byte_read);
     } else {
         COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
         COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);

@@ -21,7 +21,6 @@
 
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "io/fs/file_writer.h"
@@ -105,7 +104,7 @@ Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
     // parse bloom filter
     segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
     segment_v2::BloomFilterIndexReader bf_index_reader(std::move(file_reader),
-                                                       &column_index_meta.bloom_filter_index());
+                                                       column_index_meta.bloom_filter_index());
     RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false));
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter));

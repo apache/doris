@@ -192,17 +192,20 @@ public class RoleManager implements Writable {
         if (roles.containsKey(userDefaultRoleName)) {
             return roles.get(userDefaultRoleName);
         }
+
         // grant read privs to database information_schema & mysql
-        TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
+        List<TablePattern> tablePatterns = Lists.newArrayList();
+        TablePattern informationTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
-            tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            informationTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            tablePatterns.add(informationTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
-
-        tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
+        TablePattern mysqlTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
         try {
-            tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            mysqlTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            tablePatterns.add(mysqlTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
@@ -214,7 +217,7 @@ public class RoleManager implements Writable {
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
-        Role role = new Role(userDefaultRoleName, tblPattern, PrivBitSet.of(Privilege.SELECT_PRIV),
+        Role role = new Role(userDefaultRoleName, tablePatterns, PrivBitSet.of(Privilege.SELECT_PRIV),
                 workloadGroupPattern, PrivBitSet.of(Privilege.USAGE_PRIV));
         roles.put(role.getRoleName(), role);
         return role;

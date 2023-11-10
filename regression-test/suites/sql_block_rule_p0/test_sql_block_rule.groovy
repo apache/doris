@@ -15,7 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_block_rule") {
+suite("test_sql_block_rule", "nonConcurrent") {
+
+    sql """
+        DROP SQL_BLOCK_RULE if exists test_rule_partition
+    """
+
+    sql """
+        DROP SQL_BLOCK_RULE if exists test_rule_tablet
+    """
+
     sql """
                   DROP SQL_BLOCK_RULE if exists test_rule_num
                 """
@@ -27,7 +36,7 @@ suite("test_sql_block_rule") {
       `abcd` varchar(150) NULL COMMENT "",
       `create_time` datetime NULL COMMENT ""
     ) ENGINE=OLAP
-    UNIQUE KEY(`abcd`)
+    DUPLICATE KEY(`abcd`)
     COMMENT "OLAP"
     DISTRIBUTED BY HASH(`abcd`) BUCKETS 3
       PROPERTIES (
@@ -45,6 +54,31 @@ suite("test_sql_block_rule") {
 
     test {
         sql("SELECT * FROM table_2", false)
+        exception "sql match regex sql block rule: test_rule_sql"
+    }
+    test {
+        sql("EXPLAIN SELECT * FROM table_2", false)
+        exception "sql match regex sql block rule: test_rule_sql"
+    }
+
+    test {
+        sql("INSERT INTO table_2 SELECT * FROM table_2", false)
+        exception "sql match regex sql block rule: test_rule_sql"
+    }
+
+    sql """
+        ALTER SQL_BLOCK_RULE test_rule_sql PROPERTIES("enable"="false")
+        """
+
+    sql "SELECT * FROM table_2"
+
+    sql """
+        ALTER SQL_BLOCK_RULE test_rule_sql
+        PROPERTIES("sql"="SELECT abcd FROM table_2", "global"= "true", "enable"= "true")
+    """
+
+    test {
+        sql("SELECT abcd FROM table_2", false)
         exception "sql match regex sql block rule: test_rule_sql"
     }
 
@@ -126,4 +160,61 @@ suite("test_sql_block_rule") {
                 " PROPERTIES(\"sql\"=\"create\", \"global\"= \"true\", \"enable\"= \"true\")", false)
         exception "sql of SQL_BLOCK_RULE should not match its name"
     }
+
+    sql """DROP TABLE IF EXISTS a_partitioned_table_for_sql_block_rule"""
+
+    sql """
+        CREATE TABLE a_partitioned_table_for_sql_block_rule (
+            id BIGINT,
+            val BIGINT,
+            str VARCHAR(114)
+        ) DUPLICATE KEY(`id`)
+        PARTITION BY RANGE(`id`)
+        (
+            PARTITION `p1` VALUES LESS THAN ('5'),
+            PARTITION `p2` VALUES LESS THAN ('10'),
+            PARTITION `p3` VALUES LESS THAN ('15')
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 3
+        PROPERTIES (
+        "replication_num"="1"
+        );
+    """
+
+    sql """
+        INSERT INTO a_partitioned_table_for_sql_block_rule VALUES(1, 5, 11),(6,1,5),(11,8,5);
+    """
+
+    sql """
+        CREATE SQL_BLOCK_RULE if not exists test_rule_partition PROPERTIES ( "partition_num" = "1", "global" = "true",
+        "enable"="true");
+    """
+
+    try {
+        test {
+            sql("""SELECT * FROM a_partitioned_table_for_sql_block_rule;""", false)
+            exception """sql hits sql block rule"""
+        }
+    } finally {
+        sql """
+            drop SQL_BLOCK_RULE if exists test_rule_partition;
+        """
+    }
+
+    sql """
+        CREATE SQL_BLOCK_RULE if not exists test_rule_tablet PROPERTIES ( "tablet_num" = "3", "global" = "true",
+        "enable"="true");
+    """
+    try {
+        test {
+            sql("""SELECT * FROM a_partitioned_table_for_sql_block_rule;""", false)
+            exception """sql hits sql block rule"""
+        }
+    } finally {
+        sql """
+            drop SQL_BLOCK_RULE if exists test_rule_tablet;
+        """
+    }
+
+
 }

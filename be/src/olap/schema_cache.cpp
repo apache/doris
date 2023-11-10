@@ -35,7 +35,9 @@
 
 namespace doris {
 
-SchemaCache* SchemaCache::_s_instance = nullptr;
+SchemaCache* SchemaCache::instance() {
+    return ExecEnv::GetInstance()->schema_cache();
+}
 
 // format: tabletId-unique_id1-uniqueid2...-version-type
 std::string SchemaCache::get_schema_key(int32_t tablet_id, const TabletSchemaSPtr& schema,
@@ -67,12 +69,6 @@ std::string SchemaCache::get_schema_key(int32_t tablet_id, const std::vector<TCo
     });
     key.append(fmt::format("{}-{}", version, type));
     return key;
-}
-
-void SchemaCache::create_global_instance(size_t capacity) {
-    DCHECK(_s_instance == nullptr);
-    static SchemaCache instance(capacity);
-    _s_instance = &instance;
 }
 
 } // namespace doris

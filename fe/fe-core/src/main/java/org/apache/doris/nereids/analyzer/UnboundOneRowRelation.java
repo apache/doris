@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -55,8 +54,6 @@ public class UnboundOneRowRelation extends LogicalRelation implements Unbound, O
                                   Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_UNBOUND_ONE_ROW_RELATION, groupExpression, logicalProperties);
-        Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(Slot.class)),
-                "OneRowRelation can not contains any slot");
         this.projects = ImmutableList.copyOf(projects);
     }
 

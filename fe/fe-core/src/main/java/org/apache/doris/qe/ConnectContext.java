@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -24,8 +25,8 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
@@ -38,9 +39,13 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -49,13 +54,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,6 +77,12 @@ public class ConnectContext {
 
     private static final String SSL_PROTOCOL = "TLS";
 
+    public enum ConnectType {
+        MYSQL,
+        ARROW_FLIGHT_SQL
+    }
+
+    protected volatile ConnectType connectType;
     // set this id before analyze
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
@@ -85,6 +96,16 @@ public class ConnectContext {
     protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;
+    // Timestamp when the connection is make
+    protected volatile long loginTime;
+    // for arrow flight
+    protected volatile String peerIdentity;
+    private String runningQuery;
+    private TNetworkAddress resultFlightServerAddr;
+    private TNetworkAddress resultInternalServiceAddr;
+    private ArrayList<Expr> resultOutputExprs;
+    private TUniqueId finstId;
+    private boolean returnResultFromLocal = true;
     // mysql net
     protected volatile MysqlChannel mysqlChannel;
     // state
@@ -125,8 +146,6 @@ public class ConnectContext {
     protected volatile long startTime;
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
-
-    protected volatile Tracer tracer = Telemetry.getNoopTracer();
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
@@ -173,6 +192,15 @@ public class ConnectContext {
     private Map<String, String> resultAttachedInfo;
 
     private String workloadGroupName = "";
+    private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
+
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+
+    // internal call like `insert overwrite` need skipAuth
+    // For example, `insert overwrite` only requires load permission,
+    // but the internal implementation will call the logic of `AlterTable`.
+    // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
+    private boolean skipAuth = false;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -219,6 +247,10 @@ public class ConnectContext {
         return mysqlSslContext;
     }
 
+    public TResultSinkType getResultSinkType() {
+        return resultSinkType;
+    }
+
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
             TransactionStatus txnStatus, long loadedRows, int filteredRows) {
         if (isTxnModel() && insertResult != null) {
@@ -256,25 +288,34 @@ public class ConnectContext {
         return notEvalNondeterministicFunction;
     }
 
-    public ConnectContext() {
-        this(null);
+    public ConnectType getConnectType() {
+        return connectType;
     }
 
-    public ConnectContext(StreamConnection connection) {
+    public void init() {
         state = new QueryState();
         returnRows = 0;
-        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         isKilled = false;
-        if (connection != null) {
-            mysqlChannel = new MysqlChannel(connection);
-        } else {
-            mysqlChannel = new DummyMysqlChannel();
-        }
         sessionVariable = VariableMgr.newSessionVariable();
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
+    }
+
+    public ConnectContext() {
+        this((StreamConnection) null);
+    }
+
+    public ConnectContext(StreamConnection connection) {
+        connectType = ConnectType.MYSQL;
+        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
+        if (connection != null) {
+            mysqlChannel = new MysqlChannel(connection);
+        } else {
+            mysqlChannel = new DummyMysqlChannel();
+        }
+        init();
     }
 
     public boolean isTxnModel() {
@@ -491,8 +532,72 @@ public class ConnectContext {
         this.connectionId = connectionId;
     }
 
+    public void resetLoginTime() {
+        this.loginTime = System.currentTimeMillis();
+    }
+
+    public void setRunningQuery(String runningQuery) {
+        this.runningQuery = runningQuery;
+    }
+
+    public String getRunningQuery() {
+        return runningQuery;
+    }
+
+    public void setResultFlightServerAddr(TNetworkAddress resultFlightServerAddr) {
+        this.resultFlightServerAddr = resultFlightServerAddr;
+    }
+
+    public TNetworkAddress getResultFlightServerAddr() {
+        return resultFlightServerAddr;
+    }
+
+    public void setResultInternalServiceAddr(TNetworkAddress resultInternalServiceAddr) {
+        this.resultInternalServiceAddr = resultInternalServiceAddr;
+    }
+
+    public TNetworkAddress getResultInternalServiceAddr() {
+        return resultInternalServiceAddr;
+    }
+
+    public void setResultOutputExprs(ArrayList<Expr> resultOutputExprs) {
+        this.resultOutputExprs = resultOutputExprs;
+    }
+
+    public ArrayList<Expr> getResultOutputExprs() {
+        return resultOutputExprs;
+    }
+
+    public void setFinstId(TUniqueId finstId) {
+        this.finstId = finstId;
+    }
+
+    public TUniqueId getFinstId() {
+        return finstId;
+    }
+
+    public void setReturnResultFromLocal(boolean returnResultFromLocal) {
+        this.returnResultFromLocal = returnResultFromLocal;
+    }
+
+    public boolean isReturnResultFromLocal() {
+        return returnResultFromLocal;
+    }
+
+    public String getPeerIdentity() {
+        return peerIdentity;
+    }
+
+    public FlightSqlChannel getFlightSqlChannel() {
+        throw new RuntimeException("getFlightSqlChannel not in flight sql connection");
+    }
+
     public MysqlChannel getMysqlChannel() {
         return mysqlChannel;
+    }
+
+    public String getClientIP() {
+        return getMysqlChannel().getRemoteHostPortString();
     }
 
     public QueryState getState() {
@@ -566,10 +671,14 @@ public class ConnectContext {
         return executor;
     }
 
-    public void cleanup() {
+    protected void closeChannel() {
         if (mysqlChannel != null) {
             mysqlChannel.close();
         }
+    }
+
+    public void cleanup() {
+        closeChannel();
         threadLocalInfo.remove();
         returnRows = 0;
     }
@@ -588,10 +697,6 @@ public class ConnectContext {
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.putTraceId2QueryId(traceId, queryId);
         }
-    }
-
-    public void setTraceId(String traceId) {
-        this.traceId = traceId;
     }
 
     public String traceId() {
@@ -626,14 +731,6 @@ public class ConnectContext {
         this.minidump = minidump;
     }
 
-    public Tracer getTracer() {
-        return tracer;
-    }
-
-    public void initTracer(String name) {
-        this.tracer = Telemetry.getOpenTelemetry().getTracer(name);
-    }
-
     public StatementContext getStatementContext() {
         return statementContext;
     }
@@ -642,15 +739,22 @@ public class ConnectContext {
         this.statementContext = statementContext;
     }
 
+    public void setResultSinkType(TResultSinkType resultSinkType) {
+        this.resultSinkType = resultSinkType;
+    }
+
+    public String getRemoteHostPortString() {
+        return getMysqlChannel().getRemoteHostPortString();
+    }
+
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill query from {}, kill connection: {}", getMysqlChannel().getRemoteHostPortString(),
-                killConnection);
+        LOG.warn("kill query from {}, kill mysql connection: {}", getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
             isKilled = true;
             // Close channel to break connection with client
-            getMysqlChannel().close();
+            closeChannel();
         }
         // Now, cancel running query.
         cancelQuery();
@@ -675,7 +779,7 @@ public class ConnectContext {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
+                        getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
 
                 killFlag = true;
                 killConnection = true;
@@ -683,14 +787,14 @@ public class ConnectContext {
         } else {
             String timeoutTag = "query";
             // insert stmt particularly
-            if (executor != null && executor.isInsertStmt()) {
+            if (executor != null && executor.isSyncLoadKindStmt()) {
                 timeoutTag = "insert";
             }
-            //to ms
+            // to ms
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
-                        timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout);
+                        timeoutTag, getRemoteHostPortString(), timeout);
                 killFlag = true;
             }
         }
@@ -737,9 +841,11 @@ public class ConnectContext {
      * @return exact execution timeout
      */
     public int getExecTimeout() {
-        if (executor != null && executor.isInsertStmt()) {
+        if (executor != null && executor.isSyncLoadKindStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
             return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
+        } else if (executor != null && executor.isAnalyzeStmt()) {
+            return sessionVariable.getAnalyzeTimeoutS();
         } else {
             // normal query stmt
             return sessionVariable.getQueryTimeoutS();
@@ -757,21 +863,30 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(long nowMs, boolean showFe) {
+        public List<String> toRow(int connId, long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
             if (showFe) {
                 row.add(Env.getCurrentEnv().getSelfNode().getHost());
             }
+            if (connId == connectionId) {
+                row.add("Yes");
+            } else {
+                row.add("");
+            }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
-            row.add(getMysqlChannel().getRemoteHostPortString());
-            row.add(clusterName);
+            row.add(getRemoteHostPortString());
+            row.add(TimeUtils.longToTimeString(loginTime));
+            row.add(defaultCatalog);
             row.add(ClusterNamespace.getNameFromFullName(currentDb));
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
-            row.add("");
-            if (queryId != null) {
-                String sql = QeProcessorImpl.INSTANCE.getCurrentQueryByQueryId(queryId);
+            row.add(state.toString());
+            row.add(DebugUtil.printId(queryId));
+            if (state.getStateType() == QueryState.MysqlStateType.ERR) {
+                row.add(state.getErrorMessage());
+            } else if (executor != null) {
+                String sql = executor.getOriginStmtInString();
                 if (!isFull) {
                     sql = sql.substring(0, Math.min(sql.length(), 100));
                 }
@@ -820,5 +935,20 @@ public class ConnectContext {
         return this.workloadGroupName;
     }
 
+    public void setInsertGroupCommit(long tableId, Backend backend) {
+        insertGroupCommitTableToBeMap.put(tableId, backend);
+    }
+
+    public Backend getInsertGroupCommit(long tableId) {
+        return insertGroupCommitTableToBeMap.get(tableId);
+    }
+
+    public boolean isSkipAuth() {
+        return skipAuth;
+    }
+
+    public void setSkipAuth(boolean skipAuth) {
+        this.skipAuth = skipAuth;
+    }
 }
 

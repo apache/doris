@@ -20,10 +20,13 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Optional;
@@ -37,21 +40,24 @@ public class LogicalExcept extends LogicalSetOperation {
         super(PlanType.LOGICAL_EXCEPT, qualifier, inputs);
     }
 
-    public LogicalExcept(Qualifier qualifier, List<NamedExpression> outputs, List<Plan> inputs) {
-        super(PlanType.LOGICAL_EXCEPT, qualifier, outputs, inputs);
+    public LogicalExcept(Qualifier qualifier, List<NamedExpression> outputs,
+            List<List<SlotReference>> childrenOutputs, List<Plan> children) {
+        super(PlanType.LOGICAL_EXCEPT, qualifier, outputs, childrenOutputs, children);
     }
 
-    public LogicalExcept(Qualifier qualifier, List<NamedExpression> outputs,
-                        Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-                        List<Plan> inputs) {
-        super(PlanType.LOGICAL_EXCEPT, qualifier, outputs, groupExpression, logicalProperties, inputs);
+    public LogicalExcept(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            List<Plan> children) {
+        super(PlanType.LOGICAL_EXCEPT, qualifier, outputs, childrenOutputs,
+                groupExpression, logicalProperties, children);
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalExcept",
                 "qualifier", qualifier,
-                "outputs", outputs);
+                "outputs", outputs,
+                "regularChildrenOutputs", regularChildrenOutputs);
     }
 
     @Override
@@ -61,23 +67,34 @@ public class LogicalExcept extends LogicalSetOperation {
 
     @Override
     public LogicalExcept withChildren(List<Plan> children) {
-        return new LogicalExcept(qualifier, outputs, children);
+        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs, children);
+    }
+
+    @Override
+    public LogicalExcept withChildrenAndTheirOutputs(List<Plan> children,
+            List<List<SlotReference>> childrenOutputs) {
+        Preconditions.checkArgument(children.size() == childrenOutputs.size(),
+                "children size %s is not equals with children outputs size %s",
+                children.size(), childrenOutputs.size());
+        return new LogicalExcept(qualifier, outputs, childrenOutputs, children);
     }
 
     @Override
     public LogicalExcept withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalExcept(qualifier, outputs, groupExpression,
+        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs, groupExpression,
                 Optional.of(getLogicalProperties()), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalExcept(qualifier, outputs, groupExpression, logicalProperties, children);
+        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs,
+                groupExpression, logicalProperties, children);
     }
 
     @Override
     public LogicalExcept withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalExcept(qualifier, newOutputs, Optional.empty(), Optional.empty(), children);
+        return new LogicalExcept(qualifier, newOutputs, regularChildrenOutputs,
+                Optional.empty(), Optional.empty(), children);
     }
 }

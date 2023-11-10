@@ -31,7 +31,6 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -42,7 +41,7 @@ import org.apache.doris.qe.VariableMgr;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
-import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -59,7 +58,7 @@ import java.util.stream.Collectors;
 //      EXPORT TABLE table_name [PARTITION (name1[, ...])]
 //          TO 'export_target_path'
 //          [PROPERTIES("key"="value")]
-//          BY BROKER 'broker_name' [( $broker_attrs)]
+//          WITH BROKER 'broker_name' [( $broker_attrs)]
 @Getter
 public class ExportStmt extends StatementBase {
     public static final String PARALLELISM = "parallelism";
@@ -68,25 +67,23 @@ public class ExportStmt extends StatementBase {
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_PARALLELISM = "1";
+    private static final Integer DEFAULT_TIMEOUT = 7200;
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
-            .add(LoadStmt.EXEC_MEM_LIMIT)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
             .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
+            .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
             .build();
 
     private TableName tblName;
     private List<String> partitionStringNames;
     private Expr whereExpr;
-    private String whereSql;
     private String path;
     private BrokerDesc brokerDesc;
     private Map<String, String> properties = Maps.newHashMap();
@@ -101,6 +98,8 @@ public class ExportStmt extends StatementBase {
     private String label;
 
     private Integer parallelism;
+
+    private Integer timeout;
 
     private String maxFileSize;
     private String deleteExistingFiles;
@@ -123,19 +122,11 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
+        this.timeout = DEFAULT_TIMEOUT;
 
         Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
                 ConnectContext.get().getSessionVariable());
         this.sessionVariables = optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable());
-    }
-
-    /**
-     * This constructor used by nereids planner
-     */
-    public ExportStmt(TableRef tableRef, String whereSql, String path,
-            Map<String, String> properties, BrokerDesc brokerDesc) {
-        this(tableRef, (Expr) null, path, properties, brokerDesc);
-        this.whereSql = whereSql;
     }
 
     @Override
@@ -162,6 +153,8 @@ public class ExportStmt extends StatementBase {
                 throw new AnalysisException("Do not support exporting temporary partitions");
             }
             partitionStringNames = optionalPartitionNames.get().getPartitionNames();
+        } else {
+            partitionStringNames = ImmutableList.of();
         }
 
         // check auth
@@ -185,7 +178,7 @@ public class ExportStmt extends StatementBase {
         }
 
         // check path is valid
-        path = checkPath(path, brokerDesc.getStorageType());
+        StorageBackend.checkPath(path, brokerDesc.getStorageType());
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             BrokerMgr brokerMgr = analyzer.getEnv().getBrokerMgr();
             if (!brokerMgr.containsBroker(brokerDesc.getName())) {
@@ -201,7 +194,7 @@ public class ExportStmt extends StatementBase {
 
         // create job and analyze job
         setJob();
-        exportJob.analyze();
+        exportJob.generateOutfileStatement();
     }
 
     private void setJob() throws UserException {
@@ -219,7 +212,6 @@ public class ExportStmt extends StatementBase {
 
         // set where expr
         exportJob.setWhereExpr(this.whereExpr);
-        exportJob.setWhereSql(this.whereSql);
 
         // set path
         exportJob.setExportPath(this.path);
@@ -245,16 +237,17 @@ public class ExportStmt extends StatementBase {
         // set sessions
         exportJob.setQualifiedUser(this.qualifiedUser);
         exportJob.setUserIdentity(this.userIdentity);
-        exportJob.setSessionVariables(this.sessionVariables);
-        exportJob.setTimeoutSecond(this.sessionVariables.getQueryTimeoutS());
+        SessionVariable clonedSessionVariable = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
+        exportJob.setSessionVariables(clonedSessionVariable);
+        exportJob.setTimeoutSecond(this.timeout);
 
-        exportJob.setSql(this.toSql());
         exportJob.setOrigStmt(this.getOrigStmt());
     }
 
     // check partitions specified by user are belonged to the table.
     private void checkPartitions(Env env) throws AnalysisException {
-        if (partitionStringNames == null) {
+        if (partitionStringNames.isEmpty()) {
             return;
         }
 
@@ -299,43 +292,6 @@ public class ExportStmt extends StatementBase {
         }
     }
 
-    public static String checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
-        if (Strings.isNullOrEmpty(path)) {
-            throw new AnalysisException("No destination path specified.");
-        }
-
-        URI uri = URI.create(path);
-        String schema = uri.getScheme();
-        if (schema == null) {
-            throw new AnalysisException(
-                    "Invalid export path, there is no schema of URI found. please check your path.");
-        }
-        if (type == StorageBackend.StorageType.BROKER) {
-            if (!schema.equalsIgnoreCase("bos")
-                    && !schema.equalsIgnoreCase("afs")
-                    && !schema.equalsIgnoreCase("hdfs")
-                    && !schema.equalsIgnoreCase("ofs")
-                    && !schema.equalsIgnoreCase("obs")
-                    && !schema.equalsIgnoreCase("oss")
-                    && !schema.equalsIgnoreCase("s3a")
-                    && !schema.equalsIgnoreCase("cosn")
-                    && !schema.equalsIgnoreCase("gfs")
-                    && !schema.equalsIgnoreCase("jfs")
-                    && !schema.equalsIgnoreCase("gs")) {
-                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'afs://' , 'bos://',"
-                        + " 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gfs://', 'gs://' or 'jfs://' path.");
-            }
-        } else if (type == StorageBackend.StorageType.S3 && !schema.equalsIgnoreCase("s3")) {
-            throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
-        } else if (type == StorageBackend.StorageType.HDFS && !schema.equalsIgnoreCase("hdfs")) {
-            throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
-        } else if (type == StorageBackend.StorageType.LOCAL && !schema.equalsIgnoreCase("file")) {
-            throw new AnalysisException(
-                        "Invalid export path. please use valid '" + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
-        }
-        return path;
-    }
-
     private void checkProperties(Map<String, String> properties) throws UserException {
         for (String key : properties.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
@@ -372,6 +328,15 @@ public class ExportStmt extends StatementBase {
             this.parallelism = Integer.parseInt(parallelismString);
         } catch (NumberFormatException e) {
             throw new UserException("The value of parallelism is invalid!");
+        }
+
+        // timeout
+        String timeoutString = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_TIMEOUT,
+                String.valueOf(DEFAULT_TIMEOUT));
+        try {
+            this.timeout = Integer.parseInt(timeoutString);
+        } catch (NumberFormatException e) {
+            throw new UserException("The value of timeout is invalid!");
         }
 
         // max_file_size

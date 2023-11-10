@@ -473,6 +473,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
 
+
                     for (Replica rollupReplica : rollupReplicas) {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
@@ -525,7 +526,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("rollup task failed after try three times: " + task.getErrorMsg());
+                    LOG.warn("rollup task failed: " + task.getErrorMsg());
                     if (!failedAgentTasks.containsKey(task.getTabletId())) {
                         failedAgentTasks.put(task.getTabletId(), Lists.newArrayList(task));
                     } else {
@@ -639,8 +640,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
+        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         return true;
     }
 

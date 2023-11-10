@@ -31,6 +31,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -41,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -145,6 +147,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
 
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -234,6 +238,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.hasColocatePlanNode = hasColocatePlanNode;
     }
 
+    public void setResultSinkType(TResultSinkType resultSinkType) {
+        this.resultSinkType = resultSinkType;
+    }
+
     public boolean hasColocatePlanNode() {
         return hasColocatePlanNode;
     }
@@ -269,7 +277,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             } else {
                 // add ResultSink
                 // we're streaming to an result sink
-                sink = new ResultSink(planRoot.getId());
+                sink = new ResultSink(planRoot.getId(), resultSinkType);
             }
         }
     }
@@ -318,6 +326,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
+        str.append("  HAS_COLO_PLAN_NODE: " + hasColocatePlanNode + "\n");
+        str.append("\n");
         if (sink != null) {
             str.append(sink.getExplainString("  ", explainLevel) + "\n");
         }
@@ -325,6 +335,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             str.append(planRoot.getExplainString("  ", "  ", explainLevel));
         }
         return str.toString();
+    }
+
+    public void getExplainStringMap(Map<Integer, String> planNodeMap) {
+        org.apache.doris.thrift.TExplainLevel explainLevel = org.apache.doris.thrift.TExplainLevel.NORMAL;
+        if (planRoot != null) {
+            planRoot.getExplainStringMap(explainLevel, planNodeMap);
+        }
     }
 
     /**

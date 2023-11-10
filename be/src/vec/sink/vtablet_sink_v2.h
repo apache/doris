@@ -60,9 +60,11 @@
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/sink/vrow_distribution.h"
 
 namespace doris {
 class DeltaWriterV2;
@@ -75,33 +77,14 @@ class TExpr;
 class TabletSchema;
 class TupleDescriptor;
 
-namespace stream_load {
+namespace vectorized {
 
 class OlapTableBlockConvertor;
 class OlapTabletFinder;
 class VOlapTableSinkV2;
+class DeltaWriterV2Map;
 
-using DeltaWriterForTablet = std::unordered_map<int64_t, std::unique_ptr<DeltaWriterV2>>;
 using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
-using NodeToStreams = std::unordered_map<int64_t, Streams>;
-using NodeIdForStream = std::unordered_map<brpc::StreamId, int64_t>;
-using NodePartitionTabletMapping =
-        std::unordered_map<int64_t, std::unordered_map<int64_t, std::unordered_set<int64_t>>>;
-
-class StreamSinkHandler : public brpc::StreamInputHandler {
-public:
-    StreamSinkHandler(VOlapTableSinkV2* sink) : _sink(sink) {}
-
-    int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
-                             size_t size) override;
-
-    void on_idle_timeout(brpc::StreamId id) override {}
-
-    void on_closed(brpc::StreamId id) override;
-
-private:
-    VOlapTableSinkV2* _sink;
-};
 
 struct Rows {
     int64_t partition_id;
@@ -130,19 +113,20 @@ public:
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state, Status close_status) override;
+
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
-private:
-    Status _init_stream_pool(const NodeInfo& node_info, Streams& stream_pool,
-                             LoadStreamStub& stub_template);
+    Status on_partitions_created(TCreatePartitionResult* result);
 
-    Status _init_stream_pools();
+private:
+    void _init_row_distribution();
+
+    Status _open_streams(int64_t src_id);
 
     void _build_tablet_node_mapping();
 
-    void _generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
-                                   const VOlapTablePartition* partition, uint32_t tablet_index,
-                                   int row_idx);
+    void _generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
+                                   RowsForTablet& rows_for_tablet);
 
     Status _write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
                            const Rows& rows, const Streams& streams);
@@ -171,7 +155,10 @@ private:
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;
+    int _stream_per_node = 0;
+    int _total_streams = 0;
     bool _is_high_priority = false;
+    bool _write_file_cache = false;
 
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;
@@ -201,6 +188,7 @@ private:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _close_writer_timer = nullptr;
     RuntimeProfile::Counter* _close_load_timer = nullptr;
+    RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
 
     // Save the status of close() method
     Status _close_status;
@@ -215,19 +203,14 @@ private:
     std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
-    std::shared_ptr<NodeToStreams> _stream_pool_for_node;
+    std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
     size_t _stream_index = 0;
-    std::shared_ptr<DeltaWriterForTablet> _delta_writer_for_tablet;
+    std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
 
-    std::atomic<int> _pending_streams {0};
-
-    std::unordered_map<int64_t, std::vector<int64_t>> _tablet_success_map;
-    std::unordered_map<int64_t, std::vector<int64_t>> _tablet_failure_map;
-    bthread::Mutex _tablet_success_map_mutex;
-    bthread::Mutex _tablet_failure_map_mutex;
-
-    friend class StreamSinkHandler;
+    VRowDistribution _row_distribution;
+    // reuse to avoid frequent memory allocation and release.
+    std::vector<RowPartTabletIds> _row_part_tablet_ids;
 };
 
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris

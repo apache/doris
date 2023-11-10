@@ -32,12 +32,11 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 class S3FileReader final : public FileReader {
 public:
-    S3FileReader(Path path, size_t file_size, std::string key, std::string bucket,
-                 std::shared_ptr<S3FileSystem> fs);
+    S3FileReader(size_t file_size, std::string key, std::shared_ptr<S3FileSystem> fs);
 
     ~S3FileReader() override;
 
@@ -58,10 +57,11 @@ protected:
 private:
     Path _path;
     size_t _file_size;
-    std::shared_ptr<S3FileSystem> _fs;
 
     std::string _bucket;
     std::string _key;
+    std::shared_ptr<S3FileSystem> _fs;
+
     std::atomic<bool> _closed = false;
 };
 

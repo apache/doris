@@ -29,6 +29,7 @@ import org.apache.logging.log4j.core.lookup.StrSubstitutor;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 //
@@ -228,12 +229,20 @@ public class Log4jConfig extends XmlConfiguration {
         SpringLog4j2Config.writeSpringLogConf(customConfDir);
 
         // new SimpleLog4jConfiguration with xmlConfTemplate
-        ByteArrayInputStream bis = new ByteArrayInputStream(newXmlConfTemplate.getBytes("UTF-8"));
-        ConfigurationSource source = new ConfigurationSource(bis);
-        Log4jConfig config = new Log4jConfig(source);
+        if (newXmlConfTemplate == null || newXmlConfTemplate.isEmpty()) {
+            throw new IOException("The configuration template is empty!");
+        }
 
-        LoggerContext context = (LoggerContext) LogManager.getContext(false);
-        context.start(config);
+        Log4jConfig config;
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(newXmlConfTemplate.getBytes(StandardCharsets.UTF_8))) {
+            ConfigurationSource source = new ConfigurationSource(bis);
+            config = new Log4jConfig(source);
+
+            LoggerContext context = (LoggerContext) LogManager.getContext(LogManager.class.getClassLoader(), false);
+            context.start(config);
+        } catch (Exception e) {
+            throw new IOException("Error occurred while configuring Log4j", e);
+        }
     }
 
     public static String getLogXmlConfTemplate() {

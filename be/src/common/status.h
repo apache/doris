@@ -16,7 +16,6 @@
 #include <string_view>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
@@ -51,7 +50,6 @@ TStatusError(MEM_LIMIT_EXCEEDED);
 TStatusError(THRIFT_RPC_ERROR);
 TStatusError(TIMEOUT);
 TStatusError(TOO_MANY_TASKS);
-TStatusError(SERVICE_UNAVAILABLE);
 TStatusError(UNINITIALIZED);
 TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
@@ -113,7 +111,8 @@ E(NOT_INITIALIZED, -236);
 E(ALREADY_CANCELLED, -237);
 E(TOO_MANY_SEGMENTS, -238);
 E(ALREADY_CLOSED, -239);
-E(NEED_SEND_AGAIN, -240);
+E(SERVICE_UNAVAILABLE, -240);
+E(NEED_SEND_AGAIN, -241);
 E(CE_CMD_PARAMS_ERROR, -300);
 E(CE_BUFFER_TOO_SMALL, -301);
 E(CE_CMD_NOT_VALID, -302);
@@ -271,6 +270,7 @@ E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
 E(INVERTED_INDEX_BUILD_WAITTING, -6008);
 E(KEY_NOT_FOUND, -6009);
 E(KEY_ALREADY_EXISTS, -6010);
+E(ENTRY_NOT_FOUND, -6011);
 #undef E
 } // namespace ErrorCode
 
@@ -279,6 +279,7 @@ E(KEY_ALREADY_EXISTS, -6010);
 constexpr bool capture_stacktrace(int code) {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
+        && code != ErrorCode::DATA_QUALITY_ERROR
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
         && code != ErrorCode::TRY_LOCK_FAILED
         && code != ErrorCode::TOO_MANY_SEGMENTS
@@ -291,6 +292,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
         && code != ErrorCode::FULL_NO_SUITABLE_VERSION
         && code != ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS
+        && code != ErrorCode::PUBLISH_TIMEOUT
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
@@ -305,19 +307,25 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::INVERTED_INDEX_BUILD_WAITTING
         && code != ErrorCode::META_KEY_NOT_FOUND
         && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::VERSION_NOT_EXIST
         && code != ErrorCode::TABLE_ALREADY_DELETED_ERROR
         && code != ErrorCode::TRANSACTION_NOT_EXIST
         && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
         && code != ErrorCode::TOO_MANY_TRANSACTIONS
         && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED
+        && code != ErrorCode::ENTRY_NOT_FOUND
         && code != ErrorCode::KEY_NOT_FOUND
         && code != ErrorCode::KEY_ALREADY_EXISTS
         && code != ErrorCode::CANCELLED
-        && code != ErrorCode::UNINITIALIZED;
+        && code != ErrorCode::UNINITIALIZED
+        && code != ErrorCode::PIP_WAIT_FOR_RF
+        && code != ErrorCode::PIP_WAIT_FOR_SC
+        && code != ErrorCode::INVALID_ARGUMENT
+        && code != ErrorCode::DATA_QUALITY_ERR;
 }
 // clang-format on
 
-class Status {
+class [[nodiscard]] Status {
 public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 
@@ -345,14 +353,18 @@ public:
         return *this;
     }
 
+    template <bool stacktrace = true>
     Status static create(const TStatus& status) {
-        return Error<true>(status.status_code,
-                           status.error_msgs.empty() ? "" : status.error_msgs[0]);
+        return Error<stacktrace>(
+                status.status_code,
+                "TStatus: " + (status.error_msgs.empty() ? "" : status.error_msgs[0]));
     }
 
+    template <bool stacktrace = true>
     Status static create(const PStatus& pstatus) {
-        return Error<true>(pstatus.status_code(),
-                           pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0));
+        return Error<stacktrace>(
+                pstatus.status_code(),
+                "PStatus: " + (pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0)));
     }
 
     template <int code, bool stacktrace = true, typename... Args>
@@ -367,7 +379,8 @@ public:
         }
 #ifdef ENABLE_STACKTRACE
         if constexpr (stacktrace && capture_stacktrace(code)) {
-            status._err_msg->_stack = get_stack_trace();
+            // Delete the first one frame pointers, which are inside the status.h
+            status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
@@ -386,7 +399,7 @@ public:
         }
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && capture_stacktrace(code)) {
-            status._err_msg->_stack = get_stack_trace();
+            status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
@@ -395,10 +408,10 @@ public:
 
     static Status OK() { return Status(); }
 
-#define ERROR_CTOR(name, code)                                                 \
-    template <typename... Args>                                                \
-    static Status name(std::string_view msg, Args&&... args) {                 \
-        return Error<ErrorCode::code, true>(msg, std::forward<Args>(args)...); \
+#define ERROR_CTOR(name, code)                                                       \
+    template <bool stacktrace = true, typename... Args>                              \
+    static Status name(std::string_view msg, Args&&... args) {                       \
+        return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
     }
 
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
@@ -421,7 +434,6 @@ public:
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
     ERROR_CTOR(TimedOut, TIMEOUT)
     ERROR_CTOR(TooManyTasks, TOO_MANY_TASKS)
-    ERROR_CTOR(ServiceUnavailable, SERVICE_UNAVAILABLE)
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
@@ -490,6 +502,8 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
+    std::string msg() const { return _err_msg ? _err_msg->_msg : ""; }
+
 private:
     int _code;
     struct ErrMsg {
@@ -508,7 +522,7 @@ private:
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
-    ostr << (status._err_msg ? status._err_msg->_msg : "");
+    ostr << status.msg();
 #ifdef ENABLE_STACKTRACE
     if (status._err_msg && !status._err_msg->_stack.empty()) {
         ostr << '\n' << status._err_msg->_stack;
@@ -561,15 +575,6 @@ inline std::string Status::to_string() const {
         }                                                   \
     } while (false);
 
-#define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix)  \
-    do {                                                           \
-        Status _s = (stmt);                                        \
-        if (UNLIKELY(!_s.ok())) {                                  \
-            LOG(WARNING) << (warning_prefix) << ", error: " << _s; \
-            return ret_code;                                       \
-        }                                                          \
-    } while (false);
-
 #define RETURN_NOT_OK_STATUS_WITH_WARN(stmt, warning_prefix)       \
     do {                                                           \
         Status _s = (stmt);                                        \
@@ -582,6 +587,8 @@ inline std::string Status::to_string() const {
 template <typename T>
 using Result = expected<T, Status>;
 
+using ResultError = unexpected<Status>;
+
 #define RETURN_IF_ERROR_RESULT(stmt)                \
     do {                                            \
         Status _status_ = (stmt);                   \
@@ -590,4 +597,28 @@ using Result = expected<T, Status>;
         }                                           \
     } while (false)
 
+#define DORIS_TRY(stmt)                          \
+    ({                                           \
+        auto&& res = (stmt);                     \
+        using T = std::decay_t<decltype(res)>;   \
+        if (!res.has_value()) [[unlikely]] {     \
+            return std::forward<T>(res).error(); \
+        }                                        \
+        std::forward<T>(res).value();            \
+    });
+
 } // namespace doris
+
+// specify formatter for Status
+template <>
+struct fmt::formatter<doris::Status> {
+    template <typename ParseContext>
+    constexpr auto parse(ParseContext& ctx) {
+        return ctx.begin();
+    }
+
+    template <typename FormatContext>
+    auto format(doris::Status const& status, FormatContext& ctx) {
+        return fmt::format_to(ctx.out(), "{}", status.to_string());
+    }
+};

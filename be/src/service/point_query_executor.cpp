@@ -33,6 +33,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
@@ -67,8 +68,11 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
+    _col_default_values.resize(tuple_desc()->slots().size());
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
-        _col_uid_to_idx[tuple_desc()->slots()[i]->col_unique_id()] = i;
+        auto slot = tuple_desc()->slots()[i];
+        _col_uid_to_idx[slot->col_unique_id()] = i;
+        _col_default_values[i] = slot->col_default_value();
     }
     return Status::OK();
 }
@@ -101,14 +105,11 @@ int64_t Reusable::mem_size() const {
     return _mem_size;
 }
 
-LookupConnectionCache* LookupConnectionCache::_s_instance = nullptr;
-void LookupConnectionCache::create_global_instance(size_t capacity) {
-    DCHECK(_s_instance == nullptr);
-    static LookupConnectionCache instance(capacity);
-    _s_instance = &instance;
+LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
+    DCHECK(ExecEnv::GetInstance()->get_lookup_connection_cache() == nullptr);
+    LookupConnectionCache* res = new LookupConnectionCache(capacity);
+    return res;
 }
-
-RowCache* RowCache::_s_instance = nullptr;
 
 RowCache::RowCache(int64_t capacity, int num_shards) {
     // Create Row Cache
@@ -117,14 +118,14 @@ RowCache::RowCache(int64_t capacity, int num_shards) {
 }
 
 // Create global instance of this class
-void RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
-    DCHECK(_s_instance == nullptr);
-    static RowCache instance(capacity, num_shards);
-    _s_instance = &instance;
+RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
+    DCHECK(ExecEnv::GetInstance()->get_row_cache() == nullptr);
+    RowCache* res = new RowCache(capacity, num_shards);
+    return res;
 }
 
 RowCache* RowCache::instance() {
-    return _s_instance;
+    return ExecEnv::GetInstance()->get_row_cache();
 }
 
 bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {
@@ -253,9 +254,8 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
         RowCursor cursor;
         RETURN_IF_ERROR(cursor.init_scan_key(_tablet->tablet_schema(), olap_tuples[i].values()));
         RETURN_IF_ERROR(cursor.from_tuple(olap_tuples[i]));
-        encode_key_with_padding<RowCursor, true, true>(&_row_read_ctxs[i]._primary_key, cursor,
-                                                       _tablet->tablet_schema()->num_key_columns(),
-                                                       true);
+        encode_key_with_padding<RowCursor, true>(&_row_read_ctxs[i]._primary_key, cursor,
+                                                 _tablet->tablet_schema()->num_key_columns(), true);
     }
     return Status::OK();
 }
@@ -284,7 +284,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, specified_rowsets,
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
                                       &location, INT32_MAX /*rethink?*/, segment_caches,
                                       rowset_ptr.get()));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
@@ -310,7 +310,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                     _reusable->get_data_type_serdes(),
                     _row_read_ctxs[i]._cached_row_data.data().data,
                     _row_read_ctxs[i]._cached_row_data.data().size, _reusable->get_col_uid_to_idx(),
-                    *_result_block);
+                    *_result_block, _reusable->get_col_default_values());
             continue;
         }
         if (!_row_read_ctxs[i]._row_location.has_value()) {
@@ -325,7 +325,8 @@ Status PointQueryExecutor::_lookup_row_data() {
         // serilize value to block, currently only jsonb row formt
         vectorized::JsonbSerializeUtil::jsonb_to_block(
                 _reusable->get_data_type_serdes(), value.data(), value.size(),
-                _reusable->get_col_uid_to_idx(), *_result_block);
+                _reusable->get_col_uid_to_idx(), *_result_block,
+                _reusable->get_col_default_values());
     }
     return Status::OK();
 }

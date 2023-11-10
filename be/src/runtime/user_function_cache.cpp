@@ -39,6 +39,7 @@
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"
 #include "util/spinlock.h"
@@ -122,8 +123,7 @@ UserFunctionCache::~UserFunctionCache() {
 }
 
 UserFunctionCache* UserFunctionCache::instance() {
-    static UserFunctionCache s_cache;
-    return &s_cache;
+    return ExecEnv::GetInstance()->user_function_cache();
 }
 
 Status UserFunctionCache::init(const std::string& lib_dir) {
@@ -198,14 +198,6 @@ Status UserFunctionCache::_load_cached_lib() {
         RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(sub_dir, scan_cb));
     }
     return Status::OK();
-}
-
-std::string get_real_symbol(const std::string& symbol) {
-    static std::regex rx1("8palo_udf");
-    std::string str1 = std::regex_replace(symbol, rx1, "9doris_udf");
-    static std::regex rx2("4palo");
-    std::string str2 = std::regex_replace(str1, rx2, "5doris");
-    return str2;
 }
 
 Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,

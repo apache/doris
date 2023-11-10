@@ -17,12 +17,10 @@
 
 package org.apache.doris.scheduler.executor;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -31,17 +29,15 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.UUID;
+import java.util.Map;
 
 /**
  * we use this executor to execute sql job
- *
- * @param <QueryState> the state of sql job, we can record the state of sql job
  */
+@Getter
 @Slf4j
-public class SqlJobExecutor<QueryState> implements JobExecutor {
+public class SqlJobExecutor extends AbstractJobExecutor<String, Map<String, Object>> {
 
-    @Getter
     @Setter
     @SerializedName(value = "sql")
     private String sql;
@@ -51,25 +47,18 @@ public class SqlJobExecutor<QueryState> implements JobExecutor {
     }
 
     @Override
-    public String execute(Job job) throws JobException {
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(ClusterNamespace.getClusterNameFromFullName(job.getDbName()));
-        ctx.setDatabase(job.getDbName());
-        ctx.setQualifiedUser(job.getUser());
-        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(job.getUser(), "%"));
-        ctx.getState().reset();
-        ctx.setThreadLocalInfo();
-        String taskIdString = UUID.randomUUID().toString();
-        UUID taskId = UUID.fromString(taskIdString);
-        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-        ctx.setQueryId(queryId);
+    public ExecutorResult<String> execute(Job job, Map<String, Object> dataContext) throws JobException {
+        ConnectContext ctx = createContext(job);
+        String taskIdString = generateTaskId();
+        TUniqueId queryId = generateQueryId(taskIdString);
         try {
             StmtExecutor executor = new StmtExecutor(ctx, sql);
             executor.execute(queryId);
-            return convertExecuteResult(ctx, taskIdString);
+            String result = convertExecuteResult(ctx, taskIdString);
+            return new ExecutorResult<>(result, true, null, sql);
         } catch (Exception e) {
-            throw new JobException("execute sql job failed, sql: " + sql + ", error: " + e.getMessage());
+            log.warn("execute sql job failed, job id :{}, sql: {}, error: {}", job.getJobId(), sql, e);
+            return new ExecutorResult<>(null, false, e.getMessage(), sql);
         }
 
     }
@@ -82,7 +71,9 @@ public class SqlJobExecutor<QueryState> implements JobExecutor {
             throw new JobException("error code: " + ctx.getState().getErrorCode() + ", error msg: "
                     + ctx.getState().getErrorMessage());
         }
+
         return "queryId:" + queryId + ",affectedRows : " + ctx.getState().getAffectedRows() + ", warningRows: "
                 + ctx.getState().getWarningRows() + ",infoMsg" + ctx.getState().getInfoMessage();
     }
+
 }

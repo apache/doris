@@ -40,11 +40,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AnalyzeDeletionLog;
+import org.apache.doris.persist.TableStatsDeletionLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -53,20 +56,24 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
+import org.apache.doris.statistics.util.DBObjects;
+import org.apache.doris.statistics.util.SimpleQueue;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.reflect.TypeToken;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.core.util.CronExpression;
 import org.jetbrains.annotations.Nullable;
-import org.quartz.CronExpression;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -74,9 +81,12 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.NavigableMap;
+import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.TreeMap;
@@ -90,30 +100,36 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class AnalysisManager extends Daemon implements Writable {
+public class AnalysisManager implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
     // Tracking running manually submitted async tasks, keep in mem only
-    private final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
+    protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
 
     private StatisticsCache statisticsCache;
 
     private AnalysisTaskExecutor taskExecutor;
 
     // Store task information in metadata.
-    private final Map<Long, AnalysisInfo> analysisTaskInfoMap = Collections.synchronizedMap(new TreeMap<>());
+    protected final NavigableMap<Long, AnalysisInfo> analysisTaskInfoMap =
+            Collections.synchronizedNavigableMap(new TreeMap<>());
 
-    // Store job information in metadata
-    private final Map<Long, AnalysisInfo> analysisJobInfoMap = Collections.synchronizedMap(new TreeMap<>());
+    // Store job information in metadata.
+    protected final NavigableMap<Long, AnalysisInfo> analysisJobInfoMap =
+            Collections.synchronizedNavigableMap(new TreeMap<>());
 
     // Tracking system submitted job, keep in mem only
-    private final Map<Long, AnalysisInfo> systemJobInfoMap = new ConcurrentHashMap<>();
+    protected final Map<Long, AnalysisInfo> systemJobInfoMap = new ConcurrentHashMap<>();
 
     // Tracking and control sync analyze tasks, keep in mem only
     private final ConcurrentMap<ConnectContext, SyncTaskCollection> ctxToSyncTask = new ConcurrentHashMap<>();
 
-    private final Map<Long, TableStats> idToTblStatsStatus = new ConcurrentHashMap<>();
+    private final Map<Long, TableStatsMeta> idToTblStats = new ConcurrentHashMap<>();
+
+    private final Map<Long, AnalysisJob> idToAnalysisJob = new ConcurrentHashMap<>();
+
+    protected SimpleQueue<AnalysisInfo> autoJobs = createSimpleQueue(null, this);
 
     private final Function<TaskStatusWrapper, Void> userJobStatusUpdater = w -> {
         AnalysisInfo info = w.info;
@@ -143,7 +159,7 @@ public class AnalysisManager extends Daemon implements Writable {
             // Set the job state to RUNNING when its first task becomes RUNNING.
             if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
                 job.state = AnalysisState.RUNNING;
-                logCreateAnalysisJob(job);
+                replayCreateAnalysisJob(job);
             }
             boolean allFinished = true;
             boolean hasFailure = false;
@@ -175,20 +191,26 @@ public class AnalysisManager extends Daemon implements Writable {
         return null;
     };
 
+    private final String progressDisplayTemplate = "%d Finished  |  %d Failed  |  %d In Progress  |  %d Total";
 
-    private final Function<TaskStatusWrapper, Void> systemJobStatusUpdater = w -> {
+    protected final Function<TaskStatusWrapper, Void> systemJobStatusUpdater = w -> {
         AnalysisInfo info = w.info;
         info.state = w.taskState;
+        info.message = w.message;
         AnalysisInfo job = systemJobInfoMap.get(info.jobId);
         if (job == null) {
             return null;
         }
-        for (BaseAnalysisTask task : analysisJobIdToTaskMap.get(info.jobId).values()) {
-            if (!task.info.state.equals(AnalysisState.FINISHED)) {
-                if (task.info.state.equals(AnalysisState.FAILED)) {
-                    systemJobInfoMap.remove(info.jobId);
-                }
+        int failedCount = 0;
+        StringJoiner reason = new StringJoiner(", ");
+        Map<Long, BaseAnalysisTask> taskMap = analysisJobIdToTaskMap.get(info.jobId);
+        for (BaseAnalysisTask task : taskMap.values()) {
+            if (task.info.state.equals(AnalysisState.RUNNING) || task.info.state.equals(AnalysisState.PENDING)) {
                 return null;
+            }
+            if (task.info.state.equals(AnalysisState.FAILED)) {
+                failedCount++;
+                reason.add(task.info.message);
             }
         }
         try {
@@ -196,6 +218,17 @@ public class AnalysisManager extends Daemon implements Writable {
         } catch (Throwable e) {
             LOG.warn("Failed to update Table statistics in job: {}", info.toString(), e);
         } finally {
+            job.lastExecTimeInMs = System.currentTimeMillis();
+            job.message = reason.toString();
+            job.progress = String.format(progressDisplayTemplate,
+                    taskMap.size() - failedCount, failedCount, 0, taskMap.size());
+            if (failedCount > 0) {
+                job.message = reason.toString();
+                job.state = AnalysisState.FAILED;
+            } else {
+                job.state = AnalysisState.FINISHED;
+            }
+            autoJobs.offer(job);
             systemJobInfoMap.remove(info.jobId);
         }
         return null;
@@ -204,9 +237,7 @@ public class AnalysisManager extends Daemon implements Writable {
     private final Function<TaskStatusWrapper, Void>[] updaters =
             new Function[] {userJobStatusUpdater, systemJobStatusUpdater};
 
-
     public AnalysisManager() {
-        super(TimeUnit.SECONDS.toMillis(StatisticConstants.ANALYZE_MANAGER_INTERVAL_IN_SECS));
         if (!Env.isCheckpointThread()) {
             this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num);
             this.statisticsCache = new StatisticsCache();
@@ -214,49 +245,14 @@ public class AnalysisManager extends Daemon implements Writable {
         }
     }
 
-    @Override
-    protected void runOneCycle() {
-        clear();
-    }
-
-    private void clear() {
-        clearMeta(analysisJobInfoMap, (a) ->
-                        a.scheduleType.equals(ScheduleType.ONCE)
-                                && System.currentTimeMillis() - a.lastExecTimeInMs
-                                > TimeUnit.DAYS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS),
-                (id) -> {
-                    Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(new AnalyzeDeletionLog(id));
-                    return null;
-                });
-        clearMeta(analysisTaskInfoMap, (a) -> System.currentTimeMillis() - a.lastExecTimeInMs
-                        > TimeUnit.DAYS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS),
-                (id) -> {
-                    Env.getCurrentEnv().getEditLog().logDeleteAnalysisTask(new AnalyzeDeletionLog(id));
-                    return null;
-                });
-    }
-
-    private void clearMeta(Map<Long, AnalysisInfo> infoMap, Predicate<AnalysisInfo> isExpired,
-            Function<Long, Void> writeLog) {
-        synchronized (infoMap) {
-            List<Long> expired = new ArrayList<>();
-            for (Entry<Long, AnalysisInfo> entry : infoMap.entrySet()) {
-                if (isExpired.test(entry.getValue())) {
-                    expired.add(entry.getKey());
-                }
-            }
-            for (Long k : expired) {
-                infoMap.remove(k);
-                writeLog.apply(k);
-            }
-        }
-    }
-
     public StatisticsCache getStatisticsCache() {
         return statisticsCache;
     }
 
-    public void createAnalyze(AnalyzeStmt analyzeStmt, boolean proxy) throws DdlException {
+    public void createAnalyze(AnalyzeStmt analyzeStmt, boolean proxy) throws DdlException, AnalysisException {
+        if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
+            throw new DdlException("Stats table not available, please make sure your cluster status is normal");
+        }
         if (analyzeStmt instanceof AnalyzeDBStmt) {
             createAnalysisJobs((AnalyzeDBStmt) analyzeStmt, proxy);
         } else if (analyzeStmt instanceof AnalyzeTblStmt) {
@@ -264,7 +260,7 @@ public class AnalysisManager extends Daemon implements Writable {
         }
     }
 
-    public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException {
+    public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException, AnalysisException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
         // Using auto analyzer if user specifies.
         if (analyzeDBStmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
@@ -277,7 +273,8 @@ public class AnalysisManager extends Daemon implements Writable {
         }
     }
 
-    public List<AnalysisInfo> buildAnalysisInfosForDB(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties) {
+    public List<AnalysisInfo> buildAnalysisInfosForDB(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties)
+            throws AnalysisException {
         db.readLock();
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
@@ -326,11 +323,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
     @Nullable
     @VisibleForTesting
-    public AnalysisInfo buildAndAssignJob(AnalyzeTblStmt stmt) throws DdlException {
-        if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
-            throw new DdlException("Stats table not available, please make sure your cluster status is normal");
-        }
-
+    protected AnalysisInfo buildAndAssignJob(AnalyzeTblStmt stmt) throws DdlException {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(stmt);
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
@@ -340,8 +333,9 @@ public class AnalysisManager extends Daemon implements Writable {
         boolean isSync = stmt.isSync();
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
-        if (stmt.isAllColumns()
-                && StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
+        constructJob(jobInfo, analysisTaskInfos.values());
+        if (!jobInfo.partitionOnly && stmt.isAllColumns()
+                && StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)) {
             createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
         }
         if (isSync) {
@@ -349,7 +343,7 @@ public class AnalysisManager extends Daemon implements Writable {
             updateTableStats(jobInfo);
             return null;
         }
-        persistAnalysisJob(jobInfo);
+        recordAnalysisJob(jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         // TODO: maybe we should update table stats only when all task succeeded.
         updateTableStats(jobInfo);
@@ -361,11 +355,11 @@ public class AnalysisManager extends Daemon implements Writable {
 
     private void sendJobId(List<AnalysisInfo> analysisInfos, boolean proxy) {
         List<Column> columns = new ArrayList<>();
+        columns.add(new Column("Job_Id", ScalarType.createVarchar(19)));
         columns.add(new Column("Catalog_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("DB_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("Table_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("Columns", ScalarType.createVarchar(1024)));
-        columns.add(new Column("Job_Id", ScalarType.createVarchar(19)));
         ShowResultSetMetaData commonResultSetMetaData = new ShowResultSetMetaData(columns);
         List<List<String>> resultRows = new ArrayList<>();
         for (AnalysisInfo analysisInfo : analysisInfos) {
@@ -373,11 +367,18 @@ public class AnalysisManager extends Daemon implements Writable {
                 continue;
             }
             List<String> row = new ArrayList<>();
-            row.add(analysisInfo.catalogName);
-            row.add(analysisInfo.dbName);
-            row.add(analysisInfo.tblName);
-            row.add(analysisInfo.colName);
             row.add(String.valueOf(analysisInfo.jobId));
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> c = StatisticsUtil.findCatalog(analysisInfo.catalogId);
+            row.add(c.getName());
+            Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
+            row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
+            if (databaseIf.isPresent()) {
+                Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
+                row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+            } else {
+                row.add("DB not exists anymore");
+            }
+            row.add(analysisInfo.colName);
             resultRows.add(row);
         }
         ShowResultSet commonResultSet = new ShowResultSet(commonResultSetMetaData, resultRows);
@@ -407,9 +408,7 @@ public class AnalysisManager extends Daemon implements Writable {
      * TODO Supports incremental collection of statistics from materialized views
      */
     private Map<String, Set<String>> validateAndGetPartitions(TableIf table, Set<String> columnNames,
-            Set<String> partitionNames, AnalysisType analysisType,
-            AnalysisMode analysisMode) throws DdlException {
-        long tableId = table.getId();
+            Set<String> partitionNames, AnalysisType analysisType) throws DdlException {
 
         Map<String, Set<String>> columnToPartitions = columnNames.stream()
                 .collect(Collectors.toMap(
@@ -430,49 +429,28 @@ public class AnalysisManager extends Daemon implements Writable {
             return columnToPartitions;
         }
 
-        // Get the partition granularity statistics that have been collected
-        Map<String, Set<Long>> existColAndPartsForStats = StatisticsRepository
-                .fetchColAndPartsForStats(tableId);
-
-        if (existColAndPartsForStats.isEmpty()) {
-            // There is no historical statistical information, no need to do validation
-            return columnToPartitions;
-        }
-
-        Set<Long> existPartIdsForStats = new HashSet<>();
-        existColAndPartsForStats.values().forEach(existPartIdsForStats::addAll);
-        Map<Long, String> idToPartition = StatisticsUtil.getPartitionIdToName(table);
-        // Get an invalid set of partitions (those partitions were deleted)
-        Set<Long> invalidPartIds = existPartIdsForStats.stream()
-                .filter(id -> !idToPartition.containsKey(id)).collect(Collectors.toSet());
-
-        if (!invalidPartIds.isEmpty()) {
-            // Delete invalid partition statistics to avoid affecting table statistics
-            StatisticsRepository.dropStatistics(invalidPartIds);
-        }
-
         if (analysisType == AnalysisType.FUNDAMENTALS) {
-            Set<String> reAnalyzeNeededPartitions = findReAnalyzeNeededPartitions(table);
-            columnToPartitions.replaceAll((k, v) -> reAnalyzeNeededPartitions);
+            Map<String, Set<String>> result = table.findReAnalyzeNeededPartitions();
+            result.keySet().retainAll(columnNames);
+            return result;
         }
 
         return columnToPartitions;
     }
 
+    // Make sure colName of job has all the column as this AnalyzeStmt specified, no matter whether it will be analyzed
+    // or not.
     @VisibleForTesting
     public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
         AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
         long jobId = Env.getCurrentEnv().getNextId();
-        String catalogName = stmt.getCatalogName();
-        String db = stmt.getDBName();
-        TableName tbl = stmt.getTblName();
-        StatisticsUtil.convertTableNameToObjects(tbl);
-        String tblName = tbl.getTbl();
         TableIf table = stmt.getTable();
         Set<String> columnNames = stmt.getColumnNames();
         Set<String> partitionNames = stmt.getPartitionNames();
         boolean partitionOnly = stmt.isPartitionOnly();
         boolean isSamplingPartition = stmt.isSamplingPartition();
+        boolean isAllPartition = stmt.isAllPartitions();
+        long partitionCount = stmt.getPartitionCount();
         int samplePercent = stmt.getSamplePercent();
         int sampleRows = stmt.getSampleRows();
         AnalysisType analysisType = stmt.getAnalysisType();
@@ -482,9 +460,10 @@ public class AnalysisManager extends Daemon implements Writable {
         CronExpression cronExpression = stmt.getCron();
 
         infoBuilder.setJobId(jobId);
-        infoBuilder.setCatalogName(catalogName);
-        infoBuilder.setDbName(db);
-        infoBuilder.setTblName(tblName);
+        infoBuilder.setCatalogId(stmt.getCatalogId());
+        infoBuilder.setDBId(stmt.getDbId());
+        infoBuilder.setTblId(stmt.getTable().getId());
+        // TODO: Refactor later, DON'T MODIFY IT RIGHT NOW
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (String colName : columnNames) {
             stringJoiner.add(colName);
@@ -493,6 +472,8 @@ public class AnalysisManager extends Daemon implements Writable {
         infoBuilder.setPartitionNames(partitionNames);
         infoBuilder.setPartitionOnly(partitionOnly);
         infoBuilder.setSamplingPartition(isSamplingPartition);
+        infoBuilder.setAllPartition(isAllPartition);
+        infoBuilder.setPartitionCount(partitionCount);
         infoBuilder.setJobType(JobType.MANUAL);
         infoBuilder.setState(AnalysisState.PENDING);
         infoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
@@ -502,7 +483,8 @@ public class AnalysisManager extends Daemon implements Writable {
         infoBuilder.setScheduleType(scheduleType);
         infoBuilder.setLastExecTimeInMs(0);
         infoBuilder.setCronExpression(cronExpression);
-
+        infoBuilder.setForceFull(stmt.forceFull());
+        infoBuilder.setUsingSqlForPartitionColumn(stmt.usingSqlForPartitionColumn());
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);
@@ -519,7 +501,7 @@ public class AnalysisManager extends Daemon implements Writable {
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
 
         Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
-                partitionNames, analysisType, analysisMode);
+                partitionNames, analysisType);
         infoBuilder.setColToPartitions(colToPartitions);
         infoBuilder.setTaskIds(Lists.newArrayList());
 
@@ -527,13 +509,13 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     @VisibleForTesting
-    public void persistAnalysisJob(AnalysisInfo jobInfo) throws DdlException {
+    public void recordAnalysisJob(AnalysisInfo jobInfo) throws DdlException {
         if (jobInfo.scheduleType == ScheduleType.PERIOD && jobInfo.lastExecTimeInMs > 0) {
             return;
         }
         AnalysisInfoBuilder jobInfoBuilder = new AnalysisInfoBuilder(jobInfo);
         AnalysisInfo analysisInfo = jobInfoBuilder.setTaskId(-1).build();
-        logCreateAnalysisJob(analysisInfo);
+        replayCreateAnalysisJob(analysisInfo);
     }
 
     public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
@@ -557,7 +539,7 @@ public class AnalysisManager extends Daemon implements Writable {
             }
             try {
                 if (!jobInfo.jobType.equals(JobType.SYSTEM)) {
-                    logCreateAnalysisTask(analysisInfo);
+                    replayCreateAnalysisTask(analysisInfo);
                 }
             } catch (Exception e) {
                 throw new DdlException("Failed to create analysis task", e);
@@ -596,7 +578,7 @@ public class AnalysisManager extends Daemon implements Writable {
             return;
         }
         try {
-            logCreateAnalysisTask(analysisInfo);
+            replayCreateAnalysisTask(analysisInfo);
         } catch (Exception e) {
             throw new DdlException("Failed to create analysis task", e);
         }
@@ -609,24 +591,44 @@ public class AnalysisManager extends Daemon implements Writable {
 
     @VisibleForTesting
     public void updateTableStats(AnalysisInfo jobInfo) {
-        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogName,
-                jobInfo.dbName, jobInfo.tblName);
+        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId,
+                jobInfo.dbId, jobInfo.tblId);
         // External Table update table stats after table level task finished.
         if (tbl instanceof ExternalTable) {
             return;
         }
-        // TODO: set updatedRows to 0, when loadedRows of transaction info is ready.
-        updateTableStatsStatus(new TableStats(tbl.getId(), tbl.estimatedRowCount(), jobInfo));
+        TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
+        if (tableStats == null) {
+            updateTableStatsStatus(new TableStatsMeta(tbl.getId(), tbl.estimatedRowCount(), jobInfo));
+        } else {
+            tableStats.updateByJob(jobInfo);
+            logCreateTableStats(tableStats);
+        }
+
     }
 
     public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {
+        if (stmt.isAuto()) {
+            // It's ok to sync on this field, it would only be assigned when instance init or do checkpoint
+            synchronized (autoJobs) {
+                return findShowAnalyzeResult(autoJobs, stmt);
+            }
+        }
+        return findShowAnalyzeResult(analysisJobInfoMap.values(), stmt);
+    }
+
+    protected List<AnalysisInfo> findShowAnalyzeResult(Collection<AnalysisInfo> analysisInfos, ShowAnalyzeStmt stmt) {
         String state = stmt.getStateValue();
         TableName tblName = stmt.getDbTableName();
-        return analysisJobInfoMap.values().stream()
+        TableIf tbl = null;
+        if (tblName != null) {
+            tbl = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
+        }
+        long tblId = tbl == null ? -1 : tbl.getId();
+        return analysisInfos.stream()
                 .filter(a -> stmt.getJobId() == 0 || a.jobId == stmt.getJobId())
                 .filter(a -> state == null || a.state.equals(AnalysisState.valueOf(state)))
-                .filter(a -> tblName == null || a.catalogName.equals(tblName.getCtl())
-                        && a.dbName.equals(tblName.getDb()) && a.tblName.equals(tblName.getTbl()))
+                .filter(a -> tblName == null || a.tblId == tblId)
                 .sorted(Comparator.comparingLong(a -> a.jobId))
                 .collect(Collectors.toList());
     }
@@ -653,18 +655,19 @@ public class AnalysisManager extends Daemon implements Writable {
                     break;
             }
         }
-        return String.format("%d Finished/%d Failed/%d In Progress/%d Total", finished, failed, inProgress, total);
+        return String.format(progressDisplayTemplate, finished, failed, inProgress, total);
     }
 
     @VisibleForTesting
     public void syncExecute(Collection<BaseAnalysisTask> tasks) {
         SyncTaskCollection syncTaskCollection = new SyncTaskCollection(tasks);
         ConnectContext ctx = ConnectContext.get();
+        ThreadPoolExecutor syncExecPool = createThreadPoolForSyncAnalyze();
         try {
             ctxToSyncTask.put(ctx, syncTaskCollection);
-            ThreadPoolExecutor syncExecPool = createThreadPoolForSyncAnalyze();
             syncTaskCollection.execute(syncExecPool);
         } finally {
+            syncExecPool.shutdown();
             ctxToSyncTask.remove(ctx);
         }
     }
@@ -677,7 +680,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 new SynchronousQueue(),
                 new ThreadFactoryBuilder().setDaemon(true).setNameFormat("SYNC ANALYZE" + "-%d")
                         .build(), new BlockedPolicy(poolName,
-                (int) TimeUnit.HOURS.toSeconds(Config.analyze_task_timeout_in_hours)));
+                StatisticsUtil.getAnalyzeTimeout()));
     }
 
     public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {
@@ -685,18 +688,24 @@ public class AnalysisManager extends Daemon implements Writable {
             Env.getCurrentEnv().getStatisticsCleaner().clear();
             return;
         }
+
         Set<String> cols = dropStatsStmt.getColumnNames();
         long tblId = dropStatsStmt.getTblId();
-        TableStats tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
+        TableStatsMeta tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
         if (tableStats == null) {
             return;
         }
-        tableStats.updatedTime = 0;
-        replayUpdateTableStatsStatus(tableStats);
-        StatisticsRepository.dropStatistics(tblId, cols);
-        for (String col : cols) {
-            Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
+        if (cols == null) {
+            tableStats.reset();
+        } else {
+            dropStatsStmt.getColumnNames().forEach(tableStats::removeColumn);
+            for (String col : cols) {
+                Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
+            }
+            tableStats.updatedTime = 0;
         }
+        logCreateTableStats(tableStats);
+        StatisticsRepository.dropStatistics(tblId, cols);
     }
 
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
@@ -728,8 +737,11 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     private void checkPriv(AnalysisInfo analysisInfo) {
+        DBObjects dbObjects = StatisticsUtil.convertIdToObjects(analysisInfo.catalogId,
+                analysisInfo.dbId, analysisInfo.tblId);
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), analysisInfo.dbName, analysisInfo.tblName, PrivPredicate.SELECT)) {
+                .checkTblPriv(ConnectContext.get(), dbObjects.catalog.getName(), dbObjects.db.getFullName(),
+                        dbObjects.table.getName(), PrivPredicate.SELECT)) {
             throw new RuntimeException("You need at least SELECT PRIV to corresponding table to kill this analyze"
                     + " job");
         }
@@ -744,8 +756,8 @@ public class AnalysisManager extends Daemon implements Writable {
 
     private BaseAnalysisTask createTask(AnalysisInfo analysisInfo) throws DdlException {
         try {
-            TableIf table = StatisticsUtil.findTable(analysisInfo.catalogName,
-                    analysisInfo.dbName, analysisInfo.tblName);
+            TableIf table = StatisticsUtil.findTable(analysisInfo.catalogId,
+                    analysisInfo.dbId, analysisInfo.tblId);
             return table.createAnalysisTask(analysisInfo);
         } catch (Throwable t) {
             LOG.warn("Failed to find table", t);
@@ -754,10 +766,16 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public void replayCreateAnalysisJob(AnalysisInfo jobInfo) {
+        while (analysisJobInfoMap.size() >= Config.analyze_record_limit) {
+            analysisJobInfoMap.remove(analysisJobInfoMap.pollFirstEntry().getKey());
+        }
         this.analysisJobInfoMap.put(jobInfo.jobId, jobInfo);
     }
 
     public void replayCreateAnalysisTask(AnalysisInfo taskInfo) {
+        while (analysisTaskInfoMap.size() >= Config.analyze_record_limit) {
+            analysisTaskInfoMap.remove(analysisTaskInfoMap.pollFirstEntry().getKey());
+        }
         this.analysisTaskInfoMap.put(taskInfo.taskId, taskInfo);
     }
 
@@ -791,9 +809,8 @@ public class AnalysisManager extends Daemon implements Writable {
                 executor.submit(() -> {
                     try {
                         if (cancelled) {
-                            errorMessages.add("Cancelled since query timeout,"
-                                    + "you could set could query_timeout or parallel_sync_analyze_task_num "
-                                    + "to a bigger value and try again");
+                            errorMessages.add("Query timeout or user cancelled."
+                                    + "Could set analyze_timeout to a bigger value.");
                             return;
                         }
                         try {
@@ -876,7 +893,8 @@ public class AnalysisManager extends Daemon implements Writable {
         AnalysisManager analysisManager = new AnalysisManager();
         readAnalysisInfo(in, analysisManager.analysisJobInfoMap, true);
         readAnalysisInfo(in, analysisManager.analysisTaskInfoMap, false);
-        readIdToTblStats(in, analysisManager.idToTblStatsStatus);
+        readIdToTblStats(in, analysisManager.idToTblStats);
+        readAutoJobs(in, analysisManager);
         return analysisManager;
     }
 
@@ -884,16 +902,40 @@ public class AnalysisManager extends Daemon implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             AnalysisInfo analysisInfo = AnalysisInfo.read(in);
+            // Unfinished manual once job/tasks doesn't need to keep in memory anymore.
+            if (needAbandon(analysisInfo)) {
+                continue;
+            }
             map.put(job ? analysisInfo.jobId : analysisInfo.taskId, analysisInfo);
         }
     }
 
-    private static void readIdToTblStats(DataInput in, Map<Long, TableStats> map) throws IOException {
+    // Need to abandon the unfinished manual once jobs/tasks while loading image and replay journal.
+    // Journal only store finished tasks and jobs.
+    public static boolean needAbandon(AnalysisInfo analysisInfo) {
+        if (analysisInfo == null) {
+            return true;
+        }
+        if ((AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
+                && ScheduleType.ONCE.equals(analysisInfo.scheduleType)
+                && JobType.MANUAL.equals(analysisInfo.jobType)) {
+            return true;
+        }
+        return false;
+    }
+
+    private static void readIdToTblStats(DataInput in, Map<Long, TableStatsMeta> map) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
-            TableStats tableStats = TableStats.read(in);
+            TableStatsMeta tableStats = TableStatsMeta.read(in);
             map.put(tableStats.tblId, tableStats);
         }
+    }
+
+    private static void readAutoJobs(DataInput in, AnalysisManager analysisManager) throws IOException {
+        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
+        Collection<AnalysisInfo> autoJobs = GsonUtils.GSON.fromJson(Text.readString(in), type);
+        analysisManager.autoJobs = analysisManager.createSimpleQueue(autoJobs, analysisManager);
     }
 
     @Override
@@ -901,6 +943,7 @@ public class AnalysisManager extends Daemon implements Writable {
         writeJobInfo(out, analysisJobInfoMap);
         writeJobInfo(out, analysisTaskInfoMap);
         writeTableStats(out);
+        writeAutoJobsStatus(out);
     }
 
     private void writeJobInfo(DataOutput out, Map<Long, AnalysisInfo> infoMap) throws IOException {
@@ -911,10 +954,16 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     private void writeTableStats(DataOutput out) throws IOException {
-        out.writeInt(idToTblStatsStatus.size());
-        for (Entry<Long, TableStats> entry : idToTblStatsStatus.entrySet()) {
+        out.writeInt(idToTblStats.size());
+        for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
             entry.getValue().write(out);
         }
+    }
+
+    private void writeAutoJobsStatus(DataOutput output) throws IOException {
+        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
+        String autoJobs = GsonUtils.GSON.toJson(this.autoJobs, type);
+        Text.writeString(output, autoJobs);
     }
 
     // For unit test use only.
@@ -922,28 +971,29 @@ public class AnalysisManager extends Daemon implements Writable {
         analysisJobIdToTaskMap.put(jobId, tasks);
     }
 
-    public TableStats findTableStatsStatus(long tblId) {
-        return idToTblStatsStatus.get(tblId);
+    public TableStatsMeta findTableStatsStatus(long tblId) {
+        return idToTblStats.get(tblId);
     }
 
     // Invoke this when load transaction finished.
     public void updateUpdatedRows(long tblId, long rows) {
-        TableStats statsStatus = idToTblStatsStatus.get(tblId);
+        TableStatsMeta statsStatus = idToTblStats.get(tblId);
         if (statsStatus != null) {
             statsStatus.updatedRows.addAndGet(rows);
+            logCreateTableStats(statsStatus);
         }
     }
 
-    public void updateTableStatsStatus(TableStats tableStats) {
+    public void updateTableStatsStatus(TableStatsMeta tableStats) {
         replayUpdateTableStatsStatus(tableStats);
         logCreateTableStats(tableStats);
     }
 
-    public void replayUpdateTableStatsStatus(TableStats tableStats) {
-        idToTblStatsStatus.put(tableStats.tblId, tableStats);
+    public void replayUpdateTableStatsStatus(TableStatsMeta tableStats) {
+        idToTblStats.put(tableStats.tblId, tableStats);
     }
 
-    public void logCreateTableStats(TableStats tableStats) {
+    public void logCreateTableStats(TableStatsMeta tableStats) {
         Env.getCurrentEnv().getEditLog().logCreateTableStats(tableStats);
     }
 
@@ -955,7 +1005,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
     @VisibleForTesting
     protected Set<String> findReAnalyzeNeededPartitions(TableIf table) {
-        TableStats tableStats = findTableStatsStatus(table.getId());
+        TableStatsMeta tableStats = findTableStatsStatus(table.getId());
         if (tableStats == null) {
             return table.getPartitionNames().stream().map(table::getPartition)
                     .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
@@ -968,4 +1018,71 @@ public class AnalysisManager extends Daemon implements Writable {
                 .collect(Collectors.toSet());
     }
 
+    protected void logAutoJob(AnalysisInfo autoJob) {
+        Env.getCurrentEnv().getEditLog().logAutoJob(autoJob);
+    }
+
+    public void replayPersistSysJob(AnalysisInfo analysisInfo) {
+        autoJobs.offer(analysisInfo);
+    }
+
+    protected SimpleQueue<AnalysisInfo> createSimpleQueue(Collection<AnalysisInfo> collection,
+            AnalysisManager analysisManager) {
+        return new SimpleQueue<>(Config.analyze_record_limit,
+                a -> {
+                    // FE is not ready when replaying log and operations triggered by replaying
+                    // shouldn't be logged again.
+                    if (Env.getCurrentEnv().isReady() && Env.getCurrentEnv().isMaster() && !Env.isCheckpointThread()) {
+                        analysisManager.logAutoJob(a);
+                    }
+                    return null;
+                },
+                a -> {
+                    // DO NOTHING
+                    return null;
+                }, null);
+    }
+
+    // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
+    // we could make sure it would be analyzed again soon if user or system submit job for that column again.
+    public void removeColStatsStatus(long tblId, String colName) {
+        TableStatsMeta tableStats = findTableStatsStatus(tblId);
+        if (tableStats != null) {
+            tableStats.removeColumn(colName);
+        }
+    }
+
+    public void removeTableStats(long tblId) {
+        if (!idToTblStats.containsKey(tblId)) {
+            return;
+        }
+        TableStatsDeletionLog log = new TableStatsDeletionLog(tblId);
+        Env.getCurrentEnv().getEditLog().logDeleteTableStats(log);
+        replayTableStatsDeletion(log);
+    }
+
+    public void replayTableStatsDeletion(TableStatsDeletionLog log) {
+        idToTblStats.remove(log.id);
+    }
+
+    public ColStatsMeta findColStatsMeta(long tblId, String colName) {
+        TableStatsMeta tableStats = findTableStatsStatus(tblId);
+        if (tableStats == null) {
+            return null;
+        }
+        return tableStats.findColumnStatsMeta(colName);
+    }
+
+    public AnalysisJob findJob(long id) {
+        return idToAnalysisJob.get(id);
+    }
+
+    public void constructJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> tasks) {
+        AnalysisJob job = new AnalysisJob(jobInfo, tasks);
+        idToAnalysisJob.put(jobInfo.jobId, job);
+    }
+
+    public void removeJob(long id) {
+        idToAnalysisJob.remove(id);
+    }
 }

@@ -35,14 +35,12 @@
 #include <vector>
 
 #include "cctz/time_zone.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 
 namespace doris {
 
@@ -72,9 +70,9 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
 
-    RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
-                 int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
+                 const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                 ExecEnv* exec_env);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
@@ -93,7 +91,10 @@ public:
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
+    void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params) const;
+
     // for ut and non-query.
+    void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
     void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
 
     const TQueryOptions& query_options() const { return _query_options; }
@@ -145,15 +146,20 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
+    bool enable_decima256() const {
+        return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
+    }
+
     bool enable_common_expr_pushdown() const {
         return _query_options.__isset.enable_common_expr_pushdown &&
                _query_options.enable_common_expr_pushdown;
     }
 
-    Status query_status() {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        return _process_status;
+    bool enable_faster_float_convert() const {
+        return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
     }
+
+    Status query_status();
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
@@ -175,7 +181,7 @@ public:
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
         LOG(WARNING) << "Task is cancelled, instance: "
-                     << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
+                     << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
                      << " st = " << Status::Error<ErrorCode::CANCELLED>(msg);
     }
 
@@ -227,6 +233,12 @@ public:
     void set_db_name(const std::string& db_name) { _db_name = db_name; }
 
     const std::string& db_name() { return _db_name; }
+
+    void set_wal_id(int64_t wal_id) { _wal_id = wal_id; }
+
+    int64_t wal_id() { return _wal_id; }
+
+    const std::string& import_label() { return _import_label; }
 
     const std::string& load_dir() const { return _load_dir; }
 
@@ -281,8 +293,8 @@ public:
         _num_rows_load_unselected.fetch_add(num_rows);
     }
 
-    void update_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
-        _num_rows_filtered_in_strict_mode_partial_update += num_rows;
+    void set_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
+        _num_rows_filtered_in_strict_mode_partial_update = num_rows;
     }
 
     void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
@@ -294,6 +306,18 @@ public:
     }
 
     int num_per_fragment_instances() const { return _num_per_fragment_instances; }
+
+    void set_load_stream_per_node(int load_stream_per_node) {
+        _load_stream_per_node = load_stream_per_node;
+    }
+
+    int load_stream_per_node() const { return _load_stream_per_node; }
+
+    void set_total_load_streams(int total_load_streams) {
+        _total_load_streams = total_load_streams;
+    }
+
+    int total_load_streams() const { return _total_load_streams; }
 
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
@@ -316,6 +340,13 @@ public:
     bool enable_pipeline_exec() const {
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
+    }
+    bool enable_pipeline_x_exec() const {
+        return _query_options.__isset.enable_pipeline_x_engine &&
+               _query_options.enable_pipeline_x_engine;
+    }
+    bool enable_local_shuffle() const {
+        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
 
     bool trim_tailing_spaces_for_external_table_query() const {
@@ -351,6 +382,12 @@ public:
     bool skip_delete_bitmap() const {
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
+
+    bool skip_missing_version() const {
+        return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
+    }
+
+    bool enable_page_cache() const;
 
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
@@ -390,11 +427,9 @@ public:
         _query_mem_tracker = tracker;
     }
 
-    OpentelemetryTracer get_tracer() { return _tracer; }
-
-    void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
-
-    bool enable_profile() const { return _query_options.is_report_success; }
+    bool enable_profile() const {
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
 
     bool enable_scan_node_run_serial() const {
         return _query_options.__isset.enable_scan_node_run_serial &&
@@ -442,15 +477,21 @@ public:
                _query_options.enable_delete_sub_predicate_v2;
     }
 
-    void emplace_local_state(int id,
-                             std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> state);
+    using LocalState = doris::pipeline::PipelineXLocalStateBase;
+    using SinkLocalState = doris::pipeline::PipelineXSinkLocalStateBase;
+    // get result can return an error message, and we will only call it during the prepare.
+    void emplace_local_state(int id, std::unique_ptr<LocalState> state);
 
-    std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> get_local_state(int id);
+    LocalState* get_local_state(int id);
+    Result<LocalState*> get_local_state_result(int id);
 
-    void emplace_sink_local_state(
-            int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state);
+    void emplace_sink_local_state(int id, std::unique_ptr<SinkLocalState> state);
 
-    std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> get_sink_local_state(int id);
+    SinkLocalState* get_sink_local_state(int id);
+
+    Result<SinkLocalState*> get_sink_local_state_result(int id);
+
+    void resize_op_id_to_local_state(int size);
 
 private:
     Status create_error_log_file();
@@ -510,6 +551,8 @@ private:
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
+    int _load_stream_per_node = 0;
+    int _total_load_streams = 0;
 
     // The backend id on which this fragment instance runs
     int64_t _backend_id = -1;
@@ -539,6 +582,7 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
+    int64_t _wal_id = -1;
 
     // mini load
     int64_t _normal_row_number;
@@ -548,19 +592,14 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
-    std::map<int, std::shared_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
-    std::map<int, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
+    std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
+    std::vector<std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
             _op_id_to_sink_local_state;
-
-    std::mutex _local_state_lock;
-    std::mutex _local_sink_state_lock;
 
     QueryContext* _query_ctx = nullptr;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
-
-    OpentelemetryTracer _tracer = telemetry::get_noop_tracer();
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

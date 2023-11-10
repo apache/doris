@@ -34,7 +34,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 class HdfsFileReader : public FileReader {
 public:

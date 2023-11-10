@@ -23,18 +23,35 @@
 #include <utility>
 
 #include "common/config.h"
+#include "olap/olap_define.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
 #include "time.h"
 #include "util/debug_util.h"
 #include "util/time.h"
+#include "vec/sink/delta_writer_v2_pool.h"
+#include "vec/sink/load_stream_stub_pool.h"
 
 namespace doris {
 
 ExecEnv::ExecEnv() = default;
 
 ExecEnv::~ExecEnv() {
-    _destroy();
+    destroy();
+}
+
+Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
+    BaseTabletSPtr tablet;
+    // TODO(plat1ko): config::cloud_mode
+    std::string err;
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
+    if (tablet == nullptr) {
+        return unexpected(
+                Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err));
+    }
+    return tablet;
 }
 
 const std::string& ExecEnv::token() const {

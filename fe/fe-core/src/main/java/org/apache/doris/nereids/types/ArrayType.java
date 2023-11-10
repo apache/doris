@@ -49,6 +49,11 @@ public class ArrayType extends DataType {
         return new ArrayType(itemType, containsNull);
     }
 
+    @Override
+    public DataType conversion() {
+        return new ArrayType(itemType.conversion(), containsNull);
+    }
+
     public DataType getItemType() {
         return itemType;
     }

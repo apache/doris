@@ -351,7 +351,8 @@ Only the case of a single BE is discussed here. If the user cluster has multiple
      
      For example, for a 100G file, the number of BEs in the cluster is 10
      max_broker_concurrency = 10
-     max_bytes_per_broker_scanner >= 10G = 100G / 10
+     # >= 10G = 100G / 10
+     max_bytes_per_broker_scanner = 1069547520
      ````
 
      After modification, all BEs will process the import task concurrently, each BE processing part of the original file.
@@ -364,7 +365,8 @@ Only the case of a single BE is discussed here. If the user cluster has multiple
      The amount of data processed by a single BE of the current import task / the slowest import speed of the user Doris cluster (MB/s) >= the timeout time of the current import task >= the amount of data processed by a single BE of the current import task / 10M/s
      
      For example, for a 100G file, the number of BEs in the cluster is 10
-     timeout >= 1000s = 10G / 10M/s
+     # >= 1000s = 10G / 10M/s
+     timeout = 1000
      ````
 
   3. When the user finds that the timeout time calculated in the second step exceeds the default import timeout time of 4 hours

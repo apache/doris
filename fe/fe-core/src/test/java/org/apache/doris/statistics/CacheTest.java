@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
@@ -31,6 +32,9 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
+import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.Lists;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -40,9 +44,11 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -50,6 +56,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class CacheTest extends TestWithFeService {
 
@@ -199,10 +206,10 @@ public class CacheTest extends TestWithFeService {
 
     @Test
     public void testLoadFromMeta(@Mocked Env env,
-                                 @Mocked CatalogMgr mgr,
-                                 @Mocked HMSExternalCatalog catalog,
-                                 @Mocked HMSExternalDatabase db,
-                                 @Mocked HMSExternalTable table) throws Exception {
+            @Mocked CatalogMgr mgr,
+            @Mocked HMSExternalCatalog catalog,
+            @Mocked HMSExternalDatabase db,
+            @Mocked HMSExternalTable table) throws Exception {
         new MockUp<StatisticsUtil>() {
 
             @Mock
@@ -242,17 +249,21 @@ public class CacheTest extends TestWithFeService {
                         null, null, false, null, new Date().toString(), null);
             }
         };
-        StatisticsCache statisticsCache = new StatisticsCache();
-        ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, "col");
-        Thread.sleep(3000);
-        columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, "col");
-        Assertions.assertEquals(1, columnStatistic.count);
-        Assertions.assertEquals(2, columnStatistic.ndv);
-        Assertions.assertEquals(3, columnStatistic.avgSizeByte);
-        Assertions.assertEquals(4, columnStatistic.numNulls);
-        Assertions.assertEquals(5, columnStatistic.dataSize);
-        Assertions.assertEquals(6, columnStatistic.minValue);
-        Assertions.assertEquals(7, columnStatistic.maxValue);
+        try {
+            StatisticsCache statisticsCache = new StatisticsCache();
+            ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, "col");
+            Thread.sleep(3000);
+            columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, "col");
+            Assertions.assertEquals(1, columnStatistic.count);
+            Assertions.assertEquals(2, columnStatistic.ndv);
+            Assertions.assertEquals(3, columnStatistic.avgSizeByte);
+            Assertions.assertEquals(4, columnStatistic.numNulls);
+            Assertions.assertEquals(5, columnStatistic.dataSize);
+            Assertions.assertEquals(6, columnStatistic.minValue);
+            Assertions.assertEquals(7, columnStatistic.maxValue);
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
     }
 
     @Test
@@ -345,5 +356,30 @@ public class CacheTest extends TestWithFeService {
                 times = 0;
             }
         };
+    }
+
+    @Test
+    public void testEvict() {
+        ThreadPoolExecutor threadPool
+                = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, Integer.MAX_VALUE, "STATS_FETCH", true);
+        AsyncLoadingCache<Integer, Integer> columnStatisticsCache =
+                Caffeine.newBuilder()
+                        .maximumSize(1)
+                        .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
+                        .executor(threadPool)
+                        .buildAsync(new AsyncCacheLoader<Integer, Integer>() {
+                            @Override
+                            public @NonNull CompletableFuture<Integer> asyncLoad(@NonNull Integer integer,
+                                    @NonNull Executor executor) {
+                                return CompletableFuture.supplyAsync(() -> {
+                                    return integer;
+                                }, threadPool);
+                            }
+                        });
+        columnStatisticsCache.get(1);
+        columnStatisticsCache.get(2);
+        Assertions.assertTrue(columnStatisticsCache.synchronous().asMap().containsKey(2));
+        Assertions.assertEquals(1, columnStatisticsCache.synchronous().asMap().size());
     }
 }

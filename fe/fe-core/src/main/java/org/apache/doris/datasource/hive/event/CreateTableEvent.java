@@ -37,7 +37,7 @@ public class CreateTableEvent extends MetastoreTableEvent {
 
     // for test
     public CreateTableEvent(long eventId, String catalogName, String dbName, String tblName) {
-        super(eventId, catalogName, dbName, tblName);
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.CREATE_TABLE);
         this.hmsTbl = null;
     }
 
@@ -64,6 +64,11 @@ public class CreateTableEvent extends MetastoreTableEvent {
     @Override
     protected boolean willCreateOrDropTable() {
         return true;
+    }
+
+    @Override
+    protected boolean willChangeTableName() {
+        return false;
     }
 
     @Override

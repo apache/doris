@@ -40,7 +40,6 @@
 namespace doris {
 
 class LineReader;
-class TextConverter;
 class Decompressor;
 class SlotDescriptor;
 class RuntimeProfile;
@@ -48,7 +47,7 @@ class RuntimeState;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 
@@ -91,7 +90,7 @@ class BaseCsvTextFieldSplitter : public BaseLineFieldSplitter<BaseCsvTextFieldSp
 public:
     explicit BaseCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
                                       size_t value_sep_len = 1, char trimming_char = 0)
-            : trimming_char(trimming_char), value_sep_len(value_sep_len) {
+            : _trimming_char(trimming_char), _value_sep_len(value_sep_len) {
         if (trim_tailing_space) {
             if (trim_ends) {
                 process_value_func = &BaseCsvTextFieldSplitter::_process_value<true, true>;
@@ -112,8 +111,8 @@ public:
     }
 
 protected:
-    const char trimming_char;
-    const size_t value_sep_len;
+    const char _trimming_char;
+    const size_t _value_sep_len;
     ProcessValueFunc process_value_func;
 
 private:
@@ -213,6 +212,10 @@ private:
     void _init_system_properties();
     void _init_file_description();
 
+    //if from_json = false , deserialize from hive_text
+    template <bool from_json>
+    Status deserialize_nullable_string(IColumn& column, Slice& slice);
+
     // used for parse table schema of csv file.
     // Currently, this feature is for table valued function.
     Status _prepare_parse(size_t* read_line, bool* is_parse_name);
@@ -252,7 +255,6 @@ private:
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _line_reader_eof;
-    std::unique_ptr<TextConverter> _text_converter;
     std::unique_ptr<Decompressor> _decompressor;
 
     TFileFormatType::type _file_format_type;
@@ -271,10 +273,8 @@ private:
     char _enclose = 0;
     char _escape = 0;
 
-    // struct, array and map delimiter
-    std::string _collection_delimiter;
-    // map key and value delimiter
-    std::string _map_kv_delimiter;
+    vectorized::DataTypeSerDeSPtrs _serdes;
+    vectorized::DataTypeSerDe::FormatOptions _options;
 
     int _value_separator_length;
     int _line_delimiter_length;
@@ -288,6 +288,8 @@ private:
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
+    TTextSerdeType::type _text_serde_type;
+    std::vector<int> _use_nullable_string_opt;
 };
 } // namespace vectorized
 } // namespace doris

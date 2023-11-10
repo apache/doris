@@ -199,28 +199,19 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL128I>::create();
         break;
-    case FieldType::OLAP_FIELD_TYPE_ARRAY:
-        ptr = doris::vectorized::ColumnArray::create(
-                get_predicate_column_ptr(*field.get_sub_field(0), reader_type),
-                doris::vectorized::ColumnArray::ColumnOffsets::create());
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL256>::create();
         break;
-    case FieldType::OLAP_FIELD_TYPE_STRUCT: {
-        size_t field_size = field.get_sub_field_count();
-        doris::vectorized::MutableColumns columns(field_size);
-        for (size_t i = 0; i < field_size; i++) {
-            columns[i] = get_predicate_column_ptr(*field.get_sub_field(i), reader_type);
-        }
-        ptr = doris::vectorized::ColumnStruct::create(std::move(columns));
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_IPV4>::create();
         break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_MAP:
-        ptr = doris::vectorized::ColumnMap::create(
-                get_predicate_column_ptr(*field.get_sub_field(0), reader_type),
-                get_predicate_column_ptr(*field.get_sub_field(1), reader_type),
-                doris::vectorized::ColumnArray::ColumnOffsets::create());
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_IPV6>::create();
         break;
     default:
-        LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << int(field.type());
+        throw Exception(ErrorCode::SCHEMA_SCHEMA_FIELD_INVALID,
+                        fmt::format("Unexpected type when choosing predicate column, type={}",
+                                    int(field.type())));
     }
 
     if (field.is_nullable()) {

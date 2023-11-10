@@ -64,4 +64,27 @@ suite("test_subquery") {
     qt_uncorrelated_scalar_with_sort_and_limit """
             select * from nereids_test_query_db.baseall where k1 = (select k1 from nereids_test_query_db.baseall order by k1 desc limit 1)
         """
+
+    sql """drop table if exists test_one_row_relation;"""
+    sql """
+        CREATE TABLE `test_one_row_relation` (
+        `user_id` int(11) NULL 
+        )
+        UNIQUE KEY(`user_id`)
+        COMMENT 'test'
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """ set enable_nereids_dml=true; """
+    
+    sql """insert into test_one_row_relation select (select 1);"""
+
+    qt_sql_subquery_one_row_relation """select * from test_one_row_relation;"""
+
+    qt_sql_mark_join """with A as (select count(*) n1 from test_one_row_relation where exists (select 1 from test_one_row_relation t where t.user_id = test_one_row_relation.user_id) or 1 = 1) select * from A;"""
+
+    sql """drop table if exists test_one_row_relation;"""
 }

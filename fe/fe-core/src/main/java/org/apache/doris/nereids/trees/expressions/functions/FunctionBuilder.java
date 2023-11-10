@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -28,7 +30,7 @@ public abstract class FunctionBuilder {
     /** check whether arguments can apply to the constructor */
     public abstract boolean canApply(List<? extends Object> arguments);
 
-    public final BoundFunction build(String name, Object argument) {
+    public final Expression build(String name, Object argument) {
         return build(name, ImmutableList.of(argument));
     }
 
@@ -38,5 +40,5 @@ public abstract class FunctionBuilder {
      * @param arguments the function's argument expressions
      * @return the concrete bound function instance
      */
-    public abstract BoundFunction build(String name, List<? extends Object> arguments);
+    public abstract Expression build(String name, List<? extends Object> arguments);
 }

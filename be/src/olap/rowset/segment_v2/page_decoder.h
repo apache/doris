@@ -52,7 +52,7 @@ public:
     //
     // If the given value is less than the lowest value in the page,
     // seeks to the start of the page. If it is higher than the highest
-    // value in the page, then returns Status::NotFound
+    // value in the page, then returns Status::Error<ENTRY_NOT_FOUND>
     //
     // This will only return valid results when the data page
     // consists of values in sorted order.
@@ -67,7 +67,7 @@ public:
     virtual size_t seek_forward(size_t n) {
         size_t step = std::min(n, count() - current_index());
         DCHECK_GE(step, 0);
-        seek_to_position_in_page(current_index() + step);
+        static_cast<void>(seek_to_position_in_page(current_index() + step));
         return step;
     }
 

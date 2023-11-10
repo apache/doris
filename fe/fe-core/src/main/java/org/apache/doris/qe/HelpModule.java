@@ -104,12 +104,12 @@ public class HelpModule {
                 String line;
                 List<String> lines = Lists.newArrayList();
                 if (size > 0) {
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(zf.getInputStream(entry),
-                                                                                     CHARSET_UTF_8));
-                    while ((line = reader.readLine()) != null) {
-                        lines.add(line);
+                    try (BufferedReader reader =
+                             new BufferedReader(new InputStreamReader(zf.getInputStream(entry), CHARSET_UTF_8))) {
+                        while ((line = reader.readLine()) != null) {
+                            lines.add(line);
+                        }
                     }
-                    reader.close();
 
                     // note that we only need basename
                     String parentPathStr = null;

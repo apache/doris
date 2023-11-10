@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -71,6 +72,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_ERR;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
+    public static LongCounterMetric COUNTER_QUERY_HIVE_TABLE;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ALL;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ERR;
     public static Histogram HISTO_QUERY_LATENCY;
@@ -287,6 +289,9 @@ public final class MetricRepo {
         COUNTER_QUERY_OLAP_TABLE = new LongCounterMetric("query_olap_table", MetricUnit.REQUESTS,
                 "total query from olap table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_OLAP_TABLE);
+        COUNTER_QUERY_HIVE_TABLE = new LongCounterMetric("query_hive_table", MetricUnit.REQUESTS,
+                "total query from hive table");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_HIVE_TABLE);
         USER_COUNTER_QUERY_ALL = new AutoMappedMetric<>(name -> {
             LongCounterMetric userCountQueryAll  = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
                     "total query for single user");
@@ -615,7 +620,8 @@ public final class MetricRepo {
                     return (long) invertedIndex.getTabletNumByBackendId(beId);
                 }
             };
-            tabletNum.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
+            tabletNum.addLabel(new MetricLabel("backend",
+                    NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHeartbeatPort())));
             DORIS_METRIC_REGISTER.addMetrics(tabletNum);
 
             // max compaction score of tablets on each backends
@@ -629,7 +635,8 @@ public final class MetricRepo {
                     return be.getTabletMaxCompactionScore();
                 }
             };
-            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
+            tabletMaxCompactionScore.addLabel(new MetricLabel("backend",
+                    NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHeartbeatPort())));
             DORIS_METRIC_REGISTER.addMetrics(tabletMaxCompactionScore);
 
         } // end for backends
@@ -643,32 +650,24 @@ public final class MetricRepo {
         // update the metrics first
         updateMetrics();
 
-        StringBuilder sb = new StringBuilder();
         // jvm
         JvmService jvmService = new JvmService();
         JvmStats jvmStats = jvmService.stats();
-        visitor.visitJvm(sb, jvmStats);
+        visitor.visitJvm(jvmStats);
 
-        visitor.setMetricNumber(DORIS_METRIC_REGISTER.getAllMetricSize());
-        // doris metrics
-        for (Metric metric : DORIS_METRIC_REGISTER.getMetrics()) {
-            visitor.visit(sb, MetricVisitor.FE_PREFIX, metric);
-        }
-        // system metric
-        for (Metric metric : DORIS_METRIC_REGISTER.getSystemMetrics()) {
-            visitor.visit(sb, MetricVisitor.SYS_PREFIX, metric);
-        }
+        // doris metrics and system metrics.
+        DORIS_METRIC_REGISTER.accept(visitor);
 
         // histogram
         SortedMap<String, Histogram> histograms = METRIC_REGISTER.getHistograms();
         for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(sb, MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
         }
 
         // node info
-        visitor.getNodeInfo(sb);
+        visitor.getNodeInfo();
 
-        return sb.toString();
+        return visitor.finish();
     }
 
     public static <M extends Metric<?>> AutoMappedMetric<M> addLabeledMetrics(String label, Supplier<M> metric) {

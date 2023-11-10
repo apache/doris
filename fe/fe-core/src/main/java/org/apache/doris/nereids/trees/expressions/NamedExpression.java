@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Expression in Nereids that having name.
@@ -55,5 +56,13 @@ public abstract class NamedExpression extends Expression {
      */
     public String getQualifiedName() throws UnboundException {
         return Utils.qualifiedName(getQualifier(), getName());
+    }
+
+    @Override
+    public String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
+        }
+        return this.exprName.get();
     }
 }

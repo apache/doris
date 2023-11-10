@@ -27,7 +27,6 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
@@ -36,13 +35,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +55,8 @@ import java.util.stream.Collectors;
 public class JoinUtils {
     public static boolean couldShuffle(Join join) {
         // Cross-join and Null-Aware-Left-Anti-Join only can be broadcast join.
-        return !(join.getJoinType().isCrossJoin()) && !(join.getJoinType().isNullAwareLeftAntiJoin());
+        // Because mark join would consider null value from both build and probe side, so must use broadcast join too.
+        return !(join.getJoinType().isCrossJoin() || join.getJoinType().isNullAwareLeftAntiJoin() || join.isMarkJoin());
     }
 
     public static boolean couldBroadcast(Join join) {
@@ -63,23 +64,20 @@ public class JoinUtils {
     }
 
     /**
-     * for a given expr, if expr is nullable, add 'expr is not null' in to container.
-     * this is used to eliminate outer join.
-     * for example: (A left join B on A.a=B.b) join C on B.x=C.x
-     * inner join condition B.x=C.x implies that 'B.x is not null' can be used to filter B,
-     * with 'B.x is not null' predicate, we could eliminate outer join, and the join transformed to
-     * (A join B on A.a=B.b) join C on B.x=C.x
+     * check if the row count of the left child in the broadcast join is less than a threshold value.
      */
-    public static void addIsNotNullIfNullableToCollection(Expression expr, Collection<Expression> container) {
-        if (expr.nullable()) {
-            Not not = new Not(new IsNull(expr));
-            not.isGeneratedIsNotNull = true;
-            container.add(not);
-        }
+    public static boolean checkBroadcastJoinStats(PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        double memLimit = sessionVariable.getMaxExecMemByte();
+        double rowsLimit = sessionVariable.getBroadcastRowCountLimit();
+        double brMemlimit = sessionVariable.getBroadcastHashtableMemLimitPercentage();
+        double datasize = join.getGroupExpression().get().child(1).getStatistics().computeSize();
+        double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
+        return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
     }
 
     /**
-     * util class
+     * for a given equation, judge if it can be used as hash join condition
      */
     public static final class JoinSlotCoverageChecker {
         Set<ExprId> leftExprIds;
@@ -88,6 +86,11 @@ public class JoinUtils {
         public JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
             leftExprIds = left.stream().map(Slot::getExprId).collect(Collectors.toSet());
             rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
+        }
+
+        JoinSlotCoverageChecker(Set<ExprId> left, Set<ExprId> right) {
+            leftExprIds = left;
+            rightExprIds = right;
         }
 
         /**
@@ -113,12 +116,12 @@ public class JoinUtils {
          * @return true if the equal can be used as hash join condition
          */
         public boolean isHashJoinCondition(EqualTo equalTo) {
-            Set<Slot> equalLeft = equalTo.left().collect(Slot.class::isInstance);
+            Set<Slot> equalLeft = equalTo.left().getInputSlots();
             if (equalLeft.isEmpty()) {
                 return false;
             }
 
-            Set<Slot> equalRight = equalTo.right().collect(Slot.class::isInstance);
+            Set<Slot> equalRight = equalTo.right().getInputSlots();
             if (equalRight.isEmpty()) {
                 return false;
             }
@@ -241,21 +244,14 @@ public class JoinUtils {
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
-        // TODO: not rely on physical properties?
-        DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
         DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
         DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
         if (!(leftDistributionSpec instanceof DistributionSpecHash)
-                || !(rightDistributionSpec instanceof DistributionSpecHash)
-                || !(joinDistributionSpec instanceof DistributionSpecHash)) {
+                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
             return false;
         }
-        DistributionSpecHash leftHash = (DistributionSpecHash) leftDistributionSpec;
-        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
-        DistributionSpecHash joinHash = (DistributionSpecHash) joinDistributionSpec;
-        return leftHash.getShuffleType() == ShuffleType.NATURAL
-                && rightHash.getShuffleType() == ShuffleType.NATURAL
-                && joinHash.getShuffleType() == ShuffleType.NATURAL;
+        return couldColocateJoin((DistributionSpecHash) leftDistributionSpec,
+                (DistributionSpecHash) rightDistributionSpec);
     }
 
     /**

@@ -21,6 +21,9 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 
 import com.google.common.collect.ImmutableList;
@@ -33,21 +36,85 @@ import java.util.List;
 public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalPartitionTopN().then(partitionTopN -> {
-            List<OrderKey> orderKeys = !partitionTopN.getOrderKeys().isEmpty()
-                    ? partitionTopN.getOrderKeys().stream()
-                        .map(OrderExpression::getOrderKey)
-                        .collect(ImmutableList.toImmutableList()) :
+        return logicalPartitionTopN().thenApplyMulti(ctx -> generatePhysicalPartitionTopn(ctx.root))
+                .toRule(RuleType.LOGICAL_PARTITION_TOP_N_TO_PHYSICAL_PARTITION_TOP_N_RULE);
+    }
+
+    private List<PhysicalPartitionTopN<? extends Plan>> generatePhysicalPartitionTopn(
+            LogicalPartitionTopN<? extends Plan> logicalPartitionTopN) {
+        if (logicalPartitionTopN.getPartitionKeys().isEmpty()) {
+            // if no partition by keys, use local partition topn combined with further full sort
+            List<OrderKey> orderKeys = !logicalPartitionTopN.getOrderKeys().isEmpty()
+                    ? logicalPartitionTopN.getOrderKeys().stream()
+                    .map(OrderExpression::getOrderKey)
+                    .collect(ImmutableList.toImmutableList()) :
                     ImmutableList.of();
 
-            return new PhysicalPartitionTopN<>(
-                    partitionTopN.getFunction(),
-                    partitionTopN.getPartitionKeys(),
+            PhysicalPartitionTopN<Plan> onePhaseLocalPartitionTopN = new PhysicalPartitionTopN<>(
+                    logicalPartitionTopN.getFunction(),
+                    logicalPartitionTopN.getPartitionKeys(),
                     orderKeys,
-                    partitionTopN.hasGlobalLimit(),
-                    partitionTopN.getPartitionLimit(),
-                    partitionTopN.getLogicalProperties(),
-                    partitionTopN.child());
-        }).toRule(RuleType.LOGICAL_PARTITION_TOP_N_TO_PHYSICAL_PARTITION_TOP_N_RULE);
+                    logicalPartitionTopN.hasGlobalLimit(),
+                    logicalPartitionTopN.getPartitionLimit(),
+                    PartitionTopnPhase.TWO_PHASE_LOCAL_PTOPN,
+                    logicalPartitionTopN.getLogicalProperties(),
+                    logicalPartitionTopN.child(0));
+
+            return ImmutableList.of(onePhaseLocalPartitionTopN);
+        } else {
+            // if partition by keys exist, the order keys will be set as original partition keys combined with
+            // orderby keys, to meet upper window operator's order requirement.
+            ImmutableList<OrderKey> fullOrderKeys = getAllOrderKeys(logicalPartitionTopN);
+            PhysicalPartitionTopN<Plan> onePhaseGlobalPartitionTopN = new PhysicalPartitionTopN<>(
+                    logicalPartitionTopN.getFunction(),
+                    logicalPartitionTopN.getPartitionKeys(),
+                    fullOrderKeys,
+                    logicalPartitionTopN.hasGlobalLimit(),
+                    logicalPartitionTopN.getPartitionLimit(),
+                    PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN,
+                    logicalPartitionTopN.getLogicalProperties(),
+                    logicalPartitionTopN.child(0));
+
+            PhysicalPartitionTopN<Plan> twoPhaseLocalPartitionTopN = new PhysicalPartitionTopN<>(
+                    logicalPartitionTopN.getFunction(),
+                    logicalPartitionTopN.getPartitionKeys(),
+                    fullOrderKeys,
+                    logicalPartitionTopN.hasGlobalLimit(),
+                    logicalPartitionTopN.getPartitionLimit(),
+                    PartitionTopnPhase.TWO_PHASE_LOCAL_PTOPN,
+                    logicalPartitionTopN.getLogicalProperties(),
+                    logicalPartitionTopN.child(0));
+
+            PhysicalPartitionTopN<Plan> twoPhaseGlobalPartitionTopN = new PhysicalPartitionTopN<>(
+                    logicalPartitionTopN.getFunction(),
+                    logicalPartitionTopN.getPartitionKeys(),
+                    fullOrderKeys,
+                    logicalPartitionTopN.hasGlobalLimit(),
+                    logicalPartitionTopN.getPartitionLimit(),
+                    PartitionTopnPhase.TWO_PHASE_GLOBAL_PTOPN,
+                    logicalPartitionTopN.getLogicalProperties(),
+                    twoPhaseLocalPartitionTopN);
+
+            return ImmutableList.of(onePhaseGlobalPartitionTopN, twoPhaseGlobalPartitionTopN);
+        }
+    }
+
+    private ImmutableList<OrderKey> getAllOrderKeys(LogicalPartitionTopN<? extends Plan> logicalPartitionTopN) {
+        ImmutableList.Builder<OrderKey> builder = ImmutableList.builder();
+
+        if (!logicalPartitionTopN.getPartitionKeys().isEmpty()) {
+            builder.addAll(logicalPartitionTopN.getPartitionKeys().stream().map(partitionKey -> {
+                return new OrderKey(partitionKey, true, false);
+            }).collect(ImmutableList.toImmutableList()));
+        }
+
+        if (!logicalPartitionTopN.getOrderKeys().isEmpty()) {
+            builder.addAll(logicalPartitionTopN.getOrderKeys().stream()
+                    .map(OrderExpression::getOrderKey)
+                    .collect(ImmutableList.toImmutableList())
+            );
+        }
+
+        return builder.build();
     }
 }

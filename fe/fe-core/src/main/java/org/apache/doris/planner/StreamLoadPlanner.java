@@ -48,6 +48,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -254,10 +255,15 @@ public class StreamLoadPlanner {
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
-                Config.enable_single_replica_load);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+        OlapTableSink olapTableSink;
+        if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).isGroupCommit()) {
+            olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
+                    Config.enable_single_replica_load);
+        } else {
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+        }
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
+                taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
@@ -292,6 +298,8 @@ public class StreamLoadPlanner {
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
         execParams.setPerNodeScanRanges(perNodeScanRange);
         params.setParams(execParams);
+        params.setLoadStreamPerNode(taskInfo.getStreamPerNode());
+        params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
@@ -463,8 +471,13 @@ public class StreamLoadPlanner {
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
-                Config.enable_single_replica_load);
+        OlapTableSink olapTableSink;
+        if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).isGroupCommit()) {
+            olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
+                    Config.enable_single_replica_load);
+        } else {
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+        }
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
@@ -488,6 +501,8 @@ public class StreamLoadPlanner {
         pipParams.per_exch_num_senders = Maps.newHashMap();
         pipParams.destinations = Lists.newArrayList();
         pipParams.setNumSenders(1);
+        pipParams.setLoadStreamPerNode(taskInfo.getStreamPerNode());
+        pipParams.setTotalLoadStreams(taskInfo.getStreamPerNode());
 
         TPipelineInstanceParams localParams = new TPipelineInstanceParams();
         localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
@@ -555,7 +570,7 @@ public class StreamLoadPlanner {
                 if (null == slotDesc) {
                     continue;
                 }
-                ColumnRange columnRange = ScanNode.createColumnRange(slotDesc, conjuncts);
+                ColumnRange columnRange = ScanNode.createColumnRange(slotDesc, conjuncts, partitionInfo);
                 if (columnRange != null) {
                     columnNameToRange.put(column.getName(), columnRange);
                 }
@@ -576,6 +591,10 @@ public class StreamLoadPlanner {
             return partitionIds;
         }
         return null;
+    }
+
+    public DescriptorTable getDescTable() {
+        return descTable;
     }
 }
 

@@ -89,6 +89,12 @@ public:
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
+    virtual ~Block() = default;
+    Block(const Block& block) = default;
+    Block& operator=(const Block& p) = default;
+    Block(Block&& block) = default;
+    Block& operator=(Block&& other) = default;
+
     void reserve(size_t count);
     // Make sure the nammes is useless when use block
     void clear_names();
@@ -309,7 +315,7 @@ public:
 
     Status deserialize(const PBlock& pblock);
 
-    std::unique_ptr<Block> create_same_struct_block(size_t size) const;
+    std::unique_ptr<Block> create_same_struct_block(size_t size, bool is_reserve = false) const;
 
     /** Compares (*this) n-th row and rhs m-th row.
       * Returns negative number, 0, or positive number  (*this) n-th row is less, equal, greater than rhs m-th row respectively.
@@ -394,6 +400,10 @@ public:
     }
 
     void clear_same_bit() { row_same_bit.clear(); }
+
+    // return string contains use_count() of each columns
+    // for debug purpose.
+    std::string print_use_count();
 
 private:
     void erase_impl(size_t position);

@@ -171,10 +171,10 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         this.rollupFinishedVersion = -1L;
     }
 
-    public long getDataSize() {
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (Tablet tablet : getTablets()) {
-            dataSize += tablet.getDataSize(false);
+            dataSize += tablet.getDataSize(singleReplica);
         }
         return dataSize;
     }

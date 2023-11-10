@@ -151,7 +151,7 @@ public class FEFunctions {
         return new StringLiteral(result);
     }
 
-    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
+    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIMEV2")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
         DateLiteral dateLiteral = new DateLiteral();
         try {
@@ -231,10 +231,11 @@ public class FEFunctions {
         return new IntLiteral(unixTime, Type.INT);
     }
 
-    @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
+    @FEFunction(name = "from_unixtime", argTypes = { "BIGINT" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= Integer.MAX_VALUE) {
+        // 32536771199L is max valid timestamp of mysql from_unix_time
+        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() > 32536771199L) {
             throw new AnalysisException("unix timestamp out of range");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
@@ -242,10 +243,11 @@ public class FEFunctions {
         return new StringLiteral(dl.getStringValue());
     }
 
-    @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
+    @FEFunction(name = "from_unixtime", argTypes = { "BIGINT", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= Integer.MAX_VALUE) {
+        // 32536771199L is max valid timestamp of mysql from_unix_time
+        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= 32536771199L) {
             throw new AnalysisException("unix timestamp out of range");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
@@ -523,8 +525,8 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
-    public static DateLiteral dateTrunc(LiteralExpr date, LiteralExpr truncate) {
-        if (date.getType().isDateLike()) {
+    public static DateLiteral dateTruncDatetime(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateType()) {
             DateLiteral dateLiteral = ((DateLiteral) date);
             LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
                             (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(),
@@ -538,12 +540,40 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "date_trunc", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
-    public static DateLiteral dateTruncV2(LiteralExpr date, LiteralExpr truncate) {
-        if (date.getType().isDateLike()) {
+    public static DateLiteral dateTruncDatetimeV2(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateType()) {
             DateLiteral dateLiteral = ((DateLiteral) date);
             LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
                             (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(),
                             (int) dateLiteral.getHour(), (int) dateLiteral.getMinute(), (int) dateLiteral.getSecond()),
+                    truncate.getStringValue());
+
+            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
+                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
+        }
+        return null;
+    }
+
+    @FEFunction(name = "date_trunc", argTypes = { "DATE", "VARCHAR" }, returnType = "DATE")
+    public static DateLiteral dateTruncDate(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateType()) {
+            DateLiteral dateLiteral = ((DateLiteral) date);
+            LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
+                    (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(), 0, 0, 0),
+                    truncate.getStringValue());
+
+            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
+                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
+        }
+        return null;
+    }
+
+    @FEFunction(name = "date_trunc", argTypes = { "DATEV2", "VARCHAR" }, returnType = "DATEV2")
+    public static DateLiteral dateTruncDateV2(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateType()) {
+            DateLiteral dateLiteral = ((DateLiteral) date);
+            LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
+                    (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(), 0, 0, 0),
                     truncate.getStringValue());
 
             return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),

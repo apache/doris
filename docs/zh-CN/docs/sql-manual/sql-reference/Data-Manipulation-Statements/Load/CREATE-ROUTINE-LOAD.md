@@ -146,7 +146,7 @@ FROM data_source [data_source_properties]
 
   1. `desired_concurrent_number`
 
-     期望的并发度。一个例行导入作业会被分成多个子任务执行。这个参数指定一个作业最多有多少任务可以同时执行。必须大于0。默认为3。
+     期望的并发度。一个例行导入作业会被分成多个子任务执行。这个参数指定一个作业最多有多少任务可以同时执行。必须大于0。默认为5。
 
      这个并发度并不是实际的并发度，实际的并发度，会通过集群的节点数、负载情况，以及数据源的情况综合考虑。
 
@@ -246,10 +246,24 @@ FROM data_source [data_source_properties]
 
   11. `load_to_single_tablet`
 
-      布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
+      布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分桶的 olap 表导数的时候设置。
 
   12. `partial_columns`
       布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。一流多表不支持此参数。
+
+  13. `max_filter_ratio`
+
+      采样窗口内，允许的最大过滤率。必须在大于等于0到小于等于1之间。默认值是 1.0。
+
+      采样窗口为 `max_batch_rows * 10`。即如果在采样窗口内，错误行数/总行数大于 `max_filter_ratio`，则会导致例行作业被暂停，需要人工介入检查数据质量问题。
+
+      被 where 条件过滤掉的行不算错误行。
+
+  14. `enclose`
+      When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field.
+
+  15. `escape`
+      转义符。用于转义在csv字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。
 
 - `FROM data_source [data_source_properties]`
 
@@ -422,7 +436,7 @@ FROM data_source [data_source_properties]
        "max_batch_interval" = "20",
        "max_batch_rows" = "300000",
        "max_batch_size" = "209715200",
-       "strict_mode" = "false"
+       "strict_mode" = "true"
    )
    FROM KAFKA
    (

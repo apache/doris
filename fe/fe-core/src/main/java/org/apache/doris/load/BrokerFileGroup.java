@@ -34,7 +34,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -206,11 +205,6 @@ public class BrokerFileGroup implements Writable {
             olapTable.readUnlock();
         }
 
-        // column
-        columnSeparator = dataDescription.getColumnSeparator();
-        if (columnSeparator == null) {
-            columnSeparator = "\t";
-        }
         lineDelimiter = dataDescription.getLineDelimiter();
         if (lineDelimiter == null) {
             lineDelimiter = "\n";
@@ -219,13 +213,12 @@ public class BrokerFileGroup implements Writable {
         escape = dataDescription.getEscape();
 
         fileFormat = dataDescription.getFileFormat();
-        if (fileFormat != null) {
-            if (!fileFormat.equalsIgnoreCase("parquet") && !fileFormat.equalsIgnoreCase(FeConstants.csv)
-                    && !fileFormat.equalsIgnoreCase("orc")
-                    && !fileFormat.equalsIgnoreCase("json")
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)) {
-                throw new DdlException("File Format Type " + fileFormat + " is invalid.");
+        columnSeparator = dataDescription.getColumnSeparator();
+        if (columnSeparator == null) {
+            if (fileFormat != null && fileFormat.equalsIgnoreCase("hive_text")) {
+                columnSeparator = "\001";
+            } else {
+                columnSeparator = "\t";
             }
         }
         compressType = dataDescription.getCompressType();

@@ -27,7 +27,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/iterators.h"
@@ -207,8 +206,6 @@ public:
 
     Status next_batch(Block* block) override { return _next_batch(block); }
     Status next_block_view(BlockView* block_view) override { return _next_batch(block_view); }
-
-    bool support_return_data_by_ref() override { return true; }
 
     const Schema& schema() const override { return *_schema; }
 

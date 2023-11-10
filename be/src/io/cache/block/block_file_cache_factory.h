@@ -37,7 +37,7 @@ namespace io {
  */
 class FileCacheFactory {
 public:
-    static FileCacheFactory& instance();
+    static FileCacheFactory* instance();
 
     void create_file_cache(const std::string& cache_base_path,
                            const FileCacheSettings& file_cache_settings, Status* status);

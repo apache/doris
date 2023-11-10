@@ -142,7 +142,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
       系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
       ```
 
-24. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
+24. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分桶的 olap 表导数的时候设置。
 
 25. compress_type: 指定文件的压缩格式。目前只支持 csv 文件的压缩。支持 gz, lzo, bz2, lz4, lzop, deflate 压缩格式。
 
@@ -151,6 +151,10 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 27. skip_lines: <version since="dev" type="inline"> 整数类型, 默认值为0, 含义为跳过csv文件的前几行. 当设置format设置为 `csv_with_names` 或、`csv_with_names_and_types` 时, 该参数会失效. </version>
 
 28. comment: <version since="1.2.3" type="inline"> 字符串类型, 默认值为空. 给任务增加额外的信息. </version>
+
+29. enclose: <version since="dev" type="inline"> 包围符。当csv数据字段中含有行分隔符或列分隔符时，为防止意外截断，可指定单字节字符作为包围符起到保护作用。例如列分隔符为","，包围符为"'"，数据为"a,'b,c'",则"b,c"会被解析为一个字段。 </version>
+  
+30. escape <version since="dev" type="inline"> 转义符。用于转义在字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。 </version>
 
 ### Example
 
@@ -211,12 +215,12 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 10. 简单模式，导入json数据
     
     表结构：
-
+     ```
      `category` varchar(512) NULL COMMENT "",
      `author` varchar(512) NULL COMMENT "",
      `title` varchar(512) NULL COMMENT "",
      `price` double NULL COMMENT ""
-
+    ```
     json数据格式：
     ```
     {"category":"C++","author":"avc","title":"C++ primer","price":895}

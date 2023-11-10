@@ -31,7 +31,7 @@
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/runtime/vfile_writer_wrapper.h"
+#include "vec/runtime/vfile_format_transformer.h"
 #include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
@@ -60,11 +60,9 @@ public:
 
     Status append_block(Block& block) override;
 
-    Status close() override;
+    Status close(Status s = Status::OK()) override;
 
-    Status open(RuntimeState* state, RuntimeProfile* profile) override {
-        return _init(state, profile);
-    }
+    Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
     // file result writer always return statistic result in one row
     int64_t get_written_rows() const override { return 1; }
@@ -75,7 +73,6 @@ public:
     }
 
 private:
-    Status _init(RuntimeState* state, RuntimeProfile*);
     Status _write_file(const Block& block);
 
     void _init_profile(RuntimeProfile*);

@@ -125,8 +125,7 @@ suite('complex_insert') {
         ) unique key (id, id1)
         distributed by hash(id, id1) buckets 13
         properties(
-            'replication_num'='1',
-            "function_column.sequence_col" = "c4"
+            'replication_num'='1'
         );
     '''
 
@@ -208,5 +207,4 @@ suite('complex_insert') {
     sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
     sql 'sync'
     qt_mv 'select * from agg_have_dup_base'
-
 }

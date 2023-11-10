@@ -127,13 +127,13 @@ public:
     static constexpr uint32_t kDefaultNumShards = 16;
 
     // Create global instance of this class
-    static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
-                                    int64_t pk_index_cache_capacity,
-                                    uint32_t num_shards = kDefaultNumShards);
+    static StoragePageCache* create_global_cache(size_t capacity, int32_t index_cache_percentage,
+                                                 int64_t pk_index_cache_capacity,
+                                                 uint32_t num_shards = kDefaultNumShards);
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static StoragePageCache* instance() { return _s_instance; }
+    static StoragePageCache* instance() { return ExecEnv::GetInstance()->get_storage_page_cache(); }
 
     StoragePageCache(size_t capacity, int32_t index_cache_percentage,
                      int64_t pk_index_cache_capacity, uint32_t num_shards);
@@ -165,7 +165,6 @@ public:
 
 private:
     StoragePageCache();
-    static StoragePageCache* _s_instance;
 
     int32_t _index_cache_percentage = 0;
     std::unique_ptr<DataPageCache> _data_page_cache = nullptr;

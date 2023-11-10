@@ -436,32 +436,32 @@
 
 -- !sql_least_DecimalV2 --
 \N
-0.100000000
-0.200000000
-0.300000000
-0.400000000
-0.500000000
-0.600000000
-0.700000000
-0.800000000
-0.900000000
-1.000000000
-1.100000000
-1.200000000
+0.100
+0.200
+0.300
+0.400
+0.500
+0.600
+0.700
+0.800
+0.900
+1.000
+1.100
+1.200
 
 -- !sql_least_DecimalV2_notnull --
-0.100000000
-0.200000000
-0.300000000
-0.400000000
-0.500000000
-0.600000000
-0.700000000
-0.800000000
-0.900000000
-1.000000000
-1.100000000
-1.200000000
+0.100
+0.200
+0.300
+0.400
+0.500
+0.600
+0.700
+0.800
+0.900
+1.000
+1.100
+1.200
 
 -- !sql_least_Varchar --
 null
@@ -636,6 +636,35 @@ string3
 7
 7
 7
+
+-- !sql_like_Varchar_Varchar --
+true
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !sql_like_Varchar_Varchar_not_null --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
 
 -- !sql_ln_Double --
 \N
@@ -818,12 +847,12 @@ string3
 -0.5228787452803376
 -0.3979400086720376
 -0.3010299956639812
--0.22184874961635637
+-0.2218487496163564
 -0.1549019599857432
 -0.09691001300805639
 -0.045757490560675115
 0.0
-0.04139268515822507
+0.04139268515822508
 0.07918124604762482
 
 -- !sql_log10_Double_notnull --
@@ -832,12 +861,12 @@ string3
 -0.5228787452803376
 -0.3979400086720376
 -0.3010299956639812
--0.22184874961635637
+-0.2218487496163564
 -0.1549019599857432
 -0.09691001300805639
 -0.045757490560675115
 0.0
-0.04139268515822507
+0.04139268515822508
 0.07918124604762482
 
 -- !sql_log2_Double --
@@ -1042,4 +1071,62 @@ string3
 string3
 string3
 string3
+
+-- !sql_ltrim_Varchar_Varchar --
+null
+char11
+char11
+char11
+char11
+char12
+char12
+char12
+char12
+char13
+char13
+char13
+char13
+
+-- !sql_ltrim_Varchar_Varchar_notnull --
+char11
+char11
+char11
+char11
+char12
+char12
+char12
+char12
+char13
+char13
+char13
+char13
+
+-- !sql_ltrim_String_String --
+null
+ing1
+ing1
+ing1
+ing1
+ing2
+ing2
+ing2
+ing2
+ing3
+ing3
+ing3
+ing3
+
+-- !sql_ltrim_String_String_notnull --
+ing1
+ing1
+ing1
+ing1
+ing2
+ing2
+ing2
+ing2
+ing3
+ing3
+ing3
+ing3
 

@@ -27,6 +27,7 @@ import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;
 
+import java.security.SecureRandom;
 import java.util.List;
 
 /**
@@ -41,17 +42,17 @@ public class AlterTableEvent extends MetastoreTableEvent {
     // true if this alter event was due to a rename operation
     private final boolean isRename;
     private final boolean isView;
-    private final boolean willCreateOrDropTable;
+    private final String tblNameAfter;
 
     // for test
     public AlterTableEvent(long eventId, String catalogName, String dbName,
                            String tblName, boolean isRename, boolean isView) {
-        super(eventId, catalogName, dbName, tblName);
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.ALTER_TABLE);
         this.isRename = isRename;
         this.isView = isView;
         this.tableBefore = null;
         this.tableAfter = null;
-        this.willCreateOrDropTable = isRename || isView;
+        this.tblNameAfter = isRename ? (tblName + new SecureRandom().nextInt(10)) : tblName;
     }
 
     private AlterTableEvent(NotificationEvent event, String catalogName) {
@@ -65,6 +66,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
                             .getAlterTableMessage(event.getMessage());
             tableAfter = Preconditions.checkNotNull(alterTableMessage.getTableObjAfter());
             tableBefore = Preconditions.checkNotNull(alterTableMessage.getTableObjBefore());
+            tblNameAfter = tableAfter.getTableName();
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Unable to parse the alter table message"), e);
@@ -73,7 +75,6 @@ public class AlterTableEvent extends MetastoreTableEvent {
         isRename = !tableBefore.getDbName().equalsIgnoreCase(tableAfter.getDbName())
                 || !tableBefore.getTableName().equalsIgnoreCase(tableAfter.getTableName());
         isView = tableBefore.isSetViewExpandedText() || tableBefore.isSetViewOriginalText();
-        this.willCreateOrDropTable = isRename || isView;
     }
 
     public static List<MetastoreEvent> getEvents(NotificationEvent event,
@@ -83,7 +84,12 @@ public class AlterTableEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean willCreateOrDropTable() {
-        return willCreateOrDropTable;
+        return isRename || isView;
+    }
+
+    @Override
+    protected boolean willChangeTableName() {
+        return isRename;
     }
 
     private void processRecreateTable() throws DdlException {
@@ -123,6 +129,10 @@ public class AlterTableEvent extends MetastoreTableEvent {
         return isView;
     }
 
+    public String getTblNameAfter() {
+        return tblNameAfter;
+    }
+
     /**
      * If the ALTER_TABLE event is due a table rename, this method removes the old table
      * and creates a new table with the new name. Else, we just refresh table
@@ -144,7 +154,8 @@ public class AlterTableEvent extends MetastoreTableEvent {
             }
             //The scope of refresh can be narrowed in the future
             Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                    .refreshExternalTableFromEvent(tableBefore.getDbName(), tableBefore.getTableName(),
+                                catalogName, eventTime, true);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);
@@ -157,15 +168,22 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return false;
         }
 
-        // `that` event must not be a rename table event
-        // so if the process of this event will drop this table,
-        // it can merge all the table's events before
-        if (willCreateOrDropTable) {
+        // First check if `that` event is a rename event, a rename event can not be batched
+        // because the process of `that` event will change the reference relation of this table
+        // `that` event must be a MetastoreTableEvent event otherwise `isSameTable` will return false
+        MetastoreTableEvent thatTblEvent = (MetastoreTableEvent) that;
+        if (thatTblEvent.willChangeTableName()) {
+            return false;
+        }
+
+        // Then check if the process of this event will create or drop this table,
+        // if true then `that` event can be batched
+        if (willCreateOrDropTable()) {
             return true;
         }
 
-        // that event must be a MetastoreTableEvent event
-        // otherwise `isSameTable` will return false
-        return !((MetastoreTableEvent) that).willCreateOrDropTable();
+        // Last, check if the process of `that` event will create or drop this table
+        // if false then `that` event can be batched
+        return !thatTblEvent.willCreateOrDropTable();
     }
 }

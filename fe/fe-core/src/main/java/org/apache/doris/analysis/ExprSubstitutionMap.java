@@ -160,7 +160,7 @@ public final class ExprSubstitutionMap {
         ExprSubstitutionMap result = new ExprSubstitutionMap();
         // f's substitution targets need to be substituted via g
         result.lhs = Expr.cloneList(f.lhs);
-        result.rhs = Expr.substituteList(f.rhs, g, analyzer, false);
+        result.rhs = Expr.substituteList(f.rhs, g, analyzer, true);
 
         // substitution maps are cumulative: the combined map contains all
         // substitutions from f and g.

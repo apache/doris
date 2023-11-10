@@ -81,9 +81,8 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
-                           TabletSchemaSPtr tablet_schema, TabletSharedPtr tablet,
-                           DataDir* data_dir, uint32_t max_row_per_segment,
-                           const SegmentWriterOptions& opts,
+                           TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
+                           uint32_t max_row_per_segment, const SegmentWriterOptions& opts,
                            std::shared_ptr<MowContext> mow_context);
     ~SegmentWriter();
 
@@ -116,14 +115,12 @@ public:
     Status finalize_columns_data();
     Status finalize_columns_index(uint64_t* index_size);
     Status finalize_footer(uint64_t* segment_file_size);
-    Status finalize_footer();
 
     void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                           TabletSchemaSPtr tablet_schema);
     Slice min_encoded_key();
     Slice max_encoded_key();
 
-    DataDir* get_data_dir() { return _data_dir; }
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
 
     void clear();
@@ -149,11 +146,10 @@ private:
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-                             size_t pos, bool null_first = true);
+                             size_t pos);
     // used for unique-key with merge on write and segment min_max key
     std::string _full_encode_keys(
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-            bool null_first = true);
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
                             string* encoded_keys);
@@ -166,7 +162,7 @@ private:
 private:
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     DataDir* _data_dir;
     uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;

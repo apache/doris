@@ -19,6 +19,7 @@ package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.BDBStateChangeListener;
 import org.apache.doris.ha.FrontendNodeType;
@@ -90,13 +91,14 @@ public class BDBEnvironment {
     // The setup() method opens the environment and database
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort, boolean isElectable) {
-
+        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
         // Almost never used, just in case the master can not restart
-        if (Config.metadata_failure_recovery.equals("true")) {
+        if (metadataFailureRecovery) {
             if (!isElectable) {
                 LOG.error("Current node is not in the electable_nodes list. will exit");
                 System.exit(-1);
             }
+            LOG.info("start group reset");
             DbResetRepGroup resetUtility = new DbResetRepGroup(
                     envHome, PALO_JOURNAL_GROUP, selfNodeName, selfNodeHostPort);
             resetUtility.reset();

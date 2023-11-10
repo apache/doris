@@ -33,6 +33,7 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 
@@ -41,6 +42,12 @@ class PTransmitDataParams;
 class TUniqueId;
 
 using InstanceLoId = int64_t;
+
+namespace pipeline {
+class BroadcastDependency;
+class ExchangeSinkQueueDependency;
+class FinishDependency;
+} // namespace pipeline
 
 namespace vectorized {
 class VDataStreamSender;
@@ -65,22 +72,22 @@ struct AtomicWrapper {
 // PBlock is available for next serialization.
 class BroadcastPBlockHolder {
 public:
-    BroadcastPBlockHolder() : _ref_count(0) {}
+    BroadcastPBlockHolder() : _ref_count(0), _dep(nullptr) {}
+    BroadcastPBlockHolder(pipeline::BroadcastDependency* dep) : _ref_count(0), _dep(dep) {}
     ~BroadcastPBlockHolder() noexcept = default;
 
-    void unref() noexcept {
-        DCHECK_GT(_ref_count._value, 0);
-        _ref_count._value.fetch_sub(1);
-    }
-    void ref() noexcept { _ref_count._value.fetch_add(1); }
+    void ref(int delta) noexcept { _ref_count._value.fetch_add(delta); }
+    void unref() noexcept;
+    void ref() noexcept { ref(1); }
 
     bool available() { return _ref_count._value == 0; }
 
     PBlock* get_block() { return &pblock; }
 
 private:
-    AtomicWrapper<uint32_t> _ref_count;
+    AtomicWrapper<int32_t> _ref_count;
     PBlock pblock;
+    pipeline::BroadcastDependency* _dep;
 };
 } // namespace vectorized
 
@@ -90,6 +97,7 @@ struct TransmitInfo {
     vectorized::PipChannel<Parent>* channel;
     std::unique_ptr<PBlock> block;
     bool eos;
+    Status exec_status;
 };
 
 template <typename Parent>
@@ -177,6 +185,13 @@ public:
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
+    void set_dependency(std::shared_ptr<ExchangeSinkQueueDependency> queue_dependency,
+                        std::shared_ptr<FinishDependency> finish_dependency) {
+        _queue_dependency = queue_dependency;
+        _finish_dependency = finish_dependency;
+    }
+    void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
+
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
@@ -184,6 +199,7 @@ private:
     phmap::flat_hash_map<InstanceLoId,
                          std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>>
             _instance_to_package_queue;
+    size_t _queue_capacity;
     // store data in broadcast shuffle
     phmap::flat_hash_map<InstanceLoId, std::queue<BroadcastTransmitInfo<Parent>,
                                                   std::list<BroadcastTransmitInfo<Parent>>>>
@@ -193,7 +209,10 @@ private:
     // TODO: make all flat_hash_map to a STRUT
     phmap::flat_hash_map<InstanceLoId, PackageSeq> _instance_to_seq;
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<PTransmitDataParams>> _instance_to_request;
-    phmap::flat_hash_map<InstanceLoId, bool> _instance_to_sending_by_pipeline;
+    // One channel is corresponding to a downstream instance.
+    phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_idle;
+    // Number of busy channels;
+    std::atomic<int> _busy_channels = 0;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
     phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
@@ -216,6 +235,12 @@ private:
     inline bool _is_receiver_eof(InstanceLoId id);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
+
+    std::atomic<int> _total_queue_size = 0;
+    static constexpr int QUEUE_CAPACITY_FACTOR = 64;
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
+    std::shared_ptr<FinishDependency> _finish_dependency = nullptr;
+    QueryStatistics* _statistics = nullptr;
 };
 
 } // namespace pipeline

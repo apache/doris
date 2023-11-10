@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_export_with_s3", "p2") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
     
     String ak = getS3AK()
     String sk = getS3SK()

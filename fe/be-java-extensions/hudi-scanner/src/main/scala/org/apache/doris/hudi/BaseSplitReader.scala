@@ -153,6 +153,8 @@ case class HoodieTableInformation(sparkSession: SparkSession,
                                   metaClient: HoodieTableMetaClient,
                                   timeline: HoodieTimeline,
                                   tableConfig: HoodieTableConfig,
+                                  resolvedTargetFields: Array[String],
+                                  tableAvroSchema: Schema,
                                   internalSchemaOpt: Option[InternalSchema])
 
 /**
@@ -214,22 +216,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
    * required to fetch table's Avro and Internal schemas
    */
   protected lazy val (tableAvroSchema: Schema, internalSchemaOpt: Option[InternalSchema]) = {
-    val schemaResolver = new TableSchemaResolver(tableInformation.metaClient)
-    val (name, namespace) = AvroConversionUtils.getAvroRecordNameAndNamespace(tableName)
-    val avroSchema: Schema = tableInformation.internalSchemaOpt.map { is =>
-      AvroInternalSchemaConverter.convert(is, namespace + "." + name)
-    } orElse {
-      specifiedQueryTimestamp.map(schemaResolver.getTableAvroSchema)
-    } orElse {
-      split.schemaSpec.map(s => convertToAvroSchema(s, tableName))
-    } getOrElse {
-      Try(schemaResolver.getTableAvroSchema) match {
-        case Success(schema) => schema
-        case Failure(e) =>
-          throw new HoodieSchemaException("Failed to fetch schema from the table", e)
-      }
-    }
-    (avroSchema, tableInformation.internalSchemaOpt)
+    (tableInformation.tableAvroSchema, tableInformation.internalSchemaOpt)
   }
 
   protected lazy val tableStructSchema: StructType = convertAvroSchemaToStructType(tableAvroSchema)
@@ -280,13 +267,13 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
     sqlContext.sparkSession.sessionState.conf.setConfString("spark.sql.parquet.enableVectorizedReader", "false")
   }
 
-  def buildScanIterator(requiredColumns: Array[String], filters: Array[Filter]): Iterator[InternalRow] = {
+  def buildScanIterator(filters: Array[Filter]): Iterator[InternalRow] = {
     // NOTE: PLEASE READ CAREFULLY BEFORE MAKING CHANGES
     //       *Appending* additional columns to the ones requested by the caller is not a problem, as those
     //       will be eliminated by the caller's projection;
     //   (!) Please note, however, that it's critical to avoid _reordering_ of the requested columns as this
     //       will break the upstream projection
-    val targetColumns: Array[String] = appendMandatoryColumns(requiredColumns)
+    val targetColumns: Array[String] = appendMandatoryColumns(tableInformation.resolvedTargetFields)
     // NOTE: We explicitly fallback to default table's Avro schema to make sure we avoid unnecessary Catalyst > Avro
     //       schema conversion, which is lossy in nature (for ex, it doesn't preserve original Avro type-names) and
     //       could have an effect on subsequent de-/serializing records in some exotic scenarios (when Avro unions
@@ -663,11 +650,36 @@ object BaseSplitReader {
               None
           }
         }
+        val tableName = metaClient.getTableConfig.getTableName
+        val (name, namespace) = AvroConversionUtils.getAvroRecordNameAndNamespace(tableName)
+        val avroSchema: Schema = internalSchemaOpt.map { is =>
+          AvroInternalSchemaConverter.convert(is, namespace + "." + name)
+        } orElse {
+          specifiedQueryTimestamp.map(schemaResolver.getTableAvroSchema)
+        } orElse {
+          split.schemaSpec.map(s => convertToAvroSchema(s, tableName))
+        } getOrElse {
+          Try(schemaResolver.getTableAvroSchema) match {
+            case Success(schema) => schema
+            case Failure(e) =>
+              throw new HoodieSchemaException("Failed to fetch schema from the table", e)
+          }
+        }
+
+        // match column name in lower case
+        val colNames = internalSchemaOpt.map { internalSchema =>
+          internalSchema.getAllColsFullName.asScala.map(f => f.toLowerCase -> f).toMap
+        } getOrElse {
+          avroSchema.getFields.asScala.map(f => f.name().toLowerCase -> f.name()).toMap
+        }
+        val resolvedTargetFields = split.requiredFields.map(field => colNames.getOrElse(field.toLowerCase, field))
 
         HoodieTableInformation(sparkSession,
           metaClient,
           timeline,
           metaClient.getTableConfig,
+          resolvedTargetFields,
+          avroSchema,
           internalSchemaOpt)
       }
     }

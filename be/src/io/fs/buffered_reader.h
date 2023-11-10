@@ -32,7 +32,6 @@
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_reader.h"
 #include "olap/olap_define.h"
@@ -44,7 +43,7 @@ namespace doris {
 namespace io {
 
 class FileSystem;
-class IOContext;
+struct IOContext;
 
 struct PrefetchRange {
     size_t start_offset;
@@ -75,6 +74,15 @@ struct PrefetchRange {
  */
 class MergeRangeFileReader : public io::FileReader {
 public:
+    struct Statistics {
+        int64_t copy_time = 0;
+        int64_t read_time = 0;
+        int64_t request_io = 0;
+        int64_t merged_io = 0;
+        int64_t request_bytes = 0;
+        int64_t read_bytes = 0;
+    };
+
     struct RangeCachedData {
         size_t start_offset;
         size_t end_offset;
@@ -135,14 +143,17 @@ public:
         _remaining = TOTAL_BUFFER_SIZE;
         if (_profile != nullptr) {
             const char* random_profile = "MergedSmallIO";
-            ADD_TIMER(_profile, random_profile);
-            _copy_time = ADD_CHILD_TIMER(_profile, "CopyTime", random_profile);
-            _read_time = ADD_CHILD_TIMER(_profile, "ReadTime", random_profile);
-            _request_io = ADD_CHILD_COUNTER(_profile, "RequestIO", TUnit::UNIT, random_profile);
-            _merged_io = ADD_CHILD_COUNTER(_profile, "MergedIO", TUnit::UNIT, random_profile);
-            _request_bytes =
-                    ADD_CHILD_COUNTER(_profile, "RequestBytes", TUnit::BYTES, random_profile);
-            _read_bytes = ADD_CHILD_COUNTER(_profile, "MergedBytes", TUnit::BYTES, random_profile);
+            ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
+            _copy_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CopyTime", random_profile, 1);
+            _read_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadTime", random_profile, 1);
+            _request_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT,
+                                                       random_profile, 1);
+            _merged_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedIO", TUnit::UNIT,
+                                                      random_profile, 1);
+            _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
+                                                          random_profile, 1);
+            _read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
+                                                       random_profile, 1);
         }
     }
 
@@ -153,7 +164,7 @@ public:
         for (char* box : _boxes) {
             delete[] box;
         }
-        close();
+        static_cast<void>(close());
     }
 
     Status close() override {
@@ -190,20 +201,14 @@ public:
     // for test only
     const std::vector<int16>& box_reference() const { return _box_ref; }
 
+    // for test only
+    const Statistics& statistics() const { return _statistics; }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
 private:
-    struct Statistics {
-        int64_t copy_time = 0;
-        int64_t read_time = 0;
-        int64_t request_io = 0;
-        int64_t merged_io = 0;
-        int64_t request_bytes = 0;
-        int64_t read_bytes = 0;
-    };
-
     RuntimeProfile::Counter* _copy_time;
     RuntimeProfile::Counter* _read_time;
     RuntimeProfile::Counter* _request_io;

@@ -42,23 +42,11 @@ suite("prepare_insert") {
     """
 
     // Parse url
-    String jdbcUrl = context.config.jdbcUrl
-    String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-    def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
-    def sql_port
-    if (urlWithoutSchema.indexOf("/") >= 0) {
-        // e.g: jdbc:mysql://locahost:8080/?a=b
-        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
-    } else {
-        // e.g: jdbc:mysql://locahost:8080
-        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
-    }
-    // set server side prepared statement url
-    def url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
+    String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb)
 
     def result1 = connect(user = user, password = password, url = url) {
         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
-        assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)
         stmt.setInt(1, 1)
         stmt.setString(2, "a")
         stmt.setInt(3, 90)
@@ -91,7 +79,7 @@ suite("prepare_insert") {
     def label = "insert_" + System.currentTimeMillis()
     result1 = connect(user = user, password = password, url = url) {
         def stmt = prepareStatement "insert into ${tableName} with label ${label} values(?, ?, ?)"
-        assertEquals(stmt.class, com.mysql.cj.jdbc.ClientPreparedStatement)
+        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt.class)
         stmt.setInt(1, 5)
         stmt.setString(2, "a5")
         stmt.setInt(3, 94)
@@ -104,7 +92,7 @@ suite("prepare_insert") {
     url += "&rewriteBatchedStatements=true"
     result1 = connect(user = user, password = password, url = url) {
         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
-        assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)
         stmt.setInt(1, 10)
         stmt.setString(2, "a")
         stmt.setInt(3, 90)

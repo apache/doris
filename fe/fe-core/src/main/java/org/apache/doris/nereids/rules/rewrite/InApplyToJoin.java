@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -92,26 +93,33 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             }
 
             //in-predicate to equal
+            InSubquery inSubquery = ((InSubquery) apply.getSubqueryExpr());
             Expression predicate;
-            Expression left = ((InSubquery) apply.getSubqueryExpr()).getCompareExpr();
+            Expression left = inSubquery.getCompareExpr();
             // TODO: trick here, because when deep copy logical plan the apply right child
             //  is not same with query plan in subquery expr, since the scan node copy twice
-            Expression right = apply.getSubqueryExpr().getSubqueryOutput((LogicalPlan) apply.right());
+            Expression right = inSubquery.getSubqueryOutput((LogicalPlan) apply.right());
             if (apply.isCorrelated()) {
-                predicate = ExpressionUtils.and(new EqualTo(left, right),
-                        apply.getCorrelationFilter().get());
+                if (inSubquery.isNot()) {
+                    predicate = ExpressionUtils.and(ExpressionUtils.or(new EqualTo(left, right),
+                            new IsNull(left), new IsNull(right)),
+                            apply.getCorrelationFilter().get());
+                } else {
+                    predicate = ExpressionUtils.and(new EqualTo(left, right),
+                            apply.getCorrelationFilter().get());
+                }
             } else {
                 predicate = new EqualTo(left, right);
             }
 
             List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
-            if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
+            if (inSubquery.isNot()) {
                 return new LogicalJoin<>(
-                        predicate.nullable() ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN : JoinType.LEFT_ANTI_JOIN,
-                        Lists.newArrayList(),
-                        conjuncts,
-                        JoinHint.NONE, apply.getMarkJoinSlotReference(),
-                        apply.children());
+                        predicate.nullable() && !apply.isCorrelated()
+                                ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
+                                : JoinType.LEFT_ANTI_JOIN,
+                        Lists.newArrayList(), conjuncts, JoinHint.NONE,
+                        apply.getMarkJoinSlotReference(), apply.children());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         conjuncts,

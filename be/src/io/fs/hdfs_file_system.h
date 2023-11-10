@@ -29,7 +29,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
@@ -122,9 +121,10 @@ public:
 
 protected:
     Status connect_impl() override;
-    Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
-    Status open_file_internal(const FileDescription& fd, const Path& abs_path,
-                              FileReaderSPtr* reader) override;
+    Status create_file_impl(const Path& file, FileWriterPtr* writer,
+                            const FileWriterOptions* opts) override;
+    Status open_file_internal(const Path& file, FileReaderSPtr* reader,
+                              const FileReaderOptions& opts) override;
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;

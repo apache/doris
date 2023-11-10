@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.nereids.util.Utils;
 
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -38,7 +39,7 @@ public class StructField {
      *  @param nullable Indicates if values of this field can be `null` values
      */
     public StructField(String name, DataType dataType, boolean nullable, String comment) {
-        this.name = Objects.requireNonNull(name, "name should not be null");
+        this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase(Locale.ROOT);
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.nullable = nullable;
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
@@ -60,7 +61,18 @@ public class StructField {
         return comment;
     }
 
+    public StructField conversion() {
+        if (this.dataType.equals(dataType.conversion())) {
+            return this;
+        }
+        return withDataType(dataType.conversion());
+    }
+
     public StructField withDataType(DataType dataType) {
+        return new StructField(name, dataType, nullable, comment);
+    }
+
+    public StructField withDataTypeAndNullable(DataType dataType, boolean nullable) {
         return new StructField(name, dataType, nullable, comment);
     }
 
@@ -71,7 +83,7 @@ public class StructField {
 
     public String toSql() {
         return name + ":" + dataType.toSql()
-                + (nullable ? " " : " NOT NULL")
+                + (nullable ? "" : " NOT NULL")
                 + (comment.isEmpty() ? "" : " COMMENT " + comment);
     }
 
