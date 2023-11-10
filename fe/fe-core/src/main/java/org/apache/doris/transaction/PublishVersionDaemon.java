@@ -121,7 +121,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                 batchTask.addTask(task);
                 transactionState.addPublishVersionTask(backendId, task);
             }
-            transactionState.setHasSendTask(true);
+            transactionState.setSendedTask();
             LOG.info("send publish tasks for transaction: {}, db: {}", transactionState.getTransactionId(),
                     transactionState.getDbId());
         }
@@ -174,7 +174,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
                 }
                 if (MetricRepo.isInit) {
-                    long publishTime = transactionState.getPublishVersionTime() - transactionState.getCommitTime();
+                    long publishTime = transactionState.getLastPublishVersionTime() - transactionState.getCommitTime();
                     MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
                 }
             }

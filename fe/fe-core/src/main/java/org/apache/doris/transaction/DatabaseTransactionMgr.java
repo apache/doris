@@ -294,7 +294,7 @@ public class DatabaseTransactionMgr {
         info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
         info.add(TimeUtils.longToTimeString(txnState.getPreCommitTime()));
         info.add(TimeUtils.longToTimeString(txnState.getCommitTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getPublishVersionTime()));
+        info.add(TimeUtils.longToTimeString(txnState.getLastPublishVersionTime()));
         info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
         info.add(txnState.getReason());
         info.add(String.valueOf(txnState.getErrorReplicas().size()));
@@ -944,10 +944,10 @@ public class DatabaseTransactionMgr {
         Map<Long, PublishVersionTask> publishTasks = transactionState.getPublishVersionTasks();
 
         long now = System.currentTimeMillis();
-        long firstPublishOneSuccTime = transactionState.getFirstPublishOneSuccTime();
+        long firstPublishVersionTime = transactionState.getFirstPublishVersionTime();
         boolean allowPublishOneSucc = false;
-        if (Config.publish_wait_time_second > 0 && firstPublishOneSuccTime > 0
-                && now >= firstPublishOneSuccTime + Config.publish_wait_time_second * 1000L) {
+        if (Config.publish_wait_time_second > 0 && firstPublishVersionTime > 0
+                && now >= firstPublishVersionTime + Config.publish_wait_time_second * 1000L) {
             allowPublishOneSucc = true;
         }
 
@@ -970,7 +970,6 @@ public class DatabaseTransactionMgr {
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         PublishResult publishResult = PublishResult.QUORUM_SUCC;
         try {
-            boolean allTabletsLeastOneSucc = true;
             Iterator<TableCommitInfo> tableCommitInfoIterator
                     = transactionState.getIdToTableCommitInfos().values().iterator();
             while (tableCommitInfoIterator.hasNext()) {
@@ -1058,10 +1057,6 @@ public class DatabaseTransactionMgr {
                                 continue;
                             }
 
-                            if (healthReplicaNum == 0) {
-                                allTabletsLeastOneSucc = false;
-                            }
-
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
                             if (allowPublishOneSucc && healthReplicaNum > 0) {
@@ -1099,9 +1094,6 @@ public class DatabaseTransactionMgr {
                         }
                     }
                 }
-            }
-            if (allTabletsLeastOneSucc && firstPublishOneSuccTime <= 0) {
-                transactionState.setFirstPublishOneSuccTime(now);
             }
             if (publishResult == PublishResult.FAILED) {
                 return;
