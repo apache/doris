@@ -23,7 +23,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <stddef.h>
 
 #include <algorithm>
@@ -41,7 +40,6 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/proto_util.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/sip_hash.h"
 #include "vec/exprs/vexpr.h"
@@ -462,6 +460,13 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         RETURN_IF_ERROR(_partitioner->prepare(state, _row_desc));
+        if (_part_type == TPartitionType::HASH_PARTITIONED) {
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("XXHashPartitioner({})", _partition_count));
+        } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("Crc32HashPartitioner({})", _partition_count));
+        }
     }
 
     _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);

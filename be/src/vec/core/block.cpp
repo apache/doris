@@ -32,7 +32,6 @@
 #include <limits>
 
 #include "agent/be_exec_version_manager.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"

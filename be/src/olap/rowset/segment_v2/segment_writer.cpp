@@ -26,7 +26,6 @@
 #include <unordered_map>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -402,13 +401,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         // mark key with delete sign as deleted.
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
-        if (have_delete_sign && !_tablet_schema->has_sequence_col() && !have_input_seq_column) {
-            // we can directly use delete bitmap to mark the rows with delete sign as deleted
-            // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                              DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                             segment_pos);
-        }
 
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
@@ -554,8 +546,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 read_index[id_and_pos.pos] = read_idx++;
             }
             if (has_row_column) {
-                auto st = tablet->fetch_value_through_row_column(rowset, seg_it.first, rids,
-                                                                 cids_missing, old_value_block);
+                auto st = tablet->fetch_value_through_row_column(
+                        rowset, *_tablet_schema, seg_it.first, rids, cids_missing, old_value_block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
                     return st;
@@ -661,29 +653,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
     }
 
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT && _opts.enable_unique_key_merge_on_write &&
-        !_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
-        const vectorized::ColumnWithTypeAndName& delete_sign_column =
-                block->get_by_position(_tablet_schema->delete_sign_idx());
-        auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
-        if (delete_sign_col.size() >= row_pos + num_rows) {
-            const vectorized::Int8* delete_sign_column_data = delete_sign_col.get_data().data();
-            uint32_t segment_start_pos =
-                    _column_writers[_tablet_schema->delete_sign_idx()]->get_next_rowid();
-            for (size_t block_pos = row_pos, seg_pos = segment_start_pos;
-                 seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
-                // we can directly use delete bitmap to mark the rows with delete sign as deleted
-                // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-                if (delete_sign_column_data[block_pos]) {
-                    _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                                      DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                                     seg_pos);
-                }
-            }
-        }
-    }
-
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // find all row pos for short key indexes
@@ -768,8 +737,7 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
 }
 
 std::string SegmentWriter::_full_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(_key_index_size.size() == _num_key_columns);
     assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
 
@@ -778,11 +746,7 @@ std::string SegmentWriter::_full_encode_keys(
     for (const auto& column : key_columns) {
         auto field = column->get_data_at(pos);
         if (UNLIKELY(!field)) {
-            if (null_first) {
-                encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
-            } else {
-                encoded_keys.push_back(KEY_NULL_LAST_MARKER);
-            }
+            encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
             ++cid;
             continue;
         }
@@ -810,8 +774,7 @@ void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor
 }
 
 std::string SegmentWriter::_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(key_columns.size() == _num_short_key_columns);
 
     std::string encoded_keys;
@@ -819,11 +782,7 @@ std::string SegmentWriter::_encode_keys(
     for (const auto& column : key_columns) {
         auto field = column->get_data_at(pos);
         if (UNLIKELY(!field)) {
-            if (null_first) {
-                encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
-            } else {
-                encoded_keys.push_back(KEY_NULL_LAST_MARKER);
-            }
+            encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
             ++cid;
             continue;
         }
@@ -841,7 +800,7 @@ Status SegmentWriter::append_row(const RowType& row) {
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
     std::string full_encoded_key;
-    encode_key<RowType, true, true>(&full_encoded_key, row, _num_key_columns);
+    encode_key<RowType, true>(&full_encoded_key, row, _num_key_columns);
     if (_tablet_schema->has_sequence_col()) {
         full_encoded_key.push_back(KEY_NORMAL_MARKER);
         auto cid = _tablet_schema->sequence_col_idx();

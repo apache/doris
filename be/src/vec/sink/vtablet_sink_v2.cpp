@@ -25,7 +25,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <algorithm>
 #include <execution>
@@ -34,7 +33,6 @@
 #include <string>
 #include <unordered_map>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -50,7 +48,6 @@
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
-#include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"

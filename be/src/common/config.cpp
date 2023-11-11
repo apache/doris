@@ -457,7 +457,7 @@ DEFINE_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
 DEFINE_mInt32(periodic_counter_update_period_ms, "500");
 
-DEFINE_Bool(enable_single_replica_load, "false");
+DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
 DEFINE_Int32(single_replica_load_download_num_workers, "64");
 
@@ -635,8 +635,6 @@ DEFINE_Bool(path_gc_check, "true");
 DEFINE_mInt32(path_gc_check_interval_second, "86400");
 DEFINE_mInt32(path_gc_check_step, "1000");
 DEFINE_mInt32(path_gc_check_step_interval_ms, "10");
-DEFINE_mInt32(path_scan_interval_second, "86400");
-DEFINE_mInt32(path_scan_step_interval_ms, "70");
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -814,27 +812,6 @@ DEFINE_String(function_service_protocol, "h2:grpc");
 
 // use which load balancer to select server to connect
 DEFINE_String(rpc_load_balancer, "rr");
-
-// Enable tracing
-// If this configuration is enabled, you should also specify the trace_export_url.
-DEFINE_Bool(enable_tracing, "false");
-
-// Enable opentelemtry collector
-DEFINE_Bool(enable_otel_collector, "false");
-
-// Current support for exporting traces:
-// zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-// collector: The collector can be used to receive and process traces and support export to a variety of
-//   third-party systems.
-DEFINE_mString(trace_exporter, "zipkin");
-DEFINE_Validator(trace_exporter, [](const std::string& config) -> bool {
-    return config == "zipkin" || config == "collector";
-});
-
-// The endpoint to export spans to.
-// export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-// export to collector like: http://127.0.0.1:4318/v1/traces
-DEFINE_String(trace_export_url, "http://127.0.0.1:9411/api/v2/spans");
 
 // The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
 // An export will be triggered when the number of spans in the queue reaches half of the maximum.
@@ -1118,8 +1095,11 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
-// Max size(bytes) of group commit queues, used for mem back pressure.
-DEFINE_Int32(group_commit_max_queue_size, "65536");
+// Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
+DEFINE_Int32(group_commit_max_queue_size, "67108864");
+
+// Max size(bytes) of wal disk using, used for disk space back pressure, default 64M.
+DEFINE_Int32(wal_max_disk_size, "67108864");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");

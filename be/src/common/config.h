@@ -106,7 +106,7 @@ DECLARE_Int32(brpc_num_threads);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
-// this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
+// This is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
@@ -690,8 +690,6 @@ DECLARE_Bool(path_gc_check);
 DECLARE_mInt32(path_gc_check_interval_second);
 DECLARE_mInt32(path_gc_check_step);
 DECLARE_mInt32(path_gc_check_step_interval_ms);
-DECLARE_mInt32(path_scan_interval_second);
-DECLARE_mInt32(path_scan_step_interval_ms);
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -872,24 +870,6 @@ DECLARE_String(function_service_protocol);
 
 // use which load balancer to select server to connect
 DECLARE_String(rpc_load_balancer);
-
-// Enable tracing
-// If this configuration is enabled, you should also specify the trace_export_url.
-DECLARE_Bool(enable_tracing);
-
-// Enable opentelemtry collector
-DECLARE_Bool(enable_otel_collector);
-
-// Current support for exporting traces:
-// zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-// collector: The collector can be used to receive and process traces and support export to a variety of
-//   third-party systems.
-DECLARE_mString(trace_exporter);
-
-// The endpoint to export spans to.
-// export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-// export to collector like: http://127.0.0.1:4318/v1/traces
-DECLARE_String(trace_export_url);
 
 // The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
 // An export will be triggered when the number of spans in the queue reaches half of the maximum.
@@ -1194,6 +1174,9 @@ DECLARE_String(default_tzfiles_path);
 
 // Max size(bytes) of group commit queues, used for mem back pressure.
 DECLARE_Int32(group_commit_max_queue_size);
+
+// Max size(bytes) of wal disk using, used for disk space back pressure.
+DECLARE_Int32(wal_max_disk_size);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);

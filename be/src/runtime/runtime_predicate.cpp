@@ -21,7 +21,6 @@
 
 #include <memory>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "olap/accept_null_predicate.h"
 #include "olap/column_predicate.h"

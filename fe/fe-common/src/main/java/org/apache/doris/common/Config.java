@@ -1531,30 +1531,6 @@ public class Config extends ConfigBase {
     public static int auto_check_statistics_in_minutes = 10;
 
     /**
-     * If this configuration is enabled, you should also specify the trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static boolean enable_tracing = false;
-
-    /**
-     * Current support for exporting traces:
-     *   zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-     *   collector: The collector can be used to receive and process traces and support export to a variety of
-     *     third-party systems.
-     * If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static String trace_exporter = "zipkin";
-
-    /**
-     * The endpoint to export spans to.
-     * export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-     * export to collector like: http://127.0.0.1:4318/v1/traces
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
-
-    /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
      * Default is true.
      */
@@ -2253,4 +2229,18 @@ public class Config extends ConfigBase {
                     + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."
     })
     public static int max_auto_partition_num = 2000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Partition rebalance 方式下各个 BE 的 tablet 数最大差值，小于该值时，会诊断为已均衡",
+            "The maximum difference in the number of tablets of each BE in partition rebalance mode. "
+                    + "If it is less than this value, it will be diagnosed as balanced."
+    })
+    public static int diagnose_balance_max_tablet_num_diff = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Partition rebalance 方式下各个 BE 的 tablet 数的最大比率，小于该值时，会诊断为已均衡",
+            "The maximum ratio of the number of tablets in each BE in partition rebalance mode. "
+                    + "If it is less than this value, it will be diagnosed as balanced."
+    })
+    public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 }
