@@ -378,14 +378,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         HashSet<String> partialUpdateCols = new HashSet<>();
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
         if (isPartialUpdate) {
-            OlapTable olapTable = olapTableSink.getTargetTable();
             for (Column col : olapTableSink.getCols()) {
                 partialUpdateCols.add(col.getName());
-            }
-            for (Column col : olapTable.getFullSchema()) {
-                if (col.hasOnUpdateDefaultValue()) {
-                    partialUpdateCols.add(col.getName());
-                }
             }
         }
         TupleDescriptor olapTuple = context.generateTupleDesc();

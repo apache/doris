@@ -85,11 +85,15 @@ public class BindSink implements AnalysisRuleFactory {
                     boolean needExtraSeqCol = isPartialUpdate && !childHasSeqCol && table.hasSequenceCol()
                             && table.getSequenceMapCol() != null
                             && sink.getColNames().contains(table.getSequenceMapCol());
+                    Pair<List<Column>, Integer> bindColumnsReult =
+                            bindTargetColumns(table, sink.getColNames(), childHasSeqCol, needExtraSeqCol);
+                    List<Column> bindColumns = bindColumnsReult.first;
+                    int extraColumnsNum = bindColumnsReult.second;
 
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
                             table,
-                            bindTargetColumns(table, sink.getColNames(), childHasSeqCol || needExtraSeqCol),
+                            bindColumns,
                             bindPartitionIds(table, sink.getPartitions()),
                             child.getOutput().stream()
                                     .map(NamedExpression.class::cast)
@@ -127,7 +131,6 @@ public class BindSink implements AnalysisRuleFactory {
                     // although some columns are not mentions.
                     // so we add a projects to supply the default value.
 
-                    int extraColumnsNum = (needExtraSeqCol ? 1 : 0);
                     if (boundSink.getCols().size() != child.getOutput().size() + extraColumnsNum) {
                         throw new AnalysisException("insert into cols should be corresponding to the query output");
                     }
@@ -333,24 +336,36 @@ public class BindSink implements AnalysisRuleFactory {
                 }).collect(Collectors.toList());
     }
 
-    private List<Column> bindTargetColumns(OlapTable table, List<String> colsName, boolean isNeedSequenceCol) {
+    private Pair<List<Column>, Integer> bindTargetColumns(OlapTable table, List<String> colsName,
+            boolean childHasSeqCol, boolean needExtraSeqCol) {
         // if the table set sequence column in stream load phase, the sequence map column is null, we query it.
         if (colsName.isEmpty()) {
-            return table.getBaseSchema(true).stream()
-                .filter(c -> validColumn(c, isNeedSequenceCol))
-                .collect(ImmutableList.toImmutableList());
+            return Pair.of(table.getBaseSchema(true).stream()
+                .filter(c -> validColumn(c, childHasSeqCol))
+                .collect(ImmutableList.toImmutableList()), 0);
         } else {
-            if (!colsName.contains(Column.SEQUENCE_COL) && isNeedSequenceCol) {
-                colsName = ImmutableList.<String>builder().addAll(colsName).add(Column.SEQUENCE_COL).build();
+            int extraColumnsNum = (needExtraSeqCol ? 1 : 0);
+            List<String> processedColsName = Lists.newArrayList(colsName);
+            for (Column col : table.getFullSchema()) {
+                if (col.hasOnUpdateDefaultValue()) {
+                    Optional<String> colName = colsName.stream().filter(c -> c.equals(col.getName())).findFirst();
+                    if (!colName.isPresent()) {
+                        ++extraColumnsNum;
+                        processedColsName.add(col.getName());
+                    }
+                }
             }
-            return colsName.stream().map(cn -> {
+            if (!processedColsName.contains(Column.SEQUENCE_COL) && (childHasSeqCol || needExtraSeqCol)) {
+                processedColsName.add(Column.SEQUENCE_COL);
+            }
+            return Pair.of(processedColsName.stream().map(cn -> {
                 Column column = table.getColumn(cn);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",
                             cn, table.getName()));
                 }
                 return column;
-            }).collect(ImmutableList.toImmutableList());
+            }).collect(ImmutableList.toImmutableList()), extraColumnsNum);
         }
     }
 
