@@ -260,7 +260,7 @@ private:
     std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
     std::string _gen_predicate_result_sign(ColumnPredicateInfo* predicate_info);
 
-    void _build_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
+    void _build_index_result_column(const uint16_t* sel_rowid_idx, uint16_t select_size,
                                     vectorized::Block* block, const std::string& pred_result_sign,
                                     const roaring::Roaring& index_result);
     void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
