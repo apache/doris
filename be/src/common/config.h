@@ -363,7 +363,7 @@ DECLARE_Int32(index_page_cache_percentage);
 // whether to disable page cache feature in storage
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
-DECLARE_Bool(disable_storage_row_cache);
+DECLARE_mBool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
