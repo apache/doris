@@ -103,7 +103,7 @@ public:
 
     bool has_more_range() const { return !_eof; }
 
-    [[nodiscard]] uint32_t get_batch_size() const { return kBatchSize; }
+    [[nodiscard]] static uint32_t get_batch_size() { return kBatchSize; }
 
     // read next range into [*from, *to) whose size <= max_range_size.
     // return false when there is no more range.
