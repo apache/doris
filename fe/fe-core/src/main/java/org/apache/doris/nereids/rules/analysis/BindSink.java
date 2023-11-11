@@ -77,40 +77,67 @@ public class BindSink implements AnalysisRuleFactory {
                     Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
                     Database database = pair.first;
                     OlapTable table = pair.second;
+                    boolean isPartialUpdate = sink.isPartialUpdate();
 
                     LogicalPlan child = ((LogicalPlan) sink.child());
-                    boolean isNeedSequenceCol = child.getOutput().stream()
+                    boolean childHasSeqCol = child.getOutput().stream()
                             .anyMatch(slot -> slot.getName().equals(Column.SEQUENCE_COL));
-
-                    if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()
-                            && sink.isPartialUpdate()) {
-                        throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                                + "updating partial columns using the INSERT statement.");
-                    }
+                    boolean needExtraSeqCol = isPartialUpdate && !childHasSeqCol && table.hasSequenceCol()
+                            && table.getSequenceMapCol() != null
+                            && sink.getColNames().contains(table.getSequenceMapCol());
 
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
                             table,
-                            bindTargetColumns(table, sink.getColNames(), isNeedSequenceCol),
+                            bindTargetColumns(table, sink.getColNames(), childHasSeqCol || needExtraSeqCol),
                             bindPartitionIds(table, sink.getPartitions()),
                             child.getOutput().stream()
                                     .map(NamedExpression.class::cast)
                                     .collect(ImmutableList.toImmutableList()),
-                            sink.isPartialUpdate(),
+                            isPartialUpdate,
                             sink.isFromNativeInsertStmt(),
                             sink.child());
+
+                    if (isPartialUpdate) {
+                        // check the necessary conditions for partial updates
+                        if (!table.getEnableUniqueKeyMergeOnWrite()) {
+                            throw new AnalysisException("Partial update is only allowed in"
+                                    + "unique table with merge-on-write enabled.");
+                        }
+                        if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()) {
+                            throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                                    + "updating partial columns using the INSERT statement.");
+                        }
+                        for (Column col : table.getFullSchema()) {
+                            boolean exists = false;
+                            for (Column insertCol : boundSink.getCols()) {
+                                if (insertCol.getName().equals(col.getName())) {
+                                    exists = true;
+                                    break;
+                                }
+                            }
+                            if (col.isKey() && !exists) {
+                                throw new AnalysisException("Partial update should include all key columns, missing: "
+                                        + col.getName());
+                            }
+                        }
+                    }
 
                     // we need to insert all the columns of the target table
                     // although some columns are not mentions.
                     // so we add a projects to supply the default value.
 
-                    if (boundSink.getCols().size() != child.getOutput().size()) {
+                    int extraColumnsNum = (needExtraSeqCol ? 1 : 0);
+                    if (boundSink.getCols().size() != child.getOutput().size() + extraColumnsNum) {
                         throw new AnalysisException("insert into cols should be corresponding to the query output");
                     }
 
                     try {
+                        // in upserts, users must specify the sequence mapping column explictly
+                        // if the target table has sequence mapping column unless the sequence mapping
+                        // column has the a default value of CURRENT_TIMESTAMP
                         if (table.hasSequenceCol() && table.getSequenceMapCol() != null
-                                    && !sink.getColNames().isEmpty() && !boundSink.isPartialUpdate()) {
+                                    && !sink.getColNames().isEmpty() && !isPartialUpdate) {
                             Column seqCol = table.getFullSchema().stream()
                                             .filter(col -> col.getName().equals(table.getSequenceMapCol()))
                                             .findFirst().get();
@@ -128,7 +155,7 @@ public class BindSink implements AnalysisRuleFactory {
                     }
 
                     Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
-                    for (int i = 0; i < boundSink.getCols().size(); ++i) {
+                    for (int i = 0; i < child.getOutput().size(); ++i) {
                         columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
                     }
 
@@ -172,7 +199,7 @@ public class BindSink implements AnalysisRuleFactory {
                                 if (columnToOutput.get(seqCol.get().getName()) != null) {
                                     columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
                                 }
-                            } else if (sink.isPartialUpdate()) {
+                            } else if (isPartialUpdate) {
                                 // If the current load is a partial update, the values of unmentioned
                                 // columns will be filled in SegmentWriter. And the output of sink node
                                 // should not contain these unmentioned columns, so we just skip them.
@@ -308,18 +335,23 @@ public class BindSink implements AnalysisRuleFactory {
 
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName, boolean isNeedSequenceCol) {
         // if the table set sequence column in stream load phase, the sequence map column is null, we query it.
-        return colsName.isEmpty()
-                ? table.getBaseSchema(true).stream()
+        if (colsName.isEmpty()) {
+            return table.getBaseSchema(true).stream()
                 .filter(c -> validColumn(c, isNeedSequenceCol))
-                .collect(ImmutableList.toImmutableList())
-                : colsName.stream().map(cn -> {
-                    Column column = table.getColumn(cn);
-                    if (column == null) {
-                        throw new AnalysisException(String.format("column %s is not found in table %s",
-                                cn, table.getName()));
-                    }
-                    return column;
-                }).collect(ImmutableList.toImmutableList());
+                .collect(ImmutableList.toImmutableList());
+        } else {
+            if (!colsName.contains(Column.SEQUENCE_COL) && isNeedSequenceCol) {
+                colsName = ImmutableList.<String>builder().addAll(colsName).add(Column.SEQUENCE_COL).build();
+            }
+            return colsName.stream().map(cn -> {
+                Column column = table.getColumn(cn);
+                if (column == null) {
+                    throw new AnalysisException(String.format("column %s is not found in table %s",
+                            cn, table.getName()));
+                }
+                return column;
+            }).collect(ImmutableList.toImmutableList());
+        }
     }
 
     private void maybeFallbackCastUnsupportedType(Expression expression, ConnectContext ctx) {
