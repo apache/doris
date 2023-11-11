@@ -983,6 +983,11 @@ suite("test_stream_load", "p0") {
 
     // test chunked transfer
     def tableName16 = "test_chunked_transfer"
+    InetSocketAddress address = context.config.feHttpInetSocketAddress
+    String user = context.config.feHttpUser
+    String password = context.config.feHttpPassword
+    String db = context.config.getDbNameByFile(context.file)
+    
     try {
         sql """ DROP TABLE IF EXISTS ${tableName16} """
         sql """
