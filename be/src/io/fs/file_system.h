@@ -45,6 +45,7 @@ namespace io {
         if (!_s) {                            \
             LOG(WARNING) << _s;               \
         }                                     \
+        _s.reset_stack();                     \
         return _s;                            \
     } while (0);
 #endif
