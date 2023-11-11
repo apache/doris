@@ -74,10 +74,7 @@ Status SegmentFlusher::close() {
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                                  const vectorized::Block* block, size_t row_offset,
                                  size_t row_num) {
-    auto s = segment_writer->append_block(block, row_offset, row_num);
-    if (UNLIKELY(!s.ok())) {
-        return Status::Error<WRITER_DATA_WRITE_ERROR>("failed to append block: {}", s.to_string());
-    }
+    RETURN_IF_ERROR(segment_writer->append_block(block, row_offset, row_num));
     _num_rows_written += row_num;
     return Status::OK();
 }
@@ -85,14 +82,8 @@ Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& seg
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
                                  const vectorized::Block* block, size_t row_offset,
                                  size_t row_num) {
-    Status s = segment_writer->batch_block(block, row_offset, row_num);
-    if (UNLIKELY(!s.ok())) {
-        return Status::Error<WRITER_DATA_WRITE_ERROR>("failed to append block: {}", s.to_string());
-    }
-    s = segment_writer->write_batch();
-    if (UNLIKELY(!s.ok())) {
-        return Status::Error<WRITER_DATA_WRITE_ERROR>("failed to append block: {}", s.to_string());
-    }
+    RETURN_IF_ERROR(segment_writer->batch_block(block, row_offset, row_num));
+    RETURN_IF_ERROR(segment_writer->write_batch());
     _num_rows_written += row_num;
     return Status::OK();
 }
