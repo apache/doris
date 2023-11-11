@@ -86,6 +86,9 @@ private:
 
     void _task_group_scanner_scan(ScannerScheduler* scheduler,
                                   taskgroup::ScanTaskTaskGroupQueue* scan_queue);
+    void _register_metrics();
+
+    static void _deregister_metrics();
 
     // Scheduling queue number.
     // TODO: make it configurable.
