@@ -214,7 +214,7 @@ Status EngineStorageMigrationTask::_migrate() {
         RETURN_IF_ERROR(_get_versions(start_version, &end_version, &consistent_rowsets));
 
         // TODO(ygl): the tablet should not under schema change or rollup or load
-        RETURN_IF_ERROR(_dest_store->get_shard(&shard));
+        shard = _dest_store->get_shard();
 
         auto shard_path = fmt::format("{}/{}/{}", _dest_store->path(), DATA_PREFIX, shard);
         full_path = SnapshotManager::get_schema_hash_full_path(_tablet, shard_path);

@@ -89,9 +89,6 @@ extern const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD;
 
 class Tablet final : public BaseTablet {
 public:
-    static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                   DataDir* data_dir = nullptr);
-
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
            const std::string_view& cumulative_compaction_type = "");
 

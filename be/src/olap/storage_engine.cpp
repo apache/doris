@@ -1152,20 +1152,14 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
         *store = stores[0];
     }
 
-    Status res = Status::OK();
-    uint64_t shard = 0;
-    res = (*store)->get_shard(&shard);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to get root path shard. res=" << res;
-        return res;
-    }
+    uint64_t shard = (*store)->get_shard();
 
     std::stringstream root_path_stream;
     root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
 
     LOG(INFO) << "success to process obtain root path. path=" << shard_path;
-    return res;
+    return Status::OK();
 }
 
 Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,

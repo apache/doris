@@ -82,7 +82,7 @@ public:
     Status set_cluster_id(int32_t cluster_id);
     void health_check();
 
-    Status get_shard(uint64_t* shard);
+    uint64_t get_shard();
 
     OlapMeta* get_meta() { return _meta; }
 
