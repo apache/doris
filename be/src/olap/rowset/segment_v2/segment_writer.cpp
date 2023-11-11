@@ -696,6 +696,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             std::string last_key;
             for (size_t pos = 0; pos < num_rows; pos++) {
                 std::string key = _full_encode_keys(key_columns, pos);
+                _maybe_invalid_row_cache(key);
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);
                 }
@@ -703,7 +704,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                         << "found duplicate key or key is not sorted! current key: " << key
                         << ", last key" << last_key;
                 RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-                _maybe_invalid_row_cache(key);
                 last_key = std::move(key);
             }
         } else {
