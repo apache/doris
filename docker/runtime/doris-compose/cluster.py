@@ -227,6 +227,8 @@ class Node(object):
                                                       self.get_name()))
 
     def docker_env(self):
+        enable_coverage = self.coverage_dir
+
         envs = {
             "MY_IP": self.get_ip(),
             "MY_ID": self.id,
@@ -234,22 +236,20 @@ class Node(object):
             "FE_EDITLOG_PORT": FE_EDITLOG_PORT,
             "BE_HEARTBEAT_PORT": BE_HEARTBEAT_PORT,
             "DORIS_HOME": os.path.join(DOCKER_DORIS_PATH, self.node_type()),
+            "STOP_GRACE": 1 if enable_coverage else 0,
         }
 
-        if self.coverage_dir:
-            outfile = "{}/coverage/{}.{}.{}.coverage".format(
-                DOCKER_DORIS_PATH, self.cluster_name, self.id,
-                self.node_type())
+        if enable_coverage:
+            outfile = "{}/coverage/{}-coverage-{}-{}".format(
+                DOCKER_DORIS_PATH, self.node_type(), self.cluster_name,
+                self.id)
             if self.node_type() == Node.TYPE_FE:
                 envs["JACOCO_COVERAGE_OPT"] = "-javaagent:/jacoco/lib/jacocoagent.jar" \
                     "=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format" \
                     ":com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format," \
                     "output=file,append=true,destfile=" + outfile
             elif self.node_type() == Node.TYPE_BE:
-                envs["LLVM_PROFILE_FILE"] = outfile
-            envs["STOP_GRACE"] = "1"
-        else:
-            envs["STOP_GRACE"] = "0"
+                envs["LLVM_PROFILE_FILE_PREFIX"] = outfile
 
         return envs
 
@@ -278,7 +278,7 @@ class Node(object):
             "cap_add": ["SYS_PTRACE"],
             "hostname": self.get_name(),
             "container_name": self.service_name(),
-            "command": self.docker_command(),
+            "entrypoint": self.entrypoint(),
             "environment": self.docker_env(),
             "image": self.get_image(),
             "networks": {
@@ -297,12 +297,8 @@ class Node(object):
 
 class FE(Node):
 
-    def docker_command(self):
-        return [
-            "bash",
-            os.path.join(DOCKER_RESOURCE_PATH, "init_fe.sh"),
-            #"{}/fe/bin/init_fe.sh".format(DOCKER_DORIS_PATH),
-        ]
+    def entrypoint(self):
+        return ["bash", os.path.join(DOCKER_RESOURCE_PATH, "init_fe.sh")]
 
     def docker_ports(self):
         return [FE_HTTP_PORT, FE_EDITLOG_PORT, FE_RPC_PORT, FE_QUERY_PORT]
@@ -316,12 +312,8 @@ class FE(Node):
 
 class BE(Node):
 
-    def docker_command(self):
-        return [
-            "bash",
-            os.path.join(DOCKER_RESOURCE_PATH, "init_be.sh"),
-            #"{}/be/bin/init_be.sh".format(DOCKER_DORIS_PATH),
-        ]
+    def entrypoint(self):
+        return ["bash", os.path.join(DOCKER_RESOURCE_PATH, "init_be.sh")]
 
     def docker_ports(self):
         return [BE_WEBSVR_PORT, BE_BRPC_PORT, BE_HEARTBEAT_PORT, BE_PORT]

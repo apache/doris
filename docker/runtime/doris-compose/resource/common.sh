@@ -20,8 +20,7 @@ export MASTER_FE_IP_FILE=$DORIS_HOME/status/master_fe_ip
 export LOG_FILE=$DORIS_HOME/log/health.out
 
 health_log() {
-    date >>$LOG_FILE
-    echo "$@" >>$LOG_FILE
+    echo "$(date +'%Y-%m-%d %H:%M:%S') $@" >>$LOG_FILE
 }
 
 read_master_fe_ip() {

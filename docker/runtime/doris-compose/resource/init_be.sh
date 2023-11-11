@@ -48,19 +48,56 @@ add_backend() {
     touch $REGISTER_FILE
 }
 
-stop_grace() {
-    health_log "begin stop grace"
-    bash $DORIS_HOME/bin/stop_be.sh --grace >>$LOG_FILE
+stop_backend() {
+    health_log "run stop be ..."
+    if [ "$STOP_GRACE" = "1" ]; then
+        bash $DORIS_HOME/bin/stop_be.sh --grace
+    else
+        bash $DORIS_HOME/bin/stop_be.sh
+    fi
+    exit 0
+}
+
+wait_process() {
+    pid=""
+    for ((i = 0; i < 5; i++)); do
+        sleep 1s
+        pid=$(pidof doris_be)
+        if [ -n $pid ]; then
+            break
+        fi
+    done
+
+    health_log ""
+    health_log "ps -elf\n$(ps -elf)\n"
+    if [ -z $pid ]; then
+        health_log "be pid not exist"
+        exit 1
+    fi
+
+    health_log "wait be process $pid"
+    while true; do
+        if [ ! ps -p $pid ] >/dev/null; then
+            break
+        fi
+        sleep 1s
+    done
+    health_log "wait end, exit"
 }
 
 main() {
-    if [ "$STOP_GRACE" == "1" ]; then
-        trap stop_grace SIGTERM
-    fi
+    trap stop_backend SIGTERM
+
     if [ ! -f $REGISTER_FILE ]; then
         add_backend &
     fi
-    bash $DORIS_HOME/bin/start_be.sh
+
+    if [ -n $LLVM_PROFILE_FILE_PREFIX ]; then
+        export LLVM_PROFILE_FILE="${LLVM_PROFILE_FILE_PREFIX}-$(date +%s)"
+    fi
+    bash $DORIS_HOME/bin/start_be.sh --daemon
+
+    wait_process
 }
 
 main

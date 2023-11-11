@@ -81,23 +81,55 @@ fe_daemon() {
     done
 }
 
-stop_grace() {
-    health_log "begin stop grace"
-    bash $DORIS_HOME/bin/stop_fe.sh --grace >>$LOG_FILE
+stop_frontend() {
+    if [ "$STOP_GRACE" = "1" ]; then
+        bash $DORIS_HOME/bin/stop_fe.sh --grace
+    else
+        bash $DORIS_HOME/bin/stop_fe.sh
+    fi
+
+    exit 0
+}
+
+wait_process() {
+    pid=""
+    for ((i = 0; i < 5; i++)); do
+        sleep 1s
+        pid=$(ps -elf | grep java | grep org.apache.doris.DorisFE | grep -v grep)
+        if [ -n $pid ]; then
+            break
+        fi
+    done
+    health_log ""
+    health_log "ps -elf\n$(ps -elf)\n"
+    if [ -z $pid ]; then
+        health_log "be pid not exist"
+        exit 1
+    fi
+
+    health_log "wait be process $pid"
+    while true; do
+        if [ ! ps -p $pid ] >/dev/null; then
+            break
+        fi
+        sleep 1s
+    done
+    health_log "wait end, exit"
 }
 
 main() {
-    if [ "$STOP_GRACE" == "1" ]; then
-        trap stop_grace SIGTERM
-    fi
+    trap stop_frontend SIGTERM
+
     if [ "$MY_ID" = "1" -o -d "${DORIS_HOME}/doris-meta/image" ]; then
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh
+        bash $DORIS_HOME/bin/start_fe.sh --daemon
     else
         add_frontend
         fe_daemon &
-        $DORIS_HOME/bin/start_fe.sh --helper $MASTER_FE_IP:$FE_EDITLOG_PORT
+        bash $DORIS_HOME/bin/start_fe.sh --helper $MASTER_FE_IP:$FE_EDITLOG_PORT --daemon
     fi
+
+    wait_process
 }
 
 main
