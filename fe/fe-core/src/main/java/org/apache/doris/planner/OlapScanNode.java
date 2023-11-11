@@ -1239,7 +1239,8 @@ public class OlapScanNode extends ScanNode {
             output.append(getRuntimeFilterExplainString(false));
         }
 
-        String selectedPartitions = getSelectedPartitionIds().stream().map(id -> olapTable.getPartition(id).getName())
+        String selectedPartitions = getSelectedPartitionIds().stream().sorted()
+                .map(id -> olapTable.getPartition(id).getName())
                 .collect(Collectors.joining(","));
         output.append(prefix).append(String.format("partitions=%s/%s (%s), tablets=%s/%s", selectedPartitionNum,
                 olapTable.getPartitions().size(), selectedPartitions, selectedTabletsNum, totalTabletsNum));
