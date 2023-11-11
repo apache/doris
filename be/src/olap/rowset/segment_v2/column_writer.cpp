@@ -604,7 +604,6 @@ Status ScalarColumnWriter::write_data() {
     if (_encoding_info->encoding() == DICT_ENCODING) {
         OwnedSlice dict_body;
         RETURN_IF_ERROR(_page_builder->get_dictionary_page(&dict_body));
-        _page_builder.reset();
 
         PageFooterPB footer;
         footer.set_type(DICTIONARY_PAGE);
@@ -617,6 +616,7 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
+    _page_builder.reset();
     return Status::OK();
 }
 
