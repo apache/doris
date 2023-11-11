@@ -75,7 +75,10 @@ private:
     // execution thread function
     void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner);
 
-private:
+    void _register_metrics();
+
+    static void _deregister_metrics();
+
     // Scheduling queue number.
     // TODO: make it configurable.
     static const int QUEUE_NUM = 4;
