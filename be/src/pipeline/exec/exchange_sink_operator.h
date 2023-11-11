@@ -148,7 +148,7 @@ public:
             : WriteDependency(id, "LocalExchangeChannelDependency"),
               _mem_available(mem_available) {}
     ~LocalExchangeChannelDependency() override = default;
-
+    bool avoid_using_blocked_queue_dependency() override { return false; }
     WriteDependency* write_blocked_by() override {
         if (config::enable_fuzzy_mode && !_is_runnable() &&
             _should_log(_write_dependency_watcher.elapsed_time())) {
