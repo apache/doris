@@ -46,7 +46,7 @@ class Dependency;
 class PipelineXTask;
 using DependencySPtr = std::shared_ptr<Dependency>;
 
-static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 10 * 1000L * 1000L * 1000L;
+static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 300 * 1000L * 1000L * 1000L;
 static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 5 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 class Dependency : public std::enable_shared_from_this<Dependency> {
@@ -739,7 +739,6 @@ private:
 class AsyncWriterDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    bool avoid_using_blocked_queue_dependency() override { return false; }
     AsyncWriterDependency(int id) : WriteDependency(id, "AsyncWriterDependency") {}
     ~AsyncWriterDependency() override = default;
     void* shared_state() override { return nullptr; }
