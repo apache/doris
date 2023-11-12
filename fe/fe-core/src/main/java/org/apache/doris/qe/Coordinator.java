@@ -298,7 +298,7 @@ public class Coordinator implements CoordInterface {
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
                 && (fragments.size() > 0);
         this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
-                && (fragments.size() > 0);
+                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
         this.fasterFloatConvert = context.getSessionVariable().fasterFloatConvert();
 
         initQueryOptions(context);
