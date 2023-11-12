@@ -34,7 +34,9 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "runtime/exec_env.h"
 #include "s3_uri.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
 
@@ -162,7 +164,14 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {
-        aws_config.maxConnections = config::doris_remote_scanner_thread_pool_thread_num;
+#ifdef BE_TEST
+        // the S3Client may shared by many threads.
+        // So need to set the number of connections large enough.
+        aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
+#else
+        aws_config.maxConnections =
+                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
+#endif
     }
 
     if (s3_conf.request_timeout_ms > 0) {

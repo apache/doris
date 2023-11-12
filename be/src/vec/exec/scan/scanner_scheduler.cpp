@@ -123,13 +123,13 @@ Status ScannerScheduler::init(ExecEnv* env) {
             config::doris_scanner_thread_pool_queue_size, "local_scan");
 
     // 3. remote scan thread pool
+    _remote_thread_pool_max_size = config::doris_max_remote_scanner_thread_pool_thread_num != -1
+                                           ? config::doris_max_remote_scanner_thread_pool_thread_num
+                                           : std::max(512, CpuInfo::num_cores() * 10);
     static_cast<void>(
             ThreadPoolBuilder("RemoteScanThreadPool")
                     .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
-                    .set_max_threads(
-                            config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                                    ? config::doris_max_remote_scanner_thread_pool_thread_num
-                                    : std::max(512, CpuInfo::num_cores() * 10))
+                    .set_max_threads(_remote_thread_pool_max_size)
                     .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
                     .build(&_remote_scan_thread_pool));
 
