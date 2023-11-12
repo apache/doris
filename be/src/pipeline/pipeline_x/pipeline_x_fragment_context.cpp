@@ -422,8 +422,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             auto task = std::make_unique<PipelineXTask>(
                     _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
                     _runtime_states[i]->runtime_profile(),
-                    _op_id_to_le_state.count(
-                            _pipelines[pip_idx]->operator_xs().front()->operator_id()) > 0
+                    _op_id_to_le_state.contains(
+                            _pipelines[pip_idx]->operator_xs().front()->operator_id())
                             ? _op_id_to_le_state
                                       [_pipelines[pip_idx]->operator_xs().front()->operator_id()]
                             : nullptr,
@@ -599,6 +599,8 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
 
     auto shared_state = LocalExchangeSharedState::create_shared();
     shared_state->data_queue.resize(_runtime_state->query_parallel_instance_num());
+    shared_state->source_dependencies.resize(_runtime_state->query_parallel_instance_num(),
+                                             nullptr);
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
