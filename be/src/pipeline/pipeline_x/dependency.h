@@ -332,16 +332,13 @@ public:
     std::string debug_string(int indentation_level = 0) override;
 
     [[nodiscard]] Dependency* read_blocked_by() override {
-        Dependency* res = nullptr;
         for (auto& child : _children) {
             auto* cur_res = child->read_blocked_by();
             if (cur_res == nullptr) {
                 return nullptr;
-            } else {
-                res = cur_res;
             }
         }
-        return res;
+        return this;
     }
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {

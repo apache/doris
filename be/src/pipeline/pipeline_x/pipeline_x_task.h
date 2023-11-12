@@ -70,19 +70,32 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status) override;
 
-    bool source_can_read() override {
-        if (_dry_run) {
-            return true;
-        }
+    Dependency* read_blocked_by() {
         for (auto* op_dep : _read_dependencies) {
             auto* dep = op_dep->read_blocked_by();
             if (dep != nullptr) {
                 dep->start_read_watcher();
                 push_blocked_task_to_dependency(dep);
-                return false;
+                return dep;
             }
         }
-        return true;
+        return nullptr;
+    }
+
+    bool source_can_read() override {
+        if (_dry_run) {
+            return true;
+        }
+        if (_last_block_read_dependency) {
+            _last_block_read_dependency = _last_block_read_dependency->read_blocked_by();
+            if (_last_block_read_dependency) {
+                return false;
+            }
+            _last_block_read_dependency = read_blocked_by();
+            return _last_block_read_dependency == nullptr;
+        }
+        _last_block_read_dependency = read_blocked_by();
+        return _last_block_read_dependency == nullptr;
     }
 
     bool runtime_filters_are_ready_or_timeout() override {
@@ -170,6 +183,7 @@ private:
     DataSinkOperatorXPtr _sink;
 
     std::vector<Dependency*> _read_dependencies;
+    Dependency* _last_block_read_dependency = nullptr;
     WriteDependency* _write_dependencies;
     std::vector<FinishDependency*> _finish_dependencies;
     RuntimeFilterDependency* _filter_dependency;
