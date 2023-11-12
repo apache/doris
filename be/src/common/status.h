@@ -504,12 +504,6 @@ public:
 
     std::string msg() const { return _err_msg ? _err_msg->_msg : ""; }
 
-    void reset_stack() const {
-        if (nullptr != _err_msg) {
-            _err_msg->_msg.clear();
-        }
-    }
-
 private:
     int _code;
     struct ErrMsg {
