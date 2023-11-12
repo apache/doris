@@ -21,9 +21,73 @@
 #include <mutex>
 
 #include "common/logging.h"
+#include "pipeline/pipeline_task.h"
+#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/memory/mem_tracker.h"
 
 namespace doris::pipeline {
+
+void Dependency::add_block_task(PipelineXTask* task) {
+    std::unique_lock<std::mutex> lc(_task_lock);
+    DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+    DCHECK(avoid_using_blocked_queue(task->get_state()));
+    DCHECK(task->get_state() != PipelineTaskState::BLOCKED_FOR_SINK);
+    _block_task.push_back(task);
+}
+
+void Dependency::try_to_wake_up_task() {
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        local_block_task.swap(_block_task);
+    }
+    for (auto* task : local_block_task) {
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+        DCHECK(avoid_using_blocked_queue(task->get_state()));
+        DCHECK(task->get_state() != PipelineTaskState::BLOCKED_FOR_SINK);
+        task->try_wake_up(this);
+    }
+}
+
+void WriteDependency::add_block_task(PipelineXTask* task) {
+    if (task->get_state() == PipelineTaskState::BLOCKED_FOR_SOURCE) {
+        Dependency::add_block_task(task);
+        return;
+    }
+    std::unique_lock<std::mutex> lc(_task_lock);
+    DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+    DCHECK(task->get_state() == PipelineTaskState::BLOCKED_FOR_SINK);
+    _write_block_task.push_back(task);
+}
+
+void WriteDependency::try_to_wake_up_task() {
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        local_block_task.swap(_write_block_task);
+    }
+    for (auto* task : local_block_task) {
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+        DCHECK(task->get_state() == PipelineTaskState::BLOCKED_FOR_SINK);
+        task->try_wake_up(this);
+    }
+}
+
+Dependency* Dependency::read_blocked_by() {
+    if (is_write_dependency()) {
+        auto* dep = static_cast<WriteDependency*>(this);
+        if (dep->write_blocked_by() == nullptr) {
+            dep->try_to_wake_up_task();
+        }
+    }
+    if (config::enable_fuzzy_mode && !_ready_for_read &&
+        _should_log(_read_dependency_watcher.elapsed_time())) {
+        LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                     << id() << " block tasks: " << _block_task.size();
+    }
+
+    return _ready_for_read ? nullptr : this;
+}
 
 template Status HashJoinDependency::extract_join_column<true>(
         vectorized::Block&,
@@ -39,12 +103,36 @@ template Status HashJoinDependency::extract_join_column<false>(
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}",
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={},block task = {}",
                    std::string(indentation_level * 2, ' '), _name, _id,
-                   read_blocked_by() == nullptr);
+                   read_blocked_by() == nullptr, _block_task.size());
     return fmt::to_string(debug_string_buffer);
 }
 
+std::string WriteDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "{}{}: id={}, read done={} , write done={} ,read block task = {}, write block "
+                   "task = {}",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   read_blocked_by() == nullptr, write_blocked_by() == nullptr, _block_task.size(),
+                   _write_block_task.size());
+    return fmt::to_string(debug_string_buffer);
+}
+std::string FinishDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={},block task = {}",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   finish_blocked_by() == nullptr, _block_task.size());
+    return fmt::to_string(debug_string_buffer);
+}
+std::string RuntimeFilterDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={},block task = {}",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   filter_blocked_by() == nullptr, _block_task.size());
+    return fmt::to_string(debug_string_buffer);
+}
 std::string AndDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}, children=[",
@@ -294,6 +382,22 @@ std::vector<uint16_t> HashJoinDependency::convert_block_to_null(vectorized::Bloc
     return results;
 }
 
+void SetSharedState::set_probe_finished_children(int child_id) {
+    {
+        std::unique_lock<std::mutex> lc(child_lock);
+        probe_finished_children_index[child_id] = true;
+    }
+    wake_up_dep();
+}
+
+void SetSharedState::wake_up_dep() {
+    for (SetDependency* dep : probe_finished_children_dependency) {
+        if (dep->write_blocked_by() == nullptr) {
+            dep->set_ready_for_write();
+        }
+    }
+}
+
 template <bool BuildSide>
 Status HashJoinDependency::extract_join_column(vectorized::Block& block,
                                                vectorized::ColumnUInt8::MutablePtr& null_map,
@@ -436,6 +540,7 @@ void RuntimeFilterDependency::sub_filters() {
     _filters--;
     if (_filters == 0) {
         *_blocked_by_rf = false;
+        try_to_wake_up_task();
     }
 }
 
