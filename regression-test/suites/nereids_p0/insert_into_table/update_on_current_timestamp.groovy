@@ -49,8 +49,9 @@ suite("nereids_update_on_current_timestamp") {
             (2, "doris2", 2000, 223, 1),
             (1, "doris", 1000, 123, 1);"""
     qt_sql "select id,name,score,test,dft from ${t1} order by id;"
-    qt_1 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
-    qt_1 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    // rows with id=1 or id=2 will have the same value 't1' in `update_time` and `update_time2`
+    qt_1 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';" // 1
+    qt_1 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';" // 1
     sleep(2000)
 
 
@@ -66,8 +67,10 @@ suite("nereids_update_on_current_timestamp") {
             (3, 3999),
             (4, 4999);"""
     qt_2 "select id,name,score,test,dft from ${t1} order by id;"
-    qt_2 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
-    qt_2 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    // the existing rows(id=1,2) and newly inserted rows(id=3,4) are updated at the same time
+    // so they will have the same value 't1 + 2000ms' in `update_time` and `update_time2` 
+    qt_2 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';" // 1
+    qt_2 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';" // 1
     sleep(2000)
 
     // when user specify that column, it will be filled with the input value
@@ -75,20 +78,25 @@ suite("nereids_update_on_current_timestamp") {
             (1, "2000-01-01 00:00:01"),
             (2, "2000-01-02 00:00:01");"""
     qt_3 "select id,name,score,test,dft from ${t1} order by id;"
-    qt_3 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
-    qt_3 "select count(distinct update_time) from ${t1};"
-    qt_3 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    // rows with id=1,2 are updated, the value of `update_time2` will be updated to `t1 + 4000ms`
+    qt_3 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';" // 1
+    qt_3 "select count(distinct update_time) from ${t1};" // 3 := (1)(2)(3,4)
+    qt_3 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';" // 2 := (1,2)(3,4)
     sleep(2000)
 
     // test update statement
     sql """ update ${t1} set score = score * 2 where id < 3;"""
+    // rows with id=1,2 are updated, the value of `update_time`, `update_time2` will be updated to `t1 + 6000ms`
     qt_4 "select id,name,score,test,dft from ${t1} order by id;"
-    qt_4 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
-    qt_4 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    qt_4 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';" // 2 := (1,2)(3,4)
+    qt_4 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';" // 2 := (1,2)(3,4)
+    sleep(2000)
+
     sql """ update ${t1} set update_time = "2023-10-02 00:00:00" where id > 3;"""
+    // rows with id=4 are updated, the value of `update_time`, `update_time2` will be updated to `t1 + 8000ms`
     qt_5 "select id,name,score,test,dft from ${t1} order by id;"
-    qt_5 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
-    qt_5 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    qt_5 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';" // 3 := (1,2)(3)(4)
+    qt_5 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';" // 3 := (1,2)(3)(4)
 
     // illegal case 1: the default value is not current_timestamp
     def illegal_t1 = "nereids_update_on_current_timestamp_illegal_1"

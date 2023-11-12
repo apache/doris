@@ -85,10 +85,10 @@ public class BindSink implements AnalysisRuleFactory {
                     boolean needExtraSeqCol = isPartialUpdate && !childHasSeqCol && table.hasSequenceCol()
                             && table.getSequenceMapCol() != null
                             && sink.getColNames().contains(table.getSequenceMapCol());
-                    Pair<List<Column>, Integer> bindColumnsReult =
+                    Pair<List<Column>, Integer> bindColumnsResult =
                             bindTargetColumns(table, sink.getColNames(), childHasSeqCol, needExtraSeqCol);
-                    List<Column> bindColumns = bindColumnsReult.first;
-                    int extraColumnsNum = bindColumnsReult.second;
+                    List<Column> bindColumns = bindColumnsResult.first;
+                    int extraColumnsNum = bindColumnsResult.second;
 
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
