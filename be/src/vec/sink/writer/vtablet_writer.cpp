@@ -539,7 +539,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
-    DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc", { MemInfo::process_full_gc(); });
+    DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc",
+                    { MemInfo::process_full_gc(); });
 
     if (_cancelled || _send_finished) { // not run
         return 0;
