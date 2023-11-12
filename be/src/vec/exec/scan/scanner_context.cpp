@@ -535,10 +535,6 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
             }
         }
     }
-
-    if (thread_slot_num == 0) {
-        LOG(INFO) << "thread num 0 " << (void*)this;
-    }
 }
 
 taskgroup::TaskGroup* ScannerContext::get_task_group() const {
