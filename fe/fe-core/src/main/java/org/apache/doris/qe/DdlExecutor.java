@@ -123,7 +123,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.persist.CleanQueryStatsInfo;
-import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.statistics.StatisticsRepository;
 
 import org.apache.logging.log4j.LogManager;
@@ -184,16 +183,16 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             env.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateJobStmt) {
-            env.getJobRegister().registerJob((((CreateJobStmt) ddlStmt).getJob()));
+            //env.getJobRegister().registerJob((((CreateJobStmt) ddlStmt).getJob()));todo
         } else if (ddlStmt instanceof StopJobStmt) {
-            StopJobStmt stmt = (StopJobStmt) ddlStmt;
-            env.getJobRegister().stopJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
+            //StopJobStmt stmt = (StopJobStmt) ddlStmt;
+            //env.getJobRegister().stopJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
         } else if (ddlStmt instanceof PauseJobStmt) {
-            PauseJobStmt stmt = (PauseJobStmt) ddlStmt;
-            env.getJobRegister().pauseJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
+            //PauseJobStmt stmt = (PauseJobStmt) ddlStmt;
+            //env.getJobManager().pauseJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
         } else if (ddlStmt instanceof ResumeJobStmt) {
-            ResumeJobStmt stmt = (ResumeJobStmt) ddlStmt;
-            env.getJobRegister().resumeJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
+            //ResumeJobStmt stmt = (ResumeJobStmt) ddlStmt;
+            //env.getJobRegister().resumeJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
             env.getAuth().createUser(stmt);

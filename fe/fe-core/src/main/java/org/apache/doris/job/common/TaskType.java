@@ -15,24 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.constants;
+package org.apache.doris.job.common;
 
-public enum JobType {
-    /**
-     * The job will be executed only once.
-     */
-    ONE_TIME,
-    /**
-     * The job will be executed periodically.
-     */
-    RECURRING,
-    /**
-     * JOB_TYPE_STREAMING is used to identify the streaming job.
-     */
-    STREAMING,
+public enum TaskType {
 
-    /**
-     * The job will be executed manually and need to be triggered by the user.
-     */
-    MANUAL
+    SCHDULER,
+    MANUAL,
+    INSTANT,
 }
