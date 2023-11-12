@@ -63,6 +63,10 @@ public class VariableVarCallbacks {
                 if (innerParts.length != 2) {
                     continue;
                 }
+                if (innerParts[0].equals("trace_id")) {
+                    ConnectContext.get().setTraceId(innerParts[1]);
+                    break;
+                }
             }
         }
     }
