@@ -898,7 +898,7 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        size_t result, size_t input_rows_count) override {
         auto result_column = ColumnString::create();
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
