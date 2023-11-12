@@ -196,6 +196,7 @@ suite("test_stream_load", "p0") {
     def tableName8 = "test_array"
     def tableName10 = "test_struct"
     def tableName11 = "test_map"
+    def tableName12 = "test_num_as_string"
 
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
@@ -205,6 +206,7 @@ suite("test_stream_load", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName8} """
     sql """ DROP TABLE IF EXISTS ${tableName10} """
     sql """ DROP TABLE IF EXISTS ${tableName11} """
+    sql """ DROP TABLE IF EXISTS ${tableName12} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
@@ -334,6 +336,66 @@ suite("test_stream_load", "p0") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName12} (
+      `k1` int(11) NULL,
+      `k2` float NULL,
+      `k3` double NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    // test num_as_string
+    streamLoad {
+        table "${tableName12}"
+
+        set 'format', 'JSON'
+        set 'num_as_string', 'true'
+        set 'strip_outer_array', 'true'
+        file 'num_as_string.json'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    qt_num_as_string "SELECT * FROM ${tableName12}"
+
+    sql """truncate table ${tableName12}"""
+    sql """sync"""
+
+
+    streamLoad {
+        table "${tableName12}"
+
+        set 'format', 'JSON'
+        set 'num_as_string', 'false'
+        set 'strip_outer_array', 'true'
+        file 'num_as_string.json'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    qt_num_as_string_false "SELECT * FROM ${tableName12}"
 
     // load map with specific-length char with non-specific-length data
     streamLoad {
@@ -983,7 +1045,7 @@ suite("test_stream_load", "p0") {
 
     // invalid file format
     streamLoad {
-        table "${tableName8}"
+        table "${tableName12}"
 
         set 'format', 'txt'
         file 'array_malformat.csv'
