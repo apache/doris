@@ -170,9 +170,6 @@ public:
     bool push_blocked_task_to_dep() {
         DCHECK(_blocked_dep) << "state :" << get_state_name(get_state());
         DCHECK(avoid_using_blocked_queue(get_state()));
-        if (!_blocked_dep->avoid_using_blocked_queue_dependency()) {
-            return false;
-        }
         if (_blocked_dep->is_or_dep()) {
             return false;
         }
