@@ -252,15 +252,14 @@ Status DataDir::_read_and_write_test_file() {
     return read_write_test_file(test_file);
 }
 
-Status DataDir::get_shard(uint64_t* shard) {
+uint64_t DataDir::get_shard() {
     uint32_t next_shard = 0;
     {
         std::lock_guard<std::mutex> l(_mutex);
         next_shard = _current_shard;
         _current_shard = (_current_shard + 1) % MAX_SHARD_NUM;
     }
-    *shard = next_shard;
-    return Status::OK();
+    return next_shard;
 }
 
 void DataDir::register_tablet(Tablet* tablet) {
