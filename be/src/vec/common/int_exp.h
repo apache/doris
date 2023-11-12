@@ -54,8 +54,12 @@ constexpr T get_exp(std::size_t x) {
 } // namespace exp_details
 
 inline uint64_t int_exp10(int x) {
-    if (x < 0) return 0;
-    if (x > 19) return std::numeric_limits<uint64_t>::max();
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 19) {
+        return std::numeric_limits<uint64_t>::max();
+    }
 
     return exp_details::get_exp<uint64_t, 10, 20>(x);
 }
@@ -63,8 +67,12 @@ inline uint64_t int_exp10(int x) {
 namespace common {
 
 constexpr inline int exp10_i32(int x) {
-    if (x < 0) return 0;
-    if (x > 9) return std::numeric_limits<int>::max();
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 9) {
+        return std::numeric_limits<int>::max();
+    }
 
     constexpr int values[] = {1,      10,      100,      1000,      10000,
                               100000, 1000000, 10000000, 100000000, 1000000000};
@@ -72,8 +80,12 @@ constexpr inline int exp10_i32(int x) {
 }
 
 constexpr inline int64_t exp10_i64(int x) {
-    if (x < 0) return 0;
-    if (x > 18) return std::numeric_limits<int64_t>::max();
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 18) {
+        return std::numeric_limits<int64_t>::max();
+    }
 
     constexpr int64_t values[] = {1LL,
                                   10LL,
@@ -98,8 +110,12 @@ constexpr inline int64_t exp10_i64(int x) {
 }
 
 constexpr inline __int128 exp10_i128(int x) {
-    if (x < 0) return 0;
-    if (x > 38) return std::numeric_limits<__int128>::max();
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 38) {
+        return std::numeric_limits<__int128>::max();
+    }
 
     constexpr __int128 values[] = {
             static_cast<__int128>(1LL),
@@ -145,8 +161,12 @@ constexpr inline __int128 exp10_i128(int x) {
 }
 
 inline wide::Int256 exp10_i256(int x) {
-    if (x < 0) return 0;
-    if (x > 76) return std::numeric_limits<wide::Int256>::max();
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 76) {
+        return std::numeric_limits<wide::Int256>::max();
+    }
 
     static constexpr wide::Int256 i10e18 {1000000000000000000ll};
     static const wide::Int256 values[] = {
