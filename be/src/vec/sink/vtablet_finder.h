@@ -66,7 +66,7 @@ public:
 private:
     VOlapTablePartitionParam* _vpartition;
     FindTabletMode _find_tablet_mode;
-    std::map<int64_t, int64_t> _partition_to_tablet_map;
+    std::map<VOlapTablePartition*, int64_t> _partition_to_tablet_map;
     vectorized::flat_hash_set<int64_t> _partition_ids;
 
     int64_t _num_filtered_rows = 0;

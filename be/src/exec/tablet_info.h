@@ -184,10 +184,10 @@ public:
 
     ALWAYS_INLINE void find_tablets(
             vectorized::Block* block, const std::vector<uint32_t>& indexes,
-            std::vector<VOlapTablePartition*>& partitions,
+            const std::vector<VOlapTablePartition*>& partitions,
             std::vector<uint32_t>& tablet_indexes /*result*/,
             /*TODO: check if flat hash map will be better*/
-            std::map<int64_t, int64_t>* partition_tablets_buffer = nullptr) const {
+            std::map<VOlapTablePartition*, int64_t>* partition_tablets_buffer = nullptr) const {
         std::function<uint32_t(vectorized::Block*, uint32_t, const VOlapTablePartition&)>
                 compute_function;
         if (!_distributed_slot_locs.empty()) {
@@ -225,13 +225,13 @@ public:
             }
         } else { // use buffer
             for (auto index : indexes) {
-                auto& partition_id = partitions[index]->id;
-                if (auto it = partition_tablets_buffer->find(partition_id);
+                auto* partition = partitions[index];
+                if (auto it = partition_tablets_buffer->find(partition);
                     it != partition_tablets_buffer->end()) {
                     tablet_indexes[index] = it->second; // tablet
                 } else {
                     // compute and save in buffer
-                    (*partition_tablets_buffer)[partition_id] = tablet_indexes[index] =
+                    (*partition_tablets_buffer)[partition] = tablet_indexes[index] =
                             compute_function(block, index, *partitions[index]);
                 }
             }
