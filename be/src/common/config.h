@@ -1151,6 +1151,11 @@ DECLARE_String(default_tzfiles_path);
 // the max package bytes be thrift server can receive
 // avoid accepting error or too large package causing OOM,default 20000000(20M)
 DECLARE_Int32(be_thrift_max_pkg_bytes);
+// Ingest binlog work pool size
+DECLARE_Int32(ingest_binlog_work_pool_size);
+
+// Download binlog rate limit, unit is KB/s
+DECLARE_Int32(download_binlog_rate_limit_kbs);
 
 #ifdef BE_TEST
 // test s3
