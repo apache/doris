@@ -278,7 +278,6 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
                 static_cast<void>(_send_rpc(id));
             }
         });
-        closure->set_finish_dependency(_finish_dependency);
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             auto send_remote_block_closure =
@@ -346,7 +345,6 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
                 static_cast<void>(_send_rpc(id));
             }
         });
-        closure->set_finish_dependency(_finish_dependency);
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             auto send_remote_block_closure =
