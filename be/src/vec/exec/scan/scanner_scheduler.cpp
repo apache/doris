@@ -202,7 +202,10 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
     watch.start();
     ctx->incr_num_ctx_scheduling(1);
     size_t size = 0;
-    Defer defer {[&]() { ctx->update_num_running(size, -1); }};
+    Defer defer {[&]() {
+        ctx->incr_num_scanner_scheduling(size);
+        ctx->dec_num_scheduling_ctx();
+    }};
 
     if (ctx->done()) {
         return;
@@ -221,12 +224,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
         return;
     }
 
+    ctx->inc_num_running_scanners(this_run.size());
+
     // Submit scanners to thread pool
     // TODO(cmy): How to handle this "nice"?
     int nice = 1;
     auto iter = this_run.begin();
     auto submit_to_thread_pool = [&] {
-        ctx->incr_num_scanner_scheduling(this_run.size());
         if (ctx->thread_token != nullptr) {
             // TODO llj tg how to treat this?
             while (iter != this_run.end()) {
