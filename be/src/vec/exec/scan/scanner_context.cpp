@@ -225,7 +225,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     int num_running_scanners = _num_running_scanners;
 
     bool is_scheduled = false;
-    if (should_be_scheduled() && _num_running_scanners == 0) {
+    if (to_be_schedule && _num_running_scanners == 0) {
         is_scheduled = true;
         auto state = _scanner_scheduler->submit(this);
         if (state.ok()) {
