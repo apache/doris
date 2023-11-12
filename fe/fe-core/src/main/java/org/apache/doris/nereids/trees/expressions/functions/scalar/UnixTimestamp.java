@@ -23,10 +23,12 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -42,9 +44,10 @@ import java.util.List;
 public class UnixTimestamp extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args, Nondeterministic {
 
+    // we got changes in @{computeSignature}
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE).args(),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(16, 6)).args(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateType.INSTANCE),
@@ -81,7 +84,28 @@ public class UnixTimestamp extends ScalarFunction
         if (arity() == 0) {
             return false;
         }
-        return PropagateNullableOnDateLikeV2Args.super.nullable();
+        if (arity() == 1) {
+            return child(0).nullable();
+        }
+        if (arity() == 2 && child(0).getDataType().isStringLikeType() && child(1).getDataType().isStringLikeType()) {
+            return true;
+        }
+        return child(0).nullable() || child(1).nullable();
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        if (arity() != 1) {
+            return signature.withReturnType(IntegerType.INSTANCE);
+        }
+        DataType argType0 = getArgumentType(0);
+        if (argType0.isDateTimeV2Type()) {
+            int scale = ((DateTimeV2Type) argType0).getScale();
+            return signature.withReturnType(DecimalV3Type.createDecimalV3Type(10 + scale, scale));
+        } else if (argType0.isStringLikeType()) {
+            return signature.withReturnType(DecimalV3Type.createDecimalV3Type(16, 6));
+        }
+        return signature.withReturnType(IntegerType.INSTANCE);
     }
 
     /**

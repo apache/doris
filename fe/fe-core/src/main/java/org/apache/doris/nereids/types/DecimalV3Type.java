@@ -53,6 +53,7 @@ public class DecimalV3Type extends FractionalType {
     private static final DecimalV3Type LARGEINT_DECIMAL = new DecimalV3Type(38, 0);
     private static final DecimalV3Type FLOAT_DECIMAL = new DecimalV3Type(14, 7);
     private static final DecimalV3Type DOUBLE_DECIMAL = new DecimalV3Type(30, 15);
+    private static final DecimalV3Type TIMESTAMP_DECIMAL = new DecimalV3Type(16, 6);
 
     private static final Map<DataType, DecimalV3Type> FOR_TYPE_MAP = ImmutableMap.<DataType, DecimalV3Type>builder()
             .put(BooleanType.INSTANCE, BOOLEAN_DECIMAL)
@@ -63,6 +64,8 @@ public class DecimalV3Type extends FractionalType {
             .put(LargeIntType.INSTANCE, LARGEINT_DECIMAL)
             .put(FloatType.INSTANCE, FLOAT_DECIMAL)
             .put(DoubleType.INSTANCE, DOUBLE_DECIMAL)
+            .put(DateTimeV2Type.MAX, TIMESTAMP_DECIMAL)
+            .put(DateTimeV2Type.SYSTEM_DEFAULT, TIMESTAMP_DECIMAL)
             .put(NullType.INSTANCE, BOOLEAN_DECIMAL)
             .build();
 
