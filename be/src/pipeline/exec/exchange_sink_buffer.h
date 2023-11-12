@@ -158,7 +158,6 @@ public:
         }
     }
     int64_t start_rpc_time;
-    void set_finish_dependency(std::shared_ptr<FinishDependency> dep) { _finish_dependency = dep; }
 
 private:
     std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
@@ -166,7 +165,6 @@ private:
     InstanceLoId _id;
     bool _eos;
     vectorized::BroadcastPBlockHolder* _data;
-    std::shared_ptr<FinishDependency> _finish_dependency;
 };
 
 struct ExchangeRpcContext {

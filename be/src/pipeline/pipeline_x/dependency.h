@@ -54,8 +54,6 @@ public:
     Dependency(int id, std::string name) : _id(id), _name(name), _ready_for_read(false) {}
     virtual ~Dependency() = default;
 
-    virtual bool avoid_using_blocked_queue_dependency() { return true; }
-
     virtual bool is_or_dep() { return false; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
@@ -739,7 +737,6 @@ private:
 class AsyncWriterDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    bool avoid_using_blocked_queue_dependency() override { return false; }
     AsyncWriterDependency(int id) : WriteDependency(id, "AsyncWriterDependency") {}
     ~AsyncWriterDependency() override = default;
     void* shared_state() override { return nullptr; }
