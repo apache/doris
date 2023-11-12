@@ -71,6 +71,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
@@ -165,6 +166,19 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
         return;
     }
 
+    auto succ_replicas_not_enough = [&](int64_t the_tablet_id) {
+        auto partition = _parent->_vpartition->get_tablet_partition(the_tablet_id);
+        int failed_boundary = 0;
+        if (partition != nullptr && partition->num_replicas > 0) {
+            failed_boundary = partition->num_replicas - partition->load_required_replica_num + 1;
+        } else {
+            // backwards compatible.
+            failed_boundary = (_parent->_num_replicas + 1) / 2;
+        }
+
+        return _failed_channels[the_tablet_id].size() >= failed_boundary;
+    };
+
     {
         std::lock_guard<doris::SpinLock> l(_fail_lock);
         if (tablet_id == -1) {
@@ -172,7 +186,7 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
                 _failed_channels[the_tablet_id].insert(node_id);
                 _failed_channels_msgs.emplace(the_tablet_id,
                                               err + ", host: " + node_channel->host());
-                if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
+                if (succ_replicas_not_enough(the_tablet_id)) {
                     _intolerable_failure_status =
                             Status::InternalError(_failed_channels_msgs[the_tablet_id]);
                 }
@@ -180,7 +194,7 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
         } else {
             _failed_channels[tablet_id].insert(node_id);
             _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
-            if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
+            if (succ_replicas_not_enough(tablet_id)) {
                 _intolerable_failure_status =
                         Status::InternalError(_failed_channels_msgs[tablet_id]);
             }
@@ -425,6 +439,12 @@ Status VNodeChannel::open_wait() {
         }
     }
 
+    DBUG_EXECUTE_IF(
+            "VNodeChannel.open_wait:random_failed",
+            if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+                return Status::InternalError("debug VNodeChannel open random failed");
+            });
+
     // add block closure
     _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
     _send_block_callback->addFailedHandler(
@@ -438,6 +458,12 @@ Status VNodeChannel::open_wait() {
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
+    DBUG_EXECUTE_IF(
+            "VNodeChannel.add_block:random_failed",
+            if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+                return Status::InternalError("debug VNodeChannel add block random failed");
+            });
+
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     if (payload->second.empty()) {
         return Status::OK();
@@ -720,6 +746,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
     }
     SCOPED_ATTACH_TASK(_state);
     Status status(Status::create(result.status()));
+
     if (status.ok()) {
         // if has error tablet, handle them first
         for (auto& error : result.tablet_errors()) {

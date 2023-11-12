@@ -129,6 +129,10 @@ struct VOlapTablePartition {
     bool is_mutable;
     // -1 indicates load_to_single_tablet = false
     int64_t load_tablet_idx = -1;
+    // num replicas of each bucket
+    int32_t num_replicas = 0;
+    // the min replica num for load data success
+    int32_t load_required_replica_num = 0;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             : start_key {partition_block, -1}, end_key {partition_block, -1} {}
@@ -238,6 +242,11 @@ public:
         }
     }
 
+    VOlapTablePartition* get_tablet_partition(int64_t tablet_id) const {
+        auto it = _tablets_partition.find(tablet_id);
+        return it != _tablets_partition.end() ? it->second : nullptr;
+    }
+
     const std::vector<VOlapTablePartition*>& get_partitions() const { return _partitions; }
 
     // it's same with auto now because we only support transformed partition in auto partition. may expand in future
@@ -286,6 +295,8 @@ private:
     std::unique_ptr<
             std::map<BlockRowWithIndicator, VOlapTablePartition*, VOlapTablePartKeyComparator>>
             _partitions_map;
+
+    std::unordered_map<int64_t, VOlapTablePartition*> _tablets_partition;
 
     bool _is_in_partition = false;
     uint32_t _mem_usage = 0;

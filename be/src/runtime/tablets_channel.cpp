@@ -41,6 +41,7 @@
 #include "olap/storage_engine.h"
 #include "olap/txn_manager.h"
 #include "runtime/load_channel.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "vec/core/block.h"
@@ -103,6 +104,13 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     }
     LOG(INFO) << "open tablets channel: " << _key << ", tablets num: " << request.tablets().size()
               << ", timeout(s): " << request.load_channel_timeout_s();
+
+    DBUG_EXECUTE_IF(
+            "TabletsChannel.open:random_failed",
+            if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+                return Status::InternalError("debug TabletsChannel open random failed");
+            });
+
     _txn_id = request.txn_id();
     _index_id = request.index_id();
     _schema = new OlapTableSchemaParam();

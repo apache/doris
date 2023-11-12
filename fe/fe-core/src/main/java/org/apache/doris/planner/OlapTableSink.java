@@ -349,6 +349,9 @@ public class OlapTableSink extends DataSink {
                                 .getCurrentLoadTabletIndex(dbId, table.getId(), partitionId);
                         tPartition.setLoadTabletIdx(tabletIndex);
                     }
+                    tPartition.setNumReplicas(
+                            table.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum());
+                    tPartition.setLoadRequiredReplicaNum(table.getLoadRequiredReplicaNum(partitionId));
                     partitionParam.addToPartitions(tPartition);
 
                     DistributionInfo distInfo = partition.getDistributionInfo();
@@ -394,9 +397,10 @@ public class OlapTableSink extends DataSink {
                     partition = table.getPartitions().iterator().next();
                 }
 
+                long partitionId = partition.getId();
                 TOlapTablePartition tPartition = new TOlapTablePartition();
-                tPartition.setId(partition.getId());
-                tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partition.getId()));
+                tPartition.setId(partitionId);
+                tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partitionId));
                 // No lowerBound and upperBound for this range
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
@@ -408,6 +412,9 @@ public class OlapTableSink extends DataSink {
                             .getCurrentLoadTabletIndex(dbId, table.getId(), partition.getId());
                     tPartition.setLoadTabletIdx(tabletIndex);
                 }
+                tPartition.setNumReplicas(
+                        table.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum());
+                tPartition.setLoadRequiredReplicaNum(table.getLoadRequiredReplicaNum(partitionId));
                 partitionParam.addToPartitions(tPartition);
                 partitionParam.setDistributedColumns(getDistColumns(partition.getDistributionInfo()));
                 partitionParam.setEnableAutomaticPartition(false);

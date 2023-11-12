@@ -23,11 +23,43 @@
 
 -- !select_4 --
 1	a
+11	l
+12	m
 2	b
 3	c
 4	e
 7	h
 8	i
-11	l
-12	m
+
+-- !select_5 --
+1	BeiJing
+2	ShangHai
+3	GuangZhou
+
+-- !select_6 --
+1	BeiJing
+1	BeiJing
+2	ShangHai
+2	ShangHai
+3	GuangZhou
+3	GuangZhou
+
+-- !select_7 --
+1	BeiJing
+1	BeiJing
+2	ShangHai
+2	ShangHai
+3	GuangZhou
+3	GuangZhou
+
+-- !select_8 --
+1	BeiJing
+1	BeiJing
+1	BeiJing
+2	ShangHai
+2	ShangHai
+2	ShangHai
+3	GuangZhou
+3	GuangZhou
+3	GuangZhou
 

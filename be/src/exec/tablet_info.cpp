@@ -341,6 +341,11 @@ Status VOlapTablePartitionParam::init() {
         VOlapTablePartition* part = nullptr;
         RETURN_IF_ERROR(generate_partition_from(t_part, part));
         _partitions.emplace_back(part);
+        for (const auto& index : part->indexes) {
+            for (auto tablet_id : index.tablets) {
+                _tablets_partition[tablet_id] = part;
+            }
+        }
         if (_is_in_partition) {
             for (auto& in_key : part->in_keys) {
                 _partitions_map->emplace(std::tuple {in_key.first, in_key.second, false}, part);
@@ -378,6 +383,8 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
     part_result = _obj_pool.add(new VOlapTablePartition(&_partition_block));
     part_result->id = t_part.id;
     part_result->is_mutable = t_part.is_mutable;
+    part_result->num_replicas = t_part.num_replicas;
+    part_result->load_required_replica_num = t_part.load_required_replica_num;
     // only load_to_single_tablet = true will set load_tablet_idx
     if (t_part.__isset.load_tablet_idx) {
         part_result->load_tablet_idx = t_part.load_tablet_idx;
@@ -525,6 +532,8 @@ Status VOlapTablePartitionParam::add_partitions(
         auto part = _obj_pool.add(new VOlapTablePartition(&_partition_block));
         part->id = t_part.id;
         part->is_mutable = t_part.is_mutable;
+        part->num_replicas = t_part.num_replicas;
+        part->load_required_replica_num = t_part.load_required_replica_num;
 
         DCHECK(t_part.__isset.start_keys == t_part.__isset.end_keys &&
                t_part.__isset.start_keys != t_part.__isset.in_keys);
@@ -573,6 +582,11 @@ Status VOlapTablePartitionParam::add_partitions(
             }
         }
         _partitions.emplace_back(part);
+        for (const auto& index : part->indexes) {
+            for (auto tablet_id : index.tablets) {
+                _tablets_partition[tablet_id] = part;
+            }
+        }
         // after _creating_partiton_keys
         if (_is_in_partition) {
             for (auto& in_key : part->in_keys) {
