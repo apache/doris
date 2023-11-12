@@ -362,7 +362,11 @@ We need to change to
 
 ## Hive Version
 
-Doris can correctly access the Hive Metastore in different Hive versions. By default, Doris will access the Hive Metastore with a Hive 2.3 compatible interface. You can also specify the hive version when creating the Catalog. If accessing Hive 1.1.0 version:
+Doris can correctly access the Hive Metastore in different Hive versions. By default, Doris will access the Hive Metastore with a Hive 2.3 compatible interface.
+
+If you meet error message like `Invalid method name: 'get_table_req'`, which means the hive version is mismatch.
+
+You can specify the hive version when creating the Catalog. If accessing Hive 1.1.0 version:
 
 ```sql 
 CREATE CATALOG hive PROPERTIES (
