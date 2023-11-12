@@ -273,26 +273,13 @@ VNodeChannel::VNodeChannel(VTabletWriter* parent, IndexChannel* index_channel, i
           _index_channel(index_channel),
           _node_id(node_id),
           _is_incremental(is_incremental) {
+    _cur_add_block_request = std::make_shared<PTabletWriterAddBlockRequest>();
     _node_channel_tracker = std::make_shared<MemTracker>(fmt::format(
             "NodeChannel:indexID={}:threadId={}", std::to_string(_index_channel->_index_id),
             thread_context()->get_thread_id()));
 }
 
-VNodeChannel::~VNodeChannel() {
-    for (auto& closure : _open_closures) {
-        if (closure != nullptr) {
-            if (closure->unref()) {
-                delete closure;
-            }
-            closure = nullptr;
-        }
-    }
-    if (_add_block_closure != nullptr) {
-        delete _add_block_closure;
-        _add_block_closure = nullptr;
-    }
-    static_cast<void>(_cur_add_block_request.release_id());
-}
+VNodeChannel::~VNodeChannel() = default;
 
 void VNodeChannel::clear_all_blocks() {
     std::lock_guard<std::mutex> lg(_pending_batches_lock);
@@ -334,13 +321,13 @@ Status VNodeChannel::init(RuntimeState* state) {
     _timeout_watch.start();
 
     // Initialize _cur_add_block_request
-    if (!_cur_add_block_request.has_id()) {
-        _cur_add_block_request.set_allocated_id(&_parent->_load_id);
+    if (!_cur_add_block_request->has_id()) {
+        *(_cur_add_block_request->mutable_id()) = _parent->_load_id;
     }
-    _cur_add_block_request.set_index_id(_index_channel->_index_id);
-    _cur_add_block_request.set_sender_id(_parent->_sender_id);
-    _cur_add_block_request.set_backend_id(_node_id);
-    _cur_add_block_request.set_eos(false);
+    _cur_add_block_request->set_index_id(_index_channel->_index_id);
+    _cur_add_block_request->set_sender_id(_parent->_sender_id);
+    _cur_add_block_request->set_backend_id(_node_id);
+    _cur_add_block_request->set_eos(false);
 
     _name = fmt::format("VNodeChannel[{}-{}]", _index_channel->_index_id, _node_id);
     // The node channel will send _batch_size rows of data each rpc. When the
@@ -355,46 +342,48 @@ Status VNodeChannel::init(RuntimeState* state) {
 
 void VNodeChannel::_open_internal(bool is_incremental) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    PTabletWriterOpenRequest request;
-    request.set_allocated_id(&_parent->_load_id);
-    request.set_index_id(_index_channel->_index_id);
-    request.set_txn_id(_parent->_txn_id);
-    request.set_allocated_schema(_parent->_schema->to_protobuf());
+    auto request = std::make_shared<PTabletWriterOpenRequest>();
+    request->set_allocated_id(&_parent->_load_id);
+    request->set_index_id(_index_channel->_index_id);
+    request->set_txn_id(_parent->_txn_id);
+    request->set_allocated_schema(_parent->_schema->to_protobuf());
     std::set<int64_t> deduper;
     for (auto& tablet : _all_tablets) {
         if (deduper.contains(tablet.tablet_id)) {
             continue;
         }
-        auto ptablet = request.add_tablets();
+        auto ptablet = request->add_tablets();
         ptablet->set_partition_id(tablet.partition_id);
         ptablet->set_tablet_id(tablet.tablet_id);
         deduper.insert(tablet.tablet_id);
     }
-    request.set_num_senders(_parent->_num_senders);
-    request.set_need_gen_rollup(false); // Useless but it is a required field in pb
-    request.set_load_mem_limit(_parent->_load_mem_limit);
-    request.set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
-    request.set_is_high_priority(_parent->_is_high_priority);
-    request.set_sender_ip(BackendOptions::get_localhost());
-    request.set_is_vectorized(true);
-    request.set_backend_id(_node_id);
-    request.set_enable_profile(_state->enable_profile());
-    request.set_is_incremental(is_incremental);
+    request->set_num_senders(_parent->_num_senders);
+    request->set_need_gen_rollup(false); // Useless but it is a required field in pb
+    request->set_load_mem_limit(_parent->_load_mem_limit);
+    request->set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
+    request->set_is_high_priority(_parent->_is_high_priority);
+    request->set_sender_ip(BackendOptions::get_localhost());
+    request->set_is_vectorized(true);
+    request->set_backend_id(_node_id);
+    request->set_enable_profile(_state->enable_profile());
+    request->set_is_incremental(is_incremental);
 
-    auto* open_closure = new RefCountClosure<PTabletWriterOpenResult> {};
-    open_closure->ref();
-
-    open_closure->ref(); // This ref is for RPC's reference
-    open_closure->cntl.set_timeout_ms(config::tablet_writer_open_rpc_timeout_sec * 1000);
+    auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
+    auto open_closure = AutoReleaseClosure<
+            PTabletWriterOpenRequest,
+            DummyBrpcCallback<PTabletWriterOpenResult>>::create_unique(request, open_callback);
+    open_callback->cntl_->set_timeout_ms(config::tablet_writer_open_rpc_timeout_sec * 1000);
     if (config::tablet_writer_ignore_eovercrowded) {
-        open_closure->cntl.ignore_eovercrowded();
+        open_callback->cntl_->ignore_eovercrowded();
     }
     // the real transmission here. the corresponding BE's load mgr will open load channel for it.
-    _stub->tablet_writer_open(&open_closure->cntl, &request, &open_closure->result, open_closure);
-    _open_closures.push_back(open_closure);
+    _stub->tablet_writer_open(open_closure->cntl_.get(), open_closure->request_.get(),
+                              open_closure->response_.get(), open_closure.get());
+    open_closure.release();
+    _open_callbacks.push_back(open_callback);
 
-    static_cast<void>(request.release_id());
-    static_cast<void>(request.release_schema());
+    static_cast<void>(request->release_id());
+    static_cast<void>(request->release_schema());
 }
 
 void VNodeChannel::open() {
@@ -407,36 +396,28 @@ void VNodeChannel::incremental_open() {
 
 Status VNodeChannel::open_wait() {
     Status status;
-    for (auto& open_closure : _open_closures) {
+    for (auto& open_callback : _open_callbacks) {
         // because of incremental open, we will wait multi times. so skip the closures which have been checked and set to nullptr in previous rounds
-        if (open_closure == nullptr) {
+        if (open_callback == nullptr) {
             continue;
         }
 
-        open_closure->join();
+        open_callback->join();
         SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-        if (open_closure->cntl.Failed()) {
+        if (open_callback->cntl_->Failed()) {
             if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
                         _stub, _node_info.host, _node_info.brpc_port)) {
                 ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                        open_closure->cntl.remote_side());
+                        open_callback->cntl_->remote_side());
             }
             _cancelled = true;
-            auto error_code = open_closure->cntl.ErrorCode();
-            auto error_text = open_closure->cntl.ErrorText();
-            if (open_closure->unref()) {
-                delete open_closure;
-            }
-            open_closure = nullptr;
+            auto error_code = open_callback->cntl_->ErrorCode();
+            auto error_text = open_callback->cntl_->ErrorText();
             return Status::InternalError(
                     "failed to open tablet writer, error={}, error_text={}, info={}",
                     berror(error_code), error_text, channel_info());
         }
-        status = Status::create(open_closure->result.status());
-        if (open_closure->unref()) {
-            delete open_closure;
-        }
-        open_closure = nullptr;
+        status = Status::create(open_callback->response_->status());
 
         if (!status.ok()) {
             _cancelled = true;
@@ -445,11 +426,11 @@ Status VNodeChannel::open_wait() {
     }
 
     // add block closure
-    _add_block_closure = ReusableClosure<PTabletWriterAddBlockResult>::create();
-    _add_block_closure->addFailedHandler(
+    _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
+    _send_block_callback->addFailedHandler(
             [this](bool is_last_rpc) { _add_block_failed_callback(is_last_rpc); });
 
-    _add_block_closure->addSuccessHandler(
+    _send_block_callback->addSuccessHandler(
             [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
                 _add_block_success_callback(result, is_last_rpc);
             });
@@ -501,12 +482,12 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         for (auto column : block->get_columns()) {
             columns.push_back(std::move(*column).mutate());
         }
-        *_cur_add_block_request.mutable_tablet_ids() = {tablets.begin(), tablets.end()};
-        _cur_add_block_request.set_is_single_tablet_block(true);
+        *_cur_add_block_request->mutable_tablet_ids() = {tablets.begin(), tablets.end()};
+        _cur_add_block_request->set_is_single_tablet_block(true);
     } else {
         block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
         for (auto tablet_id : payload->second) {
-            _cur_add_block_request.add_tablet_ids(tablet_id);
+            _cur_add_block_request->add_tablet_ids(tablet_id);
         }
     }
 
@@ -517,9 +498,12 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
             std::lock_guard<std::mutex> l(_pending_batches_lock);
             // To simplify the add_row logic, postpone adding block into req until the time of sending req
             _pending_batches_bytes += _cur_mutable_block->allocated_bytes();
-            _cur_add_block_request.set_eos(
+            _cur_add_block_request->set_eos(
                     false); // for multi-add, only when marking close we set it eos.
-            _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
+            // Copy the request to tmp request to add to pend block queue
+            auto tmp_add_block_request = std::make_shared<PTabletWriterAddBlockRequest>();
+            *tmp_add_block_request = *_cur_add_block_request;
+            _pending_blocks.emplace(std::move(_cur_mutable_block), tmp_add_block_request);
             _pending_batches_num++;
             VLOG_DEBUG << "VTabletWriter:" << _parent << " VNodeChannel:" << this
                        << " pending_batches_bytes:" << _pending_batches_bytes
@@ -527,7 +511,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
                        << " loadinfo:" << _load_info;
         }
         _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
-        _cur_add_block_request.clear_tablet_ids();
+        _cur_add_block_request->clear_tablet_ids();
     }
 
     return Status::OK();
@@ -540,7 +524,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
     }
 
     // set closure for sending block.
-    if (!_add_block_closure->try_set_in_flight()) {
+    if (!_send_block_callback->try_set_in_flight()) {
         // There is packet in flight, skip.
         return _send_finished ? 0 : 1;
     }
@@ -551,12 +535,12 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
             // sending finished. clear in flight
-            _add_block_closure->clear_in_flight();
+            _send_block_callback->clear_in_flight();
         }
         // in_flight is cleared in closure::Run
     } else {
         // sending finished. clear in flight
-        _add_block_closure->clear_in_flight();
+        _send_block_callback->clear_in_flight();
     }
     return _send_finished ? 0 : 1;
 }
@@ -607,20 +591,21 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     auto request = std::move(send_block.second); // doesn't need to be saved in heap
 
     // tablet_ids has already set when add row
-    request.set_packet_seq(_next_packet_seq);
+    request->set_packet_seq(_next_packet_seq);
     auto block = mutable_block->to_block();
-    CHECK(block.rows() == request.tablet_ids_size())
-            << "block rows: " << block.rows() << ", tablet_ids_size: " << request.tablet_ids_size();
+    CHECK(block.rows() == request->tablet_ids_size())
+            << "block rows: " << block.rows()
+            << ", tablet_ids_size: " << request->tablet_ids_size();
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        Status st = block.serialize(state->be_exec_version(), request.mutable_block(),
+        Status st = block.serialize(state->be_exec_version(), request->mutable_block(),
                                     &uncompressed_bytes, &compressed_bytes,
                                     state->fragement_transmission_compression_type(),
                                     _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.to_string()));
-            _add_block_closure->clear_in_flight();
+            _send_block_callback->clear_in_flight();
             return;
         }
         if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
@@ -632,29 +617,29 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
 
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
-        if (remain_ms <= 0 && !request.eos()) {
+        if (remain_ms <= 0 && !request->eos()) {
             cancel(fmt::format("{}, err: timeout", channel_info()));
-            _add_block_closure->clear_in_flight();
+            _send_block_callback->clear_in_flight();
             return;
         } else {
             remain_ms = config::min_load_rpc_timeout_ms;
         }
     }
 
-    _add_block_closure->reset();
-    _add_block_closure->cntl.set_timeout_ms(remain_ms);
+    _send_block_callback->reset();
+    _send_block_callback->cntl_->set_timeout_ms(remain_ms);
     if (config::tablet_writer_ignore_eovercrowded) {
-        _add_block_closure->cntl.ignore_eovercrowded();
+        _send_block_callback->cntl_->ignore_eovercrowded();
     }
 
-    if (request.eos()) {
+    if (request->eos()) {
         for (auto pid : _parent->_tablet_finder->partition_ids()) {
-            request.add_partition_ids(pid);
+            request->add_partition_ids(pid);
         }
 
-        request.set_write_single_replica(false);
+        request->set_write_single_replica(false);
         if (_parent->_write_single_replica) {
-            request.set_write_single_replica(true);
+            request->set_write_single_replica(true);
             for (std::unordered_map<int64_t, std::vector<int64_t>>::iterator iter =
                          _slave_tablet_nodes.begin();
                  iter != _slave_tablet_nodes.end(); iter++) {
@@ -670,24 +655,27 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
                     pnode->set_host(node->host);
                     pnode->set_async_internal_port(node->brpc_port);
                 }
-                request.mutable_slave_tablet_nodes()->insert({iter->first, slave_tablet_nodes});
+                request->mutable_slave_tablet_nodes()->insert({iter->first, slave_tablet_nodes});
             }
         }
 
-        // eos request must be the last request. it's a signal makeing callback function to set _add_batch_finished true.
-        _add_block_closure->end_mark();
+        // eos request must be the last request-> it's a signal makeing callback function to set _add_batch_finished true.
+        _send_block_callback->end_mark();
         _send_finished = true;
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
     }
 
-    if (_parent->_transfer_large_data_by_brpc && request.has_block() &&
-        request.block().has_column_values() && request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
-        Status st = request_embed_attachment_contain_block<
-                PTabletWriterAddBlockRequest, ReusableClosure<PTabletWriterAddBlockResult>>(
-                &request, _add_block_closure);
+    auto send_block_closure = AutoReleaseClosure<
+            PTabletWriterAddBlockRequest,
+            WriteBlockCallback<PTabletWriterAddBlockResult>>::create_unique(request,
+                                                                            _send_block_callback);
+    if (_parent->_transfer_large_data_by_brpc && request->has_block() &&
+        request->block().has_column_values() && request->ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
+        Status st = request_embed_attachment_contain_blockv2(send_block_closure->request_.get(),
+                                                             send_block_closure);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.to_string()));
-            _add_block_closure->clear_in_flight();
+            _send_block_callback->clear_in_flight();
             return;
         }
 
@@ -696,23 +684,26 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");
-        _add_block_closure->cntl.http_request().uri() =
+        _send_block_callback->cntl_->http_request().uri() =
                 brpc_url + "/PInternalServiceImpl/tablet_writer_add_block_by_http";
-        _add_block_closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
-        _add_block_closure->cntl.http_request().set_content_type("application/json");
+        _send_block_callback->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);
+        _send_block_callback->cntl_->http_request().set_content_type("application/json");
 
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-            _brpc_http_stub->tablet_writer_add_block_by_http(&_add_block_closure->cntl, nullptr,
-                                                             &_add_block_closure->result,
-                                                             _add_block_closure);
+            _brpc_http_stub->tablet_writer_add_block_by_http(
+                    send_block_closure->cntl_.get(), nullptr, send_block_closure->response_.get(),
+                    send_block_closure.get());
+            send_block_closure.release();
         }
     } else {
-        _add_block_closure->cntl.http_request().Clear();
+        _send_block_callback->cntl_->http_request().Clear();
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-            _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
-                                           &_add_block_closure->result, _add_block_closure);
+            _stub->tablet_writer_add_block(
+                    send_block_closure->cntl_.get(), send_block_closure->request_.get(),
+                    send_block_closure->response_.get(), send_block_closure.get());
+            send_block_closure.release();
         }
     }
 
@@ -805,11 +796,11 @@ void VNodeChannel::_add_block_failed_callback(bool is_last_rpc) {
     }
     SCOPED_ATTACH_TASK(_state);
     // If rpc failed, mark all tablets on this node channel as failed
-    _index_channel->mark_as_failed(
-            this,
-            fmt::format("rpc failed, error coed:{}, error text:{}",
-                        _add_block_closure->cntl.ErrorCode(), _add_block_closure->cntl.ErrorText()),
-            -1);
+    _index_channel->mark_as_failed(this,
+                                   fmt::format("rpc failed, error coed:{}, error text:{}",
+                                               _send_block_callback->cntl_->ErrorCode(),
+                                               _send_block_callback->cntl_->ErrorText()),
+                                   -1);
     Status st = _index_channel->check_intolerable_failure();
     if (!st.ok()) {
         _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
@@ -835,24 +826,28 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     // But do we need brpc::StartCancel(call_id)?
     _cancel_with_msg(cancel_msg);
 
-    PTabletWriterCancelRequest request;
-    request.set_allocated_id(&_parent->_load_id);
-    request.set_index_id(_index_channel->_index_id);
-    request.set_sender_id(_parent->_sender_id);
+    auto request = std::make_shared<PTabletWriterCancelRequest>();
+    request->set_allocated_id(&_parent->_load_id);
+    request->set_index_id(_index_channel->_index_id);
+    request->set_sender_id(_parent->_sender_id);
 
-    auto closure = new RefCountClosure<PTabletWriterCancelResult>();
+    auto cancel_callback = DummyBrpcCallback<PTabletWriterCancelResult>::create_shared();
+    auto closure = AutoReleaseClosure<
+            PTabletWriterCancelRequest,
+            DummyBrpcCallback<PTabletWriterCancelResult>>::create_unique(request, cancel_callback);
 
-    closure->ref();
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
-    closure->cntl.set_timeout_ms(remain_ms);
+    cancel_callback->cntl_->set_timeout_ms(remain_ms);
     if (config::tablet_writer_ignore_eovercrowded) {
-        closure->cntl.ignore_eovercrowded();
+        closure->cntl_->ignore_eovercrowded();
     }
-    _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
-    static_cast<void>(request.release_id());
+    _stub->tablet_writer_cancel(closure->cntl_.get(), closure->request_.get(),
+                                closure->response_.get(), closure.get());
+    closure.release();
+    static_cast<void>(request->release_id());
 }
 
 bool VNodeChannel::is_send_data_rpc_done() const {
@@ -912,17 +907,19 @@ void VNodeChannel::mark_close() {
         return;
     }
 
-    _cur_add_block_request.set_eos(true);
+    _cur_add_block_request->set_eos(true);
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) [[unlikely]] {
             // add a dummy block
             _cur_mutable_block = vectorized::MutableBlock::create_unique();
         }
+        auto tmp_add_block_request =
+                std::make_shared<PTabletWriterAddBlockRequest>(*_cur_add_block_request);
         // when prepare to close, add block to queue so that try_send_pending_block thread will send it.
-        _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
+        _pending_blocks.emplace(std::move(_cur_mutable_block), tmp_add_block_request);
         _pending_batches_num++;
-        DCHECK(_pending_blocks.back().second.eos());
+        DCHECK(_pending_blocks.back().second->eos());
         _close_time_ms = UnixMillis();
         LOG(INFO) << channel_info()
                   << " mark closed, left pending batch size: " << _pending_blocks.size();
@@ -1391,7 +1388,7 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
 
-    // will make the last batch of request. close_wait will wait this finished.
+    // will make the last batch of request-> close_wait will wait this finished.
     static_cast<void>(try_close(_state, exec_status));
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
