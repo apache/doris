@@ -45,5 +45,27 @@ suite("load") {
       "replication_allocation" = "tag.location.default: 1"
     );
     """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS t3(
+      `id` int(11) NULL,
+      `msg` text NULL
+    ) ENGINE = OLAP
+    DISTRIBUTED BY HASH(id) BUCKETS 4
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS t4(
+      `id` int(11) NULL,
+      `msg` text NULL
+    ) ENGINE = OLAP
+    DISTRIBUTED BY HASH(id) BUCKETS 4
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
 }
 
