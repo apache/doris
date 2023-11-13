@@ -363,6 +363,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         TableType type = TableType.valueOf(Text.readString(in));
         if (type == TableType.OLAP) {
             table = new OlapTable();
+        } else if (type == TableType.MATERIALIZED_VIEW) {
+            table = new MTMV();
         } else if (type == TableType.ODBC) {
             table = new OdbcTable();
         } else if (type == TableType.MYSQL) {

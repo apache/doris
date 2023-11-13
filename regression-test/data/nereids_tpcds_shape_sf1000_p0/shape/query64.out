@@ -111,9 +111,9 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
-----PhysicalQuickSort
+----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((cs1.item_sk = cs2.item_sk) and (cs1.store_name = cs2.store_name) and (cs1.store_zip = cs2.store_zip))otherCondition=((cs2.cnt <= cs1.cnt))
 --------------PhysicalDistribute

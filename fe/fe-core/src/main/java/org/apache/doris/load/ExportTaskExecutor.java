@@ -144,8 +144,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                 exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
                         ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
                 throw new JobException(e);
-            } finally {
-                stmtExecutor.addProfileToSpan();
             }
         }
         if (isCanceled.get()) {

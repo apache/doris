@@ -24,10 +24,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/span_context.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -59,7 +55,6 @@
 #include "util/debug_util.h"
 #include "util/defer_op.h"
 #include "util/pretty_printer.h"
-#include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -116,12 +111,6 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
-    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
-    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_ctx->query_id()));
-    }
-    _span = tracer->StartSpan("Plan_fragment_executor");
-    OpentelemetryScope scope {_span};
     if (request.__isset.query_options) {
         _timeout_second = request.query_options.execution_timeout;
     }
@@ -140,7 +129,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
             RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-    _runtime_state->set_tracer(std::move(tracer));
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
     static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
@@ -224,6 +212,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
     _runtime_state->set_num_per_fragment_instances(params.num_senders);
+    _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
+    _runtime_state->set_total_load_streams(request.total_load_streams);
 
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
@@ -332,9 +322,25 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
                               : doris::vectorized::Block::create_unique();
         bool eos = false;
 
+        auto st = Status::OK();
+        auto handle_group_commit = [&]() {
+            if (UNLIKELY(_group_commit && !st.ok() && block != nullptr)) {
+                auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
+                std::unique_lock<doris::Mutex> l(*(future_block->lock));
+                if (!future_block->is_handled()) {
+                    future_block->set_result(st, 0, 0);
+                    future_block->cv->notify_all();
+                }
+            }
+        };
+
         while (!eos) {
             RETURN_IF_CANCELLED(_runtime_state);
-            RETURN_IF_ERROR(get_vectorized_internal(block.get(), &eos));
+            st = get_vectorized_internal(block.get(), &eos);
+            if (UNLIKELY(!st.ok())) {
+                handle_group_commit();
+                return st;
+            }
 
             // Collect this plan and sub plan statistics, and send to parent plan.
             if (_collect_query_statistics_with_every_batch) {
@@ -342,23 +348,13 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             }
 
             if (!eos || block->rows() > 0) {
-                auto st = _sink->send(runtime_state(), block.get());
+                st = _sink->send(runtime_state(), block.get());
                 //TODO: Asynchronisation need refactor this
                 if (st.is<NEED_SEND_AGAIN>()) { // created partition, do it again.
                     st = _sink->send(runtime_state(), block.get());
                     DCHECK(!st.is<NEED_SEND_AGAIN>());
                 }
-                if (UNLIKELY(!st.ok() || block->rows() == 0)) {
-                    // Used for group commit insert
-                    if (_group_commit) {
-                        auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
-                        std::unique_lock<doris::Mutex> l(*(future_block->lock));
-                        if (!future_block->is_handled()) {
-                            future_block->set_result(st, 0, 0);
-                            future_block->cv->notify_all();
-                        }
-                    }
-                }
+                handle_group_commit();
                 if (st.is<END_OF_FILE>()) {
                     break;
                 }
@@ -421,7 +417,6 @@ Status PlanFragmentExecutor::execute() {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
         Status st = open();
         WARN_IF_ERROR(st, strings::Substitute("Got error while opening fragment $0, query id: $1",
                                               print_id(_fragment_instance_id),
@@ -680,7 +675,6 @@ void PlanFragmentExecutor::close() {
         }
     }
 
-    profile()->add_to_span(_span);
     _closed = true;
 }
 

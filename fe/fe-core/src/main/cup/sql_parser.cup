@@ -332,6 +332,7 @@ terminal String
     KW_DATEV1,
     KW_DAY,
     KW_DECIMAL,
+    KW_DECIMALV2,
     KW_DECIMALV3,
     KW_DECOMMISSION,
     KW_DEFAULT,
@@ -617,6 +618,7 @@ terminal String
     KW_TO,
     KW_TRANSACTION,
     KW_TRASH,
+    KW_TREE,
     KW_TRIGGERS,
     KW_TRIM,
     KW_TRUE,
@@ -4316,15 +4318,19 @@ opt_builtin ::=
 
 opt_explain_options ::=
     {:
-        RESULT = new ExplainOptions(false, false);
+        RESULT = new ExplainOptions(false, false, false);
     :}
     | KW_VERBOSE
     {:
-        RESULT = new ExplainOptions(true, false);
+        RESULT = new ExplainOptions(true, false, false);
+    :}
+    | KW_TREE
+    {:
+        RESULT = new ExplainOptions(false, true, false);
     :}
     | KW_GRAPH
     {:
-        RESULT = new ExplainOptions(false, true);
+        RESULT = new ExplainOptions(false, false, true);
     :}
     ;
 
@@ -6280,6 +6286,16 @@ type ::=
   {: RESULT = ScalarType.createDecimalV3Type(precision); :}
   | KW_DECIMALV3 LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
   {: RESULT = ScalarType.createDecimalV3Type(precision, scale); :}
+  | KW_DECIMALV2 LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue()); :}
+  | KW_DECIMALV2 LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue(), scale.intValue()); :}
+  | KW_DECIMALV2
+  {: RESULT = ScalarType.createDecimalV2Type(); :}
+  | KW_DECIMALV2 LPAREN ident_or_text:precision RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision); :}
+  | KW_DECIMALV2 LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
      RESULT = type;
@@ -7421,6 +7437,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_DEMAND:id
     {: RESULT = id; :}
+    | KW_DECIMALV2:id
+    {: RESULT = id; :}
     | KW_DECIMALV3:id
     {: RESULT = id; :}
     | KW_DIAGNOSE:id
@@ -7650,6 +7668,8 @@ keyword ::=
     | KW_TIMESTAMP:id
     {: RESULT = id; :}
     | KW_TRANSACTION:id
+    {: RESULT = id; :}
+    | KW_TREE:id
     {: RESULT = id; :}
     | KW_TEXT:id
     {: RESULT = id; :}

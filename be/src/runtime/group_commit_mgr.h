@@ -23,36 +23,29 @@
 #include <memory>
 
 #include "common/status.h"
-#include "io/fs/stream_load_pipe.h"
 #include "util/lock.h"
 #include "util/threadpool.h"
-#include "util/thrift_util.h"
 #include "vec/core/block.h"
 #include "vec/core/future_block.h"
 
 namespace doris {
 class ExecEnv;
-class TPlan;
-class TDescriptorTable;
 class TUniqueId;
-class TExecPlanFragmentParams;
-class ObjectPool;
 class RuntimeState;
-class StreamLoadContext;
-class StreamLoadPipe;
 
 class LoadBlockQueue {
 public:
     LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
                    int64_t schema_version,
-                   std::shared_ptr<std::atomic_size_t> all_block_queues_bytes)
+                   std::shared_ptr<std::atomic_size_t> all_block_queues_bytes,
+                   bool wait_internal_group_commit_finish)
             : load_instance_id(load_instance_id),
               label(label),
               txn_id(txn_id),
               schema_version(schema_version),
+              wait_internal_group_commit_finish(wait_internal_group_commit_finish),
               _start_time(std::chrono::steady_clock::now()),
               _all_block_queues_bytes(all_block_queues_bytes) {
-        _mutex = std::make_shared<doris::Mutex>();
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
@@ -68,11 +61,13 @@ public:
     int64_t txn_id;
     int64_t schema_version;
     bool need_commit = false;
+    bool wait_internal_group_commit_finish = false;
+    doris::Mutex mutex;
+    doris::ConditionVariable internal_group_commit_finish_cv;
 
 private:
     std::chrono::steady_clock::time_point _start_time;
 
-    std::shared_ptr<doris::Mutex> _mutex;
     doris::ConditionVariable _put_cond;
     doris::ConditionVariable _get_cond;
     // the set of load ids of all blocks in this queue
@@ -131,13 +126,6 @@ public:
 
     void stop();
 
-    // insert into
-    Status group_commit_insert(int64_t table_id, const TPlan& plan,
-                               const TDescriptorTable& desc_tbl,
-                               const TScanRangeParams& scan_range_params,
-                               const PGroupCommitInsertRequest* request,
-                               PGroupCommitInsertResponse* response);
-
     // used when init group_commit_scan_node
     Status get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
@@ -146,18 +134,11 @@ public:
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    // used by insert into
-    Status _append_row(std::shared_ptr<io::StreamLoadPipe> pipe,
-                       const PGroupCommitInsertRequest* request);
-
     ExecEnv* _exec_env;
 
     doris::Mutex _lock;
     // TODO remove table when unused
     std::unordered_map<int64_t, std::shared_ptr<GroupCommitTable>> _table_map;
-
-    // thread pool to handle insert into: append data to pipe
-    std::unique_ptr<doris::ThreadPool> _insert_into_thread_pool;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
     // memory consumption of all tables' load block queues, used for back pressure.
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;

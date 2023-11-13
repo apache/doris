@@ -18,7 +18,6 @@
 #include "vec/exec/vrepeat_node.h"
 
 #include <gen_cpp/PlanNodes_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <string.h>
 
 #include <functional>
@@ -33,7 +32,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"

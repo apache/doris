@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
@@ -55,132 +57,132 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract year
      */
-    @ExecFunction(name = "year", argTypes = {"DATE"}, returnType = "INT")
+    @ExecFunction(name = "year", argTypes = {"DATE"}, returnType = "SMALLINT")
     public static Expression year(DateLiteral date) {
-        return new IntegerLiteral(((int) date.getYear()));
+        return new SmallIntLiteral(((short) date.getYear()));
     }
 
-    @ExecFunction(name = "year", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "year", argTypes = {"DATETIME"}, returnType = "SMALLINT")
     public static Expression year(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) date.getYear()));
+        return new SmallIntLiteral(((short) date.getYear()));
     }
 
-    @ExecFunction(name = "year", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "year", argTypes = {"DATEV2"}, returnType = "SMALLINT")
     public static Expression year(DateV2Literal date) {
-        return new IntegerLiteral(((int) date.getYear()));
+        return new SmallIntLiteral(((short) date.getYear()));
     }
 
-    @ExecFunction(name = "year", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "year", argTypes = {"DATETIMEV2"}, returnType = "SMALLINT")
     public static Expression year(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) date.getYear()));
+        return new SmallIntLiteral(((short) date.getYear()));
     }
 
     /**
      * Executable datetime extract quarter
      */
-    @ExecFunction(name = "quarter", argTypes = {"DATE"}, returnType = "INT")
+    @ExecFunction(name = "quarter", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression quarter(DateLiteral date) {
-        return new IntegerLiteral(((int) date.getMonth() - 1) / 3 + 1);
+        return new TinyIntLiteral((byte) (((byte) date.getMonth() - 1) / 3 + 1));
     }
 
-    @ExecFunction(name = "quarter", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "quarter", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression quarter(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) date.getMonth() - 1) / 3 + 1);
+        return new TinyIntLiteral((byte) ((date.getMonth() - 1) / 3 + 1));
     }
 
-    @ExecFunction(name = "quarter", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "quarter", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression quarter(DateV2Literal date) {
-        return new IntegerLiteral(((int) date.getMonth() - 1) / 3 + 1);
+        return new TinyIntLiteral((byte) ((date.getMonth() - 1) / 3 + 1));
     }
 
-    @ExecFunction(name = "quarter", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "quarter", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression quarter(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) date.getMonth() - 1) / 3 + 1);
+        return new TinyIntLiteral((byte) ((date.getMonth() - 1) / 3 + 1));
     }
 
     /**
      * Executable datetime extract month
      */
-    @ExecFunction(name = "month", argTypes = {"DATE"}, returnType = "INT")
+    @ExecFunction(name = "month", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression month(DateLiteral date) {
-        return new IntegerLiteral(((int) date.getMonth()));
+        return new TinyIntLiteral((byte) date.getMonth());
     }
 
-    @ExecFunction(name = "month", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "month", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression month(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) date.getMonth()));
+        return new TinyIntLiteral((byte) date.getMonth());
     }
 
-    @ExecFunction(name = "month", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "month", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression month(DateV2Literal date) {
-        return new IntegerLiteral(((int) date.getMonth()));
+        return new TinyIntLiteral((byte) date.getMonth());
     }
 
-    @ExecFunction(name = "month", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "month", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression month(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) date.getMonth()));
+        return new TinyIntLiteral((byte) date.getMonth());
     }
 
     /**
      * Executable datetime extract day
      */
-    @ExecFunction(name = "day", argTypes = {"DATE"}, returnType = "INT")
+    @ExecFunction(name = "day", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression day(DateLiteral date) {
-        return new IntegerLiteral(((int) date.getDay()));
+        return new TinyIntLiteral((byte) date.getDay());
     }
 
-    @ExecFunction(name = "day", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "day", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression day(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) date.getDay()));
+        return new TinyIntLiteral((byte) date.getDay());
     }
 
-    @ExecFunction(name = "day", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "day", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression day(DateV2Literal date) {
-        return new IntegerLiteral(((int) date.getDay()));
+        return new TinyIntLiteral((byte) date.getDay());
     }
 
-    @ExecFunction(name = "day", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "day", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression day(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) date.getDay()));
+        return new TinyIntLiteral((byte) date.getDay());
     }
 
     /**
      * Executable datetime extract hour
      */
-    @ExecFunction(name = "hour", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "hour", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression hour(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) date.getHour()));
+        return new TinyIntLiteral(((byte) date.getHour()));
     }
 
-    @ExecFunction(name = "hour", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "hour", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression hour(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) date.getHour()));
+        return new TinyIntLiteral(((byte) date.getHour()));
     }
 
     /**
      * Executable datetime extract hour
      */
-    @ExecFunction(name = "minute", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "minute", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression minute(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) date.getMinute()));
+        return new TinyIntLiteral(((byte) date.getMinute()));
     }
 
-    @ExecFunction(name = "minute", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "minute", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression minute(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) date.getMinute()));
+        return new TinyIntLiteral(((byte) date.getMinute()));
     }
 
     /**
      * Executable datetime extract second
      */
-    @ExecFunction(name = "second", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "second", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression second(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) date.getSecond()));
+        return new TinyIntLiteral(((byte) date.getSecond()));
     }
 
-    @ExecFunction(name = "second", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "second", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression second(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) date.getSecond()));
+        return new TinyIntLiteral(((byte) date.getSecond()));
     }
 
     /**
@@ -194,70 +196,70 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract dayofyear
      */
-    @ExecFunction(name = "dayofyear", argTypes = {"DATE"}, returnType = "INT")
+    @ExecFunction(name = "dayofyear", argTypes = {"DATE"}, returnType = "SMALLINT")
     public static Expression dayOfYear(DateLiteral date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
     }
 
-    @ExecFunction(name = "dayofyear", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "dayofyear", argTypes = {"DATETIME"}, returnType = "SMALLINT")
     public static Expression dayOfYear(DateTimeLiteral date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
     }
 
-    @ExecFunction(name = "dayofyear", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "dayofyear", argTypes = {"DATEV2"}, returnType = "SMALLINT")
     public static Expression dayOfYear(DateV2Literal date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
     }
 
-    @ExecFunction(name = "dayofyear", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "dayofyear", argTypes = {"DATETIMEV2"}, returnType = "SMALLINT")
     public static Expression dayOfYear(DateTimeV2Literal date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
     }
 
     /**
      * Executable datetime extract dayofmonth
      */
-    @ExecFunction(name = "dayofmonth", argTypes = {"DATE"}, returnType = "INT")
+    @ExecFunction(name = "dayofmonth", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression dayOfMonth(DateLiteral date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfMonth());
+        return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
     }
 
-    @ExecFunction(name = "dayofmonth", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "dayofmonth", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression dayOfMonth(DateTimeLiteral date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfMonth());
+        return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
     }
 
-    @ExecFunction(name = "dayofmonth", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "dayofmonth", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression dayOfMonth(DateV2Literal date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfMonth());
+        return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
     }
 
-    @ExecFunction(name = "dayofmonth", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "dayofmonth", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression dayOfMonth(DateTimeV2Literal date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfMonth());
+        return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
     }
 
     /**
      * Executable datetime extract dayofweek
      */
-    @ExecFunction(name = "dayofweek", argTypes = {"DATE"}, returnType = "INT")
+    @ExecFunction(name = "dayofweek", argTypes = {"DATE"}, returnType = "TINYINT")
     public static Expression dayOfWeek(DateLiteral date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1);
+        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
     }
 
-    @ExecFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static Expression dayOfWeek(DateTimeLiteral date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1);
+        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
     }
 
-    @ExecFunction(name = "dayofweek", argTypes = {"DATEV2"}, returnType = "INT")
+    @ExecFunction(name = "dayofweek", argTypes = {"DATEV2"}, returnType = "TINYINT")
     public static Expression dayOfWeek(DateV2Literal date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1);
+        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
     }
 
-    @ExecFunction(name = "dayofweek", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "dayofweek", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")
     public static Expression dayOfWeek(DateTimeV2Literal date) {
-        return new IntegerLiteral(date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1);
+        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
     }
 
     private static int distanceToFirstDayOfWeek(LocalDateTime dateTime) {

@@ -528,7 +528,7 @@ public abstract class TestWithFeService {
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(new ExplainOptions(isVerbose, false));
+            return planner.getExplainString(new ExplainOptions(isVerbose, false, false));
         } else {
             return ctx.getState().getErrorMessage();
         }
@@ -746,6 +746,9 @@ public abstract class TestWithFeService {
             }
             Replica replica = cell.getValue();
             TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
+            if (tabletMeta == null) {
+                continue;
+            }
             ImmutableMap<String, DiskInfo> diskMap = be.getDisks();
             for (DiskInfo diskInfo : diskMap.values()) {
                 if (diskInfo.getStorageMedium() == tabletMeta.getStorageMedium()) {

@@ -747,7 +747,7 @@ BaseCompaction:546859:
 #### `enable_single_replica_load`
 
 * 描述: 是否启动单副本数据导入功能
-* 默认值: false
+* 默认值: true
 
 #### `load_error_log_reserve_hours`
 

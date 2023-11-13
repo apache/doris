@@ -65,8 +65,6 @@ public:
 private:
     Status _prepare_vexpr(RuntimeState* state);
 
-    std::shared_ptr<arrow::Schema> _arrow_schema;
-
     BlockQueueSharedPtr _queue;
 
     // Owned by the RuntimeState.

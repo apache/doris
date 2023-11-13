@@ -193,6 +193,24 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     return Status::OK();
 }
 
+bool _has_char_type(const TypeDescriptor& desc) {
+    switch (desc.type) {
+    case TYPE_CHAR:
+        return true;
+    case TYPE_ARRAY:
+    case TYPE_MAP:
+    case TYPE_STRUCT:
+        for (int idx = 0; idx < desc.children.size(); ++idx) {
+            if (_has_char_type(desc.children[idx])) {
+                return true;
+            }
+        }
+        return false;
+    default:
+        return false;
+    }
+}
+
 Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
                            vectorized::Block* res_block) {
     CHECK(!_stubs.empty());
@@ -238,17 +256,10 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     std::vector<size_t> char_type_idx;
     for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
         const auto& column_desc = _fetch_option.desc->slots()[i];
-        const TypeDescriptor* type_desc = &column_desc->type();
-        do {
-            if (type_desc->type == TYPE_CHAR) {
-                char_type_idx.emplace_back(i);
-                break;
-            } else if (type_desc->type != TYPE_ARRAY) {
-                break;
-            }
-            // for Array<Char> or Array<Array<Char>>
-            type_desc = &type_desc->children[0];
-        } while (true);
+        const TypeDescriptor& type_desc = column_desc->type();
+        if (_has_char_type(type_desc)) {
+            char_type_idx.push_back(i);
+        }
     }
     res_block->shrink_char_type_column_suffix_zero(char_type_idx);
     VLOG_DEBUG << "dump block:" << res_block->dump_data(0, 10);

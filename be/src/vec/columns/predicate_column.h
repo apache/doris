@@ -137,8 +137,6 @@ public:
 
     bool is_numeric() const override { return false; }
 
-    bool is_predicate_column() const override { return true; }
-
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -346,8 +344,9 @@ public:
 
     const char* get_family_name() const override { return TypeName<T>::get(); }
 
-    [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
-        LOG(FATAL) << "clone_resized not supported in PredicateColumnType";
+    MutableColumnPtr clone_resized(size_t size) const override {
+        DCHECK(size == 0);
+        return this->create();
     }
 
     void insert(const Field& x) override {
@@ -400,8 +399,6 @@ public:
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported in PredicateColumnType";
     }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }

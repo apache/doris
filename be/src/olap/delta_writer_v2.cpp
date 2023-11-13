@@ -28,7 +28,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -64,11 +63,11 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status DeltaWriterV2::open(WriteRequest* req,
-                           const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                           DeltaWriterV2** writer) {
-    *writer = new DeltaWriterV2(req, streams, StorageEngine::instance());
-    return Status::OK();
+std::unique_ptr<DeltaWriterV2> DeltaWriterV2::open(
+        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
+    std::unique_ptr<DeltaWriterV2> writer(
+            new DeltaWriterV2(req, streams, StorageEngine::instance()));
+    return writer;
 }
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,

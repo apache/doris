@@ -56,7 +56,7 @@ suite("test_restore_to_new_table", "backup_restore") {
         Thread.sleep(3000)
     }
 
-    snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
