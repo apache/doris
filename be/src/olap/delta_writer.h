@@ -132,9 +132,6 @@ private:
     PSuccessSlaveTabletNodeIds _success_slave_node_ids;
     std::shared_mutex _slave_node_lock;
 
-    // total rows num written by DeltaWriter
-    std::atomic<int64_t> _total_received_rows = 0;
-
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     RuntimeProfile::Counter* _commit_txn_timer = nullptr;
