@@ -63,6 +63,7 @@ public class PropertySchemaTest {
         prop.setMax("x");
         Assert.assertEquals("w", prop.read("w"));
         Assert.assertEquals("x", prop.read("x"));
+        Assert.assertEquals("x", "y");
     }
 
     @Test
