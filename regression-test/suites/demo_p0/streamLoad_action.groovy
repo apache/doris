@@ -53,6 +53,22 @@ suite("streamLoad_action") {
         // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
     }
 
+    def backendIps = [:]
+    def backendHttpPorts = [:]
+    getBackendIpHttpPort(backendIps, backendHttpPorts)
+    def backendId = backendIps.keySet()[0]
+    streamLoad {
+        table tableName
+        set 'column_separator', ','
+        file 'streamload_input.csv'
+
+        // can direct to backend, then this backend is the txn coordinator.
+        directToBe  backendIps.get(backendId),  backendHttpPorts.get(backendId) as int
+    }
+
+    order_qt_select_1 "SELECT * FROM ${tableName}"
+    sql "TRUNCATE TABLE ${tableName}"
+
     // stream load 100 rows
     def rowCount = 100
     // range: [0, rowCount)
@@ -79,6 +95,8 @@ suite("streamLoad_action") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
+
+    order_qt_select_2 "SELECT * FROM ${tableName}"
 
     // to test merge sort
     sql """ DROP TABLE IF EXISTS B """

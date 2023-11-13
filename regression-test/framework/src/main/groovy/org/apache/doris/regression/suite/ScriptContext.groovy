@@ -73,7 +73,8 @@ class ScriptContext implements Closeable {
             throw new IllegalStateException("Can not create suite after close scriptContext")
         }
 
-        SuiteContext suiteContext = new SuiteContext(file, suiteName, group, this,
+        SuiteCluster suiteCluster = new SuiteCluster(suiteName, config);
+        SuiteContext suiteContext = new SuiteContext(file, suiteName, group, this, suiteCluster,
                 suiteExecutors, actionExecutors, config) {
             @Override
             void close() {
@@ -85,7 +86,7 @@ class ScriptContext implements Closeable {
                 }
             }
         }
-        Suite suite = new Suite(suiteName, group, suiteContext)
+        Suite suite = new Suite(suiteName, group, suiteContext, suiteCluster)
         // count up, register suite thread
         phaser.register()
         return suite
