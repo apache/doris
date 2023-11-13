@@ -329,6 +329,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
 
     RETURN_IF_ERROR(init_iterators());
     if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
+        _is_char_type.resize(_schema->columns().size(), false);
         _vec_init_char_column_id();
     }
 
@@ -1701,6 +1702,9 @@ void SegmentIterator::_vec_init_char_column_id() {
                 _char_type_idx_no_0.emplace_back(i);
             }
         }
+        if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _is_char_type[cid] = true;
+        }
     }
 }
 
@@ -2085,8 +2089,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto storage_column_type = _storage_name_and_type[cid].second;
                 RETURN_IF_CATCH_EXCEPTION(
                         _current_return_columns[cid] = Schema::get_predicate_column_ptr(
-                                TabletColumn::get_field_type_by_type(
-                                        storage_column_type->get_type_as_type_descriptor().type),
+                                _is_char_type[cid]
+                                        ? FieldType::OLAP_FIELD_TYPE_CHAR
+                                        : TabletColumn::get_field_type_by_type(
+                                                  storage_column_type->get_type_as_type_descriptor()
+                                                          .type),
                                 storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
