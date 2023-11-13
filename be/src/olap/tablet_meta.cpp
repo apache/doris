@@ -1074,4 +1074,26 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
 
 std::atomic<ShardedLRUCache*> DeleteBitmap::AggCache::s_repr {nullptr};
 
+std::string tablet_state_name(TabletState state) {
+    switch (state) {
+    case TABLET_NOTREADY:
+        return "TABLET_NOTREADY";
+
+    case TABLET_RUNNING:
+        return "TABLET_RUNNING";
+
+    case TABLET_TOMBSTONED:
+        return "TABLET_TOMBSTONED";
+
+    case TABLET_STOPPED:
+        return "TABLET_STOPPED";
+
+    case TABLET_SHUTDOWN:
+        return "TABLET_SHUTDOWN";
+
+    default:
+        return "TabletState(" + std::to_string(state) + ")";
+    }
+}
+
 } // namespace doris
