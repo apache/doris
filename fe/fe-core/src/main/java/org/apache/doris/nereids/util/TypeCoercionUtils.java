@@ -468,6 +468,11 @@ public class TypeCoercionUtils {
                     return promoted;
                 }
             }
+            // adapt scale when from string to datetimev2 with float
+            if (type.isStringLikeType() && dataType.isDateTimeV2Type()) {
+                return recordTypeCoercionForSubQuery(input,
+                        DateTimeV2Type.forTypeFromString(((Literal) input).getStringValue()));
+            }
         }
         return recordTypeCoercionForSubQuery(input, dataType);
     }

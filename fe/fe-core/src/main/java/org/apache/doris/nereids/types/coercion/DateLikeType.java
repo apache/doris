@@ -74,7 +74,7 @@ public abstract class DateLikeType extends PrimitiveType {
         } else if (this instanceof DateTimeType) {
             return new DateTimeLiteral(s);
         } else if (this instanceof DateTimeV2Type) {
-            return new DateTimeV2Literal(DateTimeV2Type.forTypeFromString(s), s);
+            return new DateTimeV2Literal((DateTimeV2Type) this, s);
         } else {
             throw new AnalysisException("unknown date like type");
         }
