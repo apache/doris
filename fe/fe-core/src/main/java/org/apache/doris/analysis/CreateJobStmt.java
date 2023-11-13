@@ -29,6 +29,7 @@ import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -61,12 +62,11 @@ import java.util.HashSet;
 @Slf4j
 public class CreateJobStmt extends DdlStmt {
 
+    @Getter
+    private StatementBase doStmt;
 
     @Getter
-    private StatementBase stmt;
-
-    @Getter
-    private AbstractJob job;
+    private AbstractJob<?> jobInstance;
 
     private final LabelName labelName;
 
@@ -81,6 +81,7 @@ public class CreateJobStmt extends DdlStmt {
     private final String endsTimeStamp;
 
     private final String comment;
+    private JobExecuteType executeType;
 
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
 
@@ -100,10 +101,23 @@ public class CreateJobStmt extends DdlStmt {
         this.startsTimeStamp = startsTimeStamp;
         this.endsTimeStamp = endsTimeStamp;
         this.comment = comment;
-        this.stmt = doStmt;
+        this.doStmt = doStmt;
+        this.executeType = executeType;
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
+        checkAuth();
+        labelName.analyze(analyzer);
+        String dbName = labelName.getDbName();
+        Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        analyzerSqlStmt();
+        // check its insert stmt,currently only support insert stmt
+        InsertJob job = new InsertJob();
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         jobExecutionConfiguration.setExecuteType(executeType);
-
+        job.setCreateTimeMs(System.currentTimeMillis());
         TimerDefinition timerDefinition = new TimerDefinition();
 
         if (null != onceJobStartTimestamp) {
@@ -122,7 +136,43 @@ public class CreateJobStmt extends DdlStmt {
             timerDefinition.setEndTimeMs(TimeUtils.timeStringToLong(endsTimeStamp));
         }
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
+        job.setJobConfig(jobExecutionConfiguration);
+
         job.setComment(comment);
+        job.setCurrentDbName(labelName.getDbName());
+        job.setJobName(labelName.getLabelName());
+        job.setComment(comment);
+        job.setCreateUser(ConnectContext.get().getQualifiedUser());
+        job.setJobStatus(JobStatus.RUNNING);
+        job.checkJobParams();
+        String originStmt = getOrigStmt().originStmt;
+        String executeSql = parseExecuteSql(originStmt);
+        job.setExecuteSql(executeSql);
+        jobInstance = job;
+    }
+
+    protected static void checkAuth() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+    }
+
+    private void checkStmtSupport() throws AnalysisException {
+        if (supportStmtClassNamesCache.contains(doStmt.getClass().getSimpleName())) {
+            return;
+        }
+        for (Class<? extends DdlStmt> clazz : supportStmtSuperClass) {
+            if (clazz.isAssignableFrom(doStmt.getClass())) {
+                supportStmtClassNamesCache.add(doStmt.getClass().getSimpleName());
+                return;
+            }
+        }
+        throw new AnalysisException("Not support this stmt type");
+    }
+
+    private void analyzerSqlStmt() throws UserException {
+        checkStmtSupport();
+        doStmt.analyze(analyzer);
     }
 
     private String parseExecuteSql(String sql) throws AnalysisException {
@@ -134,48 +184,4 @@ public class CreateJobStmt extends DdlStmt {
         }
         return executeSql;
     }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        checkAuth();
-        labelName.analyze(analyzer);
-        String dbName = labelName.getDbName();
-        Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-        job.setCurrentDbName(labelName.getDbName());
-        job.setJobName(labelName.getLabelName());
-        job.checkJobParams();
-        job.setComment(comment);
-        //todo support user define
-        job.setCurrentUser(ConnectContext.get().getQualifiedUser());
-        job.setJobStatus(JobStatus.RUNNING);
-        analyzerSqlStmt();
-    }
-
-    protected static void checkAuth() throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-    }
-
-    private void checkStmtSupport() throws AnalysisException {
-        if (supportStmtClassNamesCache.contains(stmt.getClass().getSimpleName())) {
-            return;
-        }
-        for (Class<? extends DdlStmt> clazz : supportStmtSuperClass) {
-            if (clazz.isAssignableFrom(stmt.getClass())) {
-                supportStmtClassNamesCache.add(stmt.getClass().getSimpleName());
-                return;
-            }
-        }
-        throw new AnalysisException("Not support this stmt type");
-    }
-
-    private void analyzerSqlStmt() throws UserException {
-        checkStmtSupport();
-        stmt.analyze(analyzer);
-        //String originStmt = getOrigStmt().originStmt;
-        //String executeSql = parseExecuteSql(originStmt);
-    }
-
 }

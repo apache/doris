@@ -17,20 +17,21 @@
 
 package org.apache.doris.job.base;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.job.task.Task;
-import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import lombok.Getter;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,20 +39,29 @@ import java.util.List;
 @Data
 public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Writable {
 
-    @Getter
+    @SerializedName(value = "jobId")
     private Long jobId;
 
+    @SerializedName(value = "jobName")
     private String jobName;
 
+    @SerializedName(value = "jobStatus")
     private JobStatus jobStatus;
 
+    @SerializedName(value = "currentDbName")
     private String currentDbName;
 
+    @SerializedName(value = "comment")
     private String comment;
 
-    private String currentUser;
+    @SerializedName(value = "jobType")
+    private String createUser;
 
+    @SerializedName(value = "jobConfig")
     private JobExecutionConfiguration jobConfig;
+
+    @SerializedName(value = "createTimeMs")
+    private Long createTimeMs;
 
     private List<? extends AbstractTask> runningTasks = new ArrayList<>();
 
@@ -67,7 +77,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         if (null == jobConfig) {
             throw new IllegalArgumentException("jobConfig cannot be null");
         }
-        jobConfig.checkParams();
+        jobConfig.checkParams(createTimeMs);
         checkJobParamsInternal();
     }
 
@@ -92,23 +102,51 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
 
     protected abstract void checkJobParamsInternal();
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String jobData = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, jobData);
-    }
-
     public static AbstractJob readFields(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), AbstractJob.class);
+        JobType jobType = JobType.valueOf(Text.readString(in));
+        switch (jobType) {
+            case INSERT:
+                return InsertJob.readFields(in);
+            case MTMV:
+                // return MTMVJob.readFields(in);
+                break;
+            default:
+                throw new IllegalArgumentException("unknown job type");
+        }
+        throw new IllegalArgumentException("unknown job type");
     }
 
     @Override
     public void onTaskFail(long taskId) {
-        // AbstractTask task=runningTasks.stream().findFirst();
+        updateJobStatusIfEnd();
     }
 
     @Override
     public void onTaskSuccess(long taskId) {
+        updateJobStatusIfEnd();
 
+    }
+
+    private void updateJobStatusIfEnd() {
+        JobExecuteType executeType = getJobConfig().getExecuteType();
+        if (executeType.equals(JobExecuteType.MANUAL)) {
+            return;
+        }
+        switch (executeType) {
+            case ONE_TIME:
+            case INSTANT:
+                jobStatus = JobStatus.FINISHED;
+                Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(jobStatus);
+                break;
+            case RECURRING:
+                if (null != getJobConfig().getTimerDefinition().getEndTimeMs()
+                        && getJobConfig().getTimerDefinition().getEndTimeMs() < System.currentTimeMillis()) {
+                    jobStatus = JobStatus.FINISHED;
+                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(jobStatus);
+                }
+                break;
+            default:
+                break;
+        }
     }
 }

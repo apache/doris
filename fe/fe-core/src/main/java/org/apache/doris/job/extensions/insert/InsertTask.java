@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.insert;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
@@ -37,7 +38,7 @@ public class InsertTask extends AbstractTask {
     private LoadJob.LoadStatistic statistic;
     private FailMsg failMsg;
 
-    private  InsertIntoState insertIntoState;
+    private InsertIntoState insertIntoState;
 
     @Override
     public void before() {
@@ -56,6 +57,7 @@ public class InsertTask extends AbstractTask {
     @Override
     public void run() {
         //insertIntoState = command.
+        System.out.println(getJobId() + "InsertTask run" + TimeUtils.longToTimeString(System.currentTimeMillis()));
     }
 
     @Override

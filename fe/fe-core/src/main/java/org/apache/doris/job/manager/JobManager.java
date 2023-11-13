@@ -49,12 +49,12 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         jobScheduler.start();
     }
 
-    Long registerJob(T job) throws JobException {
-        job.checkJobParams();
+    public Long registerJob(T job) throws JobException {
+        //job.checkJobParams();
         checkJobNameExist(job.getJobName(), job.getJobType());
         long id = Env.getCurrentEnv().getNextId();
         job.setJobId(id);
-        replayCreateJob(job);
+        Env.getCurrentEnv().getEditLog().logCreateJob(job);
         //check name exist
         jobMap.put(id, job);
         //check its need to scheduler
@@ -69,20 +69,35 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         }
     }
 
-    void unregisterJob(Long jobId) throws JobException {
+    public void unregisterJob(Long jobId) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).setJobStatus(JobStatus.STOPPED);
         jobMap.get(jobId).cancel();
-        replayDeleteJob(jobMap.get(jobId));
+        Env.getCurrentEnv().getEditLog().logDeleteJob(jobMap.get(jobId));
         jobMap.remove(jobId);
     }
 
-    void alterJobStatus(Long jobId, JobStatus status) throws JobException {
-        checkJobExist(jobId);
-        jobMap.get(jobId).updateJobStatus(status);
+    public void unregisterJob(String currentDbName, String jobName) throws JobException {
+        for (T a : jobMap.values()) {
+            if (a.getJobName().equals(jobName) && (null != a.getCurrentDbName()
+                    && a.getCurrentDbName().equals(currentDbName))) {
+                try {
+                    unregisterJob(a.getJobId());
+                } catch (JobException e) {
+                    throw new JobException("unregister job error,jobName:" + jobName);
+                }
+            }
+        }
+
     }
 
-    void resumeJob(Long jobId) throws JobException {
+    public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
+        checkJobExist(jobId);
+        jobMap.get(jobId).updateJobStatus(status);
+        Env.getCurrentEnv().getEditLog().logUpdateJob(jobMap.get(jobId));
+    }
+
+    public void resumeJob(Long jobId) throws JobException {
         checkJobExist(jobId);
         replayUpdateJob(jobMap.get(jobId));
         jobMap.get(jobId).resumeJob();
@@ -95,12 +110,12 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         }
     }
 
-    List<T> queryJobs(JobType type) {
+    public List<T> queryJobs(JobType type) {
         return jobMap.values().stream().filter(a -> a.getJobType().equals(type))
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    List<? extends AbstractTask> queryTasks(Long jobId) throws JobException {
+    public List<? extends AbstractTask> queryTasks(Long jobId) throws JobException {
         checkJobExist(jobId);
         return jobMap.get(jobId).queryTasks();
     }
@@ -110,7 +125,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
             return;
         }
         jobMap.putIfAbsent(job.getJobId(), job);
-        jobScheduler.scheduleOneJob(job);
+        //jobScheduler.scheduleOneJob(job);
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
                 .add("msg", "replay create scheduler job").build());
     }
@@ -121,7 +136,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
     public void replayUpdateJob(T job) {
         jobMap.put(job.getJobId(), job);
         if (JobStatus.RUNNING.equals(job.getJobStatus())) {
-            jobScheduler.scheduleOneJob(job);
+            //jobScheduler.scheduleOneJob(job);
         }
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
                 .add("msg", "replay update scheduler job").build());
@@ -146,9 +161,13 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeInt(jobMap.size());
-        for (AbstractJob job : jobMap.values()) {
-            job.write(out);
-        }
+        jobMap.forEach((jobId, job) -> {
+            try {
+                job.write(out);
+            } catch (IOException e) {
+                log.error("write job error,jobId:" + jobId, e);
+            }
+        });
     }
 
     /**
@@ -163,6 +182,8 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
             AbstractJob job = AbstractJob.readFields(in);
             jobMap.putIfAbsent(job.getJobId(), (T) job);
         }
+
+
     }
 
     public T getJob(Long jobId) {

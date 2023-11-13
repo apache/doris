@@ -17,28 +17,37 @@
 
 package org.apache.doris.job.extensions.insert;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 
-import java.util.Arrays;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 
 @Data
 public class InsertJob extends AbstractJob {
 
+    @SerializedName(value = "labelPrefix")
     String labelPrefix;
+    @SerializedName(value = "executeSql")
+    String executeSql;
 
     @Override
     public List<InsertTask> createTasks() {
         InsertTask task = new InsertTask(null, null, null, null, null);
         task.setJobId(getJobId());
-        List<InsertTask> tasks = Arrays.asList(task);
+        task.setTaskId(Env.getCurrentEnv().getNextId());
         getRunningTasks().add(task);
-        return tasks;
+        return getRunningTasks();
     }
 
 
@@ -58,6 +67,9 @@ public class InsertJob extends AbstractJob {
 
     }
 
+    public static InsertJob readFields(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), InsertJob.class);
+    }
 
     @Override
     public List queryTasks() {
@@ -97,5 +109,11 @@ public class InsertJob extends AbstractJob {
     @Override
     public void afterTaskRun(long taskId) {
 
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, JobType.INSERT.name());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 }

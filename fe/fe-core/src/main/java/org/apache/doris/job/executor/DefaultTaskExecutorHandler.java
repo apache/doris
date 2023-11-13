@@ -41,15 +41,20 @@ public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkH
     public void onEvent(ExecuteTaskEvent<T> executeTaskEvent) {
         T task = executeTaskEvent.getTask();
         if (null == task) {
-            log.info("task is null, ignore");
+            log.warn("task is null, ignore,maybe task has been canceled");
             return;
+        }
+        if (null == executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum()
+                || executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum() <= 0) {
+            try {
+                task.runTask();
+                return;
+            } catch (Exception e) {
+                log.warn("execute task error, task id is {}", task.getTaskId(), e);
+
+            }
         }
         int maxConcurrentTaskNum = executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum();
-        if (maxConcurrentTaskNum <= 0) {
-            task.runTask();
-            return;
-        }
-
         Semaphore semaphore = null;
         // get token
         try {

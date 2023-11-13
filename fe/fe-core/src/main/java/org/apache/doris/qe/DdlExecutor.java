@@ -183,10 +183,10 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             env.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateJobStmt) {
-            //env.getJobRegister().registerJob((((CreateJobStmt) ddlStmt).getJob()));todo
+            env.getJobManager().registerJob(((CreateJobStmt) ddlStmt).getJobInstance());
         } else if (ddlStmt instanceof StopJobStmt) {
-            //StopJobStmt stmt = (StopJobStmt) ddlStmt;
-            //env.getJobRegister().stopJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
+            StopJobStmt stmt = (StopJobStmt) ddlStmt;
+            env.getJobManager().unregisterJob(stmt.getDbFullName(), stmt.getName());
         } else if (ddlStmt instanceof PauseJobStmt) {
             //PauseJobStmt stmt = (PauseJobStmt) ddlStmt;
             //env.getJobManager().pauseJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);

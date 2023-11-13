@@ -71,6 +71,9 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         taskDisruptorGroupManager = new TaskDisruptorGroupManager();
         taskDisruptorGroupManager.init();
         this.timerJobDisruptor = taskDisruptorGroupManager.getDispatchDisruptor();
+        latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis() + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
+        batchSchedulerTimerJob();
+        cycleSystemSchedulerTasks();
     }
 
     /**
@@ -78,29 +81,20 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
      * Jobs will be re-registered after the task is completed
      */
     private void cycleSystemSchedulerTasks() {
-        log.debug("re-register system scheduler timer tasks" + TimeUtils.longToTimeString(System.currentTimeMillis()));
+        log.info("re-register system scheduler timer tasks" + TimeUtils.longToTimeString(System.currentTimeMillis()));
         timerTaskScheduler.newTimeout(timeout -> {
-
-
+            batchSchedulerTimerJob();
             cycleSystemSchedulerTasks();
         }, BATCH_SCHEDULER_INTERVAL_SECONDS, TimeUnit.SECONDS);
 
     }
 
     private void batchSchedulerTimerJob() {
-        jobMap.forEach((jobId, job) -> {
-            if (job.getJobStatus().equals(JobStatus.RUNNING)) {
-                return;
-            }
-            if (!job.getJobConfig().checkIsTimerJob()) {
-                cycleTimerJobScheduler(job);
-            }
-
-        });
+        executeTimerJobIdsWithinLastTenMinutesWindow();
     }
 
     public void scheduleOneJob(T job) {
-        if (job.getJobStatus().equals(JobStatus.RUNNING)) {
+        if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
             return;
         }
         if (!job.getJobConfig().checkIsTimerJob()) {
@@ -140,7 +134,8 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         if (CollectionUtils.isEmpty(tasks)) {
             return;
         }
-        tasks.forEach(task -> taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType()));
+        tasks.forEach(task -> taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
+                job.getJobConfig()));
 
     }
 
@@ -149,7 +144,8 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
             return;
         }
         List<? extends AbstractTask> tasks = job.createTasks();
-        tasks.forEach(task -> taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType()));
+        tasks.forEach(task -> taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
+                job.getJobConfig()));
     }
 
     /**
@@ -159,20 +155,16 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         if (jobMap.isEmpty()) {
             return;
         }
-        long currentTimeMs = System.currentTimeMillis();
-        long startsWindow = System.currentTimeMillis();
-        long endsWindow = 1L; // fixme
+        if (latestBatchSchedulerTimerTaskTimeMs < System.currentTimeMillis()) {
+            this.latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis();
+        }
+        this.latestBatchSchedulerTimerTaskTimeMs += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
         for (Map.Entry<Long, T> entry : jobMap.entrySet()) {
             T job = entry.getValue();
-            List<Long> delaySeconds = job.getJobConfig().getTriggerDelayTimes(currentTimeMs, startsWindow, endsWindow);
-            if (CollectionUtils.isEmpty(delaySeconds)) {
+            if (!job.getJobConfig().checkIsTimerJob()) {
                 continue;
             }
-
-            for (Long timeMs : delaySeconds) {
-                TimerJobSchedulerTask timerJobSchedulerTask = new TimerJobSchedulerTask(timerJobDisruptor, job);
-                timerTaskScheduler.newTimeout(timerJobSchedulerTask, timeMs, TimeUnit.SECONDS);
-            }
+            cycleTimerJobScheduler(job);
         }
     }
 }

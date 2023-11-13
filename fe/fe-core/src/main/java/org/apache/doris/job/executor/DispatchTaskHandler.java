@@ -51,7 +51,7 @@ public class DispatchTaskHandler<T extends AbstractJob<?>> implements WorkHandle
                 List<? extends AbstractTask> tasks = event.getJob().createTasks();
                 JobType jobType = event.getJob().getJobType();
                 for (AbstractTask task : tasks) {
-                    disruptorMap.get(jobType).publishEvent(task);
+                    disruptorMap.get(jobType).publishEvent(task, event.getJob().getJobConfig());
                 }
             }
         } catch (Exception e) {

@@ -46,29 +46,34 @@ public abstract class AbstractTask implements Task {
     @Override
     public void onFail(String msg) {
         Env.getCurrentEnv().getJobManager().getJob(jobId).onTaskFail(taskId);
+        status = TaskStatus.FAILD;
     }
 
     @Override
     public void onFail() {
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
         job.onTaskFail(getTaskId());
+        setFinishTimeMs(System.currentTimeMillis());
     }
 
     @Override
     public void onSuccess() {
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
         job.onTaskSuccess(getTaskId());
+        status = TaskStatus.SUCCESS;
+        setFinishTimeMs(System.currentTimeMillis());
     }
 
     @Override
     public void cancel() {
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
         job.onTaskCancel(getTaskId());
+        status = TaskStatus.CANCEL;
     }
 
     public void runTask() {
-        before();
         try {
+            before();
             run();
             onSuccess();
         } catch (Exception e) {

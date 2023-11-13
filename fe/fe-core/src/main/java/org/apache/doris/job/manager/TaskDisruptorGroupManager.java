@@ -19,6 +19,7 @@ package org.apache.doris.job.manager;
 
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.disruptor.ExecuteTaskEvent;
 import org.apache.doris.job.disruptor.TaskDisruptor;
@@ -73,7 +74,10 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
             insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<InsertTask>();
         }
         EventTranslatorVararg<ExecuteTaskEvent<InsertTask>> eventTranslator =
-                (event, sequence, args) -> event.setTask((InsertTask) args[0]);
+                (event, sequence, args) -> {
+                    event.setTask((InsertTask) args[0]);
+                    event.setJobConfig((JobExecutionConfiguration) args[1]);
+                };
         TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, 1024,
                 insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.INSERT, insertDisruptor);
@@ -83,8 +87,9 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         dispatchDisruptor.publishEvent(job);
     }
 
-    public void dispatchInstantTask(AbstractTask task, JobType jobType) {
-        disruptorMap.get(jobType).publishEvent(task);
+    public void dispatchInstantTask(AbstractTask task, JobType jobType,
+                                    JobExecutionConfiguration jobExecutionConfiguration) {
+        disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
     }
 
 

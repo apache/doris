@@ -19,6 +19,7 @@ package org.apache.doris.job.base;
 
 import org.apache.doris.common.util.TimeUtils;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 
 import java.util.ArrayList;
@@ -28,16 +29,19 @@ import java.util.List;
 @Data
 public class JobExecutionConfiguration {
 
+    @SerializedName(value = "timerDefinition")
     private TimerDefinition timerDefinition;
+    @SerializedName(value = "executeType")
     private JobExecuteType executeType;
 
     /**
      * Maximum number of concurrent tasks, <= 0 means no limit
      * if the number of tasks exceeds the limit, the task will be delayed execution
      */
-    private Integer maxConcurrentTaskNum = -1;
+    @SerializedName(value = "maxConcurrentTaskNum")
+    private Integer maxConcurrentTaskNum;
 
-    public void checkParams() {
+    public void checkParams(Long createTimeMs) {
         if (executeType == null) {
             throw new IllegalArgumentException("executeType cannot be null");
         }
@@ -46,7 +50,7 @@ public class JobExecutionConfiguration {
             return;
         }
 
-        checkTimerDefinition();
+        checkTimerDefinition(createTimeMs);
 
         if (executeType == JobExecuteType.ONE_TIME) {
             validateStartTimeMs();
@@ -65,22 +69,15 @@ public class JobExecutionConfiguration {
             if (timerDefinition.getIntervalUnit() == null) {
                 throw new IllegalArgumentException("intervalUnit cannot be null when executeType is RECURRING");
             }
-            validateStartTimeMs();
-            if (timerDefinition.getEndTimeMs() != null && timerDefinition.getEndTimeMs() < System.currentTimeMillis()) {
-                throw new IllegalArgumentException("endTimeMs cannot be less than current time");
-            }
-            if (timerDefinition.getStartTimeMs() != null && timerDefinition.getEndTimeMs() != null
-                    && timerDefinition.getStartTimeMs() > timerDefinition.getEndTimeMs()) {
-                throw new IllegalArgumentException("startTimeMs cannot be greater than endTimeMs");
-            }
         }
     }
 
-    private void checkTimerDefinition() {
+    private void checkTimerDefinition(long createTimeMs) {
         if (timerDefinition == null) {
             throw new IllegalArgumentException(
                     "timerDefinition cannot be null when executeType is not instant or manual");
         }
+        timerDefinition.checkParams(createTimeMs);
     }
 
     private void validateStartTimeMs() {

@@ -19,30 +19,31 @@ package org.apache.doris.job.base;
 
 import org.apache.doris.job.common.IntervalUnit;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 
 @Data
 public class TimerDefinition {
 
+    @SerializedName(value = "interval")
     private Long interval;
 
+    @SerializedName(value = "intervalUnit")
     private IntervalUnit intervalUnit;
-
+    @SerializedName(value = "startTimeMs")
     private Long startTimeMs;
-
+    @SerializedName(value = "endTimeMs")
     private Long endTimeMs;
-
-    private Long createTimeMs;
 
     private Long latestSchedulerTimeMs;
 
 
-    public void checkParams() {
+    public void checkParams(Long createTimeMs) {
+        if (null != startTimeMs && startTimeMs < System.currentTimeMillis()) {
+            throw new IllegalArgumentException("startTimeMs must be greater than current time");
+        }
         if (null == startTimeMs) {
             startTimeMs = createTimeMs + intervalUnit.getIntervalMs(interval);
-        }
-        if (startTimeMs < System.currentTimeMillis()) {
-            throw new IllegalArgumentException("startTimeMs must be greater than current time");
         }
         if (null != endTimeMs && endTimeMs < startTimeMs) {
             throw new IllegalArgumentException("end time cannot be less than start time");
