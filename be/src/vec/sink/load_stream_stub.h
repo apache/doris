@@ -203,7 +203,10 @@ protected:
     std::atomic<bool> _is_init;
     bthread::Mutex _mutex;
 
-    std::atomic<int> _num_open;
+    std::atomic<int> _use_cnt;
+
+    std::mutex _tablets_to_commit_mutex;
+    std::vector<PTabletID> _tablets_to_commit;
 
     std::mutex _buffer_mutex;
     std::mutex _send_mutex;
