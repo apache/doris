@@ -38,6 +38,8 @@ import java.util.List;
 
 public abstract class StatementBase implements ParseNode {
 
+    public static final String SET_VAR_KEY = "set_var";
+
     private String clusterName;
 
     // Set this variable if this QueryStmt is the top level query from an EXPLAIN <query>

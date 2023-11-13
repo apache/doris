@@ -100,9 +100,10 @@ The SET_VAR hint sets the session value of a system variable temporarily (for th
 ```
 SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
 SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
+INSERT /*+ SET_VAR(enable_unique_key_partial_update=true, enable_insert_strict = false)*/ INTO tbl(id,score) VALUES(2,400),(1,200),(4,400);
 ```
 
-Note that the comment must start with /*+ and can only follow the SELECT.
+Note that the comment must start with /*+ and can only follow the SELECT or INSERT.
 
 ## Supported variables
 

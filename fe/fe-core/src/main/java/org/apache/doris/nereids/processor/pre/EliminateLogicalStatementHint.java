@@ -24,12 +24,12 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.properties.SelectHint;
-import org.apache.doris.nereids.properties.SelectHintLeading;
-import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.properties.StatementHint;
+import org.apache.doris.nereids.properties.StatementHintLeading;
+import org.apache.doris.nereids.properties.StatementHintSetVar;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalStatementHint;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -44,7 +44,7 @@ import java.util.Optional;
 /**
  * eliminate set var hint, and set var to session variables.
  */
-public class EliminateLogicalSelectHint extends PlanPreprocessor implements CustomRewriter {
+public class EliminateLogicalStatementHint extends PlanPreprocessor implements CustomRewriter {
     private Logger logger = LoggerFactory.getLogger(getClass());
 
     @Override
@@ -53,30 +53,30 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor implements Cust
     }
 
     @Override
-    public LogicalPlan visitLogicalSelectHint(
-            LogicalSelectHint<? extends Plan> selectHintPlan,
+    public LogicalPlan visitLogicalStatementHint(
+            LogicalStatementHint<? extends Plan> statementHintPlan,
             StatementContext context) {
-        for (Entry<String, SelectHint> hint : selectHintPlan.getHints().entrySet()) {
+        for (Entry<String, StatementHint> hint : statementHintPlan.getHints().entrySet()) {
             String hintName = hint.getKey();
             if (hintName.equalsIgnoreCase("SET_VAR")) {
-                setVar((SelectHintSetVar) hint.getValue(), context);
+                setVar((StatementHintSetVar) hint.getValue(), context);
             } else if (hintName.equalsIgnoreCase("ORDERED")) {
                 ConnectContext.get().getSessionVariable().setDisableJoinReorder(true);
             } else if (hintName.equalsIgnoreCase("LEADING")) {
-                extractLeading((SelectHintLeading) hint.getValue(), context);
+                extractLeading((StatementHintLeading) hint.getValue(), context);
             } else {
                 logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
             }
         }
 
-        return (LogicalPlan) selectHintPlan.child();
+        return (LogicalPlan) statementHintPlan.child();
     }
 
-    private void setVar(SelectHintSetVar selectHint, StatementContext context) {
+    private void setVar(StatementHintSetVar statementHint, StatementContext context) {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);
-        for (Entry<String, Optional<String>> kv : selectHint.getParameters().entrySet()) {
+        for (Entry<String, Optional<String>> kv : statementHint.getParameters().entrySet()) {
             String key = kv.getKey();
             Optional<String> value = kv.getValue();
             if (value.isPresent()) {
@@ -101,15 +101,15 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor implements Cust
         }
     }
 
-    private void extractLeading(SelectHintLeading selectHint, StatementContext context) {
-        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
+    private void extractLeading(StatementHintLeading statementHint, StatementContext context) {
+        LeadingHint hint = new LeadingHint("Leading", statementHint.getParameters(), statementHint.toString());
         if (context.getHintMap().get("Leading") != null) {
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
             hint.setErrorMessage("can only have one leading clause");
         }
         context.getHintMap().put("Leading", hint);
         context.setLeadingJoin(true);
-        assert (selectHint != null);
+        assert (statementHint != null);
         assert (context != null);
     }
 }
