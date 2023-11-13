@@ -648,6 +648,34 @@ suite ("sub_query_correlated") {
         exception "Unsupported correlated subquery with grouping and/or aggregation";
     }
 
+    qt_doris_7643 """
+        SELECT sub_query_correlated_subquery6.*
+        FROM sub_query_correlated_subquery6
+        JOIN sub_query_correlated_subquery7
+            ON sub_query_correlated_subquery6.k2 = sub_query_correlated_subquery7.k3
+                AND EXISTS 
+            (SELECT sub_query_correlated_subquery8.k1
+            FROM sub_query_correlated_subquery8 )
+                AND sub_query_correlated_subquery6.k2 IN 
+            (SELECT sub_query_correlated_subquery8.k2
+            FROM sub_query_correlated_subquery8 )
+                AND sub_query_correlated_subquery6.k1 IN 
+            (SELECT sub_query_correlated_subquery8.k2
+            FROM sub_query_correlated_subquery8
+            WHERE sub_query_correlated_subquery6.k2 = sub_query_correlated_subquery8.k2 )
+                AND sub_query_correlated_subquery7.k3 IN 
+            (SELECT sub_query_correlated_subquery8.k1
+            FROM sub_query_correlated_subquery8 )
+                AND 10 > 
+            (SELECT min(sub_query_correlated_subquery8.k2)
+            FROM sub_query_correlated_subquery8 )
+                AND sub_query_correlated_subquery7.k3 IN 
+            (SELECT sub_query_correlated_subquery8.k2
+            FROM sub_query_correlated_subquery8
+            WHERE sub_query_correlated_subquery7.v1 = sub_query_correlated_subquery8.k2 )
+        ORDER BY  sub_query_correlated_subquery6.k1, sub_query_correlated_subquery6.k2; 
+        """
+
     // order_qt_doris_6937_2 """
     //     select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 > sub_query_correlated_subquery1.k2) or k1 < 10 order by k1, k2;
     // """

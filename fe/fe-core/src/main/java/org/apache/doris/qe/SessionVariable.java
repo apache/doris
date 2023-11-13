@@ -214,6 +214,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
 
+    public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
+
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
@@ -243,6 +245,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
 
+    public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
@@ -738,6 +741,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enablePipelineXEngine = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
+    private boolean enableSharedScan = false;
+
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enableLocalShuffle = false;
 
@@ -901,6 +909,17 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
     private int nthOptimizedPlan = 1;
+
+    public boolean isEnableLeftZigZag() {
+        return enableLeftZigZag;
+    }
+
+    public void setEnableLeftZigZag(boolean enableLeftZigZag) {
+        this.enableLeftZigZag = enableLeftZigZag;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_LEFT_ZIG_ZAG)
+    private boolean enableLeftZigZag = false;
 
     /**
      * as the new optimizer is not mature yet, use this var
@@ -2832,6 +2851,10 @@ public class SessionVariable implements Serializable, Writable {
         return enablePipelineEngine || enablePipelineXEngine;
     }
 
+    public boolean getEnableSharedScan() {
+        return enableSharedScan;
+    }
+
     public boolean getEnablePipelineXEngine() {
         return enablePipelineXEngine;
     }
@@ -2894,5 +2917,9 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
             throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
         }
+    }
+
+    public boolean isEnableInsertGroupCommit() {
+        return enableInsertGroupCommit || Config.wait_internal_group_commit_finish;
     }
 }

@@ -240,8 +240,6 @@ private:
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
 
-    OpentelemetrySpan _span;
-
     bool _group_commit = false;
 
     DescriptorTbl* _desc_tbl;

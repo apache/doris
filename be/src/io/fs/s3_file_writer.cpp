@@ -467,8 +467,8 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
                                     response.GetError().GetExceptionName(),
                                     response.GetError().GetMessage(),
                                     static_cast<int>(response.GetError().GetResponseCode()));
-        buf.set_val(_st);
         LOG(WARNING) << _st;
+        buf.set_val(_st);
         return;
     }
     _bytes_written += buf.get_size();

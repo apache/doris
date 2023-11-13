@@ -126,13 +126,13 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
-import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
@@ -145,19 +145,16 @@ import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueOfferToken;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
-import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
-import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
@@ -178,9 +175,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.context.Context;
-import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -338,16 +332,6 @@ public class StmtExecutor {
         return builder.build();
     }
 
-    public void addProfileToSpan() {
-        Span span = Span.fromContext(Context.current());
-        if (!span.isRecording()) {
-            return;
-        }
-        for (Map.Entry<String, String> entry : getSummaryInfo(true).entrySet()) {
-            span.setAttribute(entry.getKey(), entry.getValue());
-        }
-    }
-
     public Planner planner() {
         return planner;
     }
@@ -448,11 +432,11 @@ public class StmtExecutor {
 
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
-        Span executeSpan = context.getTracer().spanBuilder("execute").setParent(Context.current()).startSpan();
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.setReturnResultFromLocal(true);
         }
-        try (Scope scope = executeSpan.makeCurrent()) {
+
+        try {
             if (parsedStmt instanceof LogicalPlanAdapter
                     || (parsedStmt == null && sessionVariable.isEnableNereidsPlanner())) {
                 try {
@@ -479,7 +463,6 @@ public class StmtExecutor {
                 executeByLegacy(queryId);
             }
         } finally {
-            executeSpan.end();
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -712,17 +695,9 @@ public class StmtExecutor {
             analyzeVariablesInStmt();
 
             if (!context.isTxnModel()) {
-                Span queryAnalysisSpan =
-                        context.getTracer().spanBuilder("query analysis").setParent(Context.current()).startSpan();
-                try (Scope ignored = queryAnalysisSpan.makeCurrent()) {
-                    // analyze this query
-                    analyze(context.getSessionVariable().toThrift());
-                } catch (Exception e) {
-                    queryAnalysisSpan.recordException(e);
-                    throw e;
-                } finally {
-                    queryAnalysisSpan.end();
-                }
+                // analyze this query
+                analyze(context.getSessionVariable().toThrift());
+
                 if (isForwardToMaster()) {
                     if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
@@ -1109,6 +1084,10 @@ public class StmtExecutor {
 
             analyzeVariablesInStmt();
         }
+        if (context.getSessionVariable().isEnableInsertGroupCommit() && parsedStmt instanceof NativeInsertStmt) {
+            NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
+            nativeInsertStmt.analyzeGroupCommit(new Analyzer(context.getEnv(), context));
+        }
         redirectStatus = parsedStmt.getRedirectStatus();
     }
 
@@ -1470,16 +1449,9 @@ public class StmtExecutor {
             profile.addExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
-        Span queryScheduleSpan =
-                context.getTracer().spanBuilder("query schedule").setParent(Context.current()).startSpan();
-        try (Scope scope = queryScheduleSpan.makeCurrent()) {
-            coordBase.exec();
-        } catch (Exception e) {
-            queryScheduleSpan.recordException(e);
-            throw e;
-        } finally {
-            queryScheduleSpan.end();
-        }
+
+        coordBase.exec();
+
         profile.getSummaryProfile().setQueryScheduleFinishTime();
         updateProfile(false);
         if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
@@ -1509,8 +1481,7 @@ public class StmtExecutor {
             return;
         }
 
-        Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
-        try (Scope scope = fetchResultSpan.makeCurrent()) {
+        try {
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
@@ -1583,10 +1554,8 @@ public class StmtExecutor {
             // details see issue https://github.com/apache/doris/issues/16203
             LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
             coordBase.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
-            fetchResultSpan.recordException(e);
             throw e;
         } finally {
-            fetchResultSpan.end();
             if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
                 try {
                     LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
@@ -1844,6 +1813,7 @@ public class StmtExecutor {
         TransactionStatus txnStatus = TransactionStatus.ABORTED;
         String errMsg = "";
         TableType tblType = insertStmt.getTargetTable().getType();
+        boolean isGroupCommit = false;
         if (context.isTxnModel()) {
             if (insertStmt.getQueryStmt() instanceof SelectStmt) {
                 if (((SelectStmt) insertStmt.getQueryStmt()).getTableRefs().size() > 0) {
@@ -1855,20 +1825,11 @@ public class StmtExecutor {
             label = context.getTxnEntry().getLabel();
             txnId = context.getTxnEntry().getTxnConf().getTxnId();
         } else if (insertStmt instanceof NativeInsertStmt && ((NativeInsertStmt) insertStmt).isGroupCommit()) {
+            isGroupCommit = true;
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) insertStmt;
-            Backend backend = context.getInsertGroupCommit(insertStmt.getTargetTable().getId());
-            if (backend == null || !backend.isAlive()) {
-                List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-                if (allBackendIds.isEmpty()) {
-                    throw new DdlException("No alive backend");
-                }
-                Collections.shuffle(allBackendIds);
-                backend = Env.getCurrentSystemInfo().getBackend(allBackendIds.get(0));
-                context.setInsertGroupCommit(insertStmt.getTargetTable().getId(), backend);
-            }
             int maxRetry = 3;
             for (int i = 0; i < maxRetry; i++) {
-                nativeInsertStmt.planForGroupCommit(context.queryId);
+                GroupCommitPlanner groupCommitPlanner = nativeInsertStmt.planForGroupCommit(context.queryId);
                 // handle rows
                 List<InternalService.PDataRow> rows = new ArrayList<>();
                 SelectStmt selectStmt = (SelectStmt) insertStmt.getQueryStmt();
@@ -1889,23 +1850,15 @@ public class StmtExecutor {
                     InternalService.PDataRow data = getRowStringValue(exprList);
                     rows.add(data);
                 }
-                TUniqueId loadId = nativeInsertStmt.getLoadId();
-                PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
-                        .setDbId(insertStmt.getTargetTable().getDatabase().getId())
-                        .setTableId(insertStmt.getTargetTable().getId())
-                        .setBaseSchemaVersion(nativeInsertStmt.getBaseSchemaVersion())
-                        .setExecPlanFragmentRequest(nativeInsertStmt.getExecPlanFragmentRequest())
-                        .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
-                                .build()).addAllData(rows)
-                        .build();
-                Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
-                        .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
+                Future<PGroupCommitInsertResponse> future = groupCommitPlanner
+                        .executeGroupCommitInsert(context, rows);
                 PGroupCommitInsertResponse response = future.get();
                 TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
                 if (code == TStatusCode.DATA_QUALITY_ERROR) {
                     LOG.info("group commit insert failed. stmt: {}, backend id: {}, status: {}, "
                                     + "schema version: {}, retry: {}", insertStmt.getOrigStmt().originStmt,
-                            backend.getId(), response.getStatus(), nativeInsertStmt.getBaseSchemaVersion(), i);
+                            groupCommitPlanner.getBackend().getId(),
+                            response.getStatus(), nativeInsertStmt.getBaseSchemaVersion(), i);
                     if (i < maxRetry) {
                         List<TableIf> tables = Lists.newArrayList(insertStmt.getTargetTable());
                         MetaLockUtils.readLockTables(tables);
@@ -1918,12 +1871,12 @@ public class StmtExecutor {
                         }
                         continue;
                     } else {
-                        errMsg = "group commit insert failed. backend id: " + backend.getId() + ", status: "
-                                + response.getStatus();
+                        errMsg = "group commit insert failed. backend id: "
+                                + groupCommitPlanner.getBackend().getId() + ", status: " + response.getStatus();
                     }
                 } else if (code != TStatusCode.OK) {
-                    errMsg = "group commit insert failed. backend id: " + backend.getId() + ", status: "
-                            + response.getStatus();
+                    errMsg = "group commit insert failed. backend id: " + groupCommitPlanner.getBackend().getId()
+                            + ", status: " + response.getStatus();
                     ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
                 }
                 label = response.getLabel();
@@ -2061,6 +2014,9 @@ public class StmtExecutor {
         }
         if (!Strings.isNullOrEmpty(errMsg)) {
             sb.append(", 'err':'").append(errMsg).append("'");
+        }
+        if (isGroupCommit) {
+            sb.append(", 'query_id':'").append(DebugUtil.printId(context.queryId)).append("'");
         }
         sb.append("}");
 
@@ -2708,19 +2664,13 @@ public class StmtExecutor {
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
 
-            Span queryScheduleSpan = context.getTracer()
-                    .spanBuilder("internal SQL schedule").setParent(Context.current()).startSpan();
-            try (Scope scope = queryScheduleSpan.makeCurrent()) {
+            try {
                 coord.exec();
             } catch (Exception e) {
-                queryScheduleSpan.recordException(e);
                 throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
-            } finally {
-                queryScheduleSpan.end();
             }
-            Span fetchResultSpan = context.getTracer().spanBuilder("fetch internal SQL result")
-                    .setParent(Context.current()).startSpan();
-            try (Scope scope = fetchResultSpan.makeCurrent()) {
+
+            try {
                 while (true) {
                     batch = coord.getNext();
                     if (batch == null || batch.isEos()) {
@@ -2730,10 +2680,7 @@ public class StmtExecutor {
                     }
                 }
             } catch (Exception e) {
-                fetchResultSpan.recordException(e);
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
-            } finally {
-                fetchResultSpan.end();
             }
         } finally {
             AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),

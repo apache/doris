@@ -33,19 +33,20 @@ namespace doris {
 namespace io {
 
 #ifndef FILESYSTEM_M
-#define FILESYSTEM_M(stmt)                    \
-    do {                                      \
-        Status _s;                            \
-        if (bthread_self() == 0) {            \
-            _s = (stmt);                      \
-        } else {                              \
-            auto task = [&] { _s = (stmt); }; \
-            AsyncIO::run_task(task, _type);   \
-        }                                     \
-        if (!_s) {                            \
-            LOG(WARNING) << _s;               \
-        }                                     \
-        return _s;                            \
+#define FILESYSTEM_M(stmt)                                  \
+    do {                                                    \
+        Status _s;                                          \
+        if (bthread_self() == 0) {                          \
+            _s = (stmt);                                    \
+        } else {                                            \
+            auto task = [&] { _s = (stmt); };               \
+            AsyncIO::run_task(task, _type);                 \
+        }                                                   \
+        if (!_s) {                                          \
+            LOG(WARNING) << _s;                             \
+            _s = Status::Error<false>(_s.code(), _s.msg()); \
+        }                                                   \
+        return _s;                                          \
     } while (0);
 #endif
 

@@ -42,12 +42,12 @@
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
-#include "olap/rowset/rowset.h"
+#include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/tablet.h"
+#include "olap/tablet_fwd.h"
 #include "olap/task/index_builder.h"
-#include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -149,17 +149,13 @@ public:
         return _calc_delete_bitmap_executor.get();
     }
 
+    // Rowset garbage collection helpers
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
+    PendingRowsetSet& pending_local_rowsets() { return _pending_local_rowsets; }
+    PendingRowsetSet& pending_remote_rowsets() { return _pending_remote_rowsets; }
+    PendingRowsetGuard add_pending_rowset(const RowsetWriterContext& ctx);
 
     RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); }
-
-    bool rowset_id_in_use(const RowsetId& rowset_id) {
-        return _rowset_id_generator->id_in_use(rowset_id);
-    }
-
-    void release_rowset_id(const RowsetId& rowset_id) {
-        return _rowset_id_generator->release_id(rowset_id);
-    }
 
     RowsetTypePB default_rowset_type() const {
         if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
@@ -289,11 +285,9 @@ private:
     // path gc process function
     void _path_gc_thread_callback(DataDir* data_dir);
 
-    void _path_scan_thread_callback(DataDir* data_dir);
+    void _tablet_path_check_callback();
 
     void _tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs);
-
-    void _tablet_path_check_callback();
 
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
@@ -388,8 +382,9 @@ private:
     std::atomic_bool _stopped {false};
 
     std::mutex _gc_mutex;
-    // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
-    std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
+    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _unused_rowsets;
+    PendingRowsetSet _pending_local_rowsets;
+    PendingRowsetSet _pending_remote_rowsets;
 
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;

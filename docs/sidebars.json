@@ -150,7 +150,9 @@
                     "type": "category",
                     "label": "Data Cache",
                     "items": [
-                        "advanced/cache/partition-cache"
+                        "advanced/cache/partition-cache-manual",
+                        "advanced/cache/query-cache",
+                        "advanced/cache/sql-cache-manual"
                     ]
                 },
                 "advanced/autobucket",
@@ -749,7 +751,8 @@
                                 "sql-manual/sql-functions/table-functions/frontends",
                                 "sql-manual/sql-functions/table-functions/workload-group",
                                 "sql-manual/sql-functions/table-functions/catalogs",
-                                "sql-manual/sql-functions/table-functions/frontends_disks"
+                                "sql-manual/sql-functions/table-functions/frontends_disks",
+                                "sql-manual/sql-functions/table-functions/queries"
                             ]
                         },
                         {
@@ -1150,7 +1153,6 @@
                 },
                 "admin-manual/sql-interception",
                 "admin-manual/query-profile",
-                "admin-manual/tracing",
                 "admin-manual/certificate",
                 "admin-manual/fe-certificate",
                 {

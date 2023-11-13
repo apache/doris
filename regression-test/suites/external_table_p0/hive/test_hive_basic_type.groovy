@@ -105,6 +105,9 @@ suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,exte
         // hive tables in rcbinary format are not supported
         //order_qt_37 """select * from ${catalog_name}.${ex_db_name}.rcbinary_all_types limit 1;"""
 
+        // orc_all_types_t predicate test
+        order_qt_41 """select * from ${catalog_name}.${ex_db_name}.orc_all_types_t where t_int = 3;"""
+
         //sql """drop catalog if exists ${catalog_name} """
     }
 }

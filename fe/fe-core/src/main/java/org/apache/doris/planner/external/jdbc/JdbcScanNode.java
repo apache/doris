@@ -353,6 +353,19 @@ public class JdbcScanNode extends ExternalScanNode {
             return filter;
         }
 
+        if (expr.contains(SlotRef.class) && expr instanceof BinaryPredicate) {
+            ArrayList<Expr> children = expr.getChildren();
+            String filter;
+            if (children.get(0) instanceof SlotRef) {
+                filter = JdbcTable.databaseProperName(tableType, children.get(0).toMySql());
+            } else {
+                filter = children.get(0).toMySql();
+            }
+            filter += " " + ((BinaryPredicate) expr).getOp().toString() + " ";
+            filter += children.get(1).toMySql();
+            return filter;
+        }
+
         // only for old planner
         if (expr.contains(BoolLiteral.class) && "1".equals(expr.getStringValue()) && expr.getChildren().isEmpty()) {
             return "1 = 1";

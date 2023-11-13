@@ -42,7 +42,7 @@ suite("test_stream_load_properties", "p0") {
                   "mow_tbl_array",
                  ]
 
-    def columns = [ 
+    def columns = [
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -52,8 +52,8 @@ suite("test_stream_load_properties", "p0") {
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                   ]
 
-    def timezoneColumns = 
-                  [ 
+    def timezoneColumns =
+                  [
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -375,6 +375,37 @@ suite("test_stream_load_properties", "p0") {
         sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
     }
 
+    try {
+        sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
+        sql new File("""${context.file.parent}/ddl/dup_tbl_basic_create_random_bucket.sql""").text
+
+        streamLoad {
+            table 'stream_load_dup_tbl_basic_random_bucket'
+            set 'column_separator', '|'
+            set 'columns', columns[0]
+            set 'load_to_single_tablet', 'false'
+            file files[0]
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+        // def res = sql "show tablets from stream_load_dup_tbl_basic_random_bucket"
+        // assertEquals(res[0][10].toString(), "20")
+    } finally {
+        sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
+    }
+
     // sequence
     try {
             sql new File("""${context.file.parent}/ddl/uniq_tbl_basic_drop_sequence.sql""").text
@@ -455,7 +486,7 @@ suite("test_stream_load_properties", "p0") {
             }
         }
         def tableName1 = "stream_load_" + tableName
-        qt_sql_merge_type "select * from ${tableName1} order by k00,k01"                  
+        qt_sql_merge_type "select * from ${tableName1} order by k00,k01"
     } finally {
         sql new File("""${context.file.parent}/ddl/mow_tbl_basic_drop.sql""").text
     }
@@ -592,7 +623,7 @@ suite("test_stream_load_properties", "p0") {
                 sleep(1000)
                 count++
             }
-            
+
             if (i <= 3) {
                 qt_sql_2pc_commit "select * from ${tableName1} order by k00,k01"
             } else {
@@ -608,7 +639,7 @@ suite("test_stream_load_properties", "p0") {
         }
     }
 
-    // compress_type 
+    // compress_type
     // gz/bz2/lz4
     // todo lzo/deflate
     // i = 0
@@ -900,6 +931,44 @@ suite("test_stream_load_properties", "p0") {
                 qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
             } else {
                 qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    // EXEC_MEM_LIMIT illegal number
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'exec_mem_limit', 'a'
+                set 'columns', columns[i]
+                set 'read_json_by_line', 'true'
+                if (i <= 3) {
+                    file json_by_line_files[0]
+                } else {
+                    file json_by_line_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("fail", json.Status.toLowerCase())
+                    assertEquals("[INVALID_ARGUMENT]Invalid mem limit format, stoll", json.Message)
+                }
             }
             i++
         }
