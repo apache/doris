@@ -112,14 +112,15 @@ suite("test_update_mow", "p0") {
             UNIQUE KEY(k1,k2)
             DISTRIBUTED BY HASH(k1,k2) BUCKETS 5 properties(
                 "replication_num" = "1",
+                "store_row_column" = "true",
                 "enable_unique_key_merge_on_write" = "true"
             );
         """
-    sql "insert into ${tableName5} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
+    sql """insert into ${tableName5} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"""
     qt_sql "select * from ${tableName5} order by k1,k2"
     sql "update ${tableName5} t set t.v3=999, t.v2=888 where k1=2 and k2=2"
     qt_sql "select * from ${tableName5} order by k1,k2" 
-    sql "update ${tableName5} t set t.v1=777, t.v2=666 where k1>3 and k2>=3"
+    sql "update ${tableName5} t set t.v1=777, t.v2=666 where k1=3 and k2=3"
     qt_sql "select * from ${tableName5} order by k1,k2" 
 
     sql "DROP TABLE IF EXISTS ${tableName5}"
