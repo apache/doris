@@ -583,8 +583,8 @@ public:
         return Status::OK();
     }
 
+    // move to columns' data to a Block. this will invalidate
     Block to_block(int start_column = 0);
-
     Block to_block(int start_column, int end_column);
 
     void swap(MutableBlock& other) noexcept;
@@ -606,7 +606,10 @@ public:
         _names.clear();
     }
 
+    // columns resist. columns' inner data removed.
     void clear_column_data() noexcept;
+    // reset columns by types and names.
+    void reset_column_data() noexcept;
 
     size_t allocated_bytes() const;
 

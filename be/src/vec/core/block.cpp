@@ -1100,6 +1100,14 @@ void MutableBlock::clear_column_data() noexcept {
     }
 }
 
+void MutableBlock::reset_column_data() noexcept {
+    _columns.clear();
+    for (int i = 0; i < _names.size(); i++) {
+        _columns.emplace_back(_data_types[i]->create_column());
+        index_by_name[_names[i]] = i;
+    }
+}
+
 void MutableBlock::initialize_index_by_name() {
     for (size_t i = 0, size = _names.size(); i < size; ++i) {
         index_by_name[_names[i]] = i;
