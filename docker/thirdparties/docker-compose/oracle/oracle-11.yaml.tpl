@@ -44,6 +44,8 @@ services:
     depends_on:
       doris--oracle_11:
         condition: service_healthy 
+    networks:
+      - doris--oracle_11
 
 networks:
   doris--oracle_11:

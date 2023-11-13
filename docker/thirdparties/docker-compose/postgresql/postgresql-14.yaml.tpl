@@ -39,7 +39,10 @@ services:
     image: hello-world
     depends_on:
       doris--postgres:
-        condition: service_healthy 
+        condition: service_healthy
+    networks:
+      - doris--postgres
+
 networks:
   doris--postgres:
     ipam:

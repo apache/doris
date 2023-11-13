@@ -44,6 +44,8 @@ services:
     depends_on:
       doris--mariadb:
         condition: service_healthy 
+    networks:
+      - doris--mariadb
 
 networks:
   doris--mariadb:
