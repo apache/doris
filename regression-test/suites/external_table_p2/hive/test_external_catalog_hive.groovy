@@ -94,8 +94,8 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         qt_not_single_slot_filter_conjuncts_parquet """ select * from multi_catalog.lineitem_string_date_orc where l_commitdate < l_receiptdate and l_receiptdate = '1995-01-01'  order by l_orderkey, l_partkey, l_suppkey, l_linenumber limit 10; """
 
         // test null expr with dict filter issue
-        qt_null_expr_dict_filter_orc """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_orc WHERE partitions in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
-        qt_null_expr_dict_filter_parquet """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_parquet WHERE partitions in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
+        qt_null_expr_dict_filter_orc """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_orc WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
+        qt_null_expr_dict_filter_parquet """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_parquet WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
 
         // test par fields in file
         qt_par_fields_in_file_orc1 """ select * from multi_catalog.par_fields_in_file_orc where year = 2023 and month = 8 order by id; """
@@ -108,6 +108,13 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         qt_par_fields_in_file_parquet4 """ select * from multi_catalog.par_fields_in_file_parquet where month = 8 and year >= 2022 order by id; """
         qt_par_fields_in_file_orc5 """ select * from multi_catalog.par_fields_in_file_orc where month = 8 and year = 2022 order by id; """
         qt_par_fields_in_file_parquet5 """ select * from multi_catalog.par_fields_in_file_parquet where month = 8 and year = 2022 order by id; """
+
+        // test unsupported input format query
+        try {
+            sql """ select * from multi_catalog.unsupported_input_format_empty; """
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("Unsupported hive input format: com.hadoop.mapred.DeprecatedLzoTextInputFormat"))
+        }
 
         // test remember last used database after switch / rename catalog
         sql """switch ${catalog_name};"""

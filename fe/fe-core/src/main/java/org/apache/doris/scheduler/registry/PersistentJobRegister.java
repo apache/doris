@@ -110,6 +110,19 @@ public interface PersistentJobRegister {
 
     Long registerJob(Job job) throws DdlException;
 
+
+    /**
+     * execute job task immediately,this method will not change job status and don't affect scheduler job
+     * this task type should set to {@link org.apache.doris.scheduler.constants.TaskType#MANUAL_JOB_TASK}
+     *
+     * @param jobId       job id
+     * @param contextData if you need to pass parameters to the task,
+     * @param <T>         context data type
+     * @return true if execute success, false if execute failed,
+     * if job is not exist or job is not running, or job not support manual execute, return false
+     */
+    <T> boolean immediateExecuteTask(Long jobId, T contextData) throws DdlException;
+
     List<Job> getJobs(String dbFullName, String jobName, JobCategory jobCategory, PatternMatcher matcher);
 
     /**

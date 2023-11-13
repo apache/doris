@@ -21,6 +21,7 @@
 #include "arrow/result.h"
 #include "common/status.h"
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
+#include "service/arrow_flight/auth_server_middleware.h"
 
 namespace doris {
 namespace flight {
@@ -40,8 +41,11 @@ public:
 
 private:
     class Impl;
-    std::shared_ptr<Impl> impl_;
+    std::shared_ptr<Impl> _impl;
     bool _inited = false;
+
+    std::shared_ptr<NoOpHeaderAuthServerMiddlewareFactory> _header_middleware;
+    std::shared_ptr<NoOpBearerAuthServerMiddlewareFactory> _bearer_middleware;
 
     explicit FlightSqlServer(std::shared_ptr<Impl> impl);
 };

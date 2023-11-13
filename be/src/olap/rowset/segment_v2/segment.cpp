@@ -129,7 +129,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             return Status::OK();
         }
     }
-
     if (read_options.use_topn_opt) {
         auto query_ctx = read_options.runtime_state->get_query_ctx();
         auto runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
@@ -157,6 +156,39 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     }
 
+    if (config::ignore_always_true_predicate_for_segment &&
+        read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
+        !read_options.column_predicates.empty()) {
+        auto pruned_predicates = read_options.column_predicates;
+        auto pruned = false;
+        for (auto& it : _column_readers) {
+            const auto uid = it.first;
+            const auto column_id = read_options.tablet_schema->field_index(uid);
+            if (it.second->prune_predicates_by_zone_map(pruned_predicates, column_id)) {
+                pruned = true;
+            }
+        }
+
+        if (pruned) {
+            auto options_with_pruned_predicates = read_options;
+            options_with_pruned_predicates.column_predicates = pruned_predicates;
+            //because column_predicates is changed, we need to rebuild col_id_to_predicates so that inverted index will not go through it.
+            options_with_pruned_predicates.col_id_to_predicates.clear();
+            for (auto* pred : options_with_pruned_predicates.column_predicates) {
+                if (!options_with_pruned_predicates.col_id_to_predicates.contains(
+                            pred->column_id())) {
+                    options_with_pruned_predicates.col_id_to_predicates.insert(
+                            {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+                }
+                auto* single_column_block_predicate = new SingleColumnBlockPredicate(pred);
+                options_with_pruned_predicates.col_id_to_predicates[pred->column_id()]
+                        ->add_column_predicate(single_column_block_predicate);
+            }
+            LOG(INFO) << "column_predicates pruned from " << read_options.column_predicates.size()
+                      << " to " << pruned_predicates.size();
+            return iter->get()->init(options_with_pruned_predicates);
+        }
+    }
     return iter->get()->init(read_options);
 }
 
@@ -170,8 +202,8 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
 
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
-    // Block / Whole / Sub file cache will use it while read segment footer
-    io::IOContext io_ctx;
+    // TODO(plat1ko): Support session variable `enable_file_cache`
+    io::IOContext io_ctx {.is_index_data = true};
     RETURN_IF_ERROR(
             _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
     DCHECK_EQ(bytes_read, 12);
@@ -215,12 +247,26 @@ Status Segment::_load_pk_bloom_filter() {
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
     DCHECK(_pk_index_meta != nullptr);
     DCHECK(_pk_index_reader != nullptr);
-    return _load_pk_bf_once.call([this] {
-        RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta));
-        _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
-        _segment_meta_mem_tracker->consume(_pk_index_reader->get_bf_memory_size());
-        return Status::OK();
-    });
+    auto status = [this]() {
+        return _load_pk_bf_once.call([this] {
+            RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta));
+            _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+            _segment_meta_mem_tracker->consume(_pk_index_reader->get_bf_memory_size());
+            return Status::OK();
+        });
+    }();
+    if (!status.ok()) {
+        remove_from_segment_cache();
+    }
+    return status;
+}
+
+void Segment::remove_from_segment_cache() const {
+    if (config::disable_segment_cache) {
+        return;
+    }
+    SegmentCache::CacheKey cache_key(_rowset_id, _segment_id);
+    SegmentLoader::instance()->erase_segment(cache_key);
 }
 
 Status Segment::load_pk_index_and_bf() {
@@ -229,6 +275,14 @@ Status Segment::load_pk_index_and_bf() {
     return Status::OK();
 }
 Status Segment::load_index() {
+    auto status = [this]() { return _load_index_impl(); }();
+    if (!status.ok()) {
+        remove_from_segment_cache();
+    }
+    return status;
+}
+
+Status Segment::_load_index_impl() {
     return _load_index_once.call([this] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
@@ -238,14 +292,17 @@ Status Segment::load_index() {
             return Status::OK();
         } else {
             // read and parse short key index page
-            PageReadOptions opts;
-            opts.file_reader = _file_reader.get();
-            opts.page_pointer = PagePointer(_sk_index_page);
-            opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
             OlapReaderStatistics tmp_stats;
-            opts.use_page_cache = true;
-            opts.stats = &tmp_stats;
-            opts.type = INDEX_PAGE;
+            PageReadOptions opts {
+                    .use_page_cache = true,
+                    .type = INDEX_PAGE,
+                    .file_reader = _file_reader.get(),
+                    .page_pointer = PagePointer(_sk_index_page),
+                    // short key index page uses NO_COMPRESSION for now
+                    .codec = nullptr,
+                    .stats = &tmp_stats,
+                    .io_ctx = io::IOContext {.is_index_data = true},
+            };
             Slice body;
             PageFooterPB footer;
             RETURN_IF_ERROR(
@@ -276,8 +333,9 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
             continue;
         }
 
-        ColumnReaderOptions opts;
-        opts.kept_in_memory = _tablet_schema->is_in_memory();
+        ColumnReaderOptions opts {
+                .kept_in_memory = _tablet_schema->is_in_memory(),
+        };
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
                                              _file_reader, &reader));

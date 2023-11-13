@@ -76,15 +76,15 @@ public class OneRangePartitionEvaluator
         extends ExpressionVisitor<EvaluateRangeResult, EvaluateRangeInput>
         implements OnePartitionEvaluator {
     private final long partitionId;
-    private List<Slot> partitionSlots;
-    private RangePartitionItem partitionItem;
-    private ExpressionRewriteContext expressionRewriteContext;
-    private List<PartitionSlotType> partitionSlotTypes;
-    private List<Literal> lowers;
-    private List<Literal> uppers;
-    private List<List<Expression>> inputs;
-    private Map<Slot, Boolean> partitionSlotContainsNull;
-    private Map<Slot, PartitionSlotType> slotToType;
+    private final List<Slot> partitionSlots;
+    private final RangePartitionItem partitionItem;
+    private final ExpressionRewriteContext expressionRewriteContext;
+    private final List<PartitionSlotType> partitionSlotTypes;
+    private final List<Literal> lowers;
+    private final List<Literal> uppers;
+    private final List<List<Expression>> inputs;
+    private final Map<Slot, Boolean> partitionSlotContainsNull;
+    private final Map<Slot, PartitionSlotType> slotToType;
 
     /** OneRangePartitionEvaluator */
     public OneRangePartitionEvaluator(long partitionId, List<Slot> partitionSlots,

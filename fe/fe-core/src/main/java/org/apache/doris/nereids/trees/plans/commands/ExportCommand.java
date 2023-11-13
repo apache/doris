@@ -68,7 +68,7 @@ import java.util.stream.Collectors;
  *      EXPORT TABLE table_name [PARTITION (name1[, ...])]
  *          TO 'export_target_path'
  *          [PROPERTIES("key"="value")]
- *          BY BROKER 'broker_name' [( $broker_attrs)]
+ *          WITH BROKER 'broker_name' [( $broker_attrs)]
  */
 public class ExportCommand extends Command implements ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
@@ -76,17 +76,17 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_PARALLELISM = "1";
+    private static final Integer DEFAULT_TIMEOUT = 7200;
+
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
-            .add(LoadStmt.EXEC_MEM_LIMIT)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
             .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
+            .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
             .build();
 
@@ -304,11 +304,22 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setQualifiedUser(ctx.getQualifiedUser());
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
 
-        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
-                ConnectContext.get().getSessionVariable());
-        exportJob.setSessionVariables(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable()));
-        exportJob.setTimeoutSecond(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable())
-                .getQueryTimeoutS());
+        // Must copy session variable, because session variable may be changed during export job running.
+        SessionVariable clonedSessionVariable = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
+        exportJob.setSessionVariables(clonedSessionVariable);
+
+        // set timeoutSecond
+        int timeoutSecond;
+        String timeoutString = fileProperties.getOrDefault(PropertyAnalyzer.PROPERTIES_TIMEOUT,
+                String.valueOf(DEFAULT_TIMEOUT));
+        try {
+            timeoutSecond = Integer.parseInt(timeoutString);
+        } catch (NumberFormatException e) {
+            throw new UserException("The value of timeout is invalid!");
+        }
+
+        exportJob.setTimeoutSecond(timeoutSecond);
 
         // exportJob generate outfile sql
         exportJob.generateOutfileLogicalPlans(RelationUtil.getQualifierName(ctx, this.nameParts));

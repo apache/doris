@@ -52,21 +52,17 @@ public:
     Status submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
                   const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
-                  RowsetWriter* rowset_writer);
+                  DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer);
 
     // wait all tasks in token to be completed.
     Status wait();
 
     void cancel() { _thread_token->shutdown(); }
 
-    Status get_delete_bitmap(DeleteBitmapPtr res_bitmap);
-
 private:
     std::unique_ptr<ThreadPoolToken> _thread_token;
 
     std::shared_mutex _lock;
-    std::vector<DeleteBitmapPtr> _delete_bitmaps;
-
     // Records the current status of the calc delete bitmap job.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
     Status _status;

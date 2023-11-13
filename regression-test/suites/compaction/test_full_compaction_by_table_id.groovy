@@ -50,7 +50,7 @@ suite("test_full_compaction_by_table_id") {
             `user_id` INT NOT NULL, `value` INT NOT NULL)
             UNIQUE KEY(`user_id`) 
             DISTRIBUTED BY HASH(`user_id`) 
-            BUCKETS 32 
+            BUCKETS 8 
             PROPERTIES ("replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true");"""
@@ -105,7 +105,7 @@ suite("test_full_compaction_by_table_id") {
         // before full compaction, there are 7 rowsets in all tablets.
         for (int i=0; i<tablets.size(); ++i) {
             int rowsetCount = 0
-            (code, out, err) = curl("GET", tablets[i][18])
+            def (code, out, err) = curl("GET", tablets[i][18])
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -120,10 +120,10 @@ suite("test_full_compaction_by_table_id") {
             String tablet_id = tablets[i][0]
             String[][] tablet_info = sql """ show tablet ${tablet_id}; """
             logger.info("tablet"+tablet_info)
-            table_id = tablet_info[0][5]
+            def table_id = tablet_info[0][5]
             backend_id = tablets[i][2]
-            times = 1
-
+            def times = 1
+            def code, out, err
             do{
                 (code, out, err) = be_run_full_compaction_by_table_id(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
@@ -147,9 +147,9 @@ suite("test_full_compaction_by_table_id") {
                 boolean running = true
                 do {
                     Thread.sleep(1000)
-                    tablet_id = tablets[i][0]
+                    def tablet_id = tablets[i][0]
                     backend_id = tablets[i][2]
-                    (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                    def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
                     def compactionStatus = parseJson(out.trim())
@@ -163,7 +163,7 @@ suite("test_full_compaction_by_table_id") {
         
         for (int i=0; i<tablets.size(); ++i) {
             int rowsetCount = 0
-            (code, out, err) = curl("GET", tablets[i][18])
+            def (code, out, err) = curl("GET", tablets[i][18])
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())

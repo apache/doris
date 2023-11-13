@@ -142,11 +142,19 @@ public class ColumnDefinition {
                 throw new AnalysisException("Type exceeds the maximum nesting depth of 9");
             }
         }
-        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+        if (type.isHllType() || type.isQuantileStateType()) {
             if (aggType == null) {
-                throw new AnalysisException("complex type have to use aggregate function: " + name);
+                throw new AnalysisException("column: " + name + " must be used in AGG_KEYS.");
             }
             isNullable = false;
+        }
+        if (type.isBitmapType()) {
+            if (keysType == KeysType.DUP_KEYS) {
+                throw new AnalysisException("column:" + name + " must be used in AGG_KEYS or UNIQUE_KEYS.");
+            }
+            if (aggType != null) {
+                isNullable = false;
+            }
         }
         if (keysSet.contains(name)) {
             isKey = true;
@@ -180,7 +188,9 @@ public class ColumnDefinition {
         } else if (type.isArrayType() && !defaultValue.isPresent()) {
             defaultValue = Optional.of(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
         }
-        if (defaultValue.isPresent() && type.toCatalogDataType().isScalarType()) {
+        if (defaultValue.isPresent()
+                && defaultValue.get().getValue() != null
+                && type.toCatalogDataType().isScalarType()) {
             try {
                 ColumnDef.validateDefaultValue(type.toCatalogDataType(),
                         defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());

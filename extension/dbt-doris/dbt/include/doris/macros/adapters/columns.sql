@@ -34,19 +34,24 @@ where table_schema = '{{ relation.schema }}'
 '''Changes column name or data type'''
 {% endmacro %}
 
-{% macro table_columns_and_constraints() %}
+{% macro columns_and_constraints(table_type="table") %}
   {# loop through user_provided_columns to create DDL with data types and constraints #}
     {%- set raw_column_constraints = adapter.render_raw_columns_constraints(raw_columns=model['columns']) -%}
     {% for c in raw_column_constraints -%}
-      {{ c }}{{ "," if not loop.last or raw_model_constraints }}
+      {% if table_type == "table" %}
+        {{ c.get_table_column_constraint() }}{{ "," if not loop.last or raw_model_constraints }}
+      {% else %}
+        {{ c.get_view_column_constraint() }}{{ "," if not loop.last or raw_model_constraints }}
+      {% endif %}
     {% endfor %}
 {% endmacro %}
 
 {% macro doris__get_table_columns_and_constraints() -%}
-  {{ return(table_columns_and_constraints()) }}
+  {{ return(columns_and_constraints("table")) }}
 {%- endmacro %}
 
+
 {% macro doris__get_view_columns_comment() -%}
-  {{ return(table_columns_and_constraints()) }}
+  {{ return(columns_and_constraints("view")) }}
 {%- endmacro %}
 

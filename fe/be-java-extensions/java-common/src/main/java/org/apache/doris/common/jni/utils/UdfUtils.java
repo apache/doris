@@ -23,9 +23,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.thrift.TPrimitiveType;
 
-import com.google.common.collect.Sets;
 import com.vesoft.nebula.client.graph.data.DateTimeWrapper;
 import com.vesoft.nebula.client.graph.data.DateWrapper;
 import com.vesoft.nebula.client.graph.data.ValueWrapper;
@@ -35,14 +33,11 @@ import sun.misc.Unsafe;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.lang.reflect.Field;
-import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
-import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -67,166 +62,6 @@ public class UdfUtils {
                 });
         BYTE_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
         INT_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(int[].class);
-    }
-
-    // Data types that are supported as return or argument types in Java UDFs.
-    public enum JavaUdfDataType {
-        INVALID_TYPE("INVALID_TYPE", TPrimitiveType.INVALID_TYPE, 0),
-        BOOLEAN("BOOLEAN", TPrimitiveType.BOOLEAN, 1),
-        TINYINT("TINYINT", TPrimitiveType.TINYINT, 1),
-        SMALLINT("SMALLINT", TPrimitiveType.SMALLINT, 2),
-        INT("INT", TPrimitiveType.INT, 4),
-        BIGINT("BIGINT", TPrimitiveType.BIGINT, 8),
-        FLOAT("FLOAT", TPrimitiveType.FLOAT, 4),
-        DOUBLE("DOUBLE", TPrimitiveType.DOUBLE, 8),
-        CHAR("CHAR", TPrimitiveType.CHAR, 0),
-        VARCHAR("VARCHAR", TPrimitiveType.VARCHAR, 0),
-        STRING("STRING", TPrimitiveType.STRING, 0),
-        DATE("DATE", TPrimitiveType.DATE, 8),
-        DATETIME("DATETIME", TPrimitiveType.DATETIME, 8),
-        LARGEINT("LARGEINT", TPrimitiveType.LARGEINT, 16),
-        DECIMALV2("DECIMALV2", TPrimitiveType.DECIMALV2, 16),
-        DATEV2("DATEV2", TPrimitiveType.DATEV2, 4),
-        DATETIMEV2("DATETIMEV2", TPrimitiveType.DATETIMEV2, 8),
-        DECIMAL32("DECIMAL32", TPrimitiveType.DECIMAL32, 4),
-        DECIMAL64("DECIMAL64", TPrimitiveType.DECIMAL64, 8),
-        DECIMAL128("DECIMAL128", TPrimitiveType.DECIMAL128I, 16),
-        ARRAY_TYPE("ARRAY_TYPE", TPrimitiveType.ARRAY, 0),
-        MAP_TYPE("MAP_TYPE", TPrimitiveType.MAP, 0);
-
-        private final String description;
-        private final TPrimitiveType thriftType;
-        private final int len;
-        private int precision;
-        private int scale;
-        private Type itemType;
-        private Type keyType;
-        private Type valueType;
-        private int keyScale;
-        private int valueScale;
-
-        JavaUdfDataType(String description, TPrimitiveType thriftType, int len) {
-            this.description = description;
-            this.thriftType = thriftType;
-            this.len = len;
-        }
-
-        @Override
-        public String toString() {
-            return description;
-        }
-
-        public TPrimitiveType getPrimitiveType() {
-            return thriftType;
-        }
-
-        public int getLen() {
-            return len;
-        }
-
-        public static Set<JavaUdfDataType> getCandidateTypes(Class<?> c) {
-            if (c == boolean.class || c == Boolean.class) {
-                return Sets.newHashSet(JavaUdfDataType.BOOLEAN);
-            } else if (c == byte.class || c == Byte.class) {
-                return Sets.newHashSet(JavaUdfDataType.TINYINT);
-            } else if (c == short.class || c == Short.class) {
-                return Sets.newHashSet(JavaUdfDataType.SMALLINT);
-            } else if (c == int.class || c == Integer.class) {
-                return Sets.newHashSet(JavaUdfDataType.INT);
-            } else if (c == long.class || c == Long.class) {
-                return Sets.newHashSet(JavaUdfDataType.BIGINT);
-            } else if (c == float.class || c == Float.class) {
-                return Sets.newHashSet(JavaUdfDataType.FLOAT);
-            } else if (c == double.class || c == Double.class) {
-                return Sets.newHashSet(JavaUdfDataType.DOUBLE);
-            } else if (c == char.class || c == Character.class) {
-                return Sets.newHashSet(JavaUdfDataType.CHAR);
-            } else if (c == String.class) {
-                return Sets.newHashSet(JavaUdfDataType.STRING);
-            } else if (Type.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
-                return Sets.newHashSet(JavaUdfDataType.DATE, JavaUdfDataType.DATEV2);
-            } else if (Type.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
-                return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2);
-            } else if (c == BigInteger.class) {
-                return Sets.newHashSet(JavaUdfDataType.LARGEINT);
-            } else if (c == BigDecimal.class) {
-                return Sets.newHashSet(JavaUdfDataType.DECIMALV2, JavaUdfDataType.DECIMAL32, JavaUdfDataType.DECIMAL64,
-                        JavaUdfDataType.DECIMAL128);
-            } else if (c == java.util.ArrayList.class) {
-                return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE);
-            } else if (c == java.util.HashMap.class) {
-                return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
-            }
-            return Sets.newHashSet(JavaUdfDataType.INVALID_TYPE);
-        }
-
-        public static boolean isSupported(Type t) {
-            for (JavaUdfDataType javaType : JavaUdfDataType.values()) {
-                if (javaType == JavaUdfDataType.INVALID_TYPE) {
-                    continue;
-                }
-                if (javaType.getPrimitiveType() == t.getPrimitiveType().toThrift()) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        public int getPrecision() {
-            return precision;
-        }
-
-        public void setPrecision(int precision) {
-            this.precision = precision;
-        }
-
-        public int getScale() {
-            return this.thriftType == TPrimitiveType.DECIMALV2 ? 9 : scale;
-        }
-
-        public void setScale(int scale) {
-            this.scale = scale;
-        }
-
-        public Type getItemType() {
-            return itemType;
-        }
-
-        public void setItemType(Type type) {
-            this.itemType = type;
-        }
-
-        public Type getKeyType() {
-            return keyType;
-        }
-
-        public Type getValueType() {
-            return valueType;
-        }
-
-        public void setKeyType(Type type) {
-            this.keyType = type;
-        }
-
-        public void setValueType(Type type) {
-            this.valueType = type;
-        }
-
-        public void setKeyScale(int scale) {
-            this.keyScale = scale;
-        }
-
-        public void setValueScale(int scale) {
-            this.valueScale = scale;
-        }
-
-        public int getKeyScale() {
-            return keyScale;
-        }
-
-        public int getValueScale() {
-            return valueScale;
-        }
     }
 
     public static void copyMemory(
@@ -282,7 +117,8 @@ public class UdfUtils {
         Object[] res = javaTypes.stream().filter(
                 t -> t.getPrimitiveType() == retType.getPrimitiveType().toThrift()).toArray();
 
-        JavaUdfDataType result = res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0];
+        JavaUdfDataType result = new JavaUdfDataType(
+                res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
         if (retType.isDecimalV3() || retType.isDatetimeV2()) {
             result.setPrecision(retType.getPrecision());
             result.setScale(((ScalarType) retType).getScalarScale());
@@ -313,9 +149,11 @@ public class UdfUtils {
      * Sets the argument types of a Java UDF or UDAF. Returns true if the argument types specified
      * in the UDF are compatible with the argument types of the evaluate() function loaded
      * from the associated JAR file.
+     *
+     * @throws InternalException
      */
     public static Pair<Boolean, JavaUdfDataType[]> setArgTypes(Type[] parameterTypes, Class<?>[] udfArgTypes,
-            boolean isUdaf) {
+            boolean isUdaf) throws InternalException {
         JavaUdfDataType[] inputArgTypes = new JavaUdfDataType[parameterTypes.length];
         int firstPos = isUdaf ? 1 : 0;
         for (int i = 0; i < parameterTypes.length; ++i) {
@@ -323,7 +161,8 @@ public class UdfUtils {
             int finalI = i;
             Object[] res = javaTypes.stream().filter(
                     t -> t.getPrimitiveType() == parameterTypes[finalI].getPrimitiveType().toThrift()).toArray();
-            inputArgTypes[i] = res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0];
+            inputArgTypes[i] = new JavaUdfDataType(
+                    res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
             if (parameterTypes[finalI].isDecimalV3() || parameterTypes[finalI].isDatetimeV2()) {
                 inputArgTypes[i].setPrecision(parameterTypes[finalI].getPrecision());
                 inputArgTypes[i].setScale(((ScalarType) parameterTypes[finalI]).getScalarScale());
@@ -354,191 +193,6 @@ public class UdfUtils {
         return Pair.of(true, inputArgTypes);
     }
 
-    public static Object convertDateTimeV2ToJavaDateTime(long date, Class clz) {
-        int year = (int) (date >> 46);
-        int yearMonth = (int) (date >> 42);
-        int yearMonthDay = (int) (date >> 37);
-
-        int month = (yearMonth & 0XF);
-        int day = (yearMonthDay & 0X1F);
-
-        int hour = (int) ((date >> 32) & 0X1F);
-        int minute = (int) ((date >> 26) & 0X3F);
-        int second = (int) ((date >> 20) & 0X3F);
-        //here don't need those bits are type = ((minus_type_neg >> 1) & 0x7);
-
-        if (LocalDateTime.class.equals(clz)) {
-            return convertToLocalDateTime(year, month, day, hour, minute, second);
-        } else if (org.joda.time.DateTime.class.equals(clz)) {
-            return convertToJodaDateTime(year, month, day, hour, minute, second);
-        } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-            return convertToJodaLocalDateTime(year, month, day, hour, minute, second);
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * input is a 64bit num from backend, and then get year, month, day, hour, minus, second by the order of bits.
-     */
-    public static Object convertDateTimeToJavaDateTime(long date, Class clz) {
-        int year = (int) (date >> 48);
-        int yearMonth = (int) (date >> 40);
-        int yearMonthDay = (int) (date >> 32);
-
-        int month = (yearMonth & 0XFF);
-        int day = (yearMonthDay & 0XFF);
-
-        int hourMinuteSecond = (int) (date % (1 << 31));
-        int minuteTypeNeg = (hourMinuteSecond % (1 << 16));
-
-        int hour = (hourMinuteSecond >> 24);
-        int minute = ((hourMinuteSecond >> 16) & 0XFF);
-        int second = (minuteTypeNeg >> 4);
-        //here don't need those bits are type = ((minus_type_neg >> 1) & 0x7);
-
-        if (LocalDateTime.class.equals(clz)) {
-            return convertToLocalDateTime(year, month, day, hour, minute, second);
-        } else if (org.joda.time.DateTime.class.equals(clz)) {
-            return convertToJodaDateTime(year, month, day, hour, minute, second);
-        } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-            return convertToJodaLocalDateTime(year, month, day, hour, minute, second);
-        } else {
-            return null;
-        }
-    }
-
-    public static Object convertDateV2ToJavaDate(int date, Class clz) {
-        int year = date >> 9;
-        int month = (date >> 5) & 0XF;
-        int day = date & 0X1F;
-        if (LocalDate.class.equals(clz)) {
-            return convertToLocalDate(year, month, day);
-        } else if (java.util.Date.class.equals(clz)) {
-            return convertToJavaDate(year, month, day);
-        } else if (org.joda.time.LocalDate.class.equals(clz)) {
-            return convertToJodaDate(year, month, day);
-        } else {
-            return null;
-        }
-    }
-
-    public static LocalDateTime convertToLocalDateTime(int year, int month, int day,
-            int hour, int minute, int second) {
-        LocalDateTime value = null;
-        try {
-            value = LocalDateTime.of(year, month, day, hour, minute, second);
-        } catch (DateTimeException e) {
-            LOG.warn("Error occurs when parsing date time value: {}", e);
-        }
-        return value;
-    }
-
-    public static org.joda.time.DateTime convertToJodaDateTime(int year, int month, int day,
-            int hour, int minute, int second) {
-        try {
-            return new org.joda.time.DateTime(year, month, day, hour, minute, second);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    public static org.joda.time.LocalDateTime convertToJodaLocalDateTime(int year, int month, int day,
-            int hour, int minute, int second) {
-        try {
-            return new org.joda.time.LocalDateTime(year, month, day, hour, minute, second);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    public static Object convertDateToJavaDate(long date, Class clz) {
-        int year = (int) (date >> 48);
-        int yearMonth = (int) (date >> 40);
-        int yearMonthDay = (int) (date >> 32);
-
-        int month = (yearMonth & 0XFF);
-        int day = (yearMonthDay & 0XFF);
-        if (LocalDate.class.equals(clz)) {
-            return convertToLocalDate(year, month, day);
-        } else if (java.util.Date.class.equals(clz)) {
-            return convertToJavaDate(year, month, day);
-        } else if (org.joda.time.LocalDate.class.equals(clz)) {
-            return convertToJodaDate(year, month, day);
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * a 64bit num convertToDate.
-     */
-    public static LocalDate convertToLocalDate(int year, int month, int day) {
-        LocalDate value = null;
-        try {
-            value = LocalDate.of(year, month, day);
-        } catch (DateTimeException e) {
-            LOG.warn("Error occurs when parsing date value: {}", e);
-        }
-        return value;
-    }
-
-    public static org.joda.time.LocalDate convertToJodaDate(int year, int month, int day) {
-        try {
-            return new org.joda.time.LocalDate(year, month, day);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    public static java.util.Date convertToJavaDate(int year, int month, int day) {
-        try {
-            return new java.util.Date(year - 1900, month - 1, day);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /**
-     * input is the second, minute, hours, day , month and year respectively.
-     * and then combining all num to a 64bit value return to backend;
-     */
-    public static long convertToDateTime(Object obj, Class clz) {
-        if (LocalDateTime.class.equals(clz)) {
-            LocalDateTime date = (LocalDateTime) obj;
-            return convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(), date.getHour(),
-                    date.getMinute(), date.getSecond(), false);
-        } else if (org.joda.time.DateTime.class.equals(clz)) {
-            org.joda.time.DateTime date = (org.joda.time.DateTime) obj;
-            return convertToDateTime(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute(), false);
-        } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-            org.joda.time.LocalDateTime date = (org.joda.time.LocalDateTime) obj;
-            return convertToDateTime(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute(), false);
-        } else {
-            return 0;
-        }
-    }
-
-    public static long convertToDate(Object obj, Class clz) {
-        if (LocalDate.class.equals(clz)) {
-            LocalDate date = (LocalDate) obj;
-            return convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(), 0,
-                    0, 0, true);
-        } else if (java.util.Date.class.equals(clz)) {
-            java.util.Date date = (java.util.Date) obj;
-            return convertToDateTime(date.getYear() + 1900, date.getMonth(), date.getDay(), 0,
-                    0, 0, true);
-        } else if (org.joda.time.LocalDate.class.equals(clz)) {
-            org.joda.time.LocalDate date = (org.joda.time.LocalDate) obj;
-            return convertToDateTime(date.getYear(), date.getDayOfMonth(), date.getDayOfMonth(), 0,
-                    0, 0, true);
-        } else {
-            return 0;
-        }
-    }
-
     public static long convertToDateTime(int year, int month, int day, int hour, int minute, int second,
             boolean isDate) {
         long time = 0;
@@ -555,52 +209,14 @@ public class UdfUtils {
         return time;
     }
 
-    public static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second) {
-        return (long) second << 20 | (long) minute << 26 | (long) hour << 32
-                | (long) day << 37 | (long) month << 42 | (long) year << 46;
-    }
-
     public static long convertToDateTimeV2(
             int year, int month, int day, int hour, int minute, int second, int microsecond) {
         return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 
-    public static long convertToDateTimeV2(Object obj, Class clz) {
-        if (LocalDateTime.class.equals(clz)) {
-            LocalDateTime date = (LocalDateTime) obj;
-            return convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(), date.getHour(),
-                    date.getMinute(), date.getSecond());
-        } else if (org.joda.time.DateTime.class.equals(clz)) {
-            org.joda.time.DateTime date = (org.joda.time.DateTime) obj;
-            return convertToDateTimeV2(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute(), date.getMillisOfSecond() * 1000);
-        } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-            org.joda.time.LocalDateTime date = (org.joda.time.LocalDateTime) obj;
-            return convertToDateTimeV2(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute(), date.getMillisOfSecond() * 1000);
-        } else {
-            return 0;
-        }
-    }
-
     public static int convertToDateV2(int year, int month, int day) {
         return (int) (day | (long) month << 5 | (long) year << 9);
-    }
-
-    public static int convertToDateV2(Object obj, Class clz) {
-        if (LocalDate.class.equals(clz)) {
-            LocalDate date = (LocalDate) obj;
-            return convertToDateV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth());
-        } else if (java.util.Date.class.equals(clz)) {
-            java.util.Date date = (java.util.Date) obj;
-            return convertToDateV2(date.getYear(), date.getMonth(), date.getDay());
-        } else if (org.joda.time.LocalDate.class.equals(clz)) {
-            org.joda.time.LocalDate date = (org.joda.time.LocalDate) obj;
-            return convertToDateV2(date.getYear(), date.getDayOfMonth(), date.getDayOfMonth());
-        } else {
-            return 0;
-        }
     }
 
     /**

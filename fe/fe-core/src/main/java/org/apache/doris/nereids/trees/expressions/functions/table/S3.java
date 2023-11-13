@@ -20,15 +20,11 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.statistics.Statistics;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /** s3 */
@@ -39,7 +35,7 @@ public class S3 extends TableValuedFunction {
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(AnyDataType.INSTANCE_WITHOUT_INDEX, (List) getArgumentsTypes());
+        return FunctionSignature.of(AnyDataType.INSTANCE_WITHOUT_INDEX, getArgumentsTypes());
     }
 
     @Override
@@ -51,11 +47,6 @@ public class S3 extends TableValuedFunction {
             throw new AnalysisException("Can not build S3TableValuedFunction by "
                 + this + ": " + t.getMessage(), t);
         }
-    }
-
-    @Override
-    public Statistics computeStats(List<Slot> slots) {
-        return new Statistics(0, new HashMap<>());
     }
 
     @Override

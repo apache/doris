@@ -19,7 +19,6 @@ package org.apache.doris.load;
 
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -32,13 +31,11 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.task.MasterTaskExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
@@ -60,7 +57,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class ExportMgr extends MasterDaemon {
+public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
 
     // lock for export job
@@ -70,11 +67,7 @@ public class ExportMgr extends MasterDaemon {
     private Map<Long, ExportJob> exportIdToJob = Maps.newHashMap(); // exportJobId to exportJob
     private Map<String, Long> labelToExportJobId = Maps.newHashMap();
 
-    private MasterTaskExecutor exportingExecutor;
-
     public ExportMgr() {
-        int poolSize = Config.export_running_job_num_limit == 0 ? 5 : Config.export_running_job_num_limit;
-        exportingExecutor = new MasterTaskExecutor("export-exporting-job", poolSize, true);
     }
 
     public void readLock() {
@@ -93,76 +86,8 @@ public class ExportMgr extends MasterDaemon {
         lock.writeLock().unlock();
     }
 
-    @Override
-    public synchronized void start() {
-        super.start();
-        exportingExecutor.start();
-    }
-
-    @Override
-    protected void runAfterCatalogReady() {
-        // List<ExportJob> pendingJobs = getExportJobs(ExportJobState.PENDING);
-        // List<ExportJob> newInQueueJobs = Lists.newArrayList();
-        // for (ExportJob job : pendingJobs) {
-        //     if (handlePendingJobs(job)) {
-        //         newInQueueJobs.add(job);
-        //     }
-        // }
-        // LOG.debug("new IN_QUEUE export job num: {}", newInQueueJobs.size());
-        // for (ExportJob job : newInQueueJobs) {
-        //     try {
-        //         MasterTask task = new ExportExportingTask(job);
-        //         job.setTask((ExportExportingTask) task);
-        //         if (exportingExecutor.submit(task)) {
-        //             LOG.info("success to submit IN_QUEUE export job. job: {}", job);
-        //         } else {
-        //             LOG.info("fail to submit IN_QUEUE job to executor. job: {}", job);
-        //         }
-        //     } catch (Exception e) {
-        //         LOG.warn("run export exporting job {}.", job, e);
-        //     }
-        // }
-    }
-
-    private boolean handlePendingJobs(ExportJob job) {
-        // because maybe this job has been cancelled by user.
-        if (job.getState() != ExportJobState.PENDING) {
-            return false;
-        }
-
-        if (job.isReplayed()) {
-            // If the job is created from replay thread, all plan info will be lost.
-            // so the job has to be cancelled.
-            String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
-            return false;
-        }
-
-        if (job.updateState(ExportJobState.IN_QUEUE)) {
-            LOG.info("Exchange pending status to in_queue status success. job: {}", job);
-            return true;
-        }
-        return false;
-    }
-
     public List<ExportJob> getJobs() {
         return Lists.newArrayList(exportIdToJob.values());
-    }
-
-    public void addExportJob(ExportStmt stmt) throws Exception {
-        long jobId = Env.getCurrentEnv().getNextId();
-        ExportJob job = createJob(jobId, stmt);
-        writeLock();
-        try {
-            if (labelToExportJobId.containsKey(job.getLabel())) {
-                throw new LabelAlreadyUsedException(job.getLabel());
-            }
-            unprotectAddJob(job);
-            Env.getCurrentEnv().getEditLog().logExportCreate(job);
-        } finally {
-            writeUnlock();
-        }
-        LOG.info("add export job. {}", job);
     }
 
     public void addExportJobAndRegisterTask(ExportJob job) throws Exception {
@@ -249,12 +174,6 @@ public class ExportMgr extends MasterDaemon {
         };
     }
 
-    private ExportJob createJob(long jobId, ExportStmt stmt) {
-        ExportJob exportJob = stmt.getExportJob();
-        exportJob.setId(jobId);
-        return exportJob;
-    }
-
     public ExportJob getJob(long jobId) {
         ExportJob job;
         readLock();
@@ -264,22 +183,6 @@ public class ExportMgr extends MasterDaemon {
             readUnlock();
         }
         return job;
-    }
-
-    public List<ExportJob> getExportJobs(ExportJobState state) {
-        List<ExportJob> result = Lists.newArrayList();
-        readLock();
-        try {
-            for (ExportJob job : exportIdToJob.values()) {
-                if (job.getState() == state) {
-                    result.add(job);
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-
-        return result;
     }
 
     // used for `show export` statement

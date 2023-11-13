@@ -56,7 +56,7 @@ class TupleDescriptor;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
@@ -128,7 +128,6 @@ public:
 
     int64_t size() const { return _file_reader->size(); }
 
-    std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 

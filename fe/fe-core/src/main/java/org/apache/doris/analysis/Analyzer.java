@@ -41,9 +41,11 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
 import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
@@ -319,6 +321,10 @@ public class Analyzer {
         // analysis.
         public boolean isExplain;
 
+        // Record the statement clazz that the analyzer would to analyze,
+        // this give an opportunity to control analyzing behavior according to the statement type.
+        public Class<? extends StatementBase> rootStatementClazz;
+
         // Indicates whether the query has plan hints.
         public boolean hasPlanHints = false;
 
@@ -565,6 +571,14 @@ public class Analyzer {
 
     public boolean isExplain() {
         return globalState.isExplain;
+    }
+
+    public void setRootStatementClazz(Class<? extends StatementBase> statementClazz) {
+        globalState.rootStatementClazz = statementClazz;
+    }
+
+    public Class<? extends StatementBase> getRootStatementClazz() {
+        return globalState.rootStatementClazz;
     }
 
     public int incrementCallDepth() {
@@ -981,7 +995,10 @@ public class Analyzer {
                                                 newTblName == null ? "table list" : newTblName.toString());
         }
 
-        Column col = d.getTable() == null ? new Column(colName, ScalarType.BOOLEAN) : d.getTable().getColumn(colName);
+        Column col = (d.getTable() == null)
+                ? new Column(colName, ScalarType.BOOLEAN,
+                        globalState.markTuples.get(d.getAlias()) != null)
+                : d.getTable().getColumn(colName);
         if (col == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, colName,
                                                 newTblName == null ? d.getTable().getName() : newTblName.toString());
@@ -2139,7 +2156,8 @@ public class Analyzer {
         if (lastCompatibleType == null) {
             newCompatibleType = expr.getType();
         } else {
-            newCompatibleType = Type.getAssignmentCompatibleType(lastCompatibleType, expr.getType(), false);
+            newCompatibleType = Type.getAssignmentCompatibleType(
+                lastCompatibleType, expr.getType(), false, SessionVariable.getEnableDecimal256());
         }
         if (!newCompatibleType.isValid()) {
             throw new AnalysisException(String.format(
@@ -2161,15 +2179,16 @@ public class Analyzer {
         Type compatibleType = exprs.get(0).getType();
         for (int i = 1; i < exprs.size(); ++i) {
             exprs.get(i).analyze(this);
+            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
             if (compatibleType.isDateV2() && exprs.get(i) instanceof StringLiteral
                     && ((StringLiteral) exprs.get(i)).canConvertToDateType(compatibleType)) {
                 // If string literal can be converted to dateV2, we use datev2 as the compatible type
                 // instead of datetimev2.
             } else if (exprs.get(i).isConstantImpl()) {
                 exprs.get(i).compactForLiteral(compatibleType);
-                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
+                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType(), enableDecimal256);
             } else {
-                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
+                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType(), enableDecimal256);
             }
         }
         if (compatibleType.equals(Type.VARCHAR)) {
@@ -2457,12 +2476,12 @@ public class Analyzer {
      * Wrapper around getUnassignedConjuncts(List<TupleId> tupleIds).
      */
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
-        // constant conjuncts should be push down to all leaf node except agg node.
+        // constant conjuncts should be push down to all leaf node except agg and analytic node.
         // (see getPredicatesBoundedByGroupbysSourceExpr method)
         // so we need remove constant conjuncts when expr is not a leaf node.
-        List<Expr> unassigned = getUnassignedConjuncts(
-                node instanceof AggregationNode ? node.getTupleIds() : node.getTblRefIds());
-        if (!node.getChildren().isEmpty() && !(node instanceof AggregationNode)) {
+        List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
+        if (!node.getChildren().isEmpty()
+                && !(node instanceof AggregationNode || node instanceof AnalyticEvalNode)) {
             unassigned = unassigned.stream()
                     .filter(e -> !e.isConstant()).collect(Collectors.toList());
         }

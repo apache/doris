@@ -29,7 +29,7 @@
 1100
 
 -- !sql_bit_length_Varchar --
-\N
+32
 72
 72
 72
@@ -58,7 +58,7 @@
 72
 
 -- !sql_bit_length_String --
-\N
+32
 56
 56
 56
@@ -189,6 +189,64 @@
 0
 
 -- !sql_bitmap_and_not_count_Bitmap_Bitmap_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_bitmap_andnot_Bitmap_Bitmap --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_bitmap_andnot_Bitmap_Bitmap_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_bitmap_andnot_count_Bitmap_Bitmap --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_bitmap_andnot_count_Bitmap_Bitmap_notnull --
 0
 0
 0

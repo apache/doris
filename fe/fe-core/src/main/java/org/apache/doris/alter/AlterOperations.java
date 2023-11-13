@@ -84,6 +84,12 @@ public class AlterOperations {
         ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED));
     }
 
+    public boolean checkMinLoadReplicaNum(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM));
+    }
+
     public boolean checkBinlogConfigChange(List<AlterClause> alterClauses) {
         return alterClauses.stream().filter(clause ->
             clause instanceof ModifyTablePropertiesClause

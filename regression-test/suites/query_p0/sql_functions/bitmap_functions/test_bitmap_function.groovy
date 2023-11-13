@@ -386,6 +386,15 @@ suite("test_bitmap_function") {
             on l.dt = r.dt
         order by l.dt, count
     """
+    qt_sql_bitmap_andnot_count3 """
+        select
+            l.dt,
+            bitmap_andnot_count(l.id, r.id) count
+        from
+            test_bitmap1 l left join test_bitmap2 r
+            on l.dt = r.dt
+        order by l.dt, count
+    """
     qt_sql_bitmap_and_count8 """
         select
             l.dt,
@@ -519,6 +528,7 @@ suite("test_bitmap_function") {
 
     // BITMAP_AND_NOT
     qt_sql """ select bitmap_count(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'))) cnt """
+    qt_sql_bitmap_andnot """ select bitmap_count(bitmap_andnot(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'))) cnt """
 
     // BITMAP_AND_NOT_COUNT
     qt_sql_bitmap_and_not_count1 """ select bitmap_and_not_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) cnt """
@@ -1003,4 +1013,10 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_remove_not_null8 """ select bitmap_to_string(bitmap_remove(id, 4294967296)) s from test_bitmap_remove_not_null order by s; """
     qt_sql_bitmap_remove_not_null9 """ select bitmap_to_string(bitmap_remove(id, null)) s from test_bitmap_remove_not_null order by s; """
 
+    // BITMAP_FROM_ARRAY
+    sql """ set experimental_enable_nereids_planner=false; """
+    qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
+
+    sql """ set experimental_enable_nereids_planner=true; """
+    qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
 }

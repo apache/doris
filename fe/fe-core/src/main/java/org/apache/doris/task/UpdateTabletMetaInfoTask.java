@@ -30,9 +30,9 @@ import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 
 public class UpdateTabletMetaInfoTask extends AgentTask {
@@ -56,7 +56,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
 
     public UpdateTabletMetaInfoTask(long backendId, Set<Pair<Long, Integer>> tableIdWithSchemaHash) {
         super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
-                -1L, -1L, -1L, -1L, -1L, Math.abs(new Random().nextLong()));
+                -1L, -1L, -1L, -1L, -1L, Math.abs(new SecureRandom().nextLong()));
         this.tableIdWithSchemaHash = tableIdWithSchemaHash;
     }
 

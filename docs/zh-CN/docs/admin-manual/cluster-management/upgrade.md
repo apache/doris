@@ -144,16 +144,23 @@ admin set frontend config("disable_tablet_scheduler" = "true");
    http_port = 18030
    rpc_port = 19020
    query_port = 19030
+   arrow_flight_sql_port = 19040
    edit_log_port = 19010
    ...
    ```
 
    保存并退出
 
-3. 在 fe.conf 添加 ClusterID 配置
+3. 修改 fe.conf
+  - 在 fe.conf 添加 ClusterID 配置
 
    ```shell
    echo "cluster_id=123456" >> ${DORIS_NEW_HOME}/conf/fe.conf
+   ```
+
+   - 添加元数据故障恢复配置 （**2.0.2 + 版本无需进行此操作**）
+   ```shell
+   echo "metadata_failure_recovery=true" >> ${DORIS_NEW_HOME}/conf/fe.conf
    ```
 
 4. 拷贝线上环境 Master FE 的元数据目录 doris-meta 到测试环境
@@ -169,10 +176,15 @@ admin set frontend config("disable_tablet_scheduler" = "true");
    clusterId=123456
    ```
 
-6. 在测试环境中，运行启动 FE
+6. 在测试环境中，运行启动 FE （**请按照版本选择启动 FE 的方式**）
 
+- 2.0.2(包含2.0.2) + 版本
    ```shell
    sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon --metadata_failure_recovery
+   ```
+- 2.0.1（包含2.0.1） 以前的版本
+  ```shell
+  sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon 
    ```
 
 7. 通过 FE 日志 fe.log 观察是否启动成功
@@ -198,6 +210,10 @@ admin set frontend config("disable_tablet_scheduler" = "true");
 先升级 BE，后升级FE
 
 一般而言，Doris 只需要升级 FE 目录下的 `/bin` 和 `/lib` 以及 BE 目录下的  `/bin` 和 `/lib`
+
+在 2.0.2 及之后的版本，FE 和 BE 部署路径下新增了 `custom_lib/` 目录（如没有可以手动创建）。`custom_lib/` 目录用于存放一些用户自定义的第三方 jar 包，如 `hadoop-lzo-*.jar`，`orai18n.jar` 等。
+
+这个目录在升级时不需要替换。
 
 但是在大版本升级时，可能会有新的特性增加或者老功能的重构，这些修改可能会需要升级时**替换/新增**更多的目录来保证所有新功能的可用性，请大版本升级时仔细关注该版本的 Release-Note，以免出现升级故障
 

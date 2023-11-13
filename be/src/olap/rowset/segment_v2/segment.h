@@ -125,6 +125,8 @@ public:
 
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
+    void remove_from_segment_cache() const;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
@@ -134,10 +136,11 @@ private:
     Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter();
 
+    Status _load_index_impl();
+
 private:
     friend class SegmentIterator;
     io::FileReaderSPtr _file_reader;
-
     uint32_t _segment_id;
     uint32_t _num_rows;
     int64_t _meta_mem_usage;

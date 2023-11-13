@@ -552,7 +552,7 @@ public class DppScheduler {
         return String.format(ETL_OUTPUT_PATH, fsDefaultName, outputPath, dbId, loadLabel, etlOutputDir);
     }
 
-    private class InputSizeInvalidException extends LoadException {
+    private static class InputSizeInvalidException extends LoadException {
         public InputSizeInvalidException(String msg) {
             super(msg);
         }

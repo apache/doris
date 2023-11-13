@@ -33,6 +33,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/stack_util.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -92,7 +93,7 @@ public:
 
     void disable_wait_gc() { _wait_gc = false; }
     bool wait_gc() { return _wait_gc; }
-    void cancel_fragment(const std::string& exceed_msg);
+    void cancel_instance(const std::string& exceed_msg);
 
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
@@ -174,14 +175,17 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) 
         !_stop_consume) {
         flush_untracked_mem();
     }
-    // Large memory alloc should use allocator.h
-    // Direct malloc or new large memory, unable to catch std::bad_alloc, BE may OOM.
-    if (large_memory_check && size > doris::config::large_memory_check_bytes) {
+
+    if (large_memory_check && doris::config::large_memory_check_bytes > 0 &&
+        size > doris::config::large_memory_check_bytes) {
         _stop_consume = true;
         LOG(WARNING) << fmt::format(
-                "malloc or new large memory: {}, looking forward to using Allocator, this is just "
-                "a warning, not prevent memory alloc, stacktrace:\n{}",
-                size, get_stack_trace());
+                "malloc or new large memory: {}, {}, this is just a warning, not prevent memory "
+                "alloc, stacktrace:\n{}",
+                size,
+                is_attach_query() ? "in query or load: " + print_id(_fragment_instance_id)
+                                  : "not in query or load",
+                get_stack_trace());
         _stop_consume = false;
     }
 }

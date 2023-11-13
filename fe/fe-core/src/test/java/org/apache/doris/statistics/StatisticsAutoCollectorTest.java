@@ -27,6 +27,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
@@ -40,10 +41,12 @@ import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -52,6 +55,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class StatisticsAutoCollectorTest {
 
@@ -171,7 +175,7 @@ public class StatisticsAutoCollectorTest {
 
         new MockUp<StatisticsUtil>() {
             @Mock
-            public TableIf findTable(String catalogName, String dbName, String tblName) {
+            public TableIf findTable(long catalogName, long dbName, long tblName) {
                 return tableIf;
             }
         };
@@ -181,9 +185,9 @@ public class StatisticsAutoCollectorTest {
 
             int count = 0;
 
-            TableStats[] tableStatsArr =
-                    new TableStats[] {new TableStats(0, 0, analysisInfo),
-                            new TableStats(0, 0, analysisInfo), null};
+            TableStatsMeta[] tableStatsArr =
+                    new TableStatsMeta[] {new TableStatsMeta(0, 0, analysisInfo),
+                            new TableStatsMeta(0, 0, analysisInfo), null};
 
             {
                 tableStatsArr[0].updatedRows.addAndGet(100);
@@ -191,7 +195,7 @@ public class StatisticsAutoCollectorTest {
             }
 
             @Mock
-            public TableStats findTableStatsStatus(long tblId) {
+            public TableStatsMeta findTableStatsStatus(long tblId) {
                 return tableStatsArr[count++];
             }
         };
@@ -205,12 +209,81 @@ public class StatisticsAutoCollectorTest {
         };
         StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
         AnalysisInfo analysisInfo2 = new AnalysisInfoBuilder()
-                .setCatalogName("cname")
-                .setDbName("db")
-                .setTblName("tbl").build();
+                .setCatalogId(0)
+                .setDBId(0)
+                .setTblId(0).build();
         Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
         // uncomment it when updatedRows gets ready
         // Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
         Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
+    }
+
+    @Test
+    public void testLoop() {
+        AtomicBoolean timeChecked = new AtomicBoolean();
+        AtomicBoolean switchChecked = new AtomicBoolean();
+        new MockUp<StatisticsUtil>() {
+
+            @Mock
+            public boolean inAnalyzeTime(LocalTime now) {
+                timeChecked.set(true);
+                return true;
+            }
+
+            @Mock
+            public boolean enableAutoAnalyze() {
+                switchChecked.set(true);
+                return true;
+            }
+        };
+        StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
+        autoCollector.collect();
+        Assertions.assertTrue(timeChecked.get() && switchChecked.get());
+
+    }
+
+    @Test
+    public void checkAvailableThread() {
+        StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
+        Assertions.assertEquals(Config.full_auto_analyze_simultaneously_running_task_num,
+                autoCollector.analysisTaskExecutor.executors.getMaximumPoolSize());
+    }
+
+    @Test
+    public void testSkip(@Mocked OlapTable olapTable, @Mocked TableStatsMeta stats, @Mocked TableIf anyOtherTable) {
+        new MockUp<OlapTable>() {
+
+            @Mock
+            public long getDataSize(boolean singleReplica) {
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5 + 1000000000;
+            }
+        };
+
+        new MockUp<AnalysisManager>() {
+
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return stats;
+            }
+        };
+        // A very huge table has been updated recently, so we should skip it this time
+        stats.updatedTime = System.currentTimeMillis() - 1000;
+        StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
+        Assertions.assertTrue(autoCollector.skip(olapTable));
+        // The update of this huge table is long time ago, so we shouldn't skip it this time
+        stats.updatedTime = System.currentTimeMillis()
+                - StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis() - 10000;
+        Assertions.assertFalse(autoCollector.skip(olapTable));
+        new MockUp<AnalysisManager>() {
+
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return null;
+            }
+        };
+        // can't find table stats meta, which means this table never get analyzed,  so we shouldn't skip it this time
+        Assertions.assertFalse(autoCollector.skip(olapTable));
+        // this is not olap table nor external table, so we should skip it this time
+        Assertions.assertTrue(autoCollector.skip(anyOtherTable));
     }
 }

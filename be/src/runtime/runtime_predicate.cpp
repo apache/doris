@@ -21,7 +21,6 @@
 
 #include <memory>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "olap/accept_null_predicate.h"
 #include "olap/column_predicate.h"
@@ -110,6 +109,10 @@ Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) 
     }
     case PrimitiveType::TYPE_DECIMAL128I: {
         _get_value_fn = get_decimal128_value;
+        break;
+    }
+    case PrimitiveType::TYPE_DECIMAL256: {
+        _get_value_fn = get_decimal256_value;
         break;
     }
     default:

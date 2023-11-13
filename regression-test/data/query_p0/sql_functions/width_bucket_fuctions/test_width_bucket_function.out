@@ -93,3 +93,18 @@
 7	5
 8	\N
 
+-- !select_width_bucket_1 --
+10
+
+-- !select_width_bucket_2 --
+10
+
+-- !select_width_bucket_3 --
+10
+
+-- !select_width_bucket_4 --
+10
+
+-- !select_width_bucket_5 --
+10
+

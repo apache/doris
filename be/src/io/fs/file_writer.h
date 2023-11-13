@@ -30,9 +30,10 @@ class FileSystem;
 
 // Only affects remote file writers
 struct FileWriterOptions {
-    int64_t expiration_time = 0;
+    bool write_file_cache = false;
     bool is_cold_data = false;
-    bool disable_file_cache = false;
+    bool sync_file_data = true;        // Whether flush data into storage system
+    int64_t file_cache_expiration = 0; // Absolute time
 };
 
 class FileWriter {

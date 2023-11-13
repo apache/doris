@@ -105,7 +105,7 @@ suite("test_export_view", "p0") {
 
     def table_export_name = "test_export_base_table"
     def table_export_view_name = "test_export_view_table"
-    def table_load_name = "test_load_basic"
+    def table_load_name = "test_load_view_basic"
     def outfile_path_prefix = """/tmp/test_export"""
 
     // create table and insert
@@ -339,7 +339,7 @@ suite("test_export_view", "p0") {
             }
         }
 
-        order_qt_select_load3 """ SELECT * FROM ${table_load_name} t; """
+        order_qt_select_load3 """ SELECT * FROM ${table_load_name}; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -525,63 +525,6 @@ suite("test_export_view", "p0") {
     }
 
 
-    // 7. test parquet type
-    uuid = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid}"""
-    label = "label_${uuid}"
-    try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
-        // exec export
-        sql """
-            EXPORT TABLE ${table_export_view_name} TO "file://${outFilePath}/"
-            PROPERTIES(
-                "label" = "${label}",
-                "format" = "parquet",
-                "max_file_size" = "512MB",
-                "parallelISM" = "5",
-                "column_separator"=","
-            );
-        """
-        waiting_export.call(label)
-        
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
-        // check data correctness
-        create_load_table(table_load_name)
-
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'strict_mode', 'true'
-            set 'format', 'parquet'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(5, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
-
-        order_qt_select_load7 """ SELECT * FROM ${table_load_name} t; """
-    
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        delete_files.call("${outFilePath}")
-    }
-
     // 8. test orc type, where clause and columns property
     uuid = UUID.randomUUID().toString()
     outFilePath = """${outfile_path_prefix}_${uuid}"""
@@ -640,5 +583,64 @@ suite("test_export_view", "p0") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")
+    }
+
+
+    // 7. test parquet type use s3
+    uuid = UUID.randomUUID().toString()
+    label = "label_${uuid}"
+    try {
+
+        String ak = getS3AK()
+        String sk = getS3SK()
+        String s3_endpoint = getS3Endpoint()
+        String region = getS3Region()
+        String bucket = context.config.otherConfigs.get("s3BucketName");
+
+        outFilePath = """${bucket}/export/p0/view/parquet"""
+
+        // exec export
+        sql """
+            EXPORT TABLE ${table_export_view_name} TO "s3://${outFilePath}/"
+            PROPERTIES(
+                "label" = "${label}",
+                "format" = "parquet"
+            )
+            WITH S3(
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
+                "s3.secret_key"="${sk}",
+                "s3.access_key" = "${ak}"
+            );
+        """
+
+        def outfile_url = ""
+        while (true) {
+            def res = sql """ show export where label = "${label}" """
+            logger.info("export state: " + res[0][2])
+            if (res[0][2] == "FINISHED") {
+                def json = parseJson(res[0][11])
+                assert json instanceof List
+                assertEquals("1", json.fileNumber[0][0])
+                log.info("outfile_path: ${json.url[0][0]}")
+                outfile_url = json.url[0][0];
+                break;
+            } else if (res[0][2] == "CANCELLED") {
+                throw new IllegalStateException("""export failed: ${res[0][10]}""")
+            } else {
+                sleep(5000)
+            }
+        }
+
+        order_qt_select_load7 """ select * from s3(
+                "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.parquet",
+                "s3.access_key"= "${ak}",
+                "s3.secret_key" = "${sk}",
+                "format" = "parquet",
+                "region" = "${region}"
+            );
+            """
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
     }
 }

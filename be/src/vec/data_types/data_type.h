@@ -77,8 +77,9 @@ public:
     /// Data type id. It's used for runtime type checks.
     virtual TypeIndex get_type_id() const = 0;
 
-    virtual PrimitiveType get_type_as_primitive_type() const = 0;
+    virtual TypeDescriptor get_type_as_type_descriptor() const = 0;
     virtual TPrimitiveType::type get_type_as_tprimitive_type() const = 0;
+    virtual doris::FieldType get_storage_field_type() const = 0;
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
@@ -86,7 +87,7 @@ public:
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 
     // get specific serializer or deserializer
-    virtual DataTypeSerDeSPtr get_serde() const = 0;
+    virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 
 protected:
     virtual String do_get_name() const;
@@ -216,10 +217,6 @@ public:
     /* the data type create from type_null, NULL literal*/
     virtual bool is_null_literal() const { return false; }
 
-    /** If this data type cannot be wrapped in Nullable data type.
-      */
-    virtual bool can_be_inside_nullable() const { return false; }
-
     virtual bool low_cardinality() const { return false; }
 
     /// Strings, Numbers, Date, DateTime, Nullable
@@ -286,8 +283,10 @@ struct WhichDataType {
     bool is_decimal64() const { return idx == TypeIndex::Decimal64; }
     bool is_decimal128() const { return idx == TypeIndex::Decimal128; }
     bool is_decimal128i() const { return idx == TypeIndex::Decimal128I; }
+    bool is_decimal256() const { return idx == TypeIndex::Decimal256; }
     bool is_decimal() const {
-        return is_decimal32() || is_decimal64() || is_decimal128() || is_decimal128i();
+        return is_decimal32() || is_decimal64() || is_decimal128() || is_decimal128i() ||
+               is_decimal256();
     }
 
     bool is_float32() const { return idx == TypeIndex::Float32; }

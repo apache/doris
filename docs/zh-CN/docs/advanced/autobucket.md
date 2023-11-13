@@ -73,6 +73,7 @@ properties("estimate_partition_size" = "100G")
 3. 得到最终的分桶个数计算逻辑：
 先计算一个中间值 x = min(M, N, 128)，
 如果 x < N并且x < BE节点个数，则最终分桶为 y 即 BE 节点个数；否则最终分桶数为 x
+4. x = max(x, autobucket_min_buckets), 这里autobucket_min_buckets是在Config中配置的，默认是1
 
 上述过程伪代码表现形式为：
 

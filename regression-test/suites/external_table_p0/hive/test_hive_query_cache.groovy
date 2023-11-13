@@ -93,8 +93,7 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
                 o_year desc;
         """
 
-        // test sql cache
-        sql """set enable_sql_cache=true"""
+        // // test sql cache
         sql """admin set frontend config("cache_last_version_interval_second" = "1");"""
         sql """use `tpch1_parquet`"""
         qt_tpch_1sf_q09 "${tpch_1sf_q09}"
@@ -102,26 +101,46 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
 
         test {
             sql "${tpch_1sf_q09}"
-            time 5000
+            time 10000
         }
 
         // test sql cache with empty result
-        sql """select * from lineitem where l_suppkey="abc";""" // non exist l_suppkey;
-        test {
+        try {
+            sql """set enable_sql_cache=true;"""
+            sql """set test_query_cache_hit="none";"""
+            sql """select * from lineitem where l_suppkey="abc";""" // non exist l_suppkey;
             sql """select * from lineitem where l_suppkey="abc";"""
-            // TODO: can not set it very small because the CI env is unstable.
-            // Actually, it should cost within 100ms
-            time 1000
+        } catch (java.sql.SQLException t) {
+            print t.getMessage()
+            assertTrue(1 == 2)
         }
 
         // test more sql cache
         sql """use `default`"""
-        q01()
-        test {
-            sql """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
-            // TODO: can not set it very small because the CI env is unstable.
-            // Actually, it should cost within 100ms
-            time 1000
+        sql """set enable_sql_cache=true;"""
+        sql """set test_query_cache_hit="none";"""
+        // 1. first query, because we need to init the schema of table_with_x01 to update the table's update time
+        // then sleep 2 seconds to wait longer than Config.cache_last_version_interval_second,
+        // so that when doing the second query, we can fill the cache on BE
+        qt_sql1 """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
+        sleep(2000);
+        // 2. second query is for filling the cache on BE
+        qt_sql2 """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
+        // 3. third query, to test cache hit.
+        sql """set test_query_cache_hit="sql";"""
+        qt_sql3 """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
+
+        // test not hit
+        try {
+            sql """set enable_sql_cache=true;"""
+            sql """set test_query_cache_hit="sql";"""
+            def r = UUID.randomUUID().toString();
+            // using a random sql
+            sql """select dt, "${r}" from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
+            assertTrue(1 == 2)
+        } catch (Exception t) {
+            print t.getMessage()
+            assertTrue(t.getMessage().contains("but the query cache is not hit"));
         }
     }
 }

@@ -79,7 +79,8 @@ struct OperationTraits {
             std::is_same_v<Op, DivideIntegralImpl<T, T>>;
     static constexpr bool can_overflow =
             (is_plus_minus || is_multiply) &&
-            (IsDecimalV2<OpA> || IsDecimalV2<OpB> || IsDecimal128I<OpA> || IsDecimal128I<OpB>);
+            (IsDecimalV2<OpA> || IsDecimalV2<OpB> || IsDecimal128I<OpA> || IsDecimal128I<OpB> ||
+             IsDecimal256<OpA> || IsDecimal256<OpB>);
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Op>()))>;
 };
@@ -239,7 +240,7 @@ struct DecimalBinaryOperation {
             Op::vector_vector(a, b, c, size);
         } else {
             for (size_t i = 0; i < size; i++) {
-                c[i] = apply(a[i], b[i]);
+                c[i] = typename ArrayC::value_type(apply(a[i], b[i]));
             }
         }
     }
@@ -251,11 +252,20 @@ struct DecimalBinaryOperation {
         if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
             /// default: use it if no return before
             for (size_t i = 0; i < size; ++i) {
-                c[i] = apply(a[i], b[i], null_map[i]);
+                c[i] = typename ArrayC::value_type(apply(a[i], b[i], null_map[i]));
             }
         } else if constexpr (OpTraits::is_division && (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
             for (size_t i = 0; i < size; ++i) {
-                c[i] = apply_scaled_div(a[i], b[i], null_map[i]);
+                if constexpr (IsDecimalNumber<B> && IsDecimalNumber<A>) {
+                    c[i] = typename ArrayC::value_type(
+                            apply_scaled_div(a[i].value, b[i].value, null_map[i]));
+                } else if constexpr (IsDecimalNumber<A>) {
+                    c[i] = typename ArrayC::value_type(
+                            apply_scaled_div(a[i].value, b[i], null_map[i]));
+                } else {
+                    c[i] = typename ArrayC::value_type(
+                            apply_scaled_div(a[i], b[i].value, null_map[i]));
+                }
             }
         } else if constexpr ((OpTraits::is_multiply || OpTraits::is_plus_minus) &&
                              (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
@@ -264,7 +274,7 @@ struct DecimalBinaryOperation {
             }
         } else {
             for (size_t i = 0; i < size; ++i) {
-                c[i] = apply(a[i], b[i], null_map[i]);
+                c[i] = typename ArrayC::value_type(apply(a[i], b[i], null_map[i]));
             }
         }
     }
@@ -273,14 +283,14 @@ struct DecimalBinaryOperation {
                                 typename ArrayC::value_type* c, size_t size) {
         if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
             for (size_t i = 0; i < size; ++i) {
-                c[i] = apply_scaled_div(a[i], b);
+                c[i] = typename ArrayC::value_type(apply_scaled_div(a[i], b));
             }
             return;
         }
 
         /// default: use it if no return before
         for (size_t i = 0; i < size; ++i) {
-            c[i] = apply(a[i], b);
+            c[i] = typename ArrayC::value_type(apply(a[i], b));
         }
     }
 
@@ -288,7 +298,7 @@ struct DecimalBinaryOperation {
                                 typename ArrayC::value_type* c, NullMap& null_map, size_t size) {
         if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
             for (size_t i = 0; i < size; ++i) {
-                c[i] = apply_scaled_div(a[i], b, null_map[i]);
+                c[i] = typename ArrayC::value_type(apply_scaled_div(a[i], b.value, null_map[i]));
             }
         } else if constexpr ((OpTraits::is_multiply || OpTraits::is_plus_minus) &&
                              (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
@@ -297,7 +307,7 @@ struct DecimalBinaryOperation {
             }
         } else {
             for (size_t i = 0; i < size; ++i) {
-                c[i] = apply(a[i], b, null_map[i]);
+                c[i] = typename ArrayC::value_type(apply(a[i], b, null_map[i]));
             }
         }
     }
@@ -307,11 +317,12 @@ struct DecimalBinaryOperation {
         if constexpr (IsDecimalV2<A> || IsDecimalV2<B>) {
             DecimalV2Value da(a);
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Op::template apply(da, DecimalV2Value(b[i])).value();
+                c[i] = typename ArrayC::value_type(
+                        Op::template apply(da, DecimalV2Value(b[i])).value());
             }
         } else {
             for (size_t i = 0; i < size; ++i) {
-                c[i] = apply(a, b[i]);
+                c[i] = typename ArrayC::value_type(apply(a, b[i]));
             }
         }
     }
@@ -320,7 +331,7 @@ struct DecimalBinaryOperation {
                                 typename ArrayC::value_type* c, NullMap& null_map, size_t size) {
         if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
             for (size_t i = 0; i < size; ++i) {
-                c[i] = apply_scaled_div(a, b[i], null_map[i]);
+                c[i] = typename ArrayC::value_type(apply_scaled_div(a, b[i].value, null_map[i]));
             }
         } else if constexpr ((OpTraits::is_multiply || OpTraits::is_plus_minus) &&
                              (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
@@ -329,23 +340,27 @@ struct DecimalBinaryOperation {
             }
         } else {
             for (size_t i = 0; i < size; ++i) {
-                c[i] = apply(a, b[i], null_map[i]);
+                c[i] = typename ArrayC::value_type(apply(a, b[i], null_map[i]));
             }
         }
     }
 
-    static ResultType constant_constant(A a, B b) { return apply(a, b); }
+    static ResultType constant_constant(A a, B b) { return ResultType(apply(a, b)); }
 
     static ResultType constant_constant(A a, B b, UInt8& is_null) {
         if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
-            return apply_scaled_div(a, b, is_null);
+            if constexpr (IsDecimalNumber<A>) {
+                return ResultType(apply_scaled_div(a.value, b.value, is_null));
+            } else {
+                return ResultType(apply_scaled_div(a, b.value, is_null));
+            }
         } else if constexpr ((OpTraits::is_multiply || OpTraits::is_plus_minus) &&
                              (IsDecimalNumber<B> || IsDecimalNumber<A>)) {
             NativeResultType res;
             is_null = apply_op_safely(a, b, res);
-            return res;
+            return ResultType(res);
         } else {
-            return apply(a, b, is_null);
+            return ResultType(apply(a, b, is_null));
         }
     }
 
@@ -459,7 +474,7 @@ private:
                 NativeResultType res;
                 // TODO handle overflow gracefully
                 if (Op::template apply<NativeResultType>(a, b, res)) {
-                    res = type_limit<ResultType>::max();
+                    res = type_limit<ResultType>::max().value;
                 }
                 return res;
             } else {
@@ -475,37 +490,11 @@ private:
             DecimalV2Value l(a);
             DecimalV2Value r(b);
             auto ans = Op::template apply(l, r, is_null);
-            NativeResultType result;
+            NativeResultType result {};
             memcpy(&result, &ans, std::min(sizeof(result), sizeof(ans)));
             return result;
         } else {
             return Op::template apply<NativeResultType>(a, b, is_null);
-        }
-    }
-
-    static NativeResultType apply_scaled(NativeResultType a, NativeResultType b) {
-        if constexpr (OpTraits::is_plus_minus) {
-            NativeResultType res;
-
-            if constexpr (check_overflow) {
-                bool overflow = false;
-
-                if constexpr (OpTraits::can_overflow) {
-                    overflow |= Op::template apply<NativeResultType>(a, b, res);
-                } else {
-                    res = Op::template apply<NativeResultType>(a, b);
-                }
-
-                // TODO handle overflow gracefully
-                if (overflow) {
-                    LOG(WARNING) << "Decimal math overflow";
-                    res = type_limit<ResultType>::max();
-                }
-            } else {
-                res = apply(a, b);
-            }
-
-            return res;
         }
     }
 
@@ -558,6 +547,15 @@ inline constexpr bool IsIntegral<DataTypeInt128> = true;
 
 template <typename A, typename B>
 constexpr bool UseLeftDecimal = false;
+template <>
+inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal32>> =
+        true;
+template <>
+inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal64>> =
+        true;
+template <>
+inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal128I>> =
+        true;
 template <>
 inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128I>, DataTypeDecimal<Decimal32>> =
         true;
@@ -725,8 +723,8 @@ class FunctionBinaryArithmetic : public IFunction {
         return cast_type_to_either<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32,
                                    DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
                                    DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
-                                   DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal128I>>(
-                type, std::forward<F>(f));
+                                   DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal128I>,
+                                   DataTypeDecimal<Decimal256>>(type, std::forward<F>(f));
     }
 
     template <typename F>
@@ -808,7 +806,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto* left_generic = block.get_by_position(arguments[0]).type.get();
         auto* right_generic = block.get_by_position(arguments[1]).type.get();
         auto* result_generic = block.get_by_position(result).type.get();

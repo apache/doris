@@ -42,6 +42,7 @@ namespace taskgroup {
 const static std::string CPU_SHARE = "cpu_share";
 const static std::string MEMORY_LIMIT = "memory_limit";
 const static std::string ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
+const static std::string CPU_HARD_LIMIT = "cpu_hard_limit";
 
 template <typename QueueType>
 TaskGroupEntity<QueueType>::TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type)
@@ -198,10 +199,16 @@ Status TaskGroupInfo::parse_group_info(const TPipelineWorkloadGroup& resource_gr
     uint64_t share = 0;
     std::from_chars(iter->second.c_str(), iter->second.c_str() + iter->second.size(), share);
 
+    int cpu_hard_limit = 0;
+    auto iter2 = resource_group.properties.find(CPU_HARD_LIMIT);
+    std::from_chars(iter2->second.c_str(), iter2->second.c_str() + iter2->second.size(),
+                    cpu_hard_limit);
+
     task_group_info->id = resource_group.id;
     task_group_info->name = resource_group.name;
     task_group_info->version = resource_group.version;
     task_group_info->cpu_share = share;
+    task_group_info->cpu_hard_limit = cpu_hard_limit;
 
     bool is_percent = true;
     auto mem_limit_str = resource_group.properties.find(MEMORY_LIMIT)->second;

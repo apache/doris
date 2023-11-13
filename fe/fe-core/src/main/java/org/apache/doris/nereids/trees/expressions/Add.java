@@ -49,7 +49,9 @@ public class Add extends BinaryArithmetic implements CheckOverflowNullable {
 
     @Override
     public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
-        return (DecimalV3Type) DecimalV3Type.widerDecimalV3Type(t1, t2, false);
+        DecimalV3Type decimalV3Type = (DecimalV3Type) DecimalV3Type.widerDecimalV3Type(t1, t2, false);
+        return (DecimalV3Type) DecimalV3Type.createDecimalV3Type(decimalV3Type.getPrecision() + 1,
+                decimalV3Type.getScale());
     }
 
     @Override

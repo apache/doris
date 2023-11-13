@@ -129,7 +129,7 @@ suite("test_txn_case") {
 
 
     logger.info("=== Test 3.2: Begin a txn with no priv user case ===")
-    def noPrivUser = "no_priv_user"
+    def noPrivUser = "no_priv_user3"
     def emptyTable = "tbl_empty_test"
     target_sql "DROP TABLE IF EXISTS ${emptyTable}"
     target_sql """
@@ -156,7 +156,7 @@ suite("test_txn_case") {
     // Recursively selecting privileges, 
     // if not all privileges are obtained, txn should not be began
     logger.info("=== Test 3.3: Begin a txn with low priv user case ===")
-    def lowPrivUser = "low_priv_user"
+    def lowPrivUser = "low_priv_user1"
     target_sql """CREATE USER IF NOT EXISTS ${lowPrivUser} IDENTIFIED BY '123456'"""
     target_sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${lowPrivUser}"""
     syncer.context.user = "${lowPrivUser}"
@@ -173,7 +173,7 @@ suite("test_txn_case") {
     }
 
     logger.info("=== Test 3.4: Complete the txn with SHOW_PRIV user case ===")
-    def showPrivUser = "show_priv_user"
+    def showPrivUser = "show_priv_user1"
     target_sql """CREATE USER IF NOT EXISTS ${showPrivUser} IDENTIFIED BY '123456'"""
     target_sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${showPrivUser}"""
     target_sql """

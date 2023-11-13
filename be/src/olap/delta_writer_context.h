@@ -30,17 +30,18 @@ class SlotDescriptor;
 class OlapTableSchemaParam;
 
 struct WriteRequest {
-    int64_t tablet_id;
-    int32_t schema_hash;
-    int64_t txn_id;
-    int64_t partition_id;
+    int64_t tablet_id = 0;
+    int32_t schema_hash = 0;
+    int64_t txn_id = 0;
+    int64_t index_id = 0;
+    int64_t partition_id = 0;
     PUniqueId load_id;
-    TupleDescriptor* tuple_desc;
+    TupleDescriptor* tuple_desc = nullptr;
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
+    OlapTableSchemaParam* table_schema_param = nullptr;
     bool is_high_priority = false;
-    OlapTableSchemaParam* table_schema_param;
-    int64_t index_id = 0;
+    bool write_file_cache = false;
 };
 
 } // namespace doris

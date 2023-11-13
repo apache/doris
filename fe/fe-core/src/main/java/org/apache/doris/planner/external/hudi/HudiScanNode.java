@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
@@ -42,11 +43,11 @@ import org.apache.doris.thrift.THudiFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
@@ -62,7 +63,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -254,20 +254,9 @@ public class HudiScanNode extends HiveScanNode {
             snapshotTimestamp = Option.empty();
         }
         // Non partition table will get one dummy partition
-        UserGroupInformation ugi = HiveMetaStoreClientHelper.getUserGroupInformation(
-                HiveMetaStoreClientHelper.getConfiguration(hmsTable));
-        List<HivePartition> partitions;
-        if (ugi != null) {
-            try {
-                partitions = ugi.doAs(
-                        (PrivilegedExceptionAction<List<HivePartition>>) () -> getPrunedPartitions(hudiClient,
-                                snapshotTimestamp));
-            } catch (Exception e) {
-                throw new UserException(e);
-            }
-        } else {
-            partitions = getPrunedPartitions(hudiClient, snapshotTimestamp);
-        }
+        List<HivePartition> partitions = HiveMetaStoreClientHelper.ugiDoAs(
+                HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
         Executor executor = ((HudiCachedPartitionProcessor) Env.getCurrentEnv()
                 .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog())).getExecutor();
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
@@ -297,7 +286,8 @@ public class HudiScanNode extends HiveScanNode {
                     noLogsSplitNum.incrementAndGet();
                     String filePath = baseFile.getPath();
                     long fileSize = baseFile.getFileSize();
-                    splits.add(new FileSplit(new Path(filePath), 0, fileSize, fileSize, new String[0],
+                    splits.add(new FileSplit(S3Util.toScanRangeLocation(filePath, Maps.newHashMap()),
+                            0, fileSize, fileSize, new String[0],
                             partition.getPartitionValues()));
                 });
             } else {

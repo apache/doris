@@ -198,17 +198,18 @@ private:
     std::stack<uint16_t> _probe_offset_stack;
     uint64_t _output_null_idx_build_side = 0;
     vectorized::VExprContextSPtrs _join_conjuncts;
+
+    RuntimeProfile::Counter* _loop_join_timer;
 };
 
 class NestedLoopJoinProbeOperatorX final
         : public JoinProbeOperatorX<NestedLoopJoinProbeLocalState> {
 public:
-    NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    bool can_read(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block,
                 SourceState source_state) const override;

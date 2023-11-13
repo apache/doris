@@ -32,7 +32,6 @@
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/bit_helpers.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"

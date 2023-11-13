@@ -33,11 +33,13 @@ class Arena;
 
 class DataTypeStringSerDe : public DataTypeSerDe {
 public:
-    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                    FormatOptions& options) const override;
+    DataTypeStringSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
-    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                  BufferWritable& bw, FormatOptions& options) const override;
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options) const override;
+
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
@@ -64,6 +66,15 @@ public:
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
+
+    Status write_column_to_orc(const std::string& timezone, const IColumn& column,
+                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
+    void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                rapidjson::Document::AllocatorType& allocator,
+                                int row_num) const override;
+    void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
     template <bool is_binary_format>

@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
+import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
@@ -103,7 +104,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // please see rule BindSlotReference or BindFunction for example
                 new ProjectWithDistinctToAggregate(),
                 new ResolveOrdinalInOrderByAndGroupBy(),
-                new ReplaceExpressionByChildOutput()
+                new ReplaceExpressionByChildOutput(),
+                new OneRowRelationExtractAggregate()
             ),
             topDown(
                 new FillUpMissingSlots(),

@@ -21,7 +21,7 @@
 
 namespace doris {
 
-enum class ReaderType {
+enum class ReaderType : uint8_t {
     READER_QUERY = 0,
     READER_ALTER_TABLE = 1,
     READER_BASE_COMPACTION = 2,
@@ -47,21 +47,17 @@ struct FileCacheStatistics {
     int64_t num_skip_cache_io_total = 0;
 };
 
-class IOContext {
-public:
-    IOContext() = default;
-
-    IOContext(const TUniqueId* query_id, FileCacheStatistics* stats, bool use_disposable_cache,
-              bool read_segment_index)
-            : query_id(query_id),
-              is_disposable(use_disposable_cache),
-              read_segment_index(read_segment_index),
-              file_cache_stats(stats) {}
+struct IOContext {
     ReaderType reader_type = ReaderType::UNKNOWN;
-    const TUniqueId* query_id = nullptr;
+    // FIXME(plat1ko): Seems `is_disposable` can be inferred from the `reader_type`?
     bool is_disposable = false;
-    bool read_segment_index = false;
-    FileCacheStatistics* file_cache_stats = nullptr;
+    bool is_index_data = false;
+    bool read_file_cache = true;
+    // TODO(lightman): use following member variables to control file cache
+    bool is_persistent = false;
+    int64_t expiration_time = 0;
+    const TUniqueId* query_id = nullptr;             // Ref
+    FileCacheStatistics* file_cache_stats = nullptr; // Ref
 };
 
 } // namespace io

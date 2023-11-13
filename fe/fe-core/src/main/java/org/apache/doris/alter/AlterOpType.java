@@ -62,6 +62,9 @@ public enum AlterOpType {
         COMPATIBILITY_MATRIX[SCHEMA_CHANGE.ordinal()][SCHEMA_CHANGE.ordinal()] = true;
         // can modify multi column comments at same time
         COMPATIBILITY_MATRIX[MODIFY_COLUMN_COMMENT.ordinal()][MODIFY_COLUMN_COMMENT.ordinal()] = true;
+        // can drop multi partition at same time
+        COMPATIBILITY_MATRIX[DROP_PARTITION.ordinal()][DROP_PARTITION.ordinal()] = true;
+
     }
 
     public boolean needCheckCapacity() {

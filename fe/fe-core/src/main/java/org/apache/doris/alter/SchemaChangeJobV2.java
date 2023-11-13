@@ -126,9 +126,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "indexes")
     private List<Index> indexes = null;
 
-    // The schema change job will wait all transactions before this txn id finished, then send the schema change tasks.
-    @SerializedName(value = "watershedTxnId")
-    protected long watershedTxnId = -1;
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
@@ -518,10 +515,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             LOG.info("schema change tasks not finished. job: {}", jobId);
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
-                if (task.getFailedTimes() >= 3) {
+                if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("schema change task failed after try three times: " + task.getErrorMsg());
+                    LOG.warn("schema change task failed: " + task.getErrorMsg());
                     if (!failedAgentTasks.containsKey(task.getTabletId())) {
                         failedAgentTasks.put(task.getTabletId(), Lists.newArrayList(task));
                     } else {

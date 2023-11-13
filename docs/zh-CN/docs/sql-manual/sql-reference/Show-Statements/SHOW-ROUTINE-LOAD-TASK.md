@@ -55,7 +55,7 @@ DataSourceProperties: {"0":19}
 
 - `TaskId`：子任务的唯一 ID。
 - `TxnId`：子任务对应的导入事务 ID。
-- `TxnStatus`：子任务对应的导入事务状态。通常为 UNKNOWN。并无实际意思。
+- `TxnStatus`：子任务对应的导入事务状态。为 null 时表示子任务还未开始调度。
 - `JobId`：子任务对应的作业 ID。
 - `CreateTime`：子任务的创建时间。
 - `ExecuteStartTime`：子任务被调度执行的时间，通常晚于创建时间。

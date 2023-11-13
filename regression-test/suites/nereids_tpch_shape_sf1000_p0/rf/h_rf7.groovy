@@ -29,6 +29,9 @@ suite("h_rf7") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
+    sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set expand_runtime_filter_by_inner_join=false'
 
     String stmt = '''
     explain physical plan
@@ -106,5 +109,6 @@ order by
     // def outFile = "regression-test/suites/nereids_tpch_shape_sf1000_p0/ddl/rf/rf.7"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    assertEquals("RF3[n_nationkey->[c_nationkey],RF4[o_custkey->[c_custkey],RF2[l_orderkey->[o_orderkey],RF1[s_suppkey->[l_suppkey],RF0[n_nationkey->[s_nationkey]", getRuntimeFilters(plan))
+
+    assertEquals("RF4[o_orderkey->[l_orderkey],RF3[s_suppkey->[l_suppkey],RF2[n_nationkey->[s_nationkey],RF1[c_custkey->[o_custkey],RF0[n_nationkey->[c_nationkey]", getRuntimeFilters(plan))
 }

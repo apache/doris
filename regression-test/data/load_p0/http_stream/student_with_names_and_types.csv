@@ -1,12 +1,12 @@
-id,name,age
-INT,STRING,INT
-1,alice,18
-2,bob,20
-3,jack,24
-4,jackson,19
-5,liming,18
-6,luffy,20
-7,zoro,22
-8,sanzi,26
-9,wusuopu,21
-10,nami,18
+id	name	age
+INT	STRING	INT
+1	alice	18
+2	bob	20
+3	jack	24
+4	jackson	19
+5	liming	18
+6	luffy	20
+7	zoro	22
+8	sanzi	26
+9	wusuopu	21
+10	nami	18

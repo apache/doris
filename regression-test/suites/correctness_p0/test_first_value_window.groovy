@@ -74,4 +74,11 @@ suite("test_first_value_window") {
 
     qt_select_default """ select *,first_value(state) over(partition by myday order by time_col range between current row and unbounded following) from ${tableName1} order by myday, time_col; """
 
+    qt_select_always_nullable """
+        select
+            *,
+            first_value(1) over(partition by myday order by time_col rows  between 1 preceding and 1 preceding) first_value,
+            last_value(999) over(partition by myday order by time_col rows  between 1 preceding and 1 preceding) last_value
+        from test_first_value_window_array order by myday, time_col;
+    """
 }

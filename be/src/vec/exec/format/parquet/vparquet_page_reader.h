@@ -25,7 +25,7 @@
 namespace doris {
 namespace io {
 class BufferedStreamReader;
-class IOContext;
+struct IOContext;
 } // namespace io
 struct Slice;
 } // namespace doris

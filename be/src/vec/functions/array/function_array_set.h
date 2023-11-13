@@ -40,11 +40,6 @@ template <typename Set, typename Element, SetOperation operation>
 struct ActionImpl;
 
 template <typename Set, typename Element>
-struct ActionImpl<Set, Element, SetOperation::UNION> {
-    using Action = UnionAction<Set, Element>;
-};
-
-template <typename Set, typename Element>
 struct ActionImpl<Set, Element, SetOperation::EXCEPT> {
     using Action = ExceptAction<Set, Element>;
 };

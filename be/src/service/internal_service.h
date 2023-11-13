@@ -38,6 +38,7 @@ class ExecEnv;
 class PHandShakeRequest;
 class PHandShakeResponse;
 class LoadStreamMgr;
+class RuntimeState;
 
 class PInternalServiceImpl : public PBackendService {
 public:
@@ -82,13 +83,18 @@ public:
                             PFetchTableSchemaResult* result,
                             google::protobuf::Closure* done) override;
 
+    void fetch_arrow_flight_schema(google::protobuf::RpcController* controller,
+                                   const PFetchArrowFlightSchemaRequest* request,
+                                   PFetchArrowFlightSchemaResult* result,
+                                   google::protobuf::Closure* done) override;
+
     void tablet_writer_open(google::protobuf::RpcController* controller,
                             const PTabletWriterOpenRequest* request,
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
 
-    void open_stream_sink(google::protobuf::RpcController* controller,
-                          const POpenStreamSinkRequest* request, POpenStreamSinkResponse* response,
+    void open_load_stream(google::protobuf::RpcController* controller,
+                          const POpenLoadStreamRequest* request, POpenLoadStreamResponse* response,
                           google::protobuf::Closure* done) override;
 
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
@@ -206,7 +212,9 @@ private:
                                         google::protobuf::Closure* done);
 
     Status _exec_plan_fragment_impl(const std::string& s_request, PFragmentRequestVersion version,
-                                    bool compact);
+                                    bool compact,
+                                    const std::function<void(RuntimeState*, Status*)>& cb =
+                                            std::function<void(RuntimeState*, Status*)>());
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 

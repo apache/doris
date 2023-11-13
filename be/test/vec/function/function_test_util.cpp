@@ -18,7 +18,6 @@
 #include "vec/function/function_test_util.h"
 
 #include <glog/logging.h>
-#include <opentelemetry/common/threadlocal.h>
 
 #include <iostream>
 
@@ -369,7 +368,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
 
         do {
             fn->get_value(column);
-            fn->forward();
+            static_cast<void>(fn->forward());
         } while (!fn->eos());
     }
 

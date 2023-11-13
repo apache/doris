@@ -62,7 +62,7 @@ class TFileScanRangeParams;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 
@@ -98,7 +98,7 @@ private:
     Status _get_range_params();
     void _init_system_properties();
     void _init_file_description();
-    Status _open_file_reader();
+    Status _open_file_reader(bool need_schema);
     Status _open_line_reader();
     Status _parse_jsonpath_and_json_root();
 
@@ -135,7 +135,7 @@ private:
     Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
                              std::string col_name, bool* valid);
 
-    std::string _print_json_value(const rapidjson::Value& value);
+    static std::string _print_json_value(const rapidjson::Value& value);
 
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
@@ -258,7 +258,6 @@ private:
     // array_iter pointed to _array
     simdjson::ondemand::array_iterator _array_iter;
     simdjson::ondemand::array _array;
-    std::unique_ptr<JSONDataParser<SimdJSONParser>> _json_parser;
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser = nullptr;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;

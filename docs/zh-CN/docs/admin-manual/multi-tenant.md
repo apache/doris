@@ -115,6 +115,14 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
     │                                                    │
     └────────────────────────────────────────────────────┘
    ```
+   
+   为了方便设置table的数据分布策略，可以在database层面设置统一的数据分布策略，但是table设置的优先级高于database
+
+   ```sql
+   CREATE DATABASE db_name PROPERTIES (
+   "replication_allocation" = "tag.location.group_a:1, tag.location.group_b:1"
+   )
+   ```
 
 3. 使用不同资源组进行数据查询
 
@@ -129,6 +137,8 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
    ```
 
    设置完成后，user1 在发起对 UserTable 表的查询时，只会访问 `group_a` 资源组内节点上的数据副本，并且查询仅会使用 `group_a` 资源组内的节点计算资源。而 user3 的查询可以使用任意资源组内的副本和计算资源。
+
+   > 注：默认情况下，用户的 `resource_tags.location` 属性为空，在2.0.2（含）之前的版本中，默认情况下，用户不受 tag 的限制，可以使用任意资源组。在 2.0.3 版本之后，默认情况下，用户只能使用 `default` 资源组。
 
    这样，我们通过对节点的划分，以及对用户的资源使用限制，实现了不同用户查询上的物理资源隔离。更进一步，我们可以给不同的业务部门创建不同的用户，并限制每个用户使用不同的资源组。以避免不同业务部分之间使用资源干扰。比如集群内有一张业务表需要共享给所有9个业务部门使用，但是希望能够尽量避免不同部门之间的资源抢占。则我们可以为这张表创建3个副本，分别存储在3个资源组中。接下来，我们为9个业务部门创建9个用户，每3个用户限制使用一个资源组。这样，资源的竞争程度就由9降低到了3。
 
@@ -163,8 +173,8 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
    set exec_mem_limit=1G;
    # 设置全局变量 exec_mem_limit。则之后所有新会话（新连接）的所有查询都使用这个内存限制。
    set global exec_mem_limit=1G;
-   # 在 SQL 中设置变量 exec_mem_limit。则该变量仅影响这个 SQL。
-   select /*+ SET_VAR(exec_mem_limit=1G) */ id, name from tbl where xxx;
+   # 在 SQL 中设置变量 exec_mem_limit（单位：字节）。则该变量仅影响这个 SQL。
+   select /*+ SET_VAR(exec_mem_limit=1073741824) */ id, name from tbl where xxx;
    ```
 
    因为 Doris 的查询引擎是基于全内存的 MPP 查询框架。因此当一个查询的内存使用超过限制后，查询会被终止。因此，当一个查询无法在合理的内存限制下运行时，我们就需要通过一些 SQL 优化手段，或者集群扩容的方式来解决了。
@@ -186,7 +196,7 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
 
 ## 最佳实践和向前兼容
 
-Tag 划分和 CPU 限制是 0.15 版本中的新功能。为了保证可以从老版本平滑升级，Doris 做了如下的向前兼容：
+### Tag 划分和 CPU 限制是 0.15 版本中的新功能。为了保证可以从老版本平滑升级，Doris 做了如下的向前兼容：
 
 1. 每个 BE 节点会有一个默认的 Tag：`"tag.location": "default"`。
 2. 通过 `alter system add backend` 语句新增的 BE 节点也会默认设置 Tag：`"tag.location": "default"`。
@@ -230,3 +240,30 @@ Tag 划分和 CPU 限制是 0.15 版本中的新功能。为了保证可以从�
    等数据重分布完毕后。我们就可以开始设置用户的资源标签权限了。因为默认情况下，用户的 `resource_tags.location` 属性为空，即可以访问任意 Tag 的 BE。所以在前面步骤中，不会影响到已有用户的正常查询。当 `resource_tags.location` 属性非空时，用户将被限制访问指定 Tag 的 BE。
 
 通过以上4步，我们可以较为平滑的在原有集群升级后，使用资源划分功能。
+
+### table数量很多时如何方便的设置副本分布策略
+
+   比如有一个 db1,db1下有四个table，table1需要的副本分布策略为 `group_a:1,group_b:2`，table2，table3, table4需要的副本分布策略为 `group_c:1,group_b:2`
+
+   那么可以使用如下语句创建db1：
+
+  ```sql
+   CREATE DATABASE db1 PROPERTIES (
+   "replication_allocation" = "tag.location.group_a:1, tag.location.group_b:2"
+   )
+   ```
+   
+   使用如下语句创建table1：
+   
+   ```sql
+   CREATE TABLE table1
+   (k1 int, k2 int)
+   distributed by hash(k1) buckets 1
+   properties(
+   "replication_allocation"="tag.location.group_c:1, tag.location.group_b:2"
+   )
+   ```
+
+   table2，table3,table4的建表语句无需再指定`replication_allocation`。
+   
+   注意事项：更改database的副本分布策略不会对已有的table产生影响。

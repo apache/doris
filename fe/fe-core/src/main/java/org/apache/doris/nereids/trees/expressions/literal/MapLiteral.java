@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
@@ -58,22 +57,13 @@ public class MapLiteral extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        if (keys.isEmpty()) {
-            return new org.apache.doris.analysis.MapLiteral();
-        } else {
-            List<LiteralExpr> keyExprs = keys.stream()
-                    .map(Literal::toLegacyLiteral)
-                    .collect(Collectors.toList());
-            List<LiteralExpr> valueExprs = values.stream()
-                    .map(Literal::toLegacyLiteral)
-                    .collect(Collectors.toList());
-            try {
-                return new org.apache.doris.analysis.MapLiteral(
-                        getDataType().toCatalogDataType(), keyExprs, valueExprs);
-            } catch (Throwable t) {
-                throw new AnalysisException(t.getMessage(), t);
-            }
-        }
+        List<LiteralExpr> keyExprs = keys.stream()
+                .map(Literal::toLegacyLiteral)
+                .collect(Collectors.toList());
+        List<LiteralExpr> valueExprs = values.stream()
+                .map(Literal::toLegacyLiteral)
+                .collect(Collectors.toList());
+        return new org.apache.doris.analysis.MapLiteral(getDataType().toCatalogDataType(), keyExprs, valueExprs);
     }
 
     @Override

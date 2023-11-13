@@ -19,8 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.PrepareStmt;
-import org.apache.doris.analysis.PrepareStmt.PreparedType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -30,8 +28,6 @@ import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
-import org.apache.doris.common.telemetry.ScopedSpan;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -69,6 +65,7 @@ import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -79,7 +76,9 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerScanRange;
+import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDescriptorTable;
+import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -119,10 +118,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.api.trace.SpanKind;
-import io.opentelemetry.context.Context;
-import io.opentelemetry.context.Scope;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -130,6 +125,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -138,6 +134,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -149,13 +146,13 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
-public class Coordinator {
+public class Coordinator implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
 
     private static final String localIP = FrontendOptions.getLocalHostAddress();
 
     // Random is used to shuffle instances of partitioned
-    private static final Random instanceRandom = new Random();
+    private static final Random instanceRandom = new SecureRandom();
 
     // Overall status of the entire query; set to the first reported fragment error
     // status or to CANCELLED, if Cancel() is called.
@@ -246,6 +243,7 @@ public class Coordinator {
 
     private boolean enablePipelineEngine = false;
     private boolean enablePipelineXEngine = false;
+    private boolean fasterFloatConvert = false;
 
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
@@ -259,7 +257,6 @@ public class Coordinator {
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
     private ConnectContext context;
 
-    private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
 
     private StatsErrorEstimator statsErrorEstimator;
@@ -293,40 +290,16 @@ public class Coordinator {
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-
-        if (this.scanNodes.size() == 1 && this.scanNodes.get(0) instanceof OlapScanNode) {
-            OlapScanNode olapScanNode = (OlapScanNode) (this.scanNodes.get(0));
-            isPointQuery = olapScanNode.isPointQuery();
-            if (isPointQuery) {
-                PlanFragment fragment = fragments.get(0);
-                LOG.debug("execPointGet fragment {}", fragment);
-                OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
-                Preconditions.checkNotNull(planRoot);
-                pointExec = new PointQueryExec(planRoot.getPointQueryEqualPredicates(),
-                                                planRoot.getDescTable(), fragment.getOutputExprs());
-            }
-        }
-        PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
-        if (prepareStmt != null && prepareStmt.getPreparedType() == PreparedType.FULL_PREPARED) {
-            // Used cached or better performance
-            this.descTable = prepareStmt.getDescTable();
-            if (pointExec != null) {
-                pointExec.setCacheID(prepareStmt.getID());
-                pointExec.setSerializedDescTable(prepareStmt.getSerializedDescTable());
-                pointExec.setSerializedOutputExpr(prepareStmt.getSerializedOutputExprs());
-                pointExec.setBinaryProtocol(prepareStmt.isBinaryProtocol());
-            }
-        } else {
-            this.descTable = planner.getDescTable().toThrift();
-        }
+        this.descTable = planner.getDescTable().toThrift();
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
-                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+                && (fragments.size() > 0);
         this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
-                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+                && (fragments.size() > 0);
+        this.fasterFloatConvert = context.getSessionVariable().fasterFloatConvert();
 
         initQueryOptions(context);
 
@@ -383,7 +356,9 @@ public class Coordinator {
             this.queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long memLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
+        long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
+                Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
@@ -505,6 +480,7 @@ public class Coordinator {
         return result;
     }
 
+    @Override
     public int getInstanceTotalNum() {
         return instanceTotalNum;
     }
@@ -528,13 +504,18 @@ public class Coordinator {
 
         this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Query {} idToBackend size={}", DebugUtil.printId(queryId), idToBackend.size());
+            int backendNum = idToBackend.size();
+            StringBuilder backendInfos = new StringBuilder("backends info:");
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {
                 Long backendID = entry.getKey();
                 Backend backend = entry.getValue();
-                LOG.debug("Query {}, backend: {}-{}-{}-{}", DebugUtil.printId(queryId),
-                                    backendID, backend.getHost(), backend.getBePort(), backend.getProcessEpoch());
+                backendInfos.append(' ').append(backendID).append("-")
+                            .append(backend.getHost()).append("-")
+                            .append(backend.getBePort()).append("-")
+                            .append(backend.getProcessEpoch());
             }
+            LOG.debug("query {}, backend size: {}, {}",
+                    DebugUtil.printId(queryId), backendNum, backendInfos.toString());
         }
     }
 
@@ -597,6 +578,7 @@ public class Coordinator {
     // 'Request' must contain at least a coordinator plan fragment (ie, can't
     // be for a query like 'SELECT 1').
     // A call to Exec() must precede all other member function calls.
+    @Override
     public void exec() throws Exception {
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
@@ -623,8 +605,16 @@ public class Coordinator {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
+
+            if (!context.isReturnResultFromLocal()) {
+                Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
+                context.setResultFlightServerAddr(toArrowFlightHost(execBeAddr));
+                context.setResultInternalServiceAddr(toBrpcHost(execBeAddr));
+                context.setResultOutputExprs(fragments.get(0).getOutputExprs());
+            }
             if (LOG.isDebugEnabled()) {
-                LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
+                LOG.debug("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
                         topParams.instanceExecParams.get(0).host);
             }
 
@@ -648,17 +638,10 @@ public class Coordinator {
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
         executionProfile.markInstances(instanceIds);
-        if (!isPointQuery) {
-            if (enablePipelineEngine) {
-                sendPipelineCtx();
-            } else {
-                sendFragment();
-            }
+        if (enablePipelineEngine) {
+            sendPipelineCtx();
         } else {
-            OlapScanNode planRoot = (OlapScanNode) fragments.get(0).getPlanRoot();
-            Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
-            pointExec.setCandidateBackends(planRoot.getScanBackendIds());
-            pointExec.setTabletId(planRoot.getScanTabletIds().get(0));
+            sendFragment();
         }
     }
 
@@ -700,13 +683,15 @@ public class Coordinator {
             int backendIdx = 0;
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
+            Set<Long> backendsWithOlapTableSink = Sets.newHashSet();
             beToExecStates.clear();
             // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
-            // For example: select * from numbers("10","w") will generate ExchangeNode and TableValuedFunctionScanNode,
-            // we should ensure TableValuedFunctionScanNode does not send data until ExchangeNode is ready to receive.
+            // For example: select * from numbers("number"="10") will generate ExchangeNode and
+            // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does
+            // not send data until ExchangeNode is ready to receive.
             boolean twoPhaseExecution = fragments.size() >= 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
@@ -766,7 +751,22 @@ public class Coordinator {
                         beToExecStates.putIfAbsent(execState.backend.getId(), states);
                     }
                     states.addState(execState);
+                    if (tParam.getFragment().getOutputSink() != null
+                            && tParam.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
+                        backendsWithOlapTableSink.add(execState.backend.getId());
+                    }
                     ++backendIdx;
+                }
+                int loadStreamPerNode = 1;
+                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+                    loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
+                }
+                for (TExecPlanFragmentParams tParam : tParams) {
+                    if (tParam.getFragment().getOutputSink() != null
+                            && tParam.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
+                        tParam.setLoadStreamPerNode(loadStreamPerNode);
+                        tParam.setTotalLoadStreams(backendsWithOlapTableSink.size() * loadStreamPerNode);
+                    }
                 }
                 profileFragmentId += 1;
             } // end for fragments
@@ -774,14 +774,8 @@ public class Coordinator {
             // 4. send and wait fragments rpc
             List<Triple<BackendExecStates, BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>
                     futures = Lists.newArrayList();
-            Context parentSpanContext = Context.current();
+
             for (BackendExecStates states : beToExecStates.values()) {
-                Span span = Telemetry.getNoopSpan();
-                if (ConnectContext.get() != null) {
-                    span = ConnectContext.get().getTracer().spanBuilder("execRemoteFragmentsAsync")
-                            .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
-                }
-                states.scopedSpan = new ScopedSpan(span);
                 states.unsetFields();
                 BackendServiceProxy proxy = BackendServiceProxy.getInstance();
                 futures.add(ImmutableTriple.of(states, proxy, states.execRemoteFragmentsAsync(proxy)));
@@ -792,12 +786,6 @@ public class Coordinator {
                 // 5. send and wait execution start rpc
                 futures.clear();
                 for (BackendExecStates states : beToExecStates.values()) {
-                    Span span = Telemetry.getNoopSpan();
-                    if (ConnectContext.get() != null) {
-                        span = ConnectContext.get().getTracer().spanBuilder("execPlanFragmentStartAsync")
-                                .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
-                    }
-                    states.scopedSpan = new ScopedSpan(span);
                     BackendServiceProxy proxy = BackendServiceProxy.getInstance();
                     futures.add(ImmutableTriple.of(states, proxy, states.execPlanFragmentStartAsync(proxy)));
                 }
@@ -827,8 +815,9 @@ public class Coordinator {
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
-            // For example: select * from numbers("10","w") will generate ExchangeNode and TableValuedFunctionScanNode,
-            // we should ensure TableValuedFunctionScanNode does not send data until ExchangeNode is ready to receive.
+            // For example: select * from numbers("number"="10") will generate ExchangeNode and
+            // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does not
+            // send data until ExchangeNode is ready to receive.
             boolean twoPhaseExecution = fragments.size() >= 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
@@ -855,7 +844,9 @@ public class Coordinator {
                     }
                 }
 
-                // 3. group BackendExecState by BE. So that we can use one RPC to send all fragment instances of a BE.
+                Set<Long> backendsWithOlapTableSink = Sets.newHashSet();
+                // 3. group PipelineExecContext by BE.
+                // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
@@ -887,7 +878,24 @@ public class Coordinator {
                     }
                     ctxs.addContext(pipelineExecContext);
 
+                    if (entry.getValue().getFragment().getOutputSink() != null
+                            && entry.getValue().getFragment().getOutputSink().getType()
+                            == TDataSinkType.OLAP_TABLE_SINK) {
+                        backendsWithOlapTableSink.add(backendId);
+                    }
                     ++backendIdx;
+                }
+                int loadStreamPerNode = 1;
+                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+                    loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
+                }
+                for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
+                    if (entry.getValue().getFragment().getOutputSink() != null
+                            && entry.getValue().getFragment().getOutputSink().getType()
+                            == TDataSinkType.OLAP_TABLE_SINK) {
+                        entry.getValue().setLoadStreamPerNode(loadStreamPerNode);
+                        entry.getValue().setTotalLoadStreams(backendsWithOlapTableSink.size() * loadStreamPerNode);
+                    }
                 }
 
                 profileFragmentId += 1;
@@ -896,14 +904,17 @@ public class Coordinator {
             // 4. send and wait fragments rpc
             List<Triple<PipelineExecContexts, BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>
                     futures = Lists.newArrayList();
-            Context parentSpanContext = Context.current();
+
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                Span span = Telemetry.getNoopSpan();
-                if (ConnectContext.get() != null) {
-                    span = ConnectContext.get().getTracer().spanBuilder("execRemoteFragmentsAsync")
-                            .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
+                if (LOG.isDebugEnabled()) {
+                    String infos = "";
+                    for (PipelineExecContext pec : ctxs.ctxs) {
+                        infos += pec.fragmentId + " ";
+                    }
+                    LOG.debug("query {}, sending pipeline fragments: {} to be {} bprc address {}",
+                            DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
                 }
-                ctxs.scopedSpan = new ScopedSpan(span);
+
                 ctxs.unsetFields();
                 BackendServiceProxy proxy = BackendServiceProxy.getInstance();
                 futures.add(ImmutableTriple.of(ctxs, proxy, ctxs.execRemoteFragmentsAsync(proxy)));
@@ -914,12 +925,6 @@ public class Coordinator {
                 // 5. send and wait execution start rpc
                 futures.clear();
                 for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                    Span span = Telemetry.getNoopSpan();
-                    if (ConnectContext.get() != null) {
-                        span = ConnectContext.get().getTracer().spanBuilder("execPlanFragmentStartAsync")
-                                .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
-                    }
-                    ctxs.scopedSpan = new ScopedSpan(span);
                     BackendServiceProxy proxy = BackendServiceProxy.getInstance();
                     futures.add(ImmutableTriple.of(ctxs, proxy, ctxs.execPlanFragmentStartAsync(proxy)));
                 }
@@ -945,7 +950,7 @@ public class Coordinator {
             TStatusCode code;
             String errMsg = null;
             Exception exception = null;
-            Span span = triple.getLeft().scopedSpan.getSpan();
+
             try {
                 PExecPlanFragmentResult result = triple.getRight().get(timeoutMs, TimeUnit.MILLISECONDS);
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
@@ -969,32 +974,25 @@ public class Coordinator {
                 code = TStatusCode.TIMEOUT;
             }
 
-            try {
-                if (code != TStatusCode.OK) {
-                    if (exception != null && errMsg == null) {
-                        errMsg = operation + " failed. " + exception.getMessage();
-                    }
-                    queryStatus.setStatus(errMsg);
-                    cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
-                    switch (code) {
-                        case TIMEOUT:
-                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
-                                    .increase(1L);
-                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
-                        case THRIFT_RPC_ERROR:
-                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
-                                    .increase(1L);
-                            SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
-                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
-                        default:
-                            throw new UserException(errMsg, exception);
-                    }
+            if (code != TStatusCode.OK) {
+                if (exception != null && errMsg == null) {
+                    errMsg = operation + " failed. " + exception.getMessage();
                 }
-            } catch (Exception e) {
-                span.recordException(e);
-                throw e;
-            } finally {
-                triple.getLeft().scopedSpan.endSpan();
+                queryStatus.setStatus(errMsg);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                switch (code) {
+                    case TIMEOUT:
+                        MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                .increase(1L);
+                        throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
+                    case THRIFT_RPC_ERROR:
+                        MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                .increase(1L);
+                        SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
+                        throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
+                    default:
+                        throw new UserException(errMsg, exception);
+                }
             }
         }
     }
@@ -1012,7 +1010,7 @@ public class Coordinator {
             TStatusCode code;
             String errMsg = null;
             Exception exception = null;
-            Span span = triple.getLeft().scopedSpan.getSpan();
+
             try {
                 PExecPlanFragmentResult result = triple.getRight().get(timeoutMs, TimeUnit.MILLISECONDS);
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
@@ -1036,32 +1034,25 @@ public class Coordinator {
                 code = TStatusCode.TIMEOUT;
             }
 
-            try {
-                if (code != TStatusCode.OK) {
-                    if (exception != null && errMsg == null) {
-                        errMsg = operation + " failed. " + exception.getMessage();
-                    }
-                    queryStatus.setStatus(errMsg);
-                    cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
-                    switch (code) {
-                        case TIMEOUT:
-                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
-                                    .increase(1L);
-                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
-                        case THRIFT_RPC_ERROR:
-                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
-                                    .increase(1L);
-                            SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
-                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
-                        default:
-                            throw new UserException(errMsg, exception);
-                    }
+            if (code != TStatusCode.OK) {
+                if (exception != null && errMsg == null) {
+                    errMsg = operation + " failed. " + exception.getMessage();
                 }
-            } catch (Exception e) {
-                span.recordException(e);
-                throw e;
-            } finally {
-                triple.getLeft().scopedSpan.endSpan();
+                queryStatus.setStatus(errMsg);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                switch (code) {
+                    case TIMEOUT:
+                        MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                .increase(1L);
+                        throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
+                    case THRIFT_RPC_ERROR:
+                        MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                .increase(1L);
+                        SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
+                        throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
+                    default:
+                        throw new UserException(errMsg, exception);
+                }
             }
         }
     }
@@ -1186,6 +1177,39 @@ public class Coordinator {
         }
     }
 
+    private void updateStatus(Status status, long backendId) {
+        lock.lock();
+        try {
+            // The query is done and we are just waiting for remote fragments to clean up.
+            // Ignore their cancelled updates.
+            if (returnedAllResults && status.isCancelled()) {
+                return;
+            }
+            // nothing to update
+            if (status.ok()) {
+                return;
+            }
+
+            // don't override an error status; also, cancellation has already started
+            if (!queryStatus.ok()) {
+                return;
+            }
+
+            queryStatus.setStatus(status);
+            LOG.warn("one instance report fail throw updateStatus(), need cancel. job id: {},"
+                            + " query id: {}, error message: {}",
+                    jobId, DebugUtil.printId(queryId), status.getErrorMsg());
+            if (status.getErrorCode() == TStatusCode.TIMEOUT) {
+                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT, backendId);
+            } else {
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR, backendId);
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Override
     public RowBatch getNext() throws Exception {
         if (receiver == null) {
             throw new UserException("There is no receiver.");
@@ -1193,12 +1217,7 @@ public class Coordinator {
 
         RowBatch resultBatch;
         Status status = new Status();
-
-        if (!isPointQuery) {
-            resultBatch = receiver.getNext(status);
-        } else {
-            resultBatch = pointExec.getNext(status);
-        }
+        resultBatch = receiver.getNext(status);
         if (!status.ok()) {
             LOG.warn("get next fail, need cancel. query id: {}", DebugUtil.printId(queryId));
         }
@@ -1223,7 +1242,10 @@ public class Coordinator {
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("query failed: {}", errMsg);
 
-                // hide host info
+                // hide host info exclude localhost
+                if (errMsg.contains("localhost")) {
+                    throw new UserException(errMsg);
+                }
                 int hostIndex = errMsg.indexOf("host");
                 if (hostIndex != -1) {
                     errMsg = errMsg.substring(0, hostIndex);
@@ -1324,6 +1346,7 @@ public class Coordinator {
         cancel(Types.PPlanFragmentCancelReason.USER_CANCEL);
     }
 
+    @Override
     public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
         lock();
         try {
@@ -1352,6 +1375,18 @@ public class Coordinator {
         executionProfile.onCancel();
     }
 
+    private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason, long backendId) {
+        if (null != receiver) {
+            receiver.cancel();
+        }
+        if (null != pointExec) {
+            pointExec.cancel();
+            return;
+        }
+        cancelRemoteFragmentsAsync(cancelReason, backendId);
+        executionProfile.onCancel();
+    }
+
     private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
@@ -1360,6 +1395,15 @@ public class Coordinator {
         } else {
             for (BackendExecState backendExecState : backendExecStates) {
                 backendExecState.cancelFragmentInstance(cancelReason);
+            }
+        }
+    }
+
+    private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason, long backendId) {
+        Preconditions.checkArgument(enablePipelineXEngine);
+        for (PipelineExecContext ctx : pipelineExecContexts.values()) {
+            if (!Objects.equals(idToBackend.get(backendId), ctx.backend)) {
+                ctx.cancelFragmentInstance(cancelReason);
             }
         }
     }
@@ -1630,6 +1674,18 @@ public class Coordinator {
         return new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
     }
 
+    private TNetworkAddress toArrowFlightHost(TNetworkAddress host) throws Exception {
+        Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(
+                host.getHostname(), host.getPort());
+        if (backend == null) {
+            throw new UserException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
+        }
+        if (backend.getArrowFlightSqlPort() < 0) {
+            return null;
+        }
+        return new TNetworkAddress(backend.getHost(), backend.getArrowFlightSqlPort());
+    }
+
     // estimate if this fragment contains UnionNode
     private boolean containsUnionNode(PlanNode node) {
         if (node instanceof UnionNode) {
@@ -1854,19 +1910,24 @@ public class Coordinator {
 
                         // disable shared scan optimization if one of conditions below is met:
                         // 1. Use non-pipeline or pipelineX engine
-                        // 2. Number of scan ranges is larger than instances
-                        // 3. This fragment has a colocated scan node
-                        // 4. This fragment has a FileScanNode
-                        // 5. Disable shared scan optimization by session variable
-                        if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
-                                || (node.isPresent() && node.get().getShouldColoScan())
+                        // 2. This fragment has a colocated scan node
+                        // 3. This fragment has a FileScanNode
+                        // 4. Disable shared scan optimization by session variable
+                        if (!enablePipelineEngine || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
-                                || Config.disable_shared_scan || enablePipelineXEngine) {
+                                || (node.isPresent() && node.get().shouldDisableSharedScan(context))
+                                || enablePipelineXEngine) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num
                                 expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
                             }
+                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // mem resource
+                            if (node.isPresent() && node.get().haveLimitAndConjunts()) {
+                                expectedInstanceNum = 1;
+                            }
+
                             perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
                                     expectedInstanceNum);
                             sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), false);
@@ -1874,6 +1935,12 @@ public class Coordinator {
                             int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                     leftMostNode.getNumInstances());
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
+                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // mem resource
+                            if (node.isPresent() && node.get().haveLimitAndConjunts()) {
+                                expectedInstanceNum = 1;
+                            }
+
                             perInstanceScanRanges = Collections.nCopies(expectedInstanceNum, perNodeScanRanges);
                             sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), true);
                         }
@@ -2094,13 +2161,6 @@ public class Coordinator {
     // Populates scan_range_assignment_.
     // <fragment, <server, nodeId>>
     private void computeScanRangeAssignment() throws Exception {
-        if (isPointQuery) {
-            // Fast path for evaluate Backend for point query
-            List<TScanRangeLocations> locations = ((OlapScanNode) scanNodes.get(0)).lazyEvaluateRangeLocations();
-            Preconditions.checkNotNull(locations);
-            return;
-        }
-
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable();
         Collections.shuffle(scanNodes);
@@ -2258,6 +2318,11 @@ public class Coordinator {
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+        // Type of locations is List, it could have elements that have same "location"
+        // and we do have this situation for some scan node.
+        // The duplicate "location" will NOT be filtered by FragmentScanRangeAssignment,
+        // since FragmentScanRangeAssignment use List<TScanRangeParams> as its value type,
+        // duplicate "locations" will be converted to list.
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
@@ -2305,9 +2370,62 @@ public class Coordinator {
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        if (enablePipelineEngine) {
+        if (enablePipelineXEngine) {
             PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-            if (!ctx.updateProfile(params)) {
+            if (!ctx.updateProfile(params, true)) {
+                return;
+            }
+
+            // print fragment instance profile
+            if (LOG.isDebugEnabled()) {
+                StringBuilder builder = new StringBuilder();
+                ctx.printProfile(builder);
+                LOG.debug("profile for query_id={} fragment_id={}\n{}",
+                        DebugUtil.printId(queryId),
+                        params.getFragmentId(),
+                        builder.toString());
+            }
+
+            Status status = new Status(params.status);
+            // for now, abort the query if we see any error except if the error is cancelled
+            // and returned_all_results_ is true.
+            // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
+            if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
+                LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
+                        status.getErrorMsg());
+                updateStatus(status, params.backend_id);
+            }
+            if (params.isSetDeltaUrls()) {
+                updateDeltas(params.getDeltaUrls());
+            }
+            if (params.isSetLoadCounters()) {
+                updateLoadCounters(params.getLoadCounters());
+            }
+            if (params.isSetTrackingUrl()) {
+                trackingUrl = params.getTrackingUrl();
+            }
+            if (params.isSetExportFiles()) {
+                updateExportFiles(params.getExportFiles());
+            }
+            if (params.isSetCommitInfos()) {
+                updateCommitInfos(params.getCommitInfos());
+            }
+            if (params.isSetErrorTabletInfos()) {
+                updateErrorTabletInfos(params.getErrorTabletInfos());
+            }
+
+            Preconditions.checkArgument(params.isSetDetailedReport());
+            for (TDetailedReportParams param : params.detailed_report) {
+                if (ctx.fragmentInstancesMap.get(param.fragment_instance_id).getIsDone()) {
+                    LOG.debug("Query {} instance {} is marked done",
+                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+                    executionProfile.markOneInstanceDone(param.getFragmentInstanceId());
+                }
+            }
+        } else if (enablePipelineEngine) {
+            PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
+            if (!ctx.updateProfile(params, false)) {
                 return;
             }
 
@@ -2326,9 +2444,11 @@ public class Coordinator {
             // and returned_all_results_ is true.
             // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
             if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-                LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
-                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
-                        status.getErrorMsg());
+                LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
+                                + " error message: {}",
+                        DebugUtil.printId(queryId), params.getFragmentId(),
+                        DebugUtil.printId(params.getFragmentInstanceId()),
+                        params.getBackendId(), status.getErrorMsg());
                 updateStatus(status, params.getFragmentInstanceId());
             }
             if (ctx.fragmentInstancesMap.get(params.fragment_instance_id).getIsDone()) {
@@ -2350,11 +2470,17 @@ public class Coordinator {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
+                LOG.debug("Query {} instance {} is marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
+            } else {
+                LOG.debug("Query {} instance {} is not marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
             }
         } else {
             if (params.backend_num >= backendExecStates.size()) {
-                LOG.warn("unknown backend number: {}, expected less than: {}",
+                LOG.warn("Query {} instance {} unknown backend number: {}, expected less than: {}",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
                         params.backend_num, backendExecStates.size());
                 return;
             }
@@ -2402,7 +2528,12 @@ public class Coordinator {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
+                LOG.info("Query {} instance {} is marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
+            } else {
+                LOG.info("Query {} instance {} is not marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
             }
         }
 
@@ -2485,12 +2616,12 @@ public class Coordinator {
 
     // map from a BE host address to the per-node assigned scan ranges;
     // records scan range assignment for a single fragment
-    class FragmentScanRangeAssignment
+    static class FragmentScanRangeAssignment
             extends HashMap<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> {
     }
 
     // Bucket sequence -> (scan node id -> list of TScanRangeParams)
-    class BucketSeqToScanRange extends HashMap<Integer, Map<Integer, List<TScanRangeParams>>> {
+    static class BucketSeqToScanRange extends HashMap<Integer, Map<Integer, List<TScanRangeParams>>> {
 
     }
 
@@ -2822,20 +2953,13 @@ public class Coordinator {
                     return false;
                 }
 
-                Span span = ConnectContext.get() != null
-                        ? ConnectContext.get().getTracer().spanBuilder("cancelPlanFragmentAsync")
-                        .setParent(Context.current()).setSpanKind(SpanKind.CLIENT).startSpan()
-                        : Telemetry.getNoopSpan();
-                try (Scope scope = span.makeCurrent()) {
+                try {
                     BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
                             fragmentInstanceId(), cancelReason);
                 } catch (RpcException e) {
-                    span.recordException(e);
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
                     SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
-                } finally {
-                    span.end();
                 }
 
                 this.hasCanceled = true;
@@ -2932,27 +3056,51 @@ public class Coordinator {
 
         // update profile.
         // return true if profile is updated. Otherwise, return false.
-        public synchronized boolean updateProfile(TReportExecStatusParams params) {
-            RuntimeProfile profile = fragmentInstancesMap.get(params.fragment_instance_id);
-            if (params.done && profile.getIsDone()) {
-                // duplicate packet
-                return false;
-            }
+        public synchronized boolean updateProfile(TReportExecStatusParams params, boolean isPipelineX) {
+            if (isPipelineX) {
+                for (TDetailedReportParams param : params.detailed_report) {
+                    RuntimeProfile profile = fragmentInstancesMap.get(param.fragment_instance_id);
+                    if (params.done && profile.getIsDone()) {
+                        continue;
+                    }
 
-            if (params.isSetProfile()) {
-                profile.update(params.profile);
+                    if (param.isSetProfile()) {
+                        profile.update(param.profile);
+                    }
+                    if (params.isSetLoadChannelProfile()) {
+                        loadChannelProfile.update(params.loadChannelProfile);
+                    }
+                    if (params.done) {
+                        profile.setIsDone(true);
+                        profileReportProgress++;
+                    }
+                }
+                if (profileReportProgress == numInstances) {
+                    this.done = true;
+                }
+                return true;
+            } else {
+                RuntimeProfile profile = fragmentInstancesMap.get(params.fragment_instance_id);
+                if (params.done && profile.getIsDone()) {
+                    // duplicate packet
+                    return false;
+                }
+
+                if (params.isSetProfile()) {
+                    profile.update(params.profile);
+                }
+                if (params.isSetLoadChannelProfile()) {
+                    loadChannelProfile.update(params.loadChannelProfile);
+                }
+                if (params.done) {
+                    profile.setIsDone(true);
+                    profileReportProgress++;
+                }
+                if (profileReportProgress == numInstances) {
+                    this.done = true;
+                }
+                return true;
             }
-            if (params.isSetLoadChannelProfile()) {
-                loadChannelProfile.update(params.loadChannelProfile);
-            }
-            if (params.done) {
-                profile.setIsDone(true);
-                profileReportProgress++;
-            }
-            if (profileReportProgress == numInstances) {
-                this.done = true;
-            }
-            return true;
         }
 
         public synchronized void printProfile(StringBuilder builder) {
@@ -2981,9 +3129,10 @@ public class Coordinator {
             for (TPipelineInstanceParams localParam : rpcParams.local_params) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} backend: {},"
-                                    + " fragment instance id={}, reason: {}",
+                                    + " fragment instance id={} query={}, reason: {}",
                             this.initiated, this.done, this.hasCanceled, backend.getId(),
-                            DebugUtil.printId(localParam.fragment_instance_id), cancelReason.name());
+                            DebugUtil.printId(localParam.fragment_instance_id),
+                            DebugUtil.printId(queryId), cancelReason.name());
                 }
 
                 RuntimeProfile profile = fragmentInstancesMap.get(localParam.fragment_instance_id);
@@ -2993,20 +3142,13 @@ public class Coordinator {
 
                 this.hasCanceled = true;
                 try {
-                    Span span = ConnectContext.get() != null
-                            ? ConnectContext.get().getTracer().spanBuilder("cancelPlanFragmentAsync")
-                            .setParent(Context.current()).setSpanKind(SpanKind.CLIENT).startSpan()
-                            : Telemetry.getNoopSpan();
-                    try (Scope scope = span.makeCurrent()) {
+                    try {
                         BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
                                 localParam.fragment_instance_id, cancelReason);
                     } catch (RpcException e) {
-                        span.recordException(e);
                         LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                                 brpcAddress.getPort());
                         SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
-                    } finally {
-                        span.end();
                     }
                 } catch (Exception e) {
                     LOG.warn("catch a exception", e);
@@ -3057,7 +3199,6 @@ public class Coordinator {
         TNetworkAddress brpcAddr;
         List<BackendExecState> states = Lists.newArrayList();
         boolean twoPhaseExecution = false;
-        ScopedSpan scopedSpan = new ScopedSpan();
         long beProcessEpoch = 0;
 
         public BackendExecStates(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution, long beProcessEpoch) {
@@ -3156,7 +3297,6 @@ public class Coordinator {
         TNetworkAddress brpcAddr;
         List<PipelineExecContext> ctxs = Lists.newArrayList();
         boolean twoPhaseExecution = false;
-        ScopedSpan scopedSpan = new ScopedSpan();
         int instanceNumber;
 
         public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,

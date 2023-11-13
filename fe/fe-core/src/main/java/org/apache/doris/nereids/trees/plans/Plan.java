@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -62,6 +63,12 @@ public interface Plan extends TreeNode<Plan> {
 
     default boolean hasUnboundExpression() {
         return getExpressions().stream().anyMatch(Expression::hasUnbound);
+    }
+
+    default boolean containsSlots(ImmutableSet<Slot> slots) {
+        return getExpressions().stream().anyMatch(
+                expression -> !Sets.intersection(slots, expression.getInputSlots()).isEmpty()
+                        || children().stream().anyMatch(plan -> plan.containsSlots(slots)));
     }
 
     default LogicalProperties computeLogicalProperties() {
@@ -156,8 +163,13 @@ public interface Plan extends TreeNode<Plan> {
      */
     default String shape(String prefix) {
         StringBuilder builder = new StringBuilder();
-        builder.append(prefix).append(shapeInfo()).append("\n");
-        String childPrefix = prefix + "--";
+        String me = shapeInfo();
+        String prefixTail = "";
+        if (! ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes().contains(me)) {
+            builder.append(prefix).append(shapeInfo()).append("\n");
+            prefixTail += "--";
+        }
+        String childPrefix = prefix + prefixTail;
         children().forEach(
                 child -> {
                     builder.append(child.shape(childPrefix));

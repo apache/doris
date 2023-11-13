@@ -70,6 +70,9 @@ public:
                 6 // Experimental memory statistics, usually inaccurate, used for debugging, and expect to add other types in the future.
     };
 
+    // TODO There are more and more GC codes and there should be a separate manager class.
+    enum class GCType { PROCESS = 0, WORK_LOAD_GROUP = 1 };
+
     struct TrackerLimiterGroup {
         std::list<MemTrackerLimiter*> trackers;
         std::mutex group_lock;
@@ -113,6 +116,19 @@ public:
         __builtin_unreachable();
     }
 
+    static std::string gc_type_string(GCType type) {
+        switch (type) {
+        case GCType::PROCESS:
+            return "process";
+        case GCType::WORK_LOAD_GROUP:
+            return "work load group";
+        default:
+            LOG(FATAL) << "not match gc type:" << static_cast<int>(type);
+        }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
+
     static bool sys_mem_exceed_limit_check(int64_t bytes);
 
     void set_consumption() { LOG(FATAL) << "MemTrackerLimiter set_consumption not supported"; }
@@ -149,6 +165,8 @@ public:
     // Returns a list of all the valid tracker snapshots.
     static void make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots);
     static void make_type_snapshots(std::vector<MemTracker::Snapshot>* snapshots, Type type);
+    static void make_top_consumption_snapshots(std::vector<MemTracker::Snapshot>* snapshots,
+                                               int top_num);
 
     static std::string log_usage(MemTracker::Snapshot snapshot);
     std::string log_usage() { return log_usage(make_snapshot()); }
@@ -171,7 +189,7 @@ public:
     static int64_t free_top_memory_query(
             int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
-            RuntimeProfile* profile);
+            RuntimeProfile* profile, GCType GCtype);
 
     static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& vm_rss_str,
                                         const std::string& mem_available_str,
@@ -189,7 +207,7 @@ public:
     static int64_t free_top_overcommit_query(
             int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
-            RuntimeProfile* profile);
+            RuntimeProfile* profile, GCType GCtype);
 
     static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& vm_rss_str,
                                             const std::string& mem_available_str,
@@ -219,11 +237,7 @@ public:
     static std::string process_limit_exceeded_errmsg_str();
     static std::string process_soft_limit_exceeded_errmsg_str();
     // Log the memory usage when memory limit is exceeded.
-    std::string query_tracker_limit_exceeded_str(const std::string& tracker_limit_exceeded,
-                                                 const std::string& last_consumer_tracker,
-                                                 const std::string& executing_msg);
     std::string tracker_limit_exceeded_str();
-    std::string tracker_limit_exceeded_str(int64_t bytes);
 
     std::string debug_string() override {
         std::stringstream msg;
@@ -287,7 +301,8 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
         return Status::OK();
     }
     if (_limit > 0 && _consumption->current_value() + bytes > _limit) {
-        return Status::MemoryLimitExceeded(tracker_limit_exceeded_str(bytes));
+        return Status::MemoryLimitExceeded(fmt::format(
+                "failed alloc size {}, {}", print_bytes(bytes), tracker_limit_exceeded_str()));
     }
     return Status::OK();
 }

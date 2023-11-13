@@ -42,12 +42,12 @@
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
-#include "olap/rowset/rowset.h"
+#include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/tablet.h"
+#include "olap/tablet_fwd.h"
 #include "olap/task/index_builder.h"
-#include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -149,17 +149,13 @@ public:
         return _calc_delete_bitmap_executor.get();
     }
 
+    // Rowset garbage collection helpers
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
+    PendingRowsetSet& pending_local_rowsets() { return _pending_local_rowsets; }
+    PendingRowsetSet& pending_remote_rowsets() { return _pending_remote_rowsets; }
+    PendingRowsetGuard add_pending_rowset(const RowsetWriterContext& ctx);
 
     RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); }
-
-    bool rowset_id_in_use(const RowsetId& rowset_id) {
-        return _rowset_id_generator->id_in_use(rowset_id);
-    }
-
-    void release_rowset_id(const RowsetId& rowset_id) {
-        return _rowset_id_generator->release_id(rowset_id);
-    }
 
     RowsetTypePB default_rowset_type() const {
         if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
@@ -236,6 +232,11 @@ public:
 
     void evict_querying_rowset(RowsetId rs_id);
 
+    bool add_broken_path(std::string path);
+    bool remove_broken_path(std::string path);
+
+    std::set<string> get_broken_paths() { return _broken_paths; }
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -284,11 +285,9 @@ private:
     // path gc process function
     void _path_gc_thread_callback(DataDir* data_dir);
 
-    void _path_scan_thread_callback(DataDir* data_dir);
+    void _tablet_path_check_callback();
 
     void _tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs);
-
-    void _tablet_path_check_callback();
 
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
@@ -336,6 +335,8 @@ private:
 
     void _async_publish_callback();
 
+    Status _persist_broken_paths();
+
 private:
     struct CompactionCandidate {
         CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
@@ -370,6 +371,9 @@ private:
     std::mutex _store_lock;
     std::mutex _trash_sweep_lock;
     std::map<std::string, DataDir*> _store_map;
+    std::set<std::string> _broken_paths;
+    std::mutex _broken_paths_mutex;
+
     uint32_t _available_storage_medium_type_count;
 
     int32_t _effective_cluster_id;
@@ -378,8 +382,9 @@ private:
     std::atomic_bool _stopped {false};
 
     std::mutex _gc_mutex;
-    // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
-    std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
+    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _unused_rowsets;
+    PendingRowsetSet _pending_local_rowsets;
+    PendingRowsetSet _pending_remote_rowsets;
 
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;
@@ -486,6 +491,8 @@ private:
     bool _clear_segment_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
+    // next index for create tablet
+    std::map<TStorageMedium::type, int> _store_next_index;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

@@ -248,3 +248,21 @@ c133	TEXT	Yes	false	\N	NONE
 
 -- !plain_2 --
 
+-- !count_parquet_0 --
+1062734
+
+-- !count_parquet_1 --
+1062734
+
+-- !count_orc_0 --
+2777636
+
+-- !count_orc_1 --
+2777636
+
+-- !count_text_0 --
+144730
+
+-- !count_text_1 --
+144730
+

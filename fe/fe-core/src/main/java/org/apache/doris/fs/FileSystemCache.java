@@ -53,7 +53,7 @@ public class FileSystemCache {
     }
 
     private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
-        return FileSystemFactory.getByType(key.type, key.conf);
+        return FileSystemFactory.getRemoteFileSystem(key.type, key.conf, key.bindBrokerName);
     }
 
     public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {
@@ -69,11 +69,13 @@ public class FileSystemCache {
         // eg: hdfs://nameservices1
         private final String fsIdent;
         private final JobConf conf;
+        private final String bindBrokerName;
 
-        public FileSystemCacheKey(Pair<FileSystemType, String> fs, JobConf conf) {
+        public FileSystemCacheKey(Pair<FileSystemType, String> fs, JobConf conf, String bindBrokerName) {
             this.type = fs.first;
             this.fsIdent = fs.second;
             this.conf = conf;
+            this.bindBrokerName = bindBrokerName;
         }
 
         @Override
@@ -84,14 +86,21 @@ public class FileSystemCache {
             if (!(obj instanceof FileSystemCacheKey)) {
                 return false;
             }
-            return type.equals(((FileSystemCacheKey) obj).type)
+            boolean equalsWithoutBroker = type.equals(((FileSystemCacheKey) obj).type)
                     && fsIdent.equals(((FileSystemCacheKey) obj).fsIdent)
                     && conf == ((FileSystemCacheKey) obj).conf;
+            if (bindBrokerName == null) {
+                return equalsWithoutBroker;
+            }
+            return equalsWithoutBroker && bindBrokerName.equals(((FileSystemCacheKey) obj).bindBrokerName);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(conf, fsIdent, type);
+            if (bindBrokerName == null) {
+                return Objects.hash(conf, fsIdent, type);
+            }
+            return Objects.hash(conf, fsIdent, type, bindBrokerName);
         }
     }
 }

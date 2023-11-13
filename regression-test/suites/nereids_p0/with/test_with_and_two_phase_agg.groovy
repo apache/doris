@@ -22,21 +22,21 @@ suite("test_with_and_two_phase_agg") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName}(
-            `key1` int not null,
+            `key` int not null,
             `key2` varchar(50) not null,
             `account` varchar(50) not null
         ) ENGINE = OLAP
-        UNIQUE KEY (`key1`, `key2`)
-        DISTRIBUTED BY HASH(`key1`)
+        UNIQUE KEY (`key`, `key2`)
+        DISTRIBUTED BY HASH(`key`)
         PROPERTIES("replication_num" = "1");
     """
     sql """ INSERT INTO ${tableName} VALUES (1, '1332050726', '1332050726'); """
     qt_select """
-                WITH t2 AS( SELECT  sum(`key1`) num, COUNT(DISTINCT `account`) unt
+                WITH t2 AS( SELECT  sum(`key`) num, COUNT(DISTINCT `account`) unt
                 FROM ${tableName}) SELECT num FROM t2;
               """
     qt_select2 """
-                 WITH t2 AS( SELECT `key2`, sum(`key1`) num, COUNT(DISTINCT `account`) unt
+                 WITH t2 AS( SELECT `key2`, sum(`key`) num, COUNT(DISTINCT `account`) unt
                  FROM ${tableName} GROUP BY `key2`) SELECT num FROM t2;
               """
 }

@@ -19,6 +19,7 @@ package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.scheduler.constants.JobType;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.scheduler.job.ExecutorResult;
@@ -70,13 +71,15 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
     @Override
     public void onEvent(TaskEvent event) {
         switch (event.getTaskType()) {
-            case TimerJobTask:
+            case SCHEDULER_JOB_TASK:
+            case MANUAL_JOB_TASK:
                 onTimerJobTaskHandle(event);
                 break;
-            case TransientTask:
+            case TRANSIENT_TASK:
                 onTransientTaskHandle(event);
                 break;
             default:
+                log.warn("unknown task type: {}", event.getTaskType());
                 break;
         }
     }
@@ -90,7 +93,11 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
     public void onTimerJobTaskHandle(TaskEvent taskEvent) {
         long jobId = taskEvent.getId();
         long taskId = taskEvent.getTaskId();
-        long createTimeMs = jobTaskManager.pollPrepareTaskByTaskId(jobId, taskId);
+        JobTask jobTask = jobTaskManager.pollPrepareTaskByTaskId(jobId, taskId);
+        if (jobTask == null) {
+            log.warn("jobTask is null, maybe it's cancel, jobId: {}, taskId: {}", jobId, taskId);
+            return;
+        }
         Job job = timerJobManager.getJob(jobId);
         if (job == null) {
             log.info("job is null, jobId: {}", jobId);
@@ -102,12 +109,12 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
         }
         log.debug("job is running, eventJobId: {}", jobId);
 
-        JobTask jobTask = new JobTask(jobId, taskId, createTimeMs);
+
         try {
             jobTask.setStartTimeMs(System.currentTimeMillis());
-            ExecutorResult result = job.getExecutor().execute(job);
+            ExecutorResult result = job.getExecutor().execute(job, jobTask.getContextData());
             job.setLatestCompleteExecuteTimeMs(System.currentTimeMillis());
-            if (job.isCycleJob()) {
+            if (job.getJobType().equals(JobType.RECURRING)) {
                 updateJobStatusIfPastEndTime(job);
             } else {
                 // one time job should be finished after execute
@@ -117,7 +124,7 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
                 log.warn("Job execute failed, jobId: {}, result is null", jobId);
                 jobTask.setErrorMsg("Job execute failed, result is null");
                 jobTask.setIsSuccessful(false);
-                timerJobManager.pauseJob(jobId);
+                timerJobManager.setJobLatestStatus(jobId, false);
                 return;
             }
             String resultStr = GsonUtils.GSON.toJson(result.getResult());
@@ -125,21 +132,21 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
             jobTask.setIsSuccessful(result.isSuccess());
             if (!result.isSuccess()) {
                 log.warn("Job execute failed, jobId: {}, msg : {}", jobId, result.getExecutorSql());
-                jobTask.setErrorMsg(result.getExecutorSql());
-                timerJobManager.pauseJob(jobId);
+                jobTask.setErrorMsg(result.getErrorMsg());
             }
             jobTask.setExecuteSql(result.getExecutorSql());
         } catch (Exception e) {
             log.warn("Job execute failed, jobId: {}, msg : {}", jobId, e.getMessage());
             jobTask.setErrorMsg(e.getMessage());
             jobTask.setIsSuccessful(false);
-            timerJobManager.pauseJob(jobId);
         }
         jobTask.setEndTimeMs(System.currentTimeMillis());
         if (null == jobTaskManager) {
             jobTaskManager = Env.getCurrentEnv().getJobTaskManager();
         }
-        jobTaskManager.addJobTask(jobTask);
+        boolean isPersistent = job.getJobCategory().isPersistent();
+        jobTaskManager.addJobTask(jobTask, isPersistent);
+        timerJobManager.setJobLatestStatus(jobId, jobTask.getIsSuccessful());
     }
 
     public void onTransientTaskHandle(TaskEvent taskEvent) {
@@ -164,7 +171,7 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
     }
 
     private void updateOnceTimeJobStatus(Job job) {
-        if (job.isStreamingJob()) {
+        if (job.getJobType().equals(JobType.STREAMING)) {
             timerJobManager.putOneJobToQueen(job.getJobId());
             return;
         }

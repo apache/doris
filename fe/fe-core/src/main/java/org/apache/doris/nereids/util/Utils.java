@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
+import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -260,5 +261,18 @@ public class Utils {
 
     public static <T> List<T> copyRequiredMutableList(List<T> list) {
         return Lists.newArrayList(Objects.requireNonNull(list, "non-null list is required"));
+    }
+
+    /**
+     * Normalize the name to lower underscore style, return default name if the name is empty.
+     */
+    public static String normalizeName(String name, String defaultName) {
+        if (StringUtils.isEmpty(name)) {
+            return defaultName;
+        }
+        if (name.contains("$")) {
+            name = name.replace("$", "_");
+        }
+        return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, name);
     }
 }

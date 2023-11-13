@@ -47,7 +47,7 @@ public:
         _init_profile();
     }
 
-    ~BlockSpillWriter() { close(); }
+    ~BlockSpillWriter() { static_cast<void>(close()); }
 
     Status open();
 

@@ -132,8 +132,8 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     The authentication method needs to provide the following information::
     
     * `hadoop.security.authentication`: Specify the authentication method as kerberos.
-    * `kerberos_principal`: Specify the principal of kerberos.
-    * `kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
+    * `hadoop.kerberos.principal`: Specify the principal of kerberos.
+    * `hadoop.kerberos.keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
     * `kerberos_keytab_content`: Specify the content of the keytab file in kerberos after base64 encoding. You can choose one of these with `kerberos_keytab` configuration.
 
     Examples are as follows:
@@ -141,14 +141,14 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     ```
     (
         "hadoop.security.authentication" = "kerberos",
-        "kerberos_principal" = "doris@YOUR.COM",
-        "kerberos_keytab" = "/home/doris/my.keytab"
+        "hadoop.kerberos.principal" = "doris@YOUR.COM",
+        "hadoop.kerberos.keytab" = "/home/doris/my.keytab"
     )
     ```
     ```
     (
         "hadoop.security.authentication" = "kerberos",
-        "kerberos_principal" = "doris@YOUR.COM",
+        "hadoop.kerberos.principal" = "doris@YOUR.COM",
         "kerberos_keytab_content" = "ASDOWHDLAWIDJHWLDKSALDJSDIWALD"
     )
     ```
@@ -182,6 +182,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     
     ```
     (
+        "fs.defaultFS" = "hdfs://my_ha",
         "dfs.nameservices" = "my_ha",
         "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
         "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
@@ -196,6 +197,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     (
         "username"="user",
         "password"="passwd",
+        "fs.defaultFS" = "hdfs://my_ha",
         "dfs.nameservices" = "my_ha",
         "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
         "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",

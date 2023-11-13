@@ -33,7 +33,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 }
 
 class Decompressor;
