@@ -2918,4 +2918,8 @@ public class SessionVariable implements Serializable, Writable {
             throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
         }
     }
+
+    public boolean isEnableInsertGroupCommit() {
+        return enableInsertGroupCommit || Config.wait_internal_group_commit_finish;
+    }
 }

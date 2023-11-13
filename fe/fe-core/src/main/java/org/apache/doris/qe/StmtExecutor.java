@@ -1084,7 +1084,7 @@ public class StmtExecutor {
 
             analyzeVariablesInStmt();
         }
-        if (context.getSessionVariable().enableInsertGroupCommit && parsedStmt instanceof NativeInsertStmt) {
+        if (context.getSessionVariable().isEnableInsertGroupCommit() && parsedStmt instanceof NativeInsertStmt) {
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
             nativeInsertStmt.analyzeGroupCommit(new Analyzer(context.getEnv(), context));
         }

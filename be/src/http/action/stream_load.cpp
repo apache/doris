@@ -188,8 +188,9 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
     ctx->label = req->header(HTTP_LABEL_KEY);
     Status st = Status::OK();
-    if (iequal(req->header(HTTP_GROUP_COMMIT), "true")) {
-        if (!ctx->label.empty()) {
+    if (iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
+        config::wait_internal_group_commit_finish) {
+        if (iequal(req->header(HTTP_GROUP_COMMIT), "true") && !ctx->label.empty()) {
             st = Status::InternalError("label and group_commit can't be set at the same time");
         }
         ctx->group_commit = true;

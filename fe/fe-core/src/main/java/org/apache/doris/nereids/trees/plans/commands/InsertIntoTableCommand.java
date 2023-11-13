@@ -165,7 +165,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
 
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
-        if (ctx.getSessionVariable().enableInsertGroupCommit) {
+        if (ctx.getSessionVariable().isEnableInsertGroupCommit()) {
             // group commit
             if (analyzeGroupCommit(sink, physicalOlapTableSink)) {
                 handleGroupCommit(ctx, sink, physicalOlapTableSink);
@@ -421,7 +421,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     }
 
     private boolean analyzeGroupCommit(OlapTableSink sink, PhysicalOlapTableSink<?> physicalOlapTableSink) {
-        return ConnectContext.get().getSessionVariable().enableInsertGroupCommit
+        return ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
             && physicalOlapTableSink.getTargetTable() instanceof OlapTable
             && !ConnectContext.get().isTxnModel()
             && sink.getFragment().getPlanRoot() instanceof UnionNode
