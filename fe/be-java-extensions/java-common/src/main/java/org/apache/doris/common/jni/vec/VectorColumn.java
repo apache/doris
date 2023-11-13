@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.jni.vec;
 
-
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.utils.TypeNativeBytes;
 import org.apache.doris.common.jni.vec.ColumnType.Type;
@@ -1060,6 +1059,20 @@ public class VectorColumn {
         }
     }
 
+    public void appendBinaryAndOffset(byte[][] batch, boolean isNullable) {
+        reserve(appendIndex + batch.length);
+        for (byte[] v : batch) {
+            byte[] bytes = v;
+            if (bytes == null) {
+                putNull(appendIndex);
+                bytes = new byte[0];
+            }
+            int startOffset = childColumns[0].appendBytes(bytes, 0, bytes.length);
+            OffHeap.putInt(null, offsets + 4L * appendIndex, startOffset + bytes.length);
+            appendIndex++;
+        }
+    }
+
     public byte[] getBytesWithOffset(int rowId) {
         long endOffsetAddress = offsets + 4L * rowId;
         int startOffset = rowId == 0 ? 0 : OffHeap.getInt(null, endOffsetAddress - 4);
@@ -1391,7 +1404,11 @@ public class VectorColumn {
             case CHAR:
             case VARCHAR:
             case STRING:
-                appendStringAndOffset((String[]) batch, isNullable);
+                if (batch instanceof String[]) {
+                    appendStringAndOffset((String[]) batch, isNullable);
+                } else {
+                    appendBinaryAndOffset((byte[][]) batch, isNullable);
+                }
                 break;
             case ARRAY:
                 appendArray((List<Object>[]) batch, isNullable);

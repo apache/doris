@@ -43,11 +43,13 @@ public class JdbcClickHouseClient extends JdbcClient {
         String ckType = fieldSchema.getDataTypeName();
 
         if (ckType.startsWith("LowCardinality")) {
+            fieldSchema.setAllowNull(true);
             ckType = ckType.substring(15, ckType.length() - 1);
             if (ckType.startsWith("Nullable")) {
                 ckType = ckType.substring(9, ckType.length() - 1);
             }
         } else if (ckType.startsWith("Nullable")) {
+            fieldSchema.setAllowNull(true);
             ckType = ckType.substring(9, ckType.length() - 1);
         }
 
