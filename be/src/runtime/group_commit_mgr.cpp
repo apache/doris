@@ -31,7 +31,7 @@ namespace doris {
 
 Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block) {
     DCHECK(block->get_schema_version() == schema_version);
-    std::unique_lock l(*_mutex);
+    std::unique_lock l(mutex);
     RETURN_IF_ERROR(_status);
     while (*_all_block_queues_bytes > config::group_commit_max_queue_size) {
         _put_cond.wait_for(
@@ -49,7 +49,7 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block)
 Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, bool* eos) {
     *find_block = false;
     *eos = false;
-    std::unique_lock l(*_mutex);
+    std::unique_lock l(mutex);
     if (!need_commit) {
         auto left_milliseconds = config::group_commit_interval_ms -
                                  std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -99,7 +99,7 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
 }
 
 void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
-    std::unique_lock l(*_mutex);
+    std::unique_lock l(mutex);
     if (_load_ids.find(load_id) != _load_ids.end()) {
         _load_ids.erase(load_id);
         _get_cond.notify_all();
@@ -107,7 +107,7 @@ void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
 }
 
 Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
-    std::unique_lock l(*_mutex);
+    std::unique_lock l(mutex);
     if (need_commit) {
         return Status::InternalError("block queue is set need commit, id=" +
                                      load_instance_id.to_string());
@@ -118,7 +118,7 @@ Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
 
 void LoadBlockQueue::cancel(const Status& st) {
     DCHECK(!st.ok());
-    std::unique_lock l(*_mutex);
+    std::unique_lock l(mutex);
     _status = st;
     while (!_block_queue.empty()) {
         {
@@ -250,7 +250,8 @@ Status GroupCommitTable::_create_group_commit_load(
                << ", is_pipeline=" << is_pipeline;
     {
         load_block_queue = std::make_shared<LoadBlockQueue>(
-                instance_id, label, txn_id, schema_version, _all_block_queues_bytes);
+                instance_id, label, txn_id, schema_version, _all_block_queues_bytes,
+                result.wait_internal_group_commit_finish);
         std::unique_lock l(_lock);
         _load_block_queues.emplace(instance_id, load_block_queue);
         _need_plan_fragment = false;
@@ -269,16 +270,6 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                                                    const std::string& label, int64_t txn_id,
                                                    const TUniqueId& instance_id, Status& status,
                                                    bool prepare_failed, RuntimeState* state) {
-    {
-        std::lock_guard<doris::Mutex> l(_lock);
-        if (prepare_failed || !status.ok()) {
-            auto it = _load_block_queues.find(instance_id);
-            if (it != _load_block_queues.end()) {
-                it->second->cancel(status);
-            }
-        }
-        _load_block_queues.erase(instance_id);
-    }
     Status st;
     Status result_status;
     if (status.ok()) {
@@ -316,6 +307,21 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 },
                 10000L);
         result_status = Status::create(result.status);
+    }
+    {
+        std::lock_guard<doris::Mutex> l(_lock);
+        auto it = _load_block_queues.find(instance_id);
+        if (it != _load_block_queues.end()) {
+            auto& load_block_queue = it->second;
+            if (prepare_failed || !status.ok()) {
+                load_block_queue->cancel(status);
+            }
+            if (load_block_queue->wait_internal_group_commit_finish) {
+                std::unique_lock l2(load_block_queue->mutex);
+                load_block_queue->internal_group_commit_finish_cv.notify_all();
+            }
+        }
+        _load_block_queues.erase(instance_id);
     }
     if (!st.ok()) {
         LOG(WARNING) << "request finish error, db_id=" << db_id << ", table_id=" << table_id
