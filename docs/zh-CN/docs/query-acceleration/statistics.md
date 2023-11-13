@@ -56,8 +56,7 @@ Doris支持用户通过提交ANALYZE语句来手动触发统计信息的收集�
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name > 
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
-    [ PROPERTIES ("key" = "value", ...) ];
+    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] ];
 ```
 
 其中：
@@ -66,7 +65,6 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回JOB ID。
 - sample percent | rows：抽样收集统计信息。可以指定抽样比例或者抽样行数。
-- sql：执行sql来收集外表分区列统计信息。默认从元数据收集分区列信息，这样效率比较高但是行数和数据量大小可能不准。用户可以指定使用sql来收集，这样可以收集到准确的分区列信息。
 
 
 下面是一些例子
@@ -92,6 +90,13 @@ ANALYZE TABLE lineitem WITH SAMPLE ROWS 100000;
 统计信息的收集作业本身需要占用一定的系统资源，为了尽可能降低开销，对于数据量较大（默认为5GiB，可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为）的表，Doris会自动采取采样的方式去收集，自动采样默认采样4194304(2^22)行，以尽可能降低对系统造成的负担并尽快完成收集作业。如果希望采样更多的行以获得更准确的数据分布信息，可通过调整参数`huge_table_default_sample_rows`增大采样行数。另外对于数据量大于`huge_table_lower_bound_size_in_bytes` * 5 的表，Doris保证其收集时间间隔不小于12小时（该时间可通过调整参数`huge_table_auto_analyze_interval_in_millis`控制）。
 
 如果担心自动收集作业对业务造成干扰，可结合自身需求通过设置参数`full_auto_analyze_start_time`和参数`full_auto_analyze_end_time`指定自动收集作业在业务负载较低的时间段执行。也可以通过设置参数`enable_full_auto_analyze` 为`false`来彻底关闭本功能。
+
+External catalog 默认不参与自动收集。因为 external catalog 往往包含海量历史数据，如果参与自动收集，可能占用过多资源。可以通过设置 catalog 的 property 来打开和关闭 external catalog 的自动收集。
+
+```sql
+ALTER CATALOG external_catalog SET PROPERTIES ('enable.auto.analyze'='true'); // 打开自动收集
+ALTER CATALOG external_catalog SET PROPERTIES ('enable.auto.analyze'='false'); // 关闭自动收集
+```
 
 <br />
 
