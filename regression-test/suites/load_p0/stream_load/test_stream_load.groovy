@@ -54,7 +54,7 @@ suite("test_stream_load", "p0") {
         DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
-    
+
     // test strict_mode success
     streamLoad {
         table "${tableName}"
@@ -370,7 +370,7 @@ suite("test_stream_load", "p0") {
         }
     }
     sql "sync"
-    qt_num_as_string "SELECT * FROM ${tableName12}"
+    order_qt_num_as_string "SELECT * FROM ${tableName12} order by k1"
 
     sql """truncate table ${tableName12}"""
     sql """sync"""
@@ -395,7 +395,7 @@ suite("test_stream_load", "p0") {
         }
     }
     sql "sync"
-    qt_num_as_string_false "SELECT * FROM ${tableName12}"
+    qt_num_as_string_false "SELECT * FROM ${tableName12} order by k1"
 
     // load map with specific-length char with non-specific-length data
     streamLoad {
@@ -418,7 +418,7 @@ suite("test_stream_load", "p0") {
         }
     }
     sql "sync"
-    order_qt_map11 "SELECT * FROM ${tableName11} order by k1" 
+    order_qt_map11 "SELECT * FROM ${tableName11} order by k1"
 
     // load all columns
     streamLoad {
@@ -934,7 +934,7 @@ suite("test_stream_load", "p0") {
             assertEquals(5, json.NumberUnselectedRows)
         }
     }
-    
+
     sql "sync"
     order_qt_sql1 "select * from ${tableName9} order by k1, k2"
 
@@ -959,7 +959,7 @@ suite("test_stream_load", "p0") {
         DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
-    
+
     sql """create USER common_user@'%' IDENTIFIED BY '123456'"""
     sql """GRANT LOAD_PRIV ON *.* TO 'common_user'@'%';"""
 
@@ -986,7 +986,7 @@ suite("test_stream_load", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    
+
     sql "sync"
     sql """DROP USER 'common_user'@'%'"""
 
@@ -1045,7 +1045,7 @@ suite("test_stream_load", "p0") {
 
     // invalid file format
     streamLoad {
-        table "${tableName12}"
+        table "${tableName8}"
 
         set 'format', 'txt'
         file 'array_malformat.csv'
@@ -1062,7 +1062,7 @@ suite("test_stream_load", "p0") {
             assert json.Message.contains("unknown data format")
         }
     }
-    
+
     sql "sync"
     def res = sql "select * from ${tableName14}"
     def time = res[0][5].toString().split("T")[0].split("-")
@@ -1145,7 +1145,7 @@ suite("test_stream_load", "p0") {
             PROPERTIES ("replication_allocation" = "tag.location.default: 1");
         """
 
-        def label = UUID.randomUUID().toString().replaceAll("-", "") 
+        def label = UUID.randomUUID().toString().replaceAll("-", "")
         streamLoad {
             table "${tableName15}"
 
@@ -1199,7 +1199,7 @@ suite("test_stream_load", "p0") {
         }
 
         do_streamload_2pc.call(label, "commit")
-        
+
         def count = 0
         while (true) {
             res = sql "select count(*) from ${tableName15}"
