@@ -177,7 +177,7 @@ public:
     }
 
     std::shared_ptr<TabletSchema> tablet_schema(int64_t index_id) const {
-        return _tablet_schema_for_index->at(index_id);
+        return (*_tablet_schema_for_index)[index_id];
     }
 
     bool enable_unique_mow(int64_t index_id) const {

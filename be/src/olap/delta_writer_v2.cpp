@@ -100,6 +100,9 @@ Status DeltaWriterV2::init() {
         return Status::OK();
     }
     // build tablet schema in request level
+    if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
+        return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
+    }
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param,
                                  *_streams[0]->tablet_schema(_req.index_id));
     RowsetWriterContext context;
