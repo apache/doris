@@ -156,19 +156,15 @@ class SuiteCluster {
 
     final String name
     final Config config
-    private boolean inited
+    private boolean running
 
     SuiteCluster(String name, Config config) {
         this.name = name
         this.config = config
-        this.inited = false
+        this.running = false
     }
 
     void init(ClusterOptions options) {
-        if (inited) {
-            return
-        }
-
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
@@ -192,7 +188,7 @@ class SuiteCluster {
             options.beConfigs.forEach(item -> sb.append(' ' + item + ' '))
         }
         if (options.beDisks != null) {
-            sb.append('--be-disks ' + options.beDisks.join(" ") + ' ')
+            sb.append('--be-disks ' + options.beDisks.join(' ') + ' ')
         }
         sb.append('--wait-timeout 180')
 
@@ -201,7 +197,7 @@ class SuiteCluster {
         // wait be report disk
         Thread.sleep(5000)
 
-        inited = true
+        running = true
     }
 
     void injectDebugPoints(NodeType type, Map<String, Map<String, String>> injectPoints) {
@@ -326,12 +322,19 @@ class SuiteCluster {
     }
 
     void destroy(boolean clean) throws Exception {
-        def cmd = 'down ' + name
-        if (clean) {
-            cmd += ' --clean'
+        try {
+            def cmd = 'down ' + name
+            if (clean) {
+                cmd += ' --clean'
+            }
+            runCmd(cmd)
+        } finally {
+            running = false
         }
-        runCmd(cmd)
-        inited = false
+    }
+
+    boolean isRunning() {
+        return running
     }
 
     // if not specific fe indices, then start all frontends
@@ -430,7 +433,7 @@ class SuiteCluster {
     }
 
     private void waitHbChanged() {
-        Thread.sleep(6000)
+        Thread.sleep(7000)
     }
 
     private void runFrontendsCmd(String op, int... indices) {

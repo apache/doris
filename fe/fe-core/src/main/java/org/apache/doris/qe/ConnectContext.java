@@ -699,6 +699,10 @@ public class ConnectContext {
         }
     }
 
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
+
     public String traceId() {
         return traceId;
     }

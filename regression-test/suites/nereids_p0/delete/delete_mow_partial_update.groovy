@@ -77,7 +77,7 @@ suite('nereids_delete_mow_partial_update') {
             `k1` int NOT NULL,
             `c1` int,
             `c2` int,
-            `c3` int,
+            `c3` int NOT NULL,
             `c4` int
             )UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
