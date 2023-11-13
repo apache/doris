@@ -47,6 +47,7 @@ import java.io.PrintWriter;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
@@ -367,4 +368,27 @@ public class RepositoryTest {
         Assert.assertEquals("hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5", path);
     }
 
+    @Test
+    public void testSerialization() throws IOException, AnalysisException {
+        // 1. Write objects to file
+        final Path path = Files.createTempFile("repository", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        Repository repo1 = new Repository(10000, "repo", false, location, fileSystem);
+
+        repo1.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        Repository repo2 = Repository.read(in);
+
+        Assert.assertEquals(repo1.getId(), repo2.getId());
+
+        // 3. delete files
+        in.close();
+        Files.delete(path);
+    }
 }

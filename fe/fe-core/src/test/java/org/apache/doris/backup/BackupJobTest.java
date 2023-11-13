@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -58,6 +59,8 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -352,5 +355,34 @@ public class BackupJobTest {
         job.run();
         Assert.assertEquals(Status.ErrCode.NOT_FOUND, job.getStatus().getErrCode());
         Assert.assertEquals(BackupJobState.CANCELLED, job.getState());
+    }
+
+    @Test
+    public void testSerialization() throws IOException, AnalysisException {
+        // 1. Write objects to file
+        final Path path = Files.createTempFile("backupJob", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        List<TableRef> tableRefs = Lists.newArrayList();
+        tableRefs.add(
+            new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
+                null));
+        BackupJob backupJob1 = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
+            env, repo.getId());
+
+        backupJob1.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        BackupJob backupJob2 = BackupJob.read(in);
+
+        Assert.assertEquals(backupJob1.getJobId(), backupJob2.getJobId());
+
+        // 3. delete files
+        in.close();
+        Files.delete(path);
     }
 }
