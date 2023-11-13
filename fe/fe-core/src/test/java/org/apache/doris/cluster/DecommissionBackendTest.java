@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableMap;
@@ -143,15 +144,21 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 1. create connect context
         connectContext = createDefaultCtx();
 
-        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
+
+        ImmutableMap<Long, Backend> idToBackendRef = infoService.getIdToBackend();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
         // 2. create database db2
         createDatabase("db2");
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
+        long availableBeNum = infoService.getAllBackendIds(true).stream()
+                .filter(beId -> infoService.checkBackendScheduleAvailable(beId)).count();
+
         // 3. create table tbl1 tbl2
-        createTable("create table db2.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '2');");
+        createTable("create table db2.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '"
+                + availableBeNum + "');");
         createTable("create table db2.tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
         // 4. query tablet num
