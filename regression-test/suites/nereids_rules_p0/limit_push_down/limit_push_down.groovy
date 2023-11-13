@@ -43,14 +43,25 @@ suite("limit_push_down") {
     qt_cross_join """ explain shape plan SELECT t1.id FROM t1 CROSS JOIN t2 LIMIT 1; """
     //`limit 1 offset 1, join`:
     qt_limit_offset_join """ explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id LIMIT 1 OFFSET 1; """
-    //`limit 1, agg & scalar agg and having`:
-    qt_limit_agg_having """ explain shape plan SELECT COUNT(t1.id) FROM t1 LIMIT 1; """
-    //`limit 1 offset 1, agg & scalar agg and having`:
-    qt_limit_offset_agg_having """ explain shape plan SELECT  COUNT(distinct id) c FROM t1 ORDER BY c LIMIT 1 OFFSET 1; """
+    //`limit 1, agg & scalar agg:
+    qt_limit_distinct """ explain shape plan SELECT distinct t1.id FROM t1 LIMIT 1; """
+    //`limit 1 offset 1, agg & scalar agg`:
+    qt_limit_offset_agg """ explain shape plan SELECT distinct t1.id c FROM t1 ORDER BY c LIMIT 1 OFFSET 1; """
+    //`limit 1, agg & scalar agg join:
+    qt_limit_distinct """ explain shape plan SELECT distinct t1.id FROM t1 inner join t2 on true LIMIT 1; """
+    //`limit 1, agg & scalar agg join:
+    qt_limit_distinct """ explain shape plan SELECT distinct t1.id FROM t1 cross join t2 LIMIT 1; """
+    //`limit 1, agg & scalar agg left outer join:
+    qt_limit_distinct """ explain shape plan SELECT distinct t1.id FROM t1 left outer join t2 on t1.id = t2.id LIMIT 1; """
+    //`limit 1, agg & scalar agg right outer join:
+    qt_limit_distinct """ explain shape plan SELECT distinct t1.id FROM t1 left outer join t2 on t1.id = t2.id LIMIT 1; """
+    
+    //`limit 1 offset 1, agg & scalar agg`:
+    qt_limit_offset_agg """ explain shape plan SELECT distinct t1.id c FROM t1 ORDER BY c LIMIT 1 OFFSET 1; """
     //`limit 1, Set Operation`:
-    qt_limit_set_operation """ explain shape plan SELECT t1.id FROM t1 UNION SELECT t2.id FROM t2 LIMIT 1; """
+    qt_limit_set_operation """ explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION SELECT t2.id FROM t2) u LIMIT 1; """
     //`limit 1 offset 1, Set Operation`:
-    qt_limit_offset_set_operation """ explain shape plan SELECT t1.id FROM t1 INTERSECT SELECT t2.id FROM t2 LIMIT 1 OFFSET 1; """
+    qt_limit_offset_set_operation """ explain shape plan SELECT * FROM (SELECT t1.id FROM t1 INTERSECT SELECT t2.id FROM t2) u LIMIT 1 OFFSET 1; """
     //`limit 1, window`:
     qt_limit_window """ explain shape plan SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t1 LIMIT 1; """
     //`limit 1 offset 1, window`:
@@ -74,11 +85,11 @@ suite("limit_push_down") {
     // `limit 1, nested subquery`:
     qt_limit_nested_subquery """explain shape plan SELECT * FROM (SELECT * FROM (SELECT t1.id FROM t1) AS subq1) AS subq2 LIMIT 1;"""
     // `limit 1, union, filter`:
-    qt_limit_union_filter """explain shape plan SELECT t1.id FROM t1 WHERE t1.id > 100 UNION SELECT t2.id FROM t2 WHERE t2.id > 100 LIMIT 1;"""
+    qt_limit_union_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 WHERE t1.id > 100 UNION SELECT t2.id FROM t2 WHERE t2.id > 100) u LIMIT 1;"""
     // `limit 1, union, join`:
-    qt_limit_union_join """explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id UNION SELECT t3.id FROM t3 JOIN t4 ON t3.id = t4.id LIMIT 1;"""
+    qt_limit_union_join """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id UNION SELECT t3.id FROM t3 LEFT OUTER JOIN t4 ON t3.id = t4.id) u LIMIT 1;"""
     // `limit 1, union, window`:
-    qt_limit_union_window """explain shape plan SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t1 UNION SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t2 LIMIT 1;"""
+    qt_limit_union_window """explain shape plan SELECT * FROM (SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t1 UNION SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t2) u LIMIT 1;"""
     // `limit 1, subquery, join, filter`:
     qt_limit_subquery_join_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id > 100) AS subq LIMIT 1;"""
 
@@ -133,15 +144,6 @@ suite("limit_push_down") {
     // `limit 1, nested subquery`:
     qt_limit_nested_subquery """explain shape plan SELECT * FROM (SELECT * FROM (SELECT t1.id FROM t1) AS subq1) AS subq2 LIMIT 1;"""
 
-    // `limit 1, union, filter`:
-    qt_limit_union_filter """explain shape plan SELECT t1.id FROM t1 WHERE t1.id > 100 UNION SELECT t2.id FROM t2 WHERE t2.id > 100 LIMIT 1;"""
-
-    // `limit 1, union, join`:
-    qt_limit_union_join """explain shape plan SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id UNION SELECT t3.id FROM t3 JOIN t4 ON t3.id = t4.id LIMIT 1;"""
-
-    // `limit 1, union, window`:
-    qt_limit_union_window """explain shape plan SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t1 UNION SELECT id, msg, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM t2 LIMIT 1;"""
-
     // `limit 1, subquery, order by`:
     qt_limit_subquery_order_by """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 ORDER BY t1.id DESC) AS subq LIMIT 1;"""
 
@@ -150,4 +152,52 @@ suite("limit_push_down") {
 
     // `limit 1, subquery, distinct`:
     qt_limit_subquery_distinct """explain shape plan SELECT DISTINCT subq.id FROM (SELECT id FROM t1) AS subq LIMIT 1;"""
+
+    // `limit 1, cross join`:
+    qt_limit_cross_join """explain shape plan SELECT t1.id FROM t1 INNER JOIN t2 on true LIMIT 1;"""
+
+    // `limit 1, multiple left outer join`:
+    qt_limit_multiple_left_outer_join """explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id LEFT OUTER JOIN t3 ON t1.id = t3.id LIMIT 1;"""
+
+    // `limit 1, multiple right outer join`:
+    qt_limit_multiple_right_outer_join """explain shape plan SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id RIGHT OUTER JOIN t3 ON t1.id = t3.id LIMIT 1;"""
+
+    // `limit 1, multiple full outer join`:
+    qt_limit_multiple_full_outer_join """explain shape plan SELECT t1.id FROM t1 FULL OUTER JOIN t2 ON t1.id = t2.id FULL OUTER JOIN t3 ON t1.id = t3.id LIMIT 1;"""
+
+    // `limit 1, multiple cross join`:
+    qt_limit_multiple_cross_join """explain shape plan SELECT t1.id FROM t1 CROSS JOIN t2 CROSS JOIN t3 LIMIT 1;"""
+
+    // `limit 1, left outer join, right outer join`:
+    qt_limit_left_outer_join_right_outer_join """explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id RIGHT OUTER JOIN t3 ON t1.id = t3.id LIMIT 1;"""
+
+    // `limit 1, left outer join, full outer join`:
+    qt_limit_left_outer_join_full_outer_join """explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id FULL OUTER JOIN t3 ON t1.id = t3.id LIMIT 1;"""
+
+    // `limit 1, left outer join, cross join`:
+    qt_limit_left_outer_join_cross_join """explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id CROSS JOIN t3 LIMIT 1;"""
+
+    // `limit 1, right outer join, full outer join`:
+    qt_limit_right_outer_join_full_outer_join """explain shape plan SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id FULL OUTER JOIN t3 ON t1.id = t3.id LIMIT 1;"""
+
+    // `limit 1, right outer join, cross join`:
+    qt_limit_right_outer_join_cross_join """explain shape plan SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id CROSS JOIN t3 LIMIT 1;"""
+
+    // `limit 1, full outer join, cross join`:
+    qt_limit_full_outer_join_cross_join """explain shape plan SELECT t1.id FROM t1 FULL OUTER JOIN t2 ON t1.id = t2.id CROSS JOIN t3 LIMIT 1;"""
+
+    // `limit 1, left outer join, right outer join, full outer join`:
+    qt_limit_left_outer_join_right_outer_join_full_outer_join """explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id RIGHT OUTER JOIN t3 ON t1.id = t3.id FULL OUTER JOIN t4 ON t1.id = t4.id LIMIT 1;"""
+
+    // `limit 1, left outer join, right outer join, cross join`:
+    qt_limit_left_outer_join_right_outer_join_cross_join """explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id RIGHT OUTER JOIN t3 ON t1.id = t3.id CROSS JOIN t4 LIMIT 1;"""
+
+    // `limit 1, left outer join, full outer join, cross join`:
+    qt_limit_left_outer_join_full_outer_join_cross_join """explain shape plan SELECT t1.id FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id FULL OUTER JOIN t3 ON t1.id = t3.id CROSS JOIN t4 LIMIT 1;"""
+
+    // `limit 1, right outer join, full outer join, cross join`:
+    qt_limit_right_outer_join_full_outer_join_cross_join """explain shape plan SELECT t1.id FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id FULL OUTER JOIN t3 ON t1.id = t3.id CROSS JOIN t4 LIMIT 1;"""
+
+    // `limit 1, left outer join, right outer join, full outer join, cross join`:
+    qt_limit_left_outer_join_right_outer_join_full_outer_join_cross_join """explain shape plan SELECT * FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id RIGHT OUTER JOIN t3 ON t1.id = t3.id FULL OUTER JOIN t4 ON t1.id = t4.id inner JOIN t4 on TRUE LIMIT 1;"""
 }
