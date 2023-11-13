@@ -94,7 +94,7 @@ suite("limit_push_down") {
     qt_limit_subquery_join_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id > 100) AS subq LIMIT 1;"""
 
     // `limit 1, subquery, join, window`:
-    qt_limit_subquery_join_window """explain shape plan SELECT id, msg, ROW_NUMBER() OVER (PARTITION BY subq.id ORDER BY subq.id) AS row_num FROM (SELECT t1.id, t1.msg FROM t1 JOIN t2 ON t1.id = t2.id) AS subq LIMIT 1;"""
+    qt_limit_subquery_join_window """explain shape plan SELECT id, msg, ROW_NUMBER() OVER (PARTITION BY subq.id ORDER BY subq.id) AS row_num FROM (SELECT t1.id, t1.msg FROM t1 left outer JOIN t2 ON t1.id = t2.id) AS subq LIMIT 1;"""
 
     // `limit 1, subquery, union, filter`:
     qt_limit_subquery_union_filter """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 WHERE t1.id > 100 UNION SELECT t2.id FROM t2 WHERE t2.id > 100) AS subq LIMIT 1;"""

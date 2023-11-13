@@ -146,66 +146,93 @@ PhysicalResultSink
 -- !limit_sort_agg_having --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------hashAgg[DISTINCT_GLOBAL]
---------PhysicalDistribute
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
 
 -- !limit_offset_agg_having --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------hashAgg[DISTINCT_GLOBAL]
---------PhysicalDistribute
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
 
 -- !limit_offset_sort_agg_having --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------hashAgg[DISTINCT_GLOBAL]
---------PhysicalDistribute
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
 
--- !limit_sort_set_operation --
+-- !limit_distinct --
 PhysicalResultSink
---PhysicalDistribute
-----PhysicalUnion
-------PhysicalDistribute
---------PhysicalProject
-----------PhysicalOlapScan[t1]
-------PhysicalDistribute
---------PhysicalTopN[MERGE_SORT]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[GLOBAL]
 ----------PhysicalDistribute
-------------PhysicalTopN[LOCAL_SORT]
+------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----------------NestedLoopJoin[INNER_JOIN]TRUE
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
 
--- !limit_offset_sort_set_operation --
+-- !limit_distinct --
 PhysicalResultSink
---PhysicalDistribute
-----PhysicalExcept
-------PhysicalDistribute
---------PhysicalProject
-----------PhysicalOlapScan[t1]
-------PhysicalDistribute
---------PhysicalTopN[MERGE_SORT]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[GLOBAL]
 ----------PhysicalDistribute
-------------PhysicalTopN[LOCAL_SORT]
+------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----------------NestedLoopJoin[CROSS_JOIN]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+
+-- !limit_distinct --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+
+-- !limit_distinct --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
 
 -- !limit_window --
 PhysicalResultSink
@@ -266,4 +293,650 @@ PhysicalResultSink
 --------PhysicalProject
 ----------filter((t1.id = 1))
 ------------PhysicalOlapScan[t1]
+
+-- !limit_subquery_order_by --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+
+-- !limit_subquery_order_by --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+
+-- !limit_set_operation --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
+
+-- !limit_outside_order_inside_set_operation --
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalDistribute
+------PhysicalLimit[LOCAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
+
+-- !limit_inside_set_operation --
+PhysicalResultSink
+--PhysicalDistribute
+----hashAgg[LOCAL]
+------PhysicalUnion
+--------PhysicalDistribute
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalTopN[MERGE_SORT]
+------------PhysicalDistribute
+--------------PhysicalTopN[LOCAL_SORT]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+
+-- !limit_offset_set_operation --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalIntersect
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t1]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t2]
+
+-- !limit_window --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalWindow
+--------PhysicalQuickSort
+----------PhysicalDistribute
+------------PhysicalQuickSort
+--------------PhysicalOlapScan[t1]
+
+-- !limit_offset_window --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalWindow
+--------PhysicalQuickSort
+----------PhysicalDistribute
+------------PhysicalQuickSort
+--------------PhysicalOlapScan[t1]
+
+-- !limit_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1]
+
+-- !limit_offset_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1]
+
+-- !limit_project_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------filter((t1.id > 100))
+------------PhysicalOlapScan[t1]
+
+-- !limit_join_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------PhysicalProject
+--------------filter((t1.id > 100))
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((t2.id > 100))
+------------------PhysicalOlapScan[t2]
+
+-- !limit_subquery --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+
+-- !limit_subquery_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------filter((t1.id > 100))
+------------PhysicalOlapScan[t1]
+
+-- !limit_subquery_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------PhysicalProject
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
+
+-- !limit_subquery_window --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalWindow
+--------PhysicalQuickSort
+----------PhysicalDistribute
+------------PhysicalQuickSort
+--------------PhysicalOlapScan[t1]
+
+-- !limit_nested_subquery --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+
+-- !limit_union_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((t1.id > 100))
+------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((t2.id > 100))
+------------------PhysicalOlapScan[t2]
+
+-- !limit_union_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id))otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t4]
+
+-- !limit_union_window --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------PhysicalWindow
+----------------PhysicalQuickSort
+------------------PhysicalDistribute
+--------------------PhysicalQuickSort
+----------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalWindow
+----------------PhysicalQuickSort
+------------------PhysicalDistribute
+--------------------PhysicalQuickSort
+----------------------PhysicalOlapScan[t2]
+
+-- !limit_subquery_join_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------PhysicalProject
+--------------filter((t1.id > 100))
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((t2.id > 100))
+------------------PhysicalOlapScan[t2]
+
+-- !limit_subqueryjoin_window --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalWindow
+----------PhysicalQuickSort
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+
+-- !limit_subquery_union_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((t1.id > 100))
+------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((t2.id > 100))
+------------------PhysicalOlapScan[t2]
+
+-- !limit_subquery_union_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id))otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t4]
+
+-- !limit_subquery_union_window --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalWindow
+----------PhysicalQuickSort
+------------PhysicalDistribute
+--------------hashAgg[LOCAL]
+----------------PhysicalUnion
+------------------PhysicalDistribute
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute
+--------------------PhysicalOlapScan[t2]
+
+-- !limit_correlated_subquery --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.id = t1.id))otherCondition=()
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalProject
+------------PhysicalOlapScan[t2]
+
+-- !limit_correlated_subquery_join --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.id = t1.id))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------PhysicalProject
+------------PhysicalOlapScan[t3]
+
+-- !limit_correlated_subquery_window --
+PhysicalResultSink
+--PhysicalQuickSort
+----PhysicalDistribute
+------PhysicalQuickSort
+--------PhysicalWindow
+----------PhysicalQuickSort
+------------PhysicalProject
+--------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.id = t1.id))otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+
+-- !limit_cte_query --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------filter((t1.id < 10))
+------------PhysicalOlapScan[t1]
+
+-- !limit_cte_outside_query --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalTopN[MERGE_SORT]
+------PhysicalDistribute
+--------PhysicalTopN[LOCAL_SORT]
+----------PhysicalProject
+------------filter((t1.id < 10))
+--------------PhysicalOlapScan[t1]
+
+-- !limit_cte_outside_query --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalTopN[MERGE_SORT]
+------PhysicalDistribute
+--------PhysicalTopN[LOCAL_SORT]
+----------PhysicalProject
+------------filter((t1.id < 10))
+--------------PhysicalOlapScan[t1]
+
+-- !limit_cte_query_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[FULL_OUTER_JOIN] hashCondition=((cte1.id = cte2.id))otherCondition=()
+------------PhysicalProject
+--------------filter((t1.id < 10))
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((t2.id < 10))
+------------------PhysicalOlapScan[t2]
+
+-- !limit_cte_query_window --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalProject
+--------PhysicalWindow
+----------PhysicalQuickSort
+------------PhysicalDistribute
+--------------PhysicalQuickSort
+----------------PhysicalProject
+------------------filter((t1.id < 10))
+--------------------PhysicalOlapScan[t1]
+
+-- !limit_project_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------filter((t1.id > 100))
+------------PhysicalOlapScan[t1]
+
+-- !limit_join_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------PhysicalProject
+--------------filter((t1.id > 100))
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((t2.id > 100))
+------------------PhysicalOlapScan[t2]
+
+-- !limit_subquery_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------PhysicalProject
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
+
+-- !limit_subquery_window --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalProject
+--------PhysicalWindow
+----------PhysicalQuickSort
+------------PhysicalDistribute
+--------------PhysicalQuickSort
+----------------PhysicalProject
+------------------PhysicalOlapScan[t1]
+
+-- !limit_nested_subquery --
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalDistribute
+------PhysicalLimit[LOCAL]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+
+-- !limit_subquery_distinct --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
+
+-- !limit_cross_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------NestedLoopJoin[INNER_JOIN]TRUE
+------------PhysicalProject
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
+
+-- !limit_multiple_left_outer_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+----------PhysicalTopN[MERGE_SORT]
+------------PhysicalTopN[LOCAL_SORT]
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------------PhysicalTopN[MERGE_SORT]
+--------------------PhysicalDistribute
+----------------------PhysicalTopN[LOCAL_SORT]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t3]
+
+-- !limit_multiple_right_outer_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t3]
+
+-- !limit_multiple_full_outerjoin --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t3]
+
+-- !limit_subquery_cross_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------NestedLoopJoin[CROSS_JOIN]
+------------PhysicalOlapScan[t2]
+------------PhysicalDistribute
+--------------PhysicalTopN[MERGE_SORT]
+----------------PhysicalDistribute
+------------------PhysicalTopN[LOCAL_SORT]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1]
+
+-- !limit_subquery_multiple_join --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[INNER_JOIN] hashCondition=((subq.id = t3.id))otherCondition=()
+------------hashJoin[INNER_JOIN] hashCondition=((subq.id = t2.id))otherCondition=()
+--------------PhysicalOlapScan[t2]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalOlapScan[t3]
+
+-- !limit_subquery_multiple_join_nested_subquery --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t3.id))otherCondition=()
+------------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t2.id))otherCondition=()
+--------------PhysicalOlapScan[t2]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalOlapScan[t3]
+
+-- !limit_subquery_multiple_join_nested_subquery_distinct --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t2.id))otherCondition=()
+--------------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t3.id))otherCondition=()
+----------------PhysicalProject
+------------------PhysicalOlapScan[t1]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+
+-- !limit_subquery_multiple_join_nested_subquery_distinct_filter --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t2.id))otherCondition=()
+--------------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t3.id))otherCondition=()
+----------------PhysicalProject
+------------------filter((t1.id > 100))
+--------------------PhysicalOlapScan[t1]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------filter((t3.id > 100))
+----------------------PhysicalOlapScan[t3]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------filter((t2.id > 100))
+--------------------PhysicalOlapScan[t2]
 
