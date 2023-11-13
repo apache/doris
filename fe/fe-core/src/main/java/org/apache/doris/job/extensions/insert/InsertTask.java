@@ -53,8 +53,8 @@ public class InsertTask extends AbstractTask {
 
     @Override
     public void run() {
-        //insertIntoState = command.
-        System.out.println(getJobId() + "InsertTask run" + TimeUtils.longToTimeString(System.currentTimeMillis()));
+        //just for test
+        log.info(getJobId() + "InsertTask run" + TimeUtils.longToTimeString(System.currentTimeMillis()));
     }
 
     @Override
