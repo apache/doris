@@ -19,6 +19,7 @@ suite("order_push_down") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "use regression_test_nereids_rules_p0"
+    sql """ SET inline_cte_referenced_threshold=0 """
     //`limit 1 offset 1 + sort, project`:
     qt_limit_offset_sort_project """ explain shape plan SELECT t1.id FROM t1 ORDER BY id LIMIT 1 OFFSET 1; """
     //`limit 1 + sort, join`:
@@ -67,9 +68,9 @@ suite("order_push_down") {
     //`limit 1 offset 1 + sort, filter`:
     qt_limit_offset_sort_filter """ explain shape plan SELECT t1.id FROM t1 WHERE id = 1 ORDER BY id LIMIT 1; """
     // `limit 1, subquery with order by`:
-    qt_limit_subquery_order_by """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 order by id) AS subq LIMIT 1;"""
+    qt_limit_subquery_order_by_inside_limit_outside """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 order by id) AS subq LIMIT 1;"""
     // `limit 1, subquery with order by`:
-    qt_limit_subquery_order_by """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 order by id LIMIT 1) AS subq ;"""
+    qt_limit_subquery_all_inside """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 order by id LIMIT 1) AS subq ;"""
     // `LIMIT` with Set Operation and `ORDER BY`:
     qt_limit_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION SELECT t2.id FROM t2) u ORDER BY id LIMIT 1;"""
     // `LIMIT` with Set Operation and `ORDER BY`:
