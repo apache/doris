@@ -43,9 +43,9 @@ TEST_F(LoadStreamStubPoolTest, test) {
     EXPECT_EQ(1, pool.templates_size());
     EXPECT_EQ(streams1, streams3);
     EXPECT_NE(streams1, streams2);
-    streams1.reset();
-    streams2.reset();
-    streams3.reset();
+    streams1->release();
+    streams2->release();
+    streams3->release();
     EXPECT_EQ(0, pool.size());
     EXPECT_EQ(0, pool.templates_size());
 }
