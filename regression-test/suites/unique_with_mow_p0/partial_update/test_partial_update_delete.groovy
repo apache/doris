@@ -26,7 +26,7 @@ suite('test_partial_update_delete') {
             `k1` int NOT NULL,
             `c1` int,
             `c2` int,
-            `c3` int,
+            `c3` int NOT NULL,
             `c4` int
             )UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
