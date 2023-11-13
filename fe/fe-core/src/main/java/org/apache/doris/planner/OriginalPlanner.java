@@ -211,7 +211,7 @@ public class OriginalPlanner extends Planner {
         }
         checkAndSetTopnOpt(singleNodePlan);
 
-        if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
+        if ((queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) && !(statement instanceof InsertStmt)) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
             fragments.add(new PlanFragment(plannerContext.getNextFragmentId(), singleNodePlan,
@@ -243,9 +243,7 @@ public class OriginalPlanner extends Planner {
 
         if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
-            if (distributedPlanner != null) {
-                rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
-            }
+            rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.complete();
             List<Expr> exprs = statement.getResultExprs();
