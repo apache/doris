@@ -15,14 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite("test_json_load", "p0") { 
+
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def set_be_param = { paramName, paramValue ->
+        // for eache be node, set paramName=paramValue
+        for (String id in backendId_to_backendIP.keySet()) {
+		    def beIp = backendId_to_backendIP.get(id)
+		    def bePort = backendId_to_backendHttpPort.get(id)
+		    def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+		    assertTrue(out.contains("OK"))
+	    }
+    }
+
     // define a sql table
     def testTable = "test_json_load"
     
     def create_test_table1 = {testTablex ->
         // multi-line sql
         def result1 = sql """
-                        CREATE TABLE IF NOT EXISTS ${testTable} (
+                        CREATE TABLE IF NOT EXISTS ${testTablex} (
                         id INT DEFAULT '10',
                         city VARCHAR(32) DEFAULT '',
                         code BIGINT SUM DEFAULT '0')
@@ -45,13 +62,13 @@ suite("test_json_load", "p0") {
     def create_test_table2 = {testTablex ->
         // multi-line sql
         def result1 = sql """
-                        CREATE TABLE IF NOT EXISTS ${testTable} (
+                        CREATE TABLE IF NOT EXISTS ${testTablex} (
                         id INT DEFAULT '10',
                         code BIGINT SUM DEFAULT '0')
                         DISTRIBUTED BY RANDOM BUCKETS 10
                         PROPERTIES("replication_num" = "1");
                         """
-        
+
         // DDL/DML return 1 row and 3 column, the only value is update row count
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
@@ -91,7 +108,7 @@ suite("test_json_load", "p0") {
     def test_invalid_json_array_table = { testTablex ->
         // multi-line sql
         def result1 = sql """
-                        CREATE TABLE IF NOT EXISTS ${testTable} (
+                        CREATE TABLE IF NOT EXISTS ${testTablex} (
                             k1 TINYINT NOT NULL,
                             k2 SMALLINT NOT NULL,
                             k3 INT NOT NULL,
@@ -654,5 +671,25 @@ suite("test_json_load", "p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+    }
+
+    // case23: import with enable_simdjson_reader=false
+    try {
+        set_be_param.call("enable_simdjson_reader", "false")
+
+        testTable = "test_json_load"
+
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_test_table2.call(testTable)
+
+        load_json_data.call("${testTable}", 'test_json_load_case23_1', 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+                             '', '', '', 'multi_line_json.json')
+        sql "sync"
+        qt_select23 "select * from ${testTable} order by id"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+        set_be_param.call("enable_simdjson_reader", "true")
     }
 }
