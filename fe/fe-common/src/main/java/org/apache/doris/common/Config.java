@@ -484,6 +484,12 @@ public class Config extends ConfigBase {
             "Default timeout for insert load job, in seconds."})
     public static int insert_load_default_timeout_second = 14400; // 4 hour
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "等内部攒批真正写入完成才返回；insert into和stream load默认开启攒批",
+            "Wait for the internal batch to be written before returning; "
+                    + "insert into and stream load use group commit by default."})
+    public static boolean wait_internal_group_commit_finish = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
     public static int stream_load_default_timeout_second = 86400 * 3; // 3days
