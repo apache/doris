@@ -56,8 +56,16 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         sql """ use ${ex_db_name} """
 
         order_qt_type  """ select * from type order by k1; """
+        order_qt_type_null  """ select * from type_null order by id; """
+        sql """drop table if exists internal.${internal_db_name}.ck_type_null """
+        order_qt_ctas_type_null """create table internal.${internal_db_name}.ck_type_null PROPERTIES("replication_num" = "1") as select * from type_null """;
+        order_qt_query_ctas_type_null """ select * from internal.${internal_db_name}.ck_type_null order by id; """
         order_qt_number  """ select * from number order by k6; """
         order_qt_arr  """ select * from arr order by id; """
+        order_qt_arr_null  """ select * from arr_null order by id; """
+        sql """ drop table if exists internal.${internal_db_name}.ck_arr_null"""
+        order_qt_ctas_arr_null """create table internal.${internal_db_name}.ck_arr_null PROPERTIES("replication_num" = "1") as select * from arr_null """;
+        order_qt_query_ctas_arr_null """ select * from internal.${internal_db_name}.ck_arr_null order by id; """
         sql  """ insert into internal.${internal_db_name}.${inDorisTable} select * from student; """
         order_qt_in_tb  """ select id, name, age from internal.${internal_db_name}.${inDorisTable} order by id; """
         order_qt_system  """ show tables from `system`; """
