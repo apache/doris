@@ -38,7 +38,7 @@ services:
       - ./init:/docker-entrypoint-initdb.d
     networks:
       - doris--clickhouse
-  hello-world:
+  clickhouse-hello-world:
     image: hello-world
     depends_on:
       doris--clickhouse:

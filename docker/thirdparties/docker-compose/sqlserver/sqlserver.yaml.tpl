@@ -62,11 +62,11 @@ services:
       - SA_PASSWORD=Doris123456
     networks:
       - doris--sqlserver_2022
-  hello-world:
+  sqlserver-hello-world:
     image: hello-world
       depends_on:
-      doris--sqlserver_2022:
-        condition: service_healthy
+        doris--sqlserver_2022:
+          condition: service_healthy
     networks:
       - doris--sqlserver_2022
 networks:

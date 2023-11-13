@@ -39,7 +39,7 @@ services:
       - ./init:/docker-entrypoint-initdb.d
     networks:
       - doris--mysql_57
-  hello-world:
+  mysql-hello-world:
     image: hello-world
     depends_on:
       doris--mysql_57:
