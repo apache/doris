@@ -54,7 +54,7 @@ suite("test_stream_load", "p0") {
         DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
-    
+
     // test strict_mode success
     streamLoad {
         table "${tableName}"
@@ -196,6 +196,7 @@ suite("test_stream_load", "p0") {
     def tableName8 = "test_array"
     def tableName10 = "test_struct"
     def tableName11 = "test_map"
+    def tableName12 = "test_num_as_string"
 
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
@@ -205,6 +206,7 @@ suite("test_stream_load", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName8} """
     sql """ DROP TABLE IF EXISTS ${tableName10} """
     sql """ DROP TABLE IF EXISTS ${tableName11} """
+    sql """ DROP TABLE IF EXISTS ${tableName12} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
@@ -335,6 +337,66 @@ suite("test_stream_load", "p0") {
     );
     """
 
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName12} (
+      `k1` int(11) NULL,
+      `k2` float NULL,
+      `k3` double NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    // test num_as_string
+    streamLoad {
+        table "${tableName12}"
+
+        set 'format', 'JSON'
+        set 'num_as_string', 'true'
+        set 'strip_outer_array', 'true'
+        file 'num_as_string.json'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    order_qt_num_as_string "SELECT * FROM ${tableName12} order by k1"
+
+    sql """truncate table ${tableName12}"""
+    sql """sync"""
+
+
+    streamLoad {
+        table "${tableName12}"
+
+        set 'format', 'JSON'
+        set 'num_as_string', 'false'
+        set 'strip_outer_array', 'true'
+        file 'num_as_string.json'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    qt_num_as_string_false "SELECT * FROM ${tableName12} order by k1"
+
     // load map with specific-length char with non-specific-length data
     streamLoad {
         table "${tableName11}"
@@ -356,7 +418,7 @@ suite("test_stream_load", "p0") {
         }
     }
     sql "sync"
-    order_qt_map11 "SELECT * FROM ${tableName11} order by k1" 
+    order_qt_map11 "SELECT * FROM ${tableName11} order by k1"
 
     // load all columns
     streamLoad {
@@ -872,7 +934,7 @@ suite("test_stream_load", "p0") {
             assertEquals(5, json.NumberUnselectedRows)
         }
     }
-    
+
     sql "sync"
     order_qt_sql1 "select * from ${tableName9} order by k1, k2"
 
@@ -897,7 +959,7 @@ suite("test_stream_load", "p0") {
         DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
-    
+
     sql """create USER common_user@'%' IDENTIFIED BY '123456'"""
     sql """GRANT LOAD_PRIV ON *.* TO 'common_user'@'%';"""
 
@@ -924,7 +986,7 @@ suite("test_stream_load", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    
+
     sql "sync"
     sql """DROP USER 'common_user'@'%'"""
 
@@ -1000,7 +1062,7 @@ suite("test_stream_load", "p0") {
             assert json.Message.contains("unknown data format")
         }
     }
-    
+
     sql "sync"
     def res = sql "select * from ${tableName14}"
     def time = res[0][5].toString().split("T")[0].split("-")
@@ -1083,7 +1145,7 @@ suite("test_stream_load", "p0") {
             PROPERTIES ("replication_allocation" = "tag.location.default: 1");
         """
 
-        def label = UUID.randomUUID().toString().replaceAll("-", "") 
+        def label = UUID.randomUUID().toString().replaceAll("-", "")
         streamLoad {
             table "${tableName15}"
 
@@ -1137,7 +1199,7 @@ suite("test_stream_load", "p0") {
         }
 
         do_streamload_2pc.call(label, "commit")
-        
+
         def count = 0
         while (true) {
             res = sql "select count(*) from ${tableName15}"
