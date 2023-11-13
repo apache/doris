@@ -60,6 +60,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash_map.h"
 #include "vec/common/uint128.h"
+#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -729,12 +730,16 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         // data from probe side.
         _build_side_mem_used += in_block->allocated_bytes();
 
+        if (_build_side_mutable_block.empty()) {
+            auto tmp_build_block =
+                    VectorizedUtils::create_empty_columnswithtypename(child(1)->row_desc());
+            _build_side_mutable_block = MutableBlock::build_mutable_block(&tmp_build_block);
+            RETURN_IF_ERROR(_build_side_mutable_block.merge(
+                    *(tmp_build_block.create_same_struct_block(1, false))));
+        }
+
         if (in_block->rows() != 0) {
             SCOPED_TIMER(_build_side_merge_block_timer);
-            if (_build_side_mutable_block.empty()) {
-                RETURN_IF_ERROR(_build_side_mutable_block.merge(
-                        *(in_block->create_same_struct_block(1, false))));
-            }
             RETURN_IF_ERROR(_build_side_mutable_block.merge(*in_block));
             if (_build_side_mutable_block.rows() > JOIN_BUILD_SIZE_LIMIT) {
                 return Status::NotSupported(
