@@ -271,9 +271,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         auto new_filter_column = ColumnVector<UInt8>::create(row_count);
         auto& filter_map = new_filter_column->get_data();
 
-        size_t start_row_idx = 1;
-        filter_map.emplace_back(filter_column_ptr[0]);
-        for (size_t i = start_row_idx; i < row_count; ++i) {
+        for (size_t i = 0; i < row_count; ++i) {
             filter_map[i] = filter_column_ptr[i];
         }
 
@@ -305,16 +303,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         // equal-conjuncts-matched tuple is output in all sub blocks,
         // if there are none, just pick a tuple and output.
 
-        size_t start_row_idx = 1;
-        // Both equal conjuncts and other conjuncts are true
-        filter_map[0] = filter_column_ptr[0] && _build_indexs[0];
-
-        for (size_t i = start_row_idx; i < row_count; ++i) {
-            if (_build_indexs[i] && filter_column_ptr[i]) {
-                filter_map[i] = _build_indexs[i] && filter_column_ptr[i];
-            } else {
-                filter_map[i] = false;
-            }
+        for (size_t i = 0; i < row_count; ++i) {
+            filter_map[i] = _build_indexs[i] && filter_column_ptr[i];
         }
 
         if (is_mark_join) {
