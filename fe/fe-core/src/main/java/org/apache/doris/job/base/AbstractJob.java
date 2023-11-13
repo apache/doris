@@ -79,6 +79,15 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
 
     }
 
+    @Override
+    public void cancel(long taskId) throws JobException {
+        if (CollectionUtils.isEmpty(runningTasks)) {
+            throw new JobException("no running task");
+        }
+        runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
+                .orElseThrow(() -> new JobException("no task id:" + taskId)).cancel();
+    }
+
     public void initTasks(List<T> tasks) {
         tasks.forEach(task -> {
             task.setJobId(jobId);
@@ -169,6 +178,12 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         }
     }
 
+    /**
+     * get the job's common show info, which is used to show the job information
+     * eg:show jobs sql
+     *
+     * @return List<String> job common show info
+     */
     public List<String> getCommonShowInfo() {
         List<String> commonShowInfo = new ArrayList<>();
         commonShowInfo.add(String.valueOf(jobId));

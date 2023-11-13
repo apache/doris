@@ -54,6 +54,8 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
 
     private static final long BATCH_SCHEDULER_INTERVAL_SECONDS = 60;
 
+    private static final int HASHED_WHEEL_TIMER_TICKS_PER_WHEEL = 660;
+
     private final Map<Long, T> jobMap;
 
     public JobScheduler(Map<Long, T> jobMap) {
@@ -67,7 +69,7 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
 
     public void start() {
         timerTaskScheduler = new HashedWheelTimer(new CustomThreadFactory("timer-task-scheduler"), 1,
-                TimeUnit.SECONDS, 660);
+                TimeUnit.SECONDS, HASHED_WHEEL_TIMER_TICKS_PER_WHEEL);
         timerTaskScheduler.start();
         taskDisruptorGroupManager = new TaskDisruptorGroupManager();
         taskDisruptorGroupManager.init();

@@ -22,7 +22,6 @@ import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
-import org.apache.doris.qe.ShowResultSetMetaData;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -71,11 +70,6 @@ public class InsertTask extends AbstractTask {
     @Override
     public void cancel() {
         super.cancel();
-    }
-
-    @Override
-    public ShowResultSetMetaData getMetaData() {
-        return null;
     }
 
 }

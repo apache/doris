@@ -36,25 +36,68 @@ public interface Job<T extends AbstractTask> {
 
     List<T> createTasks(TaskType taskType);
 
-    void cancel(T task) throws JobException;
+    /**
+     * cancel the task by taskId
+     *
+     * @param taskId taskId
+     * @throws JobException if the task is not in the running state,it's maybe finish,
+     * it cannot be cancelled,and throw JobException
+     */
+    void cancel(long taskId) throws JobException;
 
+    /**
+     * when start the schedule job, we will call this method
+     * if the job is not ready for scheduling, we will cancel this one scheduler
+     */
     boolean isReadyForScheduling();
 
 
+    /**
+     * get the job's metadata title, which is used to show the job information
+     * @return ShowResultSetMetaData job metadata
+     */
     ShowResultSetMetaData getJobMetaData();
 
+    /**
+     * get the task metadata title, which is used to show the task information
+     * eg: taskId, taskStatus, taskType, taskStartTime, taskEndTime, taskProgress
+     * @return ShowResultSetMetaData task metadata
+     */
     ShowResultSetMetaData getTaskMetaData();
 
+    /**
+     * JobType is used to identify the type of the job, which is used to distinguish the different types of jobs.
+     * @return JobType
+     */
     JobType getJobType();
 
+    /**
+     * Query the task list of this job
+     */
     List<T> queryTasks();
 
+    /**
+     * cancel this job's all running task
+     * @throws JobException if running task cancel failed, throw JobException
+     */
     void cancel() throws JobException;
 
+    /**
+     * When the task executed result is failed, the task will call this method to notify the job
+     * @param task task
+     */
     void onTaskFail(T task);
 
+    /**
+     * When the task executed is success, the task will call this method to notify the job
+     * @param task task
+     */
     void onTaskSuccess(T task);
 
+    /**
+     * When the task executed is cancel, the task will call this method to notify the job
+     * @param task task
+     */
     void onTaskCancel(T task);
 
 }

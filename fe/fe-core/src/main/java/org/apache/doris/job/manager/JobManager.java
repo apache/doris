@@ -56,7 +56,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         checkJobNameExist(job.getJobName(), job.getJobType(), job.getCurrentDbName());
         long id = Env.getCurrentEnv().getNextId();
         job.setJobId(id);
-        Env.getCurrentEnv().getEditLog().logCreateJob(job);
+        //Env.getCurrentEnv().getEditLog().logCreateJob(job);
         //check name exist
         jobMap.put(id, job);
         //check its need to scheduler
@@ -76,7 +76,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         checkJobExist(jobId);
         jobMap.get(jobId).setJobStatus(JobStatus.STOPPED);
         jobMap.get(jobId).cancel();
-        Env.getCurrentEnv().getEditLog().logDeleteJob(jobMap.get(jobId));
+        //Env.getCurrentEnv().getEditLog().logDeleteJob(jobMap.get(jobId));
         jobMap.remove(jobId);
     }
 
@@ -97,7 +97,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
     public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
-        Env.getCurrentEnv().getEditLog().logUpdateJob(jobMap.get(jobId));
+        //Env.getCurrentEnv().getEditLog().logUpdateJob(jobMap.get(jobId));
     }
 
     public void alterJobStatus(String currentDbName, String jobName, JobStatus jobStatus) throws JobException {

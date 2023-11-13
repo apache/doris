@@ -17,7 +17,6 @@
 
 package org.apache.doris.job.manager;
 
-import jline.internal.Log;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
@@ -49,7 +48,7 @@ public class TaskTokenManager {
         try {
             semaphore.acquire();
         } catch (InterruptedException e) {
-            Log.warn("Interrupted while acquiring semaphore for job id: {} ", jobId, e);
+            log.warn("Interrupted while acquiring semaphore for job id: {} ", jobId, e);
             Thread.currentThread().interrupt();
         }
         return semaphore;

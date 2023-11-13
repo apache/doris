@@ -56,7 +56,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
     }
 
     @Override
-    public void cancel(InsertTask task) throws JobException {
+    public void cancel(long taskId) throws JobException {
         super.cancel();
     }
 
@@ -114,7 +114,6 @@ public class InsertJob extends AbstractJob<InsertTask> {
     @Override
     public void onTaskCancel(InsertTask task) {
         getRunningTasks().remove(task);
-
     }
 
 

@@ -32,6 +32,11 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * dispatch timer job to task disruptor
+ * when job is ready for scheduling and job status is running
+ * we will create task and publish to task disruptor @see DefaultTaskExecutorHandler
+ */
 @Slf4j
 public class DispatchTaskHandler<T extends AbstractJob<?>> implements WorkHandler<TimerJobEvent<T>> {
 

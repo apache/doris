@@ -46,6 +46,10 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     @Getter
     private TaskDisruptor<TimerJobEvent<AbstractJob<?>>> dispatchDisruptor;
 
+    private static int DEFAULT_RING_BUFFER_SIZE = 1024;
+
+    private static int DEFAULT_CONSUMER_THREAD_NUM = 5;
+
 
     public void init() {
         registerInsertDisruptor();
@@ -56,21 +60,22 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private void registerDispatchDisruptor() {
         EventFactory<TimerJobEvent<AbstractJob<T>>> dispatchEventFactory = TimerJobEvent.factory();
         ThreadFactory dispatchThreadFactory = new CustomThreadFactory("dispatch-task");
-        WorkHandler[] dispatchTaskExecutorHandlers = new WorkHandler[5];
-        for (int i = 0; i < 5; i++) {
+        WorkHandler[] dispatchTaskExecutorHandlers = new WorkHandler[DEFAULT_CONSUMER_THREAD_NUM];
+        for (int i = 0; i < DEFAULT_CONSUMER_THREAD_NUM; i++) {
             dispatchTaskExecutorHandlers[i] = new DispatchTaskHandler(this.disruptorMap);
         }
         EventTranslatorVararg<TimerJobEvent<AbstractJob<T>>> eventTranslator =
                 (event, sequence, args) -> event.setJob((AbstractJob<T>) args[0]);
-        this.dispatchDisruptor = new TaskDisruptor<>(dispatchEventFactory, 1024, dispatchThreadFactory,
+        this.dispatchDisruptor = new TaskDisruptor<>(dispatchEventFactory, DEFAULT_RING_BUFFER_SIZE,
+                dispatchThreadFactory,
                 new BlockingWaitStrategy(), dispatchTaskExecutorHandlers, eventTranslator);
     }
 
     private void registerInsertDisruptor() {
         EventFactory<ExecuteTaskEvent<InsertTask>> insertEventFactory = ExecuteTaskEvent.factory();
         ThreadFactory insertTaskThreadFactory = new CustomThreadFactory("insert-task-execute");
-        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[5];
-        for (int i = 0; i < 5; i++) {
+        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DEFAULT_CONSUMER_THREAD_NUM];
+        for (int i = 0; i < DEFAULT_CONSUMER_THREAD_NUM; i++) {
             insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<InsertTask>();
         }
         EventTranslatorVararg<ExecuteTaskEvent<InsertTask>> eventTranslator =
@@ -78,7 +83,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                     event.setTask((InsertTask) args[0]);
                     event.setJobConfig((JobExecutionConfiguration) args[1]);
                 };
-        TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, 1024,
+        TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DEFAULT_RING_BUFFER_SIZE,
                 insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.INSERT, insertDisruptor);
     }

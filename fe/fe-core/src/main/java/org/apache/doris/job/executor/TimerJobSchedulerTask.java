@@ -26,7 +26,7 @@ import jline.internal.Log;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class TimerJobSchedulerTask<T extends AbstractJob> implements TimerTask {
+public class TimerJobSchedulerTask<T extends AbstractJob<?>> implements TimerTask {
 
     private TaskDisruptor dispatchDisruptor;
 

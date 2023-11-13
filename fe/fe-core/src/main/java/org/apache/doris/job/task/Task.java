@@ -17,8 +17,6 @@
 
 package org.apache.doris.job.task;
 
-import org.apache.doris.qe.ShowResultSetMetaData;
-
 public interface Task {
 
     void before();
@@ -32,8 +30,5 @@ public interface Task {
     void onSuccess();
 
     void cancel();
-
-    ShowResultSetMetaData getMetaData();
-
 
 }
