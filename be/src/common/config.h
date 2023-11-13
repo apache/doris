@@ -326,7 +326,7 @@ DECLARE_mString(broken_storage_path);
 // and exit. When config is false, process will only log warning.
 DECLARE_Bool(storage_strict_check_incompatible_old_format);
 
-// BE process will exit if the percentage of error disk reach this value.
+// BE process will exit if the percentage of error disk reaches this value.
 DECLARE_mInt32(max_percentage_of_error_disk);
 DECLARE_mInt32(default_num_rows_per_column_file_block);
 // pending data policy
