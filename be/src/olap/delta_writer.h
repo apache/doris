@@ -105,7 +105,7 @@ public:
 
     int64_t txn_id() const { return _req.txn_id; }
 
-    int64_t total_received_rows() const { return _total_received_rows; }
+    int64_t total_received_rows() const { return _memtable_writer->total_received_rows(); }
 
     int64_t num_rows_filtered() const;
 
