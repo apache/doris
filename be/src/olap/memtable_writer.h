@@ -20,9 +20,9 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
-#include <cstdint>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
