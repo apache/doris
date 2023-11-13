@@ -156,29 +156,29 @@ set enable_odbc_transcation = true;
 
 * mysql 5.7
 
-```sql
-CREATE CATALOG jdbc_mysql PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-    "driver_url" = "mysql-connector-java-5.1.47.jar",
-    "driver_class" = "com.mysql.jdbc.Driver"
-)
-```
+    ```sql
+    CREATE CATALOG jdbc_mysql PROPERTIES (
+        "type"="jdbc",
+        "user"="root",
+        "password"="123456",
+        "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+        "driver_url" = "mysql-connector-java-5.1.47.jar",
+        "driver_class" = "com.mysql.jdbc.Driver"
+    )
+    ```
 
 * mysql 8
 
-```sql
-CREATE CATALOG jdbc_mysql PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-    "driver_url" = "mysql-connector-java-8.0.25.jar",
-    "driver_class" = "com.mysql.cj.jdbc.Driver"
-)
-```
+    ```sql
+    CREATE CATALOG jdbc_mysql PROPERTIES (
+        "type"="jdbc",
+        "user"="root",
+        "password"="123456",
+        "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+        "driver_url" = "mysql-connector-java-8.0.25.jar",
+        "driver_class" = "com.mysql.cj.jdbc.Driver"
+    )
+    ```
 
 #### 层级映射
 
@@ -371,7 +371,7 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 
 ### Doris
 
-Jdbc Catalog也支持连接另一个Doris数据库：
+Jdbc Catalog 也支持连接另一个Doris数据库：
 
 * mysql 5.7 Driver
 
@@ -663,6 +663,23 @@ DROP CATALOG <catalog_name>;
     ```sql
     SELECT * FROM <table_name>;
     ```
+
+## JDBC Driver 列表
+
+推荐使用以下版本的 Driver 连接对应的数据库。其他版本的 Driver 未经测试，可能导致非预期的问题。
+
+|  Source | JDBC Driver Version |
+|:--------:|:--------:|
+| MySQL 5.x  | mysql-connector-java-5.1.47.jar |
+| MySQL 8.x  | mysql-connector-java-8.0.25.jar |
+| PostgreSQL | postgresql-42.5.1.jar |
+| Oracle   | ojdbc8.jar|
+| SQLServer | mssql-jdbc-11.2.3.jre8.jar |
+| Doris | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+| Clickhouse | clickhouse-jdbc-0.4.2-all.jar  |
+| SAP HAHA | ngdbc.jar |
+| Trino/Presto | trino-jdbc-389.jar / presto-jdbc-0.280.jar |
+| OceanBase | oceanbase-client-2.4.2.jar |
 
 ## 常见问题
 
