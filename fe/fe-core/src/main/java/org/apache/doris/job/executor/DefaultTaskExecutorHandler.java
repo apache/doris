@@ -44,6 +44,10 @@ public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkH
             log.warn("task is null, ignore,maybe task has been canceled");
             return;
         }
+        if (task.isCancelled()) {
+            log.info("task is canceled, ignore");
+            return;
+        }
         if (null == executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum()
                 || executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum() <= 0) {
             try {
@@ -51,13 +55,12 @@ public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkH
                 return;
             } catch (Exception e) {
                 log.warn("execute task error, task id is {}", task.getTaskId(), e);
-
             }
         }
-        int maxConcurrentTaskNum = executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum();
         Semaphore semaphore = null;
         // get token
         try {
+            int maxConcurrentTaskNum = executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum();
             semaphore = TaskTokenManager.tryAcquire(task.getJobId(), maxConcurrentTaskNum);
             task.runTask();
         } catch (Exception e) {

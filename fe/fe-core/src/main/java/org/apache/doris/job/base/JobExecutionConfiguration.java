@@ -166,7 +166,8 @@ public class JobExecutionConfiguration {
 
         // Calculate the trigger time list
         for (long triggerTime = firstTriggerTime; triggerTime <= windowEndTimeMs; triggerTime += intervalMs) {
-            if (triggerTime >= currentTimeMs) {
+            if (triggerTime >= currentTimeMs && (null == timerDefinition.getEndTimeMs()
+                    || triggerTime < timerDefinition.getEndTimeMs())) {
                 timestamps.add(queryDelayTimeSecond(currentTimeMs, triggerTime));
             }
         }
@@ -174,7 +175,7 @@ public class JobExecutionConfiguration {
         return timestamps;
     }
 
-    private String convertRecurringStrategyToString() {
+    public String convertRecurringStrategyToString() {
         switch (executeType) {
             case ONE_TIME:
                 return "AT " + TimeUtils.longToTimeString(timerDefinition.getStartTimeMs());

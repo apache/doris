@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -31,29 +32,38 @@ import lombok.Data;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 @Data
-public class InsertJob extends AbstractJob {
+public class InsertJob extends AbstractJob<InsertTask> {
 
     @SerializedName(value = "labelPrefix")
     String labelPrefix;
-    @SerializedName(value = "executeSql")
-    String executeSql;
+
 
     @Override
-    public List<InsertTask> createTasks() {
+    public List<InsertTask> createTasks(TaskType taskType) {
         InsertTask task = new InsertTask(null, null, null, null, null);
         task.setJobId(getJobId());
+        task.setTaskType(taskType);
         task.setTaskId(Env.getCurrentEnv().getNextId());
-        getRunningTasks().add(task);
-        return getRunningTasks();
+        ArrayList<InsertTask> tasks = new ArrayList<>();
+        tasks.add(task);
+        super.initTasks(tasks);
+        getRunningTasks().addAll(tasks);
+        return tasks;
+    }
+
+    @Override
+    public void cancel(InsertTask task) throws JobException {
+        super.cancel();
     }
 
 
     @Override
     public void cancel() throws JobException {
-
+        super.cancel();
     }
 
     @Override
@@ -72,7 +82,7 @@ public class InsertJob extends AbstractJob {
     }
 
     @Override
-    public List queryTasks() {
+    public List<InsertTask> queryTasks() {
         return null;
     }
 
@@ -92,24 +102,21 @@ public class InsertJob extends AbstractJob {
     }
 
     @Override
-    public void onTaskFail(long taskId) {
-
+    public void onTaskFail(InsertTask task) {
+        getRunningTasks().remove(task);
     }
 
     @Override
-    public void onTaskSuccess(long taskId) {
-
+    public void onTaskSuccess(InsertTask task) {
+        getRunningTasks().remove(task);
     }
 
     @Override
-    public void onTaskCancel(long taskId) {
+    public void onTaskCancel(InsertTask task) {
+        getRunningTasks().remove(task);
 
     }
 
-    @Override
-    public void afterTaskRun(long taskId) {
-
-    }
 
     @Override
     public void write(DataOutput out) throws IOException {

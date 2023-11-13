@@ -18,6 +18,7 @@
 package org.apache.doris.job.base;
 
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -33,9 +34,9 @@ import java.util.List;
  */
 public interface Job<T extends AbstractTask> {
 
-    List<T> createTasks();
+    List<T> createTasks(TaskType taskType);
 
-    void cancel() throws JobException;
+    void cancel(T task) throws JobException;
 
     boolean isReadyForScheduling();
 
@@ -48,12 +49,12 @@ public interface Job<T extends AbstractTask> {
 
     List<T> queryTasks();
 
-    void onTaskFail(long taskId);
+    void cancel() throws JobException;
 
-    void onTaskSuccess(long taskId);
+    void onTaskFail(T task);
 
-    void onTaskCancel(long taskId);
+    void onTaskSuccess(T task);
 
-    void afterTaskRun(long taskId);
+    void onTaskCancel(T task);
 
 }

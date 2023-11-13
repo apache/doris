@@ -54,14 +54,14 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     }
 
     private void registerDispatchDisruptor() {
-        EventFactory<TimerJobEvent<AbstractJob>> dispatchEventFactory = TimerJobEvent.factory();
+        EventFactory<TimerJobEvent<AbstractJob<T>>> dispatchEventFactory = TimerJobEvent.factory();
         ThreadFactory dispatchThreadFactory = new CustomThreadFactory("dispatch-task");
         WorkHandler[] dispatchTaskExecutorHandlers = new WorkHandler[5];
         for (int i = 0; i < 5; i++) {
             dispatchTaskExecutorHandlers[i] = new DispatchTaskHandler(this.disruptorMap);
         }
-        EventTranslatorVararg<TimerJobEvent<AbstractJob>> eventTranslator =
-                (event, sequence, args) -> event.setJob((AbstractJob) args[0]);
+        EventTranslatorVararg<TimerJobEvent<AbstractJob<T>>> eventTranslator =
+                (event, sequence, args) -> event.setJob((AbstractJob<T>) args[0]);
         this.dispatchDisruptor = new TaskDisruptor<>(dispatchEventFactory, 1024, dispatchThreadFactory,
                 new BlockingWaitStrategy(), dispatchTaskExecutorHandlers, eventTranslator);
     }
@@ -83,7 +83,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         disruptorMap.put(JobType.INSERT, insertDisruptor);
     }
 
-    public void dispatchTimerJob(AbstractJob job) {
+    public void dispatchTimerJob(AbstractJob<T> job) {
         dispatchDisruptor.publishEvent(job);
     }
 

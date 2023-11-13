@@ -18,7 +18,9 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.disruptor.TaskDisruptor;
 import org.apache.doris.job.disruptor.TimerJobEvent;
 import org.apache.doris.job.task.AbstractTask;
@@ -41,14 +43,14 @@ public class DispatchTaskHandler<T extends AbstractJob<?>> implements WorkHandle
 
 
     @Override
-    public void onEvent(TimerJobEvent<T> event) throws Exception {
+    public void onEvent(TimerJobEvent<T> event) {
         try {
             if (null == event.getJob()) {
                 log.info("job is null,may be job is deleted, ignore");
                 return;
             }
-            if (event.getJob().isReadyForScheduling()) {
-                List<? extends AbstractTask> tasks = event.getJob().createTasks();
+            if (event.getJob().isReadyForScheduling() && event.getJob().getJobStatus() == JobStatus.RUNNING) {
+                List<? extends AbstractTask> tasks = event.getJob().createTasks(TaskType.SCHEDULER);
                 JobType jobType = event.getJob().getJobType();
                 for (AbstractTask task : tasks) {
                     disruptorMap.get(jobType).publishEvent(task, event.getJob().getJobConfig());

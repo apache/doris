@@ -22,6 +22,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.disruptor.TaskDisruptor;
 import org.apache.doris.job.executor.TimerJobSchedulerTask;
 import org.apache.doris.job.manager.TaskDisruptorGroupManager;
@@ -51,7 +52,7 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
 
     private long latestBatchSchedulerTimerTaskTimeMs = 0L;
 
-    private static final long BATCH_SCHEDULER_INTERVAL_SECONDS = 600;
+    private static final long BATCH_SCHEDULER_INTERVAL_SECONDS = 60;
 
     private final Map<Long, T> jobMap;
 
@@ -71,7 +72,7 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         taskDisruptorGroupManager = new TaskDisruptorGroupManager();
         taskDisruptorGroupManager.init();
         this.timerJobDisruptor = taskDisruptorGroupManager.getDispatchDisruptor();
-        latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis() + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
+        latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis();
         batchSchedulerTimerJob();
         cycleSystemSchedulerTasks();
     }
@@ -130,7 +131,7 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
 
 
     private void schedulerImmediateJob(T job) {
-        List<? extends AbstractTask> tasks = job.createTasks();
+        List<? extends AbstractTask> tasks = job.createTasks(TaskType.MANUAL);
         if (CollectionUtils.isEmpty(tasks)) {
             return;
         }
@@ -143,7 +144,7 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         if (!job.isReadyForScheduling()) {
             return;
         }
-        List<? extends AbstractTask> tasks = job.createTasks();
+        List<? extends AbstractTask> tasks = job.createTasks(TaskType.MANUAL);
         tasks.forEach(task -> taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
                 job.getJobConfig()));
     }

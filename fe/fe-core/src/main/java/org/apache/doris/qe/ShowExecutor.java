@@ -425,7 +425,7 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowAnalyzeTaskStatus) {
             handleShowAnalyzeTaskStatus();
         } else if (stmt instanceof ShowJobStmt) {
-            //handleShowJob();
+            handleShowJob();
         } else if (stmt instanceof ShowJobTaskStmt) {
             //handleShowJobTask();
         } else if (stmt instanceof ShowConvertLSCStmt) {
@@ -1439,19 +1439,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
     }*/
 
-    /*private void handleShowJob() throws AnalysisException {
+    private void handleShowJob() throws AnalysisException {
         ShowJobStmt showJobStmt = (ShowJobStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         // if job exists
-        List<Job> jobList;
-        PatternMatcher matcher = null;
-        if (showJobStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showJobStmt.getPattern(),
-                    CaseSensibility.JOB.getCaseSensibility());
-        }
-        jobList = Env.getCurrentEnv().getJobRegister()
-                .getJobs(showJobStmt.getDbFullName(), showJobStmt.getName(), showJobStmt.getJobCategory(),
-                        matcher);
+        List<org.apache.doris.job.base.AbstractJob> jobList;
+        jobList = Env.getCurrentEnv().getJobManager()
+                .queryJobs(showJobStmt.getDbFullName(), showJobStmt.getName());
 
         if (jobList.isEmpty()) {
             resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
@@ -1459,18 +1453,12 @@ public class ShowExecutor {
         }
 
         // check auth
-        for (Job job : jobList) {
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), job.getDbName(), PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                        ConnectContext.get().getQualifiedUser(), job.getDbName());
-            }
-        }
-        for (Job job : jobList) {
-            rows.add(job.getShowInfo());
+
+        for (org.apache.doris.job.base.AbstractJob job : jobList) {
+            rows.add(job.getCommonShowInfo());
         }
         resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
-    }*/
+    }
 
     private void handleShowRoutineLoad() throws AnalysisException {
         ShowRoutineLoadStmt showRoutineLoadStmt = (ShowRoutineLoadStmt) stmt;

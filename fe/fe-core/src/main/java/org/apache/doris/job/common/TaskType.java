@@ -19,7 +19,6 @@ package org.apache.doris.job.common;
 
 public enum TaskType {
 
-    SCHDULER,
-    MANUAL,
-    INSTANT,
+    SCHEDULER,
+    MANUAL;
 }

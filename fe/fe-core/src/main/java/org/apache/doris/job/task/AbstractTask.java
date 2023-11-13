@@ -45,30 +45,57 @@ public abstract class AbstractTask implements Task {
 
     @Override
     public void onFail(String msg) {
-        Env.getCurrentEnv().getJobManager().getJob(jobId).onTaskFail(taskId);
+        if (!isCallable()) {
+            return;
+        }
+        Env.getCurrentEnv().getJobManager().getJob(jobId).onTaskFail(this);
         status = TaskStatus.FAILD;
     }
 
     @Override
     public void onFail() {
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        job.onTaskFail(getTaskId());
         setFinishTimeMs(System.currentTimeMillis());
+        if (!isCallable()) {
+            return;
+        }
+        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        job.onTaskFail(this);
+    }
+
+    private boolean isCallable() {
+        if (status.equals(TaskStatus.CANCEL)) {
+            return false;
+        }
+        if (null != Env.getCurrentEnv().getJobManager().getJob(jobId)) {
+            return true;
+        }
+        return false;
     }
 
     @Override
     public void onSuccess() {
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        job.onTaskSuccess(getTaskId());
         status = TaskStatus.SUCCESS;
         setFinishTimeMs(System.currentTimeMillis());
+        if (!isCallable()) {
+            return;
+        }
+        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        if (null == job) {
+            log.info("job is null, job id is {}", jobId);
+            return;
+        }
+        job.onTaskSuccess(this);
     }
 
     @Override
     public void cancel() {
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        job.onTaskCancel(getTaskId());
         status = TaskStatus.CANCEL;
+    }
+
+    @Override
+    public void before() {
+        status = TaskStatus.RUNNING;
+        setStartTimeMs(System.currentTimeMillis());
     }
 
     public void runTask() {
@@ -82,5 +109,8 @@ public abstract class AbstractTask implements Task {
         }
     }
 
+    public boolean isCancelled() {
+        return status.equals(TaskStatus.CANCEL);
+    }
 
 }

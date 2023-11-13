@@ -50,7 +50,7 @@ public class ShowJobStmt extends ShowStmt {
                     .add("ExecuteType")
                     .add("RecurringStrategy")
                     .add("Status")
-                    .add("lastExecuteTaskStatus")
+                    .add("ExecuteSql")
                     .add("CreateTime")
                     .add("Comment")
                     .build();

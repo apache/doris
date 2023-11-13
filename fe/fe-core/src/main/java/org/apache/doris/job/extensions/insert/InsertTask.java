@@ -17,9 +17,7 @@
 
 package org.apache.doris.job.extensions.insert;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.job.base.Job;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadJob;
@@ -42,7 +40,7 @@ public class InsertTask extends AbstractTask {
 
     @Override
     public void before() {
-
+        super.before();
     }
 
     public InsertTask(String labelName, InsertIntoTableCommand command, LoadJob.LoadStatistic statistic,
@@ -62,20 +60,17 @@ public class InsertTask extends AbstractTask {
 
     @Override
     public void onFail() {
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        job.onTaskFail(getTaskId());
+        super.onFail();
     }
 
     @Override
     public void onSuccess() {
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        job.onTaskSuccess(getTaskId());
+        super.onSuccess();
     }
 
     @Override
     public void cancel() {
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        job.onTaskCancel(getTaskId());
+        super.cancel();
     }
 
     @Override

@@ -20,8 +20,10 @@ package org.apache.doris.job.base;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.task.AbstractTask;
@@ -63,7 +65,10 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     @SerializedName(value = "createTimeMs")
     private Long createTimeMs;
 
-    private List<? extends AbstractTask> runningTasks = new ArrayList<>();
+    @SerializedName(value = "executeSql")
+    String executeSql;
+
+    private List<T> runningTasks = new ArrayList<>();
 
     @Override
     public void cancel() throws JobException {
@@ -71,6 +76,16 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
             return;
         }
         runningTasks.forEach(Task::cancel);
+
+    }
+
+    public void initTasks(List<T> tasks) {
+        tasks.forEach(task -> {
+            task.setJobId(jobId);
+            task.setTaskId(Env.getCurrentEnv().getNextId());
+            task.setCreateTimeMs(System.currentTimeMillis());
+            task.setStatus(TaskStatus.PENDING);
+        });
     }
 
     public void checkJobParams() {
@@ -89,16 +104,17 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
             throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
                     jobStatus.name(), this.jobStatus.name()));
         }
-        // check other status
-    }
-
-    public void resumeJob() {
-        if (jobStatus != JobStatus.PAUSED) {
-            throw new IllegalArgumentException(String.format("Can't resume job %s status to the %s status",
+        if (newJobStatus.equals(JobStatus.RUNNING) && !jobStatus.equals(JobStatus.PAUSED)) {
+            throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
                     jobStatus.name(), this.jobStatus.name()));
         }
-        jobStatus = JobStatus.RUNNING;
+        if (newJobStatus.equals(JobStatus.STOPPED) && !jobStatus.equals(JobStatus.RUNNING)) {
+            throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
+                    jobStatus.name(), this.jobStatus.name()));
+        }
+        jobStatus = newJobStatus;
     }
+
 
     protected abstract void checkJobParamsInternal();
 
@@ -117,13 +133,14 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     }
 
     @Override
-    public void onTaskFail(long taskId) {
+    public void onTaskFail(T task) {
         updateJobStatusIfEnd();
     }
 
     @Override
-    public void onTaskSuccess(long taskId) {
+    public void onTaskSuccess(T task) {
         updateJobStatusIfEnd();
+        runningTasks.remove(task);
 
     }
 
@@ -139,8 +156,10 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
                 Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(jobStatus);
                 break;
             case RECURRING:
-                if (null != getJobConfig().getTimerDefinition().getEndTimeMs()
-                        && getJobConfig().getTimerDefinition().getEndTimeMs() < System.currentTimeMillis()) {
+                TimerDefinition timerDefinition = getJobConfig().getTimerDefinition();
+                if (null != timerDefinition.getEndTimeMs()
+                        && timerDefinition.getEndTimeMs() < System.currentTimeMillis()
+                        + timerDefinition.getIntervalUnit().getIntervalMs(timerDefinition.getInterval())) {
                     jobStatus = JobStatus.FINISHED;
                     Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(jobStatus);
                 }
@@ -148,5 +167,19 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
             default:
                 break;
         }
+    }
+
+    public List<String> getCommonShowInfo() {
+        List<String> commonShowInfo = new ArrayList<>();
+        commonShowInfo.add(String.valueOf(jobId));
+        commonShowInfo.add(jobName);
+        commonShowInfo.add(createUser);
+        commonShowInfo.add(jobConfig.getExecuteType().name());
+        commonShowInfo.add(jobConfig.convertRecurringStrategyToString());
+        commonShowInfo.add(jobStatus.name());
+        commonShowInfo.add(executeSql);
+        commonShowInfo.add(TimeUtils.longToTimeString(createTimeMs));
+        commonShowInfo.add(comment);
+        return commonShowInfo;
     }
 }
