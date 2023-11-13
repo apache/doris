@@ -29,7 +29,7 @@ under the License.
     ```
     def ret = ***
     ```
-2. 尽量不要在 case 中 global 的设置 session variable，也可能会影响其他 case。
+2. 尽量不要在 case 中 global 的设置 session variable，或者修改集群配置，可能会影响其他 case。
 
     Problematic code:
     ```
@@ -39,7 +39,10 @@ under the License.
     ```
     sql """set enable_pipeline_x_engine=true;"""
     ```
-3. case 中涉及时间相关的，最好固定时间，不要用类似 now() 函数这种动态值，避免过一段时间后 case 就跑不过了。
+3. 如果必须要设置 global，或者要改集群配置，可以指定 case 以 nonConcurrent 的方式运行。
+
+    [示例](https://github.com/apache/doris/blob/master/regression-test/suites/query_p0/sql_functions/cast_function/test_cast_string_to_array.groovy#L18)
+5. case 中涉及时间相关的，最好固定时间，不要用类似 now() 函数这种动态值，避免过一段时间后 case 就跑不过了。
 
     Problematic code:
     ```
