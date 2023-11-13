@@ -118,10 +118,11 @@ public:
     // Return true if this ScannerContext need no more process
     virtual bool done() { return _is_finished || _should_stop; }
 
-    // Update the running num of scanners and contexts
-    void update_num_running(int32_t scanner_inc, int32_t sched_inc);
+    void inc_num_running_scanners(int32_t scanner_inc);
 
     int get_num_running_scanners() const { return _num_running_scanners; }
+
+    void dec_num_scheduling_ctx();
 
     int get_num_scheduling_ctx() const { return _num_scheduling_ctx; }
 
