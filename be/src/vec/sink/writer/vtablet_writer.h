@@ -152,7 +152,6 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         ::doris::DummyBrpcCallback<T>::cntl_->Reset();
         cid = ::doris::DummyBrpcCallback<T>::cntl_->call_id();
     }

@@ -274,9 +274,9 @@ VNodeChannel::VNodeChannel(VTabletWriter* parent, IndexChannel* index_channel, i
           _node_id(node_id),
           _is_incremental(is_incremental) {
     _cur_add_block_request = std::make_shared<PTabletWriterAddBlockRequest>();
-    _node_channel_tracker = std::make_shared<MemTracker>(fmt::format(
-            "NodeChannel:indexID={}:threadId={}", std::to_string(_index_channel->_index_id),
-            thread_context()->get_thread_id()));
+    _node_channel_tracker = std::make_shared<MemTracker>(
+            fmt::format("NodeChannel:indexID={}:threadId={}",
+                        std::to_string(_index_channel->_index_id), ThreadContext::get_thread_id()));
 }
 
 VNodeChannel::~VNodeChannel() = default;

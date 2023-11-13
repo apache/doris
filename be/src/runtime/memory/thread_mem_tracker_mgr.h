@@ -165,7 +165,7 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
 
 inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_check) {
     _untracked_mem += size;
-    if (!ExecEnv::ready()) {
+    if (!_init && !ExecEnv::ready()) {
         return;
     }
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
