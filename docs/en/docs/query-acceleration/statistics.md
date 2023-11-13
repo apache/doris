@@ -54,8 +54,7 @@ Syntax:
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name > 
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
-    [ PROPERTIES ("key" = "value", ...) ];
+    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] ];
 ```
 
 Where:
@@ -64,7 +63,6 @@ Where:
 - `column_name`: The specified target column. It must be an existing column in `table_name`. You can specify multiple column names separated by commas.
 - `sync`: Collect statistics synchronously. Returns after collection. If not specified, it executes asynchronously and returns a JOB ID.
 - `sample percent | rows`: Collect statistics with sampling. You can specify a sampling percentage or a number of sampling rows.
-- `sql`: Execute SQL to collect statistics for partitioned columns in external tables. By default, partitioned column information is collected from metadata, which is efficient but may not be accurate in terms of row count and data size. Users can specify using SQL to collect accurate partitioned column information.
 
 Here are some examples:
 
@@ -89,6 +87,13 @@ This feature has been officially supported since 2.0.3 and is enabled by default
 The collection jobs for statistics themselves consume a certain amount of system resources. To minimize the overhead, for tables with a large amount of data (default 5 GiB, adjustable with the FE parameter `huge_table_lower_bound_size_in_bytes`), Doris automatically uses sampling to collect statistics. Automatic sampling defaults to sampling 4,194,304 (2^22) rows to reduce the system's burden and complete the collection job as quickly as possible. If you want to sample more rows to obtain a more accurate data distribution, you can increase the sampling row count by adjusting the `huge_table_default_sample_rows` parameter. In addition, for tables with data larger than `huge_table_lower_bound_size_in_bytes` * 5, Doris ensures that the collection time interval is not less than 12 hours (which can be controlled by adjusting the `huge_table_auto_analyze_interval_in_millis` parameter).
 
 If you are concerned about automatic collection jobs interfering with your business, you can specify a time frame for the automatic collection jobs to run during low business loads by setting the `full_auto_analyze_start_time` and `full_auto_analyze_end_time` parameters according to your needs. You can also completely disable this feature by setting the `enable_full_auto_analyze` parameter to `false`.
+
+External catalogs do not participate in automatic collection by default. Because external catalogs often contain massive historical data, if they participate in automatic collection, it may occupy too many resources. You can turn on and off the automatic collection of external catalogs by setting the catalog's properties.
+
+```sql
+ALTER CATALOG external_catalog SET PROPERTIES ('enable.auto.analyze'='true'); // Turn on
+ALTER CATALOG external_catalog SET PROPERTIES ('enable.auto.analyze'='false'); // Turn off
+```
 
 <br />
 

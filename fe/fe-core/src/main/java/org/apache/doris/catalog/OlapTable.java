@@ -90,6 +90,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -2370,5 +2371,18 @@ public class OlapTable extends Table {
                 LOG.info(e);
             }
         }
+    }
+
+    @Override
+    public boolean isDistributionColumn(String columnName) {
+        Set<String> distributeColumns = getDistributionColumnNames()
+                .stream().map(String::toLowerCase).collect(Collectors.toSet());
+        return distributeColumns.contains(columnName.toLowerCase(Locale.ROOT));
+    }
+
+    @Override
+    public boolean isPartitionColumn(String columnName) {
+        return getPartitionInfo().getPartitionColumns().stream()
+            .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
     }
 }

@@ -699,6 +699,12 @@ public class HMSExternalTable extends ExternalTable {
         }
         return total;
     }
+
+    @Override
+    public boolean isDistributionColumn(String columnName) {
+        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
+            .collect(Collectors.toSet()).contains(columnName.toLowerCase(Locale.ROOT));
+    }
 }
 
 
