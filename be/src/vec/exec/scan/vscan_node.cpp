@@ -575,7 +575,8 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 return Status::OK();
             }
 
-            if (pdt == PushDownType::ACCEPTABLE && slotref->type().is_variant_type()) {
+            if (pdt == PushDownType::ACCEPTABLE && slotref != nullptr &&
+                slotref->type().is_variant_type()) {
                 // remaining it in the expr tree, in order to filter by function if the pushdown
                 // predicate is not applied
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
