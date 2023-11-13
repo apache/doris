@@ -582,7 +582,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet_schema->column(index);
+    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, bloom_filter.second, column.type(),
                                    _reader_context.runtime_state->be_exec_version(), &column);
 }
