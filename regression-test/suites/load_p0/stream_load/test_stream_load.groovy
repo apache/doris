@@ -1266,5 +1266,39 @@ suite("test_stream_load", "p0") {
             assertEquals("test comment", json.Comment)
         }
     }
+
+
+    // test send_batch_parallelism
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', 'a'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]Invalid send_batch_parallelism format, stoi:", json.Message)
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '1'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]Invalid send_batch_parallelism format, stoi:", json.Message)
+        }
+    }
 }
 
