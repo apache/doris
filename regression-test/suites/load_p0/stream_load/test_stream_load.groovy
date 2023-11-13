@@ -1187,5 +1187,22 @@ suite("test_stream_load", "p0") {
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
     }
+
+    // test comment
+    streamLoad {
+        table "${tableName8}"
+
+        set 'comment', 'test comment'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("test comment", json.Comment)
+        }
+    }
 }
 
