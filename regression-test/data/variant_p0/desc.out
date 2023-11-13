@@ -120,4 +120,16 @@ v.b	JSON	Yes	false	\N	NONE
 v.c.c	SMALLINT	Yes	false	\N	NONE
 v.c.e	DOUBLE	Yes	false	\N	NONE
 v.oooo.xxxx.xxx	TINYINT	Yes	false	\N	NONE
+v.中文	TEXT	Yes	false	\N	NONE
+v.英文	TEXT	Yes	false	\N	NONE
+
+-- !sql_9_2 --
+k	BIGINT	Yes	true	\N	
+v	VARIANT	Yes	false	\N	NONE
+v.中文	TEXT	Yes	false	\N	NONE
+v.英文	TEXT	Yes	false	\N	NONE
+
+-- !sql_9_2 --
+这是中文
+\N
 

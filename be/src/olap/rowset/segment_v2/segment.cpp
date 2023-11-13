@@ -313,11 +313,11 @@ vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignor
 Status Segment::_create_column_readers() {
     for (uint32_t ordinal = 0; ordinal < _footer.columns().size(); ++ordinal) {
         auto& column_pb = _footer.columns(ordinal);
-        if (column_pb.has_type() && column_pb.has_column_id() && column_pb.has_default_value() &&
-            column_pb.has_frac() && column_pb.has_precision()) {
-            _file_column_types.emplace(column_pb.unique_id(),
-                                       get_data_type_from_column_meta(column_pb));
-        }
+        // if (column_pb.has_type() && column_pb.has_column_id() && column_pb.has_default_value() &&
+        //     column_pb.has_frac() && column_pb.has_precision()) {
+        //     _file_column_types.emplace(column_pb.unique_id(),
+        //                                get_data_type_from_column_meta(column_pb));
+        // }
         if (column_pb.has_column_path_info()) {
             vectorized::PathInData path;
             path.from_protobuf(column_pb.column_path_info());

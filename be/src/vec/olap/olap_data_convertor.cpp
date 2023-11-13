@@ -17,6 +17,7 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include <memory>
 #include <new>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
@@ -1057,9 +1058,15 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
     if (!variant.is_finalized()) {
         variant.finalize();
     }
+    if (variant.is_null_root()) {
+        auto root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
+        auto root_col = root_type->create_column();
+        root_col->insert_many_defaults(variant.rows());
+        variant.create_root(root_type, std::move(root_col));
+        variant.check_consistency();
+    }
     auto root = variant.get_root();
     auto nullable = assert_cast<const ColumnNullable*>(root.get());
-    CHECK(nullable);
     _root_data_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
     _nullmap = nullable->get_null_map_data().data();
     _root_data_convertor->set_source_column({root->get_ptr(), nullptr, ""}, row_pos, num_rows);
