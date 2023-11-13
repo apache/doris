@@ -137,10 +137,10 @@ suite("insert_group_commit_into_unique") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                checkStreamLoadResult(exception, result, 4, 4, 0, 0)
+                checkStreamLoadResult(exception, result, 5, 5, 0, 0)
             }
         }
-        getRowCount(9)
+        getRowCount(10)
         sql """ set show_hidden_columns = true """
         qt_sql """ select id, name, score, __DORIS_DELETE_SIGN__ from ${dbTableName} order by id, name, score asc; """
         sql """ set show_hidden_columns = false """
@@ -218,10 +218,10 @@ suite("insert_group_commit_into_unique") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                checkStreamLoadResult(exception, result, 4, 4, 0, 0)
+                checkStreamLoadResult(exception, result, 5, 5, 0, 0)
             }
         }
-        getRowCount(9)
+        getRowCount(10)
         sql """ set show_hidden_columns = true """
         qt_sql """ select id, name, score, __DORIS_SEQUENCE_COL__, __DORIS_DELETE_SIGN__ from ${dbTableName} order by id, name, score asc; """
         sql """ set show_hidden_columns = false """
@@ -303,10 +303,10 @@ suite("insert_group_commit_into_unique") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                checkStreamLoadResult(exception, result, 4, 4, 0, 0)
+                checkStreamLoadResult(exception, result, 7, 7, 0, 0)
             }
         }
-        getRowCount(7)
+        getRowCount(10)
         sql """ set show_hidden_columns = true """
         qt_sql """ select id, name, score, __DORIS_SEQUENCE_COL__, __DORIS_DELETE_SIGN__ from ${dbTableName} order by id, name, score asc; """
         sql """ set show_hidden_columns = false """
