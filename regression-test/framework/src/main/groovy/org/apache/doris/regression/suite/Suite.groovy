@@ -168,12 +168,7 @@ class Suite implements GroovyInterceptable {
             try {
                 Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
                 if (connInfo != null) {
-                    def newConnInfo = new ConnectionInfo()
-                    newConnInfo.conn = DriverManager.getConnection(connInfo.conn.getMetaData().getURL(),
-                            connInfo.username, connInfo.password)
-                    newConnInfo.username = connInfo.username
-                    newConnInfo.password = connInfo.password
-                    context.threadLocalConn.set(newConnInfo)
+                    context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
                 }
                 context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
 

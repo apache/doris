@@ -244,14 +244,17 @@ Status EnginePublishVersionTask::finish() {
                         add_error_tablet_id(tablet_id);
                         if (res.ok()) {
                             res = Status::Error<VERSION_NOT_EXIST>(
-                                    "tablet {} not exists version {}", tablet_id,
+                                    "tablet {} with state {} not exists version {}", tablet_id,
+                                    tablet_state_name(tablet->tablet_state()),
                                     par_ver_info.version);
                         }
-                        LOG(WARNING) << "publish version failed on transaction, tablet version not "
-                                        "exists. "
-                                     << "transaction_id=" << transaction_id
-                                     << ", tablet_id=" << tablet_id
-                                     << ", version=" << par_ver_info.version;
+                        LOG(WARNING)
+                                << "publish version failed on transaction, tablet version not "
+                                   "exists. "
+                                << "transaction_id=" << transaction_id
+                                << ", tablet_id=" << tablet_id
+                                << ", tablet_state=" << tablet_state_name(tablet->tablet_state())
+                                << ", version=" << par_ver_info.version;
                     }
                 }
             }

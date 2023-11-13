@@ -439,6 +439,13 @@ public class Config extends ConfigBase {
             + "then the load task will be successful." })
     public static int publish_wait_time_second = 300;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段是否检查正在做 Schema 变更的副本。"
+            + "正常情况下，不要关闭此检查。除非在极端情况下出现导入和 Schema 变更出现互相等待死锁时才临时打开。",
+            "Check the replicas which are doing schema change when publish transaction. Do not turn off this check "
+            + " under normal circumstances. It's only temporarily skip check if publish version and schema change have"
+            + " dead lock" })
+    public static boolean publish_version_check_alter_replica = true;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
