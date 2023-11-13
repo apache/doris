@@ -105,7 +105,7 @@ public:
 
     static void deserialize_as_stream(QuantileState<T>& value, BufferReadable& buf);
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeQuantileStateSerDe>(nesting_level);
+        return std::make_shared<DataTypeQuantileStateSerDe<T>>(nesting_level);
     };
 };
 using DataTypeQuantileStateDouble = DataTypeQuantileState<double>;

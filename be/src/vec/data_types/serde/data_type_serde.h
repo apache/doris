@@ -46,8 +46,8 @@ class time_zone;
         if (i != start_idx) {                                                 \
             bw.write(options.field_delim.data(), options.field_delim.size()); \
         }                                                                     \
-        serialize_one_cell_to_json(column, i, bw, options);
-}
+        serialize_one_cell_to_json(column, i, bw, options);                   \
+    }
 
 #define DESERIALIZE_COLUMN_FROM_JSON_VECTOR()                                       \
     for (int i = 0; i < slices.size(); ++i) {                                       \
