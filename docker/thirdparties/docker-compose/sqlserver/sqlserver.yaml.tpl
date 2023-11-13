@@ -70,3 +70,7 @@ services:
 
 networks:
   doris--sqlserver_2022:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.42.0.0/24

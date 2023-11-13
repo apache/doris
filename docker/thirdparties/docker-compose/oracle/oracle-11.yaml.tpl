@@ -47,3 +47,7 @@ services:
 
 networks:
   doris--oracle_11:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.40.0.0/24
