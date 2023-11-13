@@ -42,6 +42,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.external.FederationBackendPolicy;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -145,6 +146,13 @@ public abstract class ScanNode extends PlanNode {
      *                           maximum.
      */
     public abstract List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
+
+    // If scan is key search, should not enable the shared scan opt to prevent the performance problem
+    // 1. where contain the eq or in expr of key column slot
+    // 2. key column slot is distribution column and first column
+    protected boolean isKeySearch() {
+        return false;
+    }
 
     /**
      * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
@@ -643,7 +651,18 @@ public abstract class ScanNode extends PlanNode {
         return scanRangeLocation;
     }
 
-    public boolean isKeySearch() {
-        return false;
+    // some scan should not enable the shared scan opt to prevent the performance problem
+    // 1. is key search
+    // 2. session variable not enable_shared_scan
+    public boolean shouldDisableSharedScan() {
+        boolean enableShardScan = false;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+            enableShardScan = ConnectContext.get().getSessionVariable().getEnableSharedScan();
+        }
+        return isKeySearch() || !enableShardScan;
+    }
+
+    public boolean haveLimitAndConjunts() {
+        return hasLimit() && !conjuncts.isEmpty();
     }
 }
