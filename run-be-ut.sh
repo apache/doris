@@ -400,6 +400,9 @@ fi
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"
 
+# set ORC_EXAMPLE_DIR for orc unit tests
+export ORC_EXAMPLE_DIR="${DORIS_HOME}/be/src/apache-orc/examples"
+
 # set asan and ubsan env to generate core file
 export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
