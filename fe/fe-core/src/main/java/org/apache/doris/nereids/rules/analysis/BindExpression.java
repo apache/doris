@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -74,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -386,6 +388,19 @@ public class BindExpression implements AnalysisRuleFactory {
                             .collect(ImmutableList.toImmutableList());
                     List<NamedExpression> newOutput = adjustNullableForRepeat(groupingSets, output);
                     groupingSets.forEach(list -> checkIfOutputAliasNameDuplicatedForGroupBy(list, newOutput));
+
+                    // check all GroupingScalarFunction inputSlots must be from groupingExprs
+                    Set<Slot> groupingExprs = groupingSets.stream()
+                            .flatMap(Collection::stream).map(expr -> expr.getInputSlots())
+                            .flatMap(Collection::stream).collect(Collectors.toSet());
+                    Set<GroupingScalarFunction> groupingScalarFunctions = ExpressionUtils
+                            .collect(newOutput, GroupingScalarFunction.class::isInstance);
+                    for (GroupingScalarFunction function : groupingScalarFunctions) {
+                        if (!groupingExprs.containsAll(function.getInputSlots())) {
+                            throw new AnalysisException("Column in " + function.getName()
+                                    + " does not exist in GROUP BY clause.");
+                        }
+                    }
                     return repeat.withGroupSetsAndOutput(groupingSets, newOutput);
                 })
             ),
