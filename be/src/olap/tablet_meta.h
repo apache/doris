@@ -632,6 +632,8 @@ inline bool TabletMeta::all_beta() const {
     return true;
 }
 
+std::string tablet_state_name(TabletState state);
+
 // Only for unit test now.
 bool operator==(const TabletMeta& a, const TabletMeta& b);
 bool operator!=(const TabletMeta& a, const TabletMeta& b);

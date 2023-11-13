@@ -250,6 +250,32 @@ class SuiteContext implements Closeable {
         }
     }
 
+    public void reconnectFe() {
+        ConnectionInfo connInfo = threadLocalConn.get()
+        if (connInfo == null) {
+            return
+        }
+        connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
+    }
+
+    public void connectTo(String url, String username, String password) {
+        ConnectionInfo oldConn = threadLocalConn.get()
+        if (oldConn != null) {
+            threadLocalConn.remove()
+            try {
+                oldConn.conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+
+        def newConnInfo = new ConnectionInfo()
+        newConnInfo.conn = DriverManager.getConnection(url, username, password)
+        newConnInfo.username = username
+        newConnInfo.password = password
+        threadLocalConn.set(newConnInfo)
+    }
+
     OutputUtils.OutputBlocksIterator getOutputIterator() {
         def outputIt = threadLocalOutputIterator.get()
         if (outputIt == null) {
