@@ -33,3 +33,22 @@ read_master_fe_ip() {
         return 1
     fi
 }
+
+wait_pid() {
+    pid=$1
+    health_log ""
+    health_log "ps -elf\n$(ps -elf)\n"
+    if [ -z $pid ]; then
+        health_log "pid not exist"
+        exit 1
+    fi
+
+    health_log "wait process $pid"
+    while true; do
+        if [ ! ps -p $pid ] >/dev/null; then
+            break
+        fi
+        sleep 1s
+    done
+    health_log "wait end"
+}

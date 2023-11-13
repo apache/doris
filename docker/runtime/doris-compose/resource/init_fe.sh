@@ -95,26 +95,13 @@ wait_process() {
     pid=""
     for ((i = 0; i < 5; i++)); do
         sleep 1s
-        pid=$(ps -elf | grep java | grep org.apache.doris.DorisFE | grep -v grep)
+        pid=$(ps -elf | grep java | grep org.apache.doris.DorisFE | grep -v grep | awk '{print $4}')
         if [ -n $pid ]; then
             break
         fi
     done
-    health_log ""
-    health_log "ps -elf\n$(ps -elf)\n"
-    if [ -z $pid ]; then
-        health_log "be pid not exist"
-        exit 1
-    fi
 
-    health_log "wait be process $pid"
-    while true; do
-        if [ ! ps -p $pid ] >/dev/null; then
-            break
-        fi
-        sleep 1s
-    done
-    health_log "wait end, exit"
+    wait_pid $pid
 }
 
 main() {
