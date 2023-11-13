@@ -720,6 +720,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                                     converted_result.second->get_data(), num_rows));
     }
     if (_has_key) {
+        // for now we don't need to query short key index for CLUSTER BY feature,
+        // but we still write the index for future usage.
         bool need_primary_key_indexes = (_tablet_schema->keys_type() == UNIQUE_KEYS &&
                                          _opts.enable_unique_key_merge_on_write);
         bool need_short_key_indexes =
@@ -828,25 +830,11 @@ std::string SegmentWriter::_full_encode_keys(
         bool null_first) {
     assert(_key_index_size.size() == _num_key_columns);
     assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
-
-    std::string encoded_keys;
-    size_t cid = 0;
-    for (const auto& column : key_columns) {
-        auto field = column->get_data_at(pos);
-        if (UNLIKELY(!field)) {
-            encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
-            ++cid;
-            continue;
-        }
-        encoded_keys.push_back(KEY_NORMAL_MARKER);
-        _key_coders[cid]->full_encode_ascending(field, &encoded_keys);
-        ++cid;
-    }
-    return encoded_keys;
+    return _full_encode_keys(_key_coders, key_columns, pos, null_first);
 }
 
 std::string SegmentWriter::_full_encode_keys(
-        std::vector<const KeyCoder*>& key_coders,
+        const std::vector<const KeyCoder*>& key_coders,
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
         bool null_first) {
     assert(key_columns.size() == key_coders.size());

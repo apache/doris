@@ -774,10 +774,9 @@ std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
         const std::vector<RowsetId>& rowset_ids, size_t ori_return_cols, KeysType keys_type,
         uint32_t seq_col_idx, RowSourcesBuffer* row_sources,
         std::vector<uint32_t> key_group_cluster_key_idxes) {
-    return std::make_shared<VerticalHeapMergeIterator>(std::move(inputs), iterator_init_flag,
-                                                       rowset_ids, ori_return_cols, keys_type,
-                                                       seq_col_idx, row_sources,
-                                                       key_group_cluster_key_idxes);
+    return std::make_shared<VerticalHeapMergeIterator>(
+            std::move(inputs), iterator_init_flag, rowset_ids, ori_return_cols, keys_type,
+            seq_col_idx, row_sources, key_group_cluster_key_idxes);
 }
 
 std::shared_ptr<RowwiseIterator> new_vertical_fifo_merge_iterator(

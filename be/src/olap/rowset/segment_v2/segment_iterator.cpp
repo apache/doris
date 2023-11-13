@@ -1353,8 +1353,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
         if (Slice(index_key).compare(sought_key_without_seq) == 0) {
             exact_match = true;
         }
-    }
-    if (!has_seq_col && has_rowid) {
+    } else if (has_rowid) {
         auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                 _segment->_pk_index_reader->type_info()->type(), 1, 0);
         auto index_column = index_type->create_column();

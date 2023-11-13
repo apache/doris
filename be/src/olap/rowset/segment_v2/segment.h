@@ -95,12 +95,12 @@ public:
                                        std::unique_ptr<InvertedIndexIterator>* iter);
 
     const ShortKeyIndexDecoder* get_short_key_index() const {
-        // DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
+        DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
         return _sk_index_decoder.get();
     }
 
     const PrimaryKeyIndexReader* get_primary_key_index() const {
-        // DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
+        DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
         return _pk_index_reader.get();
     }
 

@@ -295,10 +295,10 @@ void MemTable::_sort_by_cluster_keys() {
     _stat.sort_times++;
     // sort all rows
     vectorized::Block in_block = _output_mutable_block.to_block();
-    auto cloneBlock = in_block.clone_without_columns();
-    _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
     vectorized::MutableBlock mutable_block =
             vectorized::MutableBlock::build_mutable_block(&in_block);
+    auto clone_block = in_block.clone_without_columns();
+    _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
 
     std::vector<RowInBlock*> row_in_blocks;
     std::unique_ptr<int, std::function<void(int*)>> row_in_blocks_deleter((int*)0x01, [&](int*) {
