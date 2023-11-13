@@ -37,7 +37,7 @@
 
 // Used to tracking query/load/compaction/e.g. execution thread memory usage.
 // This series of methods saves some information to the thread local context of the current worker thread,
-// including MemTracker, QueryID, etc. Use CONSUME_MEM_TRACKER/RELEASE_MEM_TRACKER in the code segment where
+// including MemTracker, QueryID, etc. Use CONSUME_THREAD_MEM_TRACKER/RELEASE_THREAD_MEM_TRACKER in the code segment where
 // the macro is located to record the memory into MemTracker.
 // Not use it in rpc done.run(), because bthread_setspecific may have errors when UBSAN compiles.
 #if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
@@ -83,26 +83,26 @@
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) (void)0
 #endif
 
-#define SKIP_MEMORY_CHECK(...)                                \
-    do {                                                      \
-        doris::ThreadLocalHandle::handle_thread_local();      \
-        doris::thread_context()->skip_memory_check++;         \
-        DEFER({                                               \
-            doris::thread_context()->skip_memory_check--;     \
-            doris::ThreadLocalHandle::release_thread_local(); \
-        });                                                   \
-        __VA_ARGS__;                                          \
+#define SKIP_MEMORY_CHECK(...)                                             \
+    do {                                                                   \
+        doris::ThreadLocalHandle::create_thread_local_if_not_exits();      \
+        doris::thread_context()->skip_memory_check++;                      \
+        DEFER({                                                            \
+            doris::thread_context()->skip_memory_check--;                  \
+            doris::ThreadLocalHandle::del_thread_local_if_count_is_zero(); \
+        });                                                                \
+        __VA_ARGS__;                                                       \
     } while (0)
 
-#define SKIP_LARGE_MEMORY_CHECK(...)                            \
-    do {                                                        \
-        doris::ThreadLocalHandle::handle_thread_local();        \
-        doris::thread_context()->skip_large_memory_check++;     \
-        DEFER({                                                 \
-            doris::thread_context()->skip_large_memory_check--; \
-            doris::ThreadLocalHandle::release_thread_local();   \
-        });                                                     \
-        __VA_ARGS__;                                            \
+#define SKIP_LARGE_MEMORY_CHECK(...)                                       \
+    do {                                                                   \
+        doris::ThreadLocalHandle::create_thread_local_if_not_exits();      \
+        doris::thread_context()->skip_large_memory_check++;                \
+        DEFER({                                                            \
+            doris::thread_context()->skip_large_memory_check--;            \
+            doris::ThreadLocalHandle::del_thread_local_if_count_is_zero(); \
+        });                                                                \
+        __VA_ARGS__;                                                       \
     } while (0)
 
 namespace doris {
@@ -178,7 +178,7 @@ public:
         thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
     }
 
-    int handle_thread_local_count = 0;
+    int thread_local_handle_count = 0;
     int skip_memory_check = 0;
     int skip_large_memory_check = 0;
 
@@ -189,17 +189,17 @@ private:
 
 class ThreadLocalHandle {
 public:
-    static void handle_thread_local() {
+    static void create_thread_local_if_not_exits() {
         if (bthread_self() == 0) {
             if (!pthread_context_ptr_init) {
                 thread_context_ptr = new ThreadContext();
                 pthread_context_ptr_init = true;
             }
             DCHECK(thread_context_ptr != nullptr);
-            thread_context_ptr->handle_thread_local_count++;
+            thread_context_ptr->thread_local_handle_count++;
         } else {
             // Avoid calling bthread_getspecific frequently to get bthread local.
-            // Very frequent bthread_getspecific will slow, but handle_thread_local is not expected to be much.
+            // Very frequent bthread_getspecific will slow, but create_thread_local_if_not_exits is not expected to be much.
             // Cache the pointer of bthread local in pthead local.
             auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
             if (bthread_context == nullptr) {
@@ -215,17 +215,17 @@ public:
                 CHECK(0 == bthread_setspecific(btls_key, bthread_context) || k_doris_exit);
             }
             DCHECK(bthread_context != nullptr);
-            bthread_context->handle_thread_local_count++;
+            bthread_context->thread_local_handle_count++;
         }
     }
 
-    // `handle_thread_local` and `handle_thread_local` should be used in pairs,
-    // `release_thread_local` should only be called if `handle_thread_local` returns true
-    static void release_thread_local() {
+    // `create_thread_local_if_not_exits` and `del_thread_local_if_count_is_zero` should be used in pairs,
+    // `del_thread_local_if_count_is_zero` should only be called if `create_thread_local_if_not_exits` returns true
+    static void del_thread_local_if_count_is_zero() {
         if (pthread_context_ptr_init) {
             // in pthread
-            thread_context_ptr->handle_thread_local_count--;
-            if (thread_context_ptr->handle_thread_local_count == 0) {
+            thread_context_ptr->thread_local_handle_count--;
+            if (thread_context_ptr->thread_local_handle_count == 0) {
                 pthread_context_ptr_init = false;
                 delete doris::thread_context_ptr;
                 thread_context_ptr = nullptr;
@@ -234,7 +234,7 @@ public:
             // in bthread
             auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
             DCHECK(bthread_context != nullptr);
-            bthread_context->handle_thread_local_count--;
+            bthread_context->thread_local_handle_count--;
         } else {
             LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
@@ -256,7 +256,7 @@ public:
     return false;
 }
 
-// must call handle_thread_local() before use thread_context().
+// must call create_thread_local_if_not_exits() before use thread_context().
 static ThreadContext* thread_context() {
     if (pthread_context_ptr_init) {
         // in pthread
@@ -278,7 +278,7 @@ static ThreadContext* thread_context() {
 class ScopeMemCountByHook {
 public:
     explicit ScopeMemCountByHook(int64_t* scope_mem) {
-        ThreadLocalHandle::handle_thread_local();
+        ThreadLocalHandle::create_thread_local_if_not_exits();
         use_mem_hook = true;
         _scope_mem = scope_mem;
         thread_context()->thread_mem_tracker_mgr->start_count_scope_mem();
@@ -287,7 +287,7 @@ public:
     ~ScopeMemCountByHook() {
         *_scope_mem += thread_context()->thread_mem_tracker_mgr->stop_count_scope_mem();
         use_mem_hook = false;
-        ThreadLocalHandle::release_thread_local();
+        ThreadLocalHandle::del_thread_local_if_count_is_zero();
     }
 
 private:
@@ -308,14 +308,14 @@ public:
 class SwitchThreadMemTrackerLimiter {
 public:
     explicit SwitchThreadMemTrackerLimiter(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-        ThreadLocalHandle::handle_thread_local();
+        ThreadLocalHandle::create_thread_local_if_not_exits();
         _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, TUniqueId());
     }
 
     ~SwitchThreadMemTrackerLimiter() {
         thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
-        ThreadLocalHandle::release_thread_local();
+        ThreadLocalHandle::del_thread_local_if_count_is_zero();
     }
 
 private:
@@ -373,20 +373,34 @@ private:
     } while (0)
 
 // Mem Hook to consume thread mem tracker, not use in brpc thread.
-#define CONSUME_MEM_TRACKER_USE_BY_HOOK(size)                                                      \
-    do {                                                                                           \
-        if (doris::use_mem_hook) {                                                                 \
-            DCHECK(doris::pthread_context_ptr_init);                                               \
-            DCHECK(bthread_self() == 0);                                                           \
-            doris::thread_context_ptr->consume_memory(size);                                       \
-        } else if (doris::ExecEnv::ready()) {                                                      \
-            doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
-        }                                                                                          \
+#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size)             \
+    do {                                                     \
+        if (doris::use_mem_hook) {                           \
+            DCHECK(doris::pthread_context_ptr_init);         \
+            DCHECK(bthread_self() == 0);                     \
+            doris::thread_context_ptr->consume_memory(size); \
+        }                                                    \
     } while (0)
-#define RELEASE_MEM_TRACKER_USE_BY_HOOK(size) CONSUME_MEM_TRACKER_USE_BY_HOOK(-size)
+#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) CONSUME_THREAD_MEM_TRACKER_BY_HOOK(-size)
+#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)             \
+    do {                                                                     \
+        if (doris::use_mem_hook) {                                           \
+            DCHECK(doris::pthread_context_ptr_init);                         \
+            DCHECK(bthread_self() == 0);                                     \
+            doris::thread_context_ptr->consume_memory(size_fn(__VA_ARGS__)); \
+        }                                                                    \
+    } while (0)
+#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)              \
+    do {                                                                      \
+        if (doris::use_mem_hook) {                                            \
+            DCHECK(doris::pthread_context_ptr_init);                          \
+            DCHECK(bthread_self() == 0);                                      \
+            doris::thread_context_ptr->consume_memory(-size_fn(__VA_ARGS__)); \
+        }                                                                     \
+    } while (0)
 
 // if use mem hook, avoid repeated consume.
-#define CONSUME_MEM_TRACKER(size)                                                                  \
+#define CONSUME_THREAD_MEM_TRACKER(size)                                                           \
     do {                                                                                           \
         if (doris::use_mem_hook) {                                                                 \
             break;                                                                                 \
@@ -401,14 +415,16 @@ private:
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
         }                                                                                          \
     } while (0)
-#define RELEASE_MEM_TRACKER(size) CONSUME_MEM_TRACKER(-size)
+#define RELEASE_THREAD_MEM_TRACKER(size) CONSUME_THREAD_MEM_TRACKER(-size)
 
 #else
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
-#define CONSUME_MEM_TRACKER_USE_BY_HOOK(size) (void)0
-#define RELEASE_MEM_TRACKER_USE_BY_HOOK(size) (void)0
-#define CONSUME_MEM_TRACKER(size) (void)0
-#define RELEASE_MEM_TRACKER(size) (void)0
+#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size) (void)0
+#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) (void)0
+#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size) (void)0
+#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size) (void)0
+#define CONSUME_THREAD_MEM_TRACKER(size) (void)0
+#define RELEASE_THREAD_MEM_TRACKER(size) (void)0
 #endif
 } // namespace doris

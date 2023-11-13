@@ -184,7 +184,7 @@ public:
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
         } else if (old_size >= doris::config::mmap_threshold &&
                    new_size >= doris::config::mmap_threshold) {
-            // Resize mmap'd memory region.
+            /// Resize mmap'd memory region.
             // On apple and freebsd self-implemented mremap used (common/mremap.h)
             buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
                                     mmap_flags, -1, 0);

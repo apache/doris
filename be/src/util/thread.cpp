@@ -481,7 +481,7 @@ void* Thread::supervise_thread(void* arg) {
     Thread::_tls = t;
 
     // Create thread context, there is no need to create it when func is executed.
-    ThreadLocalHandle::handle_thread_local();
+    ThreadLocalHandle::create_thread_local_if_not_exits();
 
     // Publish our tid to '_tid', which unblocks any callers waiting in
     // WaitForTid().
@@ -519,7 +519,7 @@ void Thread::finish_thread(void* arg) {
     // so 'this' could be destructed at this point. Do not add any code
     // following here!
 
-    ThreadLocalHandle::release_thread_local();
+    ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
 
 void Thread::init_threadmgr() {

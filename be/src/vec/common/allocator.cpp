@@ -38,7 +38,7 @@
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t size) const {
-    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check) {
+    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
         return;
     }
     if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
@@ -132,31 +132,34 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(size_t size) const {
-    if (doris::is_thread_context_init() && !doris::thread_context()->skip_memory_check) {
-        auto st = doris::thread_context()->thread_mem_tracker()->check_limit(size);
-        if (!st) {
-            auto err_msg = fmt::format("Allocator mem tracker check failed, {}", st.to_string());
-            doris::thread_context()->thread_mem_tracker()->print_log_usage(err_msg);
-            // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
-            if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query()) {
-                doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
-                if (!doris::enable_thread_catch_bad_alloc) {
-                    LOG(INFO) << fmt::format("query/load:{} canceled asyn, {}.",
-                                             print_id(doris::thread_context()->task_id()), err_msg);
-                    doris::thread_context()->thread_mem_tracker_mgr->cancel_instance(err_msg);
-                } else {
-                    LOG(INFO) << fmt::format("query/load:{} throw exception, {}.",
-                                             print_id(doris::thread_context()->task_id()), err_msg);
-                    throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
-                }
-            } else if (doris::enable_thread_catch_bad_alloc) {
-                LOG(INFO) << fmt::format("memory tracker check failed, throw exception, {}.",
-                                         err_msg);
-                throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
+        return;
+    }
+    if (!doris::is_thread_context_init()) {
+        return;
+    }
+    auto st = doris::thread_context()->thread_mem_tracker()->check_limit(size);
+    if (!st) {
+        auto err_msg = fmt::format("Allocator mem tracker check failed, {}", st.to_string());
+        doris::thread_context()->thread_mem_tracker()->print_log_usage(err_msg);
+        // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
+        if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query()) {
+            doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
+            if (!doris::enable_thread_catch_bad_alloc) {
+                LOG(INFO) << fmt::format("query/load:{} canceled asyn, {}.",
+                                         print_id(doris::thread_context()->task_id()), err_msg);
+                doris::thread_context()->thread_mem_tracker_mgr->cancel_instance(err_msg);
             } else {
-                LOG(INFO) << fmt::format("memory tracker check failed, no throw exception, {}.",
-                                         err_msg);
+                LOG(INFO) << fmt::format("query/load:{} throw exception, {}.",
+                                         print_id(doris::thread_context()->task_id()), err_msg);
+                throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
             }
+        } else if (doris::enable_thread_catch_bad_alloc) {
+            LOG(INFO) << fmt::format("memory tracker check failed, throw exception, {}.", err_msg);
+            throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+        } else {
+            LOG(INFO) << fmt::format("memory tracker check failed, no throw exception, {}.",
+                                     err_msg);
         }
     }
 }
@@ -169,12 +172,12 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_check(size_t size
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::consume_memory(size_t size) const {
-    CONSUME_MEM_TRACKER(size);
+    CONSUME_THREAD_MEM_TRACKER(size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::release_memory(size_t size) const {
-    RELEASE_MEM_TRACKER(size);
+    RELEASE_THREAD_MEM_TRACKER(size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
