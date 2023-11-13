@@ -44,6 +44,11 @@ services:
     depends_on:
       doris--mysql_57:
         condition: service_healthy 
-
+    networks:
+      - doris--mysql_57
 networks:
   doris--mysql_57:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.34.0.0/24

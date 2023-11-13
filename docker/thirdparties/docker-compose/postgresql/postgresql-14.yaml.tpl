@@ -40,5 +40,11 @@ services:
     depends_on:
       doris--postgres:
         condition: service_healthy 
+    networks:
+      - doris--postgres
 networks:
   doris--postgres:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.41.0.0/24

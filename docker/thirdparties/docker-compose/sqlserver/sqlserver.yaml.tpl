@@ -63,10 +63,15 @@ services:
     networks:
       - doris--sqlserver_2022
   hello-world:
-      image: hello-world
-      depends_on:
-        doris--sqlserver_2022:
-          condition: service_healthy
-
+    image: hello-world
+    depends_on:
+      doris--sqlserver_2022:
+        condition: service_healthy
+    networks:
+      - doris--sqlserver_2022
 networks:
   doris--sqlserver_2022:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.42.0.0/24

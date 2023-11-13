@@ -43,6 +43,11 @@ services:
     depends_on:
       doris--clickhouse:
         condition: service_healthy 
-
+    networks:
+      - doris--clickhouse
 networks:
   doris--clickhouse:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.35.0.0/24
