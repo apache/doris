@@ -64,9 +64,9 @@ services:
       - doris--sqlserver_2022
   sqlserver-hello-world:
     image: hello-world
-      depends_on:
-        doris--sqlserver_2022:
-          condition: service_healthy
+    depends_on:
+      doris--sqlserver_2022:
+        condition: service_healthy
     networks:
       - doris--sqlserver_2022
 networks:
