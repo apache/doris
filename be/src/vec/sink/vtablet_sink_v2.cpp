@@ -222,8 +222,7 @@ Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
         if (node_info == nullptr) {
             return Status::InternalError("Unknown node {} in tablet location", dst_id);
         }
-        std::shared_ptr<LoadStreams> streams;
-        streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
+        auto streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
                 _load_id, src_id, dst_id, _stream_per_node, _num_local_sink);
         // get tablet schema from each backend only in the 1st stream
         for (auto& stream : streams->streams() | std::ranges::views::take(1)) {
