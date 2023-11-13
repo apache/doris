@@ -319,9 +319,7 @@ public:
 
     int total_load_streams() const { return _total_load_streams; }
 
-    void set_num_local_sink(int num_local_sink) {
-        _num_local_sink = num_local_sink;
-    }
+    void set_num_local_sink(int num_local_sink) { _num_local_sink = num_local_sink; }
 
     int num_local_sink() const { return _num_local_sink; }
 

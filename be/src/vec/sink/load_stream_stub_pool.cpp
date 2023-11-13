@@ -43,8 +43,8 @@ LoadStreamStubPool::LoadStreamStubPool() = default;
 LoadStreamStubPool::~LoadStreamStubPool() = default;
 
 std::shared_ptr<LoadStreams> LoadStreamStubPool::get_or_create(PUniqueId load_id, int64_t src_id,
-                                                           int64_t dst_id, int num_streams,
-                                                           int num_sink) {
+                                                               int64_t dst_id, int num_streams,
+                                                               int num_sink) {
     auto key = std::make_pair(UniqueId(load_id), dst_id);
     std::lock_guard<std::mutex> lock(_mutex);
     std::shared_ptr<LoadStreams> streams = _pool[key];
