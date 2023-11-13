@@ -56,47 +56,34 @@ public:
     Status try_close(RuntimeState* state) override;
 };
 
-struct OpenDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(OpenDependency);
-    OpenDependency(int id) : Dependency(id, "OpenDependency") {}
-    void* shared_state() override { return nullptr; }
-    [[nodiscard]] Dependency* read_blocked_by() override { return nullptr; }
-    [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
-};
-
 class EosDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(EosDependency);
-    EosDependency(int id) : Dependency(id, "EosDependency") {}
+    EosDependency(int id, int node_id) : Dependency(id, node_id, "EosDependency") {}
     void* shared_state() override { return nullptr; }
 };
 
 class ScannerDoneDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ScannerDoneDependency);
-    ScannerDoneDependency(int id, vectorized::ScannerContext* scanner_ctx)
-            : Dependency(id, "ScannerDoneDependency"), _scanner_ctx(scanner_ctx) {}
+    ScannerDoneDependency(int id, int node_id) : Dependency(id, node_id, "ScannerDoneDependency") {}
     void* shared_state() override { return nullptr; }
-    vectorized::ScannerContext* scanner_ctx() { return _scanner_ctx; }
-
-private:
-    vectorized::ScannerContext* _scanner_ctx;
 };
 
 class DataReadyDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(DataReadyDependency);
-    DataReadyDependency(int id, vectorized::ScannerContext* scanner_ctx)
-            : Dependency(id, "DataReadyDependency"), _scanner_ctx(scanner_ctx) {}
+    DataReadyDependency(int id, int node_id, vectorized::ScannerContext* scanner_ctx)
+            : Dependency(id, node_id, "DataReadyDependency"), _scanner_ctx(scanner_ctx) {}
 
     void* shared_state() override { return nullptr; }
 
-    [[nodiscard]] Dependency* read_blocked_by() override {
+    // TODO(gabriel):
+    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
         if (_scanner_ctx->get_num_running_scanners() == 0 && _scanner_ctx->should_be_scheduled()) {
             _scanner_ctx->reschedule_scanner_ctx();
         }
-        return Dependency::read_blocked_by();
+        return Dependency::read_blocked_by(task);
     }
 
 private:
@@ -140,7 +127,7 @@ protected:
 
     virtual Status _init_profile() = 0;
 
-    std::shared_ptr<OpenDependency> _open_dependency;
+    std::atomic<bool> _opened {false};
     std::shared_ptr<EosDependency> _eos_dependency;
     std::shared_ptr<OrDependency> _source_dependency;
     std::shared_ptr<ScannerDoneDependency> _scanner_done_dependency;

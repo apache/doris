@@ -592,15 +592,14 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
     _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
     DataSinkOperatorXPtr sink;
-    sink.reset(new LocalExchangeSinkOperatorX(
-            local_exchange_id, _runtime_state->query_parallel_instance_num(), texprs));
+    auto num_instances = _runtime_state->query_parallel_instance_num();
+    sink.reset(new LocalExchangeSinkOperatorX(local_exchange_id, num_instances, texprs));
     RETURN_IF_ERROR(cur_pipe->set_sink(sink));
     RETURN_IF_ERROR(cur_pipe->sink_x()->init());
 
     auto shared_state = LocalExchangeSharedState::create_shared();
-    shared_state->data_queue.resize(_runtime_state->query_parallel_instance_num());
-    shared_state->source_dependencies.resize(_runtime_state->query_parallel_instance_num(),
-                                             nullptr);
+    shared_state->data_queue.resize(num_instances);
+    shared_state->source_dependencies.resize(num_instances, nullptr);
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
@@ -1031,4 +1030,18 @@ bool PipelineXFragmentContext::_has_inverted_index_or_partial_update(TOlapTableS
     return false;
 }
 
+std::string PipelineXFragmentContext::debug_string() {
+    fmt::memory_buffer debug_string_buffer;
+    for (size_t j = 0; j < _tasks.size(); j++) {
+        fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
+        for (size_t i = 0; i < _tasks[j].size(); i++) {
+            if (_tasks[j][i]->get_state() == PipelineTaskState::FINISHED) {
+                continue;
+            }
+            fmt::format_to(debug_string_buffer, "Task {}: {}\n", i, _tasks[j][i]->debug_string());
+        }
+    }
+
+    return fmt::to_string(debug_string_buffer);
+}
 } // namespace doris::pipeline

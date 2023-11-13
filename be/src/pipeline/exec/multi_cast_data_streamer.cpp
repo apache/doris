@@ -100,29 +100,26 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
 }
 
 void MultiCastDataStreamer::_set_ready_for_read(int sender_idx) {
-    if (!_has_dependencys) {
+    if (_dependencies.empty()) {
         return;
     }
-    auto* dep = _dependencys[sender_idx];
+    auto* dep = _dependencies[sender_idx];
     DCHECK(dep);
     dep->set_ready_for_read();
 }
 
 void MultiCastDataStreamer::_set_ready_for_read() {
-    if (!_has_dependencys) {
-        return;
-    }
-    for (auto* dep : _dependencys) {
+    for (auto* dep : _dependencies) {
         DCHECK(dep);
         dep->set_ready_for_read();
     }
 }
 
 void MultiCastDataStreamer::_block_reading(int sender_idx) {
-    if (!_has_dependencys) {
+    if (_dependencies.empty()) {
         return;
     }
-    auto* dep = _dependencys[sender_idx];
+    auto* dep = _dependencies[sender_idx];
     DCHECK(dep);
     dep->block_reading();
 }

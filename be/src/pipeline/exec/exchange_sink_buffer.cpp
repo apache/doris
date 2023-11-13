@@ -92,7 +92,7 @@ bool ExchangeSinkBuffer<Parent>::can_write() const {
 
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_set_ready_to_finish() {
-    if (_finish_dependency && _busy_channels == 0) {
+    if (_finish_dependency && _should_stop && _busy_channels == 0) {
         _finish_dependency->set_ready_to_finish();
     }
 }
@@ -167,9 +167,6 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
             send_now = true;
             _rpc_channel_is_idle[ins_id.lo] = false;
             _busy_channels++;
-            if (_finish_dependency) {
-                _finish_dependency->block_finishing();
-            }
         }
         _instance_to_package_queue[ins_id.lo].emplace(std::move(request));
         _total_queue_size++;
@@ -203,9 +200,6 @@ Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& req
             send_now = true;
             _rpc_channel_is_idle[ins_id.lo] = false;
             _busy_channels++;
-            if (_finish_dependency) {
-                _finish_dependency->block_finishing();
-            }
         }
         _instance_to_broadcast_package_queue[ins_id.lo].emplace(request);
     }

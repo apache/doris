@@ -120,6 +120,8 @@ public:
 
     void inc_num_running_scanners(int32_t scanner_inc);
 
+    void set_ready_to_finish();
+
     int get_num_running_scanners() const { return _num_running_scanners; }
 
     void dec_num_scheduling_ctx();

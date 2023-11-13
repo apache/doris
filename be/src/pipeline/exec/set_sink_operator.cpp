@@ -171,7 +171,6 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     }
 
     _shared_state->child_quantity = parent._child_quantity;
-    _shared_state->probe_finished_children_index.assign(parent._child_quantity, false);
 
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     DCHECK(child_exprs_lists.size() == 0 || child_exprs_lists.size() == parent._child_quantity);
@@ -192,6 +191,7 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState* state) {
+    Base::_name = "SET_SINK_OPERATOR";
     const std::vector<std::vector<TExpr>>* result_texpr_lists;
 
     // Create result_expr_ctx_lists_ from thrift exprs.

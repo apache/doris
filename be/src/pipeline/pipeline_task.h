@@ -79,6 +79,7 @@ enum class PipelineTaskState : uint8_t {
     BLOCKED_FOR_RF = 8,
 };
 
+// For pipelineX engine, we try to eliminate the impact of blocking queues.
 inline bool avoid_using_blocked_queue(PipelineTaskState state) {
     return state == PipelineTaskState::BLOCKED_FOR_SINK ||
            state == PipelineTaskState::BLOCKED_FOR_RF || state == PipelineTaskState::PENDING_FINISH;
@@ -258,6 +259,23 @@ public:
 
     virtual bool is_pipelineX() const { return false; }
 
+    void set_blocked(bool blocked) {
+        std::unique_lock<std::mutex> lc(_blocked_lock);
+        if (blocked) {
+            DCHECK(!_blocked) << debug_string();
+        } else {
+            DCHECK(_blocked) << debug_string();
+        }
+        _blocked = blocked;
+    }
+
+    bool is_blocked() {
+        std::unique_lock<std::mutex> lc(_blocked_lock);
+        return _blocked;
+    }
+
+    void wake_up_by_queue() { _wake_up_by = nullptr; }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -360,11 +378,16 @@ protected:
     std::shared_ptr<QueryStatistics> _query_statistics;
     Status _collect_query_statistics();
     bool _collect_query_statistics_with_every_batch = false;
+    std::string _stack_msg;
+    Dependency* _wake_up_by;
 
 private:
     Operators _operators; // left is _source, right is _root
     OperatorPtr _source;
     OperatorPtr _root;
     OperatorPtr _sink;
+
+    bool _blocked {false};
+    std::mutex _blocked_lock;
 };
 } // namespace doris::pipeline

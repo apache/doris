@@ -60,9 +60,7 @@ Status LocalExchangeSinkLocalState::split_rows(RuntimeState* state,
         if (size > 0) {
             data_queue[i].enqueue({new_block, {row_idx, start, size}});
         }
-        if (data_queue[i].size_approx() > 0) {
-            _shared_state->_set_ready_for_read(i);
-        }
+        _shared_state->set_ready_for_read(i);
     }
 
     return Status::OK();

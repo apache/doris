@@ -637,7 +637,7 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state);
 
-    WriteDependency* write_blocked_by();
+    WriteDependency* write_blocked_by(PipelineXTask* task);
     WriteDependency* dependency() override { return _async_writer_dependency.get(); }
     Status close(RuntimeState* state, Status exec_status) override;
 

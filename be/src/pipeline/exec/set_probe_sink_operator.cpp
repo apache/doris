@@ -72,6 +72,7 @@ template class SetProbeSinkOperator<false>;
 
 template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState* state) {
+    DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::_name = "SET_PROBE_SINK_OPERATOR";
     const std::vector<std::vector<TExpr>>* result_texpr_lists;
 
     // Create result_expr_ctx_lists_ from thrift exprs.
@@ -108,11 +109,6 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-
-    if (_cur_child_id > 1) {
-        CHECK(local_state._shared_state->probe_finished_children_index[_cur_child_id - 1])
-                << fmt::format("child with id: {} should be probed first", _cur_child_id);
-    }
 
     auto probe_rows = in_block->rows();
     if (probe_rows > 0) {

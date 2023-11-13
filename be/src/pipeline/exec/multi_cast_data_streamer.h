@@ -34,12 +34,16 @@ struct MultiCastBlock {
 // code
 class MultiCastDataStreamer {
 public:
-    MultiCastDataStreamer(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count)
+    MultiCastDataStreamer(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count,
+                          bool with_dependencies = false)
             : _row_desc(row_desc),
               _profile(pool->add(new RuntimeProfile("MultiCastDataStreamSink"))),
               _cast_sender_count(cast_sender_count) {
         _sender_pos_to_read.resize(cast_sender_count, _multi_cast_blocks.end());
-        _dependencys.resize(cast_sender_count, nullptr);
+        if (with_dependencies) {
+            _dependencies.resize(cast_sender_count, nullptr);
+        }
+
         _peak_mem_usage = ADD_COUNTER(profile(), "PeakMemUsage", TUnit::BYTES);
         _process_rows = ADD_COUNTER(profile(), "ProcessRows", TUnit::UNIT);
     };
@@ -71,8 +75,7 @@ public:
     }
 
     void set_dep_by_sender_idx(int sender_idx, MultiCastDependency* dep) {
-        _dependencys[sender_idx] = dep;
-        _has_dependencys = true;
+        _dependencies[sender_idx] = dep;
         _block_reading(sender_idx);
     }
 
@@ -94,7 +97,6 @@ private:
     RuntimeProfile::Counter* _process_rows;
     RuntimeProfile::Counter* _peak_mem_usage;
 
-    std::vector<MultiCastDependency*> _dependencys;
-    bool _has_dependencys = false;
+    std::vector<MultiCastDependency*> _dependencies;
 };
 } // namespace doris::pipeline

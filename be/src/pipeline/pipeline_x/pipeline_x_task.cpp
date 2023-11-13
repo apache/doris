@@ -182,10 +182,8 @@ Status PipelineXTask::_open() {
         auto* local_state = _state->get_local_state(o->operator_id());
         auto st = local_state->open(_state);
         if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
-            _blocked_dep = local_state->filterdependency();
-            set_state(PipelineTaskState::BLOCKED_FOR_RF);
-        } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
+            _blocked_dep = _filter_dependency->filter_blocked_by(this);
+            _push_blocked_task_to_dep();
         }
         RETURN_IF_ERROR(st);
     }
@@ -212,10 +210,6 @@ Status PipelineXTask::execute(bool* eos) {
             SCOPED_RAW_TIMER(&time_spent);
             auto st = _open();
             if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
-                set_state(PipelineTaskState::BLOCKED_FOR_RF);
-                return Status::OK();
-            } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
-                set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
                 return Status::OK();
             }
             RETURN_IF_ERROR(st);
@@ -229,7 +223,6 @@ Status PipelineXTask::execute(bool* eos) {
             return Status::OK();
         }
         if (!sink_can_write()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             return Status::OK();
         }
     }
@@ -241,7 +234,6 @@ Status PipelineXTask::execute(bool* eos) {
             break;
         }
         if (!sink_can_write()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
         if (time_spent > THREAD_TIME_SLICE) {
@@ -343,8 +335,11 @@ std::string PipelineXTask::debug_string() {
     //     fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
     // }
     fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, state = {}]\noperators: ", (void*)this,
-                   get_state_name(_cur_state));
+                   "PipelineTask[this = {}, state = {}, data state = {},\nfinish stack : {}, \n "
+                   "_wake_up_by = {}, "
+                   "dry run = {}]\noperators: ",
+                   (void*)this, get_state_name(_cur_state), (int)_data_state, _stack_msg,
+                   _wake_up_by ? _wake_up_by->debug_string() : "None", _dry_run);
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(
                 debug_string_buffer, "\n{}",
@@ -353,18 +348,23 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "\n{}",
                    _opened ? _sink->debug_string(_state, _operators.size())
                            : _sink->debug_string(_operators.size()));
-    for (auto* dep : _read_dependencies) {
-        fmt::format_to(debug_string_buffer, "\n{}", dep->debug_string());
+    fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
+    for (size_t i = 0; i < _read_dependencies.size(); i++) {
+        fmt::format_to(debug_string_buffer, "{}{}\n", std::string(i * 2, ' '),
+                       _read_dependencies[i]->debug_string());
     }
 
-    fmt::format_to(debug_string_buffer, "\n{}", _write_dependencies->debug_string());
+    fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");
+    fmt::format_to(debug_string_buffer, "{}\n", _write_dependencies->debug_string());
 
-    fmt::format_to(debug_string_buffer, "\n{}", _filter_dependency->debug_string());
+    fmt::format_to(debug_string_buffer, "Runtime Filter Dependency Information: \n");
+    fmt::format_to(debug_string_buffer, "{}\n", _filter_dependency->debug_string());
 
-    for (auto* dep : _finish_dependencies) {
-        fmt::format_to(debug_string_buffer, "\n{}", dep->debug_string());
+    fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
+    for (size_t i = 0; i < _finish_dependencies.size(); i++) {
+        fmt::format_to(debug_string_buffer, "{}{}\n", std::string(i * 2, ' '),
+                       _finish_dependencies[i]->debug_string());
     }
-
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -373,29 +373,40 @@ void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
     auto state = get_state();
     VecDateTimeValue now = VecDateTimeValue::local_time();
     DCHECK(avoid_using_blocked_queue(state));
+    set_blocked(false);
+    _wake_up_by = _blocked_dep;
+    DCHECK_EQ(wake_up_dep, _blocked_dep)
+            << "wake_up_dep: " << wake_up_dep->debug_string()
+            << " _blocked_dep: " << (_blocked_dep ? _blocked_dep->debug_string() : "NULL");
     if (state == PipelineTaskState::PENDING_FINISH) {
-        Dependency* block_dep = finish_blocked_dependency();
-        if (block_dep == nullptr) {
-            _make_run(PipelineTaskState::PENDING_FINISH);
+        _blocked_dep = finish_blocked_dependency(true);
+        if (_blocked_dep == nullptr) {
+            _make_run();
         } else {
-            push_blocked_task_to_dep();
+            // Blocked by another FinishDependency.
+            DCHECK_NE(_wake_up_by, _blocked_dep)
+                    << "cur_dep: " << _wake_up_by->debug_string()
+                    << " \n_blocked_dep: " << _blocked_dep->debug_string();
         }
         return;
     }
+    _blocked_dep = nullptr;
+    // TODO(gabriel): task will never be wake up if canceled / timeout
     if (query_context()->is_cancelled()) {
+        set_state(PipelineTaskState::RUNNABLE);
         _make_run();
         return;
     }
     if (query_context()->is_timeout(now)) {
         query_context()->cancel(true, "", Status::Cancelled(""));
-        return;
     }
-    DCHECK(avoid_using_blocked_queue(state));
+    set_state(PipelineTaskState::RUNNABLE);
+    _use_blocking_queue = true;
     _make_run();
 }
 
-void PipelineXTask::_make_run(PipelineTaskState t_state) {
-    set_state(t_state);
+void PipelineXTask::_make_run() {
     static_cast<void>(get_task_queue()->push_back(this));
 }
+
 } // namespace doris::pipeline

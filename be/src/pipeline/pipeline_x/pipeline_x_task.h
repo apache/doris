@@ -72,8 +72,10 @@ public:
 
     Dependency* read_blocked_dependency() {
         for (auto* op_dep : _read_dependencies) {
-            _blocked_dep = op_dep->read_blocked_by();
+            _blocked_dep = op_dep->read_blocked_by(this);
             if (_blocked_dep != nullptr) {
+                // TODO(gabriel):
+                _use_blocking_queue = true;
                 _blocked_dep->start_read_watcher();
                 return _blocked_dep;
             }
@@ -88,21 +90,15 @@ public:
         return read_blocked_dependency() == nullptr;
     }
 
-    Dependency* filter_blocked_dependency() {
-        _blocked_dep = _filter_dependency->filter_blocked_by();
-        if (_blocked_dep != nullptr) {
-            return _blocked_dep;
-        }
-        return nullptr;
-    }
-
     bool runtime_filters_are_ready_or_timeout() override {
-        return filter_blocked_dependency() == nullptr;
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
+        return false;
     }
 
     Dependency* write_blocked_dependency() {
-        _blocked_dep = _write_dependencies->write_blocked_by();
+        _blocked_dep = _write_dependencies->write_blocked_by(this);
         if (_blocked_dep != nullptr) {
+            _push_blocked_task_to_dep();
             static_cast<WriteDependency*>(_blocked_dep)->start_write_watcher();
             return _blocked_dep;
         }
@@ -115,10 +111,16 @@ public:
 
     std::string debug_string() override;
 
-    Dependency* finish_blocked_dependency() {
+    Dependency* finish_blocked_dependency(bool skip_current_dep) {
         for (auto* fin_dep : _finish_dependencies) {
-            _blocked_dep = fin_dep->finish_blocked_by();
+            if (skip_current_dep && fin_dep == _blocked_dep) {
+                // `_blocked_dep` has already been ready.
+                _blocked_dep = nullptr;
+                continue;
+            }
+            _blocked_dep = fin_dep->finish_blocked_by(this);
             if (_blocked_dep != nullptr) {
+                _push_blocked_task_to_dep();
                 static_cast<FinishDependency*>(_blocked_dep)->start_finish_watcher();
                 return _blocked_dep;
             }
@@ -126,7 +128,7 @@ public:
         return nullptr;
     }
 
-    bool is_pending_finish() override { return finish_blocked_dependency() != nullptr; }
+    bool is_pending_finish() override { return finish_blocked_dependency(false) != nullptr; }
 
     std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
 
@@ -167,22 +169,26 @@ public:
 
     OperatorXs operatorXs() { return _operators; }
 
-    bool push_blocked_task_to_dep() {
-        DCHECK(_blocked_dep) << "state :" << get_state_name(get_state());
-        DCHECK(avoid_using_blocked_queue(get_state()));
-        if (!_blocked_dep->avoid_using_blocked_queue_dependency()) {
-            return false;
-        }
-        if (_blocked_dep->is_or_dep()) {
-            return false;
-        }
-        _blocked_dep->add_block_task(this);
-        _blocked_dep = nullptr;
-        return true;
+    bool push_blocked_task_to_queue() {
+        /**
+         * Push task into blocking queue if:
+         * 1. This task is blocked (`_blocked_dep` is not nullptr) and `_use_blocking_queue` is true.
+         * 2. Or this task is blocked by FE two phase execution (BLOCKED_FOR_DEPENDENCY).
+         */
+        return (_blocked_dep && _use_blocking_queue) ||
+               get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
     }
 
 private:
-    void _make_run(PipelineTaskState state = PipelineTaskState::RUNNABLE);
+    void _push_blocked_task_to_dep() {
+        DCHECK(_blocked_dep) << "state :" << get_state_name(get_state());
+        // TODO(gabriel): process OrDep
+        if (_blocked_dep->is_or_dep()) {
+            return;
+        }
+        _use_blocking_queue = false;
+    }
+    void _make_run();
     void set_close_pipeline_time() override {}
     void _init_profile() override;
     void _fresh_profile_counter() override;
@@ -207,6 +213,8 @@ private:
     bool _dry_run = false;
 
     Dependency* _blocked_dep;
+
+    std::atomic<bool> _use_blocking_queue {true};
 };
 
 } // namespace doris::pipeline

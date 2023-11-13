@@ -40,21 +40,20 @@
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vpartition_sort_node.h"
 
-namespace doris {
-namespace pipeline {
+namespace doris::pipeline {
 class Dependency;
 class PipelineXTask;
 using DependencySPtr = std::shared_ptr<Dependency>;
 
-static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 300 * 1000L * 1000L * 1000L;
-static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 5 * 1000L * 1000L * 1000L;
+static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 60 * 1000L * 1000L * 1000L;
+static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
+
 class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
-    Dependency(int id, std::string name) : _id(id), _name(name), _ready_for_read(false) {}
+    Dependency(int id, int node_id, std::string name)
+            : _id(id), _node_id(node_id), _name(std::move(name)), _ready_for_read(false) {}
     virtual ~Dependency() = default;
-
-    virtual bool avoid_using_blocked_queue_dependency() { return true; }
 
     virtual bool is_or_dep() { return false; }
     [[nodiscard]] int id() const { return _id; }
@@ -76,31 +75,22 @@ public:
     }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* read_blocked_by();
+    [[nodiscard]] virtual Dependency* read_blocked_by(PipelineXTask* task = nullptr);
 
     // Notify downstream pipeline tasks this dependency is ready.
-    virtual void set_ready_for_read() {
-        if (_ready_for_read) {
-            Dependency::try_to_wake_up_task();
-            return;
-        }
-        _read_dependency_watcher.stop();
-        _ready_for_read = true;
-        Dependency::try_to_wake_up_task();
-    }
+    virtual void set_ready_for_read();
 
     // Notify downstream pipeline tasks this dependency is blocked.
     virtual void block_reading() { _ready_for_read = false; }
 
     void set_parent(std::weak_ptr<Dependency> parent) { _parent = parent; }
 
-    void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
-
-    void remove_first_child() { _children.erase(_children.begin()); }
+    void add_child(std::shared_ptr<Dependency> child) {
+        _children.push_back(child);
+        child->set_parent(weak_from_this());
+    }
 
     virtual void add_block_task(PipelineXTask* task);
-
-    virtual void try_to_wake_up_task();
 
 protected:
     bool _should_log(uint64_t cur_time) {
@@ -115,6 +105,7 @@ protected:
     }
 
     int _id;
+    const int _node_id;
     std::string _name;
     std::atomic<bool> _ready_for_read;
     MonotonicStopWatch _read_dependency_watcher;
@@ -124,13 +115,14 @@ protected:
     std::list<std::shared_ptr<Dependency>> _children;
 
     uint64_t _last_log_time = 0;
-    std::vector<PipelineXTask*> _block_task;
     std::mutex _task_lock;
+    std::vector<PipelineXTask*> _blocked_task;
 };
 
 class WriteDependency : public Dependency {
 public:
-    WriteDependency(int id, std::string name) : Dependency(id, name), _ready_for_write(true) {}
+    WriteDependency(int id, int node_id, std::string name)
+            : Dependency(id, node_id, name), _ready_for_write(true) {}
     ~WriteDependency() override = default;
 
     bool is_write_dependency() override { return true; }
@@ -146,47 +138,37 @@ public:
         return _write_dependency_watcher.elapsed_time();
     }
 
-    [[nodiscard]] virtual WriteDependency* write_blocked_by() {
-        if (config::enable_fuzzy_mode && !_ready_for_write &&
-            _should_log(_write_dependency_watcher.elapsed_time())) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id() << " block tasks: " << _block_task.size()
-                         << "read :" << _ready_for_read << " write :" << _ready_for_write;
+    [[nodiscard]] virtual WriteDependency* write_blocked_by(PipelineXTask* task) {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        if (!_ready_for_write && task) {
+            add_write_block_task(task);
         }
         return _ready_for_write ? nullptr : this;
     }
 
-    void set_ready_for_read() override { Dependency::set_ready_for_read(); }
-
-    virtual void set_ready_for_write() {
-        if (_ready_for_write) {
-            try_to_wake_up_task();
-            return;
-        }
-        _write_dependency_watcher.stop();
-        _ready_for_write = true;
-        try_to_wake_up_task();
-    }
+    virtual void set_ready_for_write();
 
     virtual void block_writing() { _ready_for_write = false; }
 
-    void add_block_task(PipelineXTask* task) override;
-
-    void try_to_wake_up_task() override;
     std::string debug_string(int indentation_level = 0) override;
+    void add_write_block_task(PipelineXTask* task);
 
 protected:
     friend class Dependency;
-    std::atomic<bool> _ready_for_write;
+    bool _ready_for_write;
     MonotonicStopWatch _write_dependency_watcher;
-    std::vector<PipelineXTask*> _write_block_task;
+
+private:
+    std::vector<PipelineXTask*> _write_blocked_task;
 };
 
 class FinishDependency final : public Dependency {
 public:
     FinishDependency(int id, int node_id, std::string name)
-            : Dependency(id, name), _ready_to_finish(true), _node_id(node_id) {}
+            : Dependency(id, node_id, name), _ready_to_finish(true) {}
     ~FinishDependency() override = default;
+
+    void should_finish_after_check() { _ready_to_finish = false; }
     void start_finish_watcher() {
         for (auto& child : _children) {
             ((FinishDependency*)child.get())->start_finish_watcher();
@@ -198,33 +180,27 @@ public:
         return _finish_dependency_watcher.elapsed_time();
     }
 
-    [[nodiscard]] FinishDependency* finish_blocked_by() {
-        if (config::enable_fuzzy_mode && !_ready_to_finish &&
-            _should_log(_finish_dependency_watcher.elapsed_time())) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << _node_id << " block tasks: " << _block_task.size();
+    [[nodiscard]] FinishDependency* finish_blocked_by(PipelineXTask* task) {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        if (!_ready_to_finish && task) {
+            add_block_task(task);
         }
         return _ready_to_finish ? nullptr : this;
     }
 
-    void set_ready_to_finish() {
-        if (_ready_to_finish) {
-            try_to_wake_up_task();
-            return;
-        }
-        _finish_dependency_watcher.stop();
-        _ready_to_finish = true;
-        try_to_wake_up_task();
-    }
+    void set_ready_to_finish();
 
-    void block_finishing() { _ready_to_finish = false; }
     void* shared_state() override { return nullptr; }
     std::string debug_string(int indentation_level = 0) override;
 
+    void add_block_task(PipelineXTask* task) override;
+
 protected:
-    std::atomic<bool> _ready_to_finish;
+    bool _ready_to_finish;
     MonotonicStopWatch _finish_dependency_watcher;
-    const int _node_id;
+
+private:
+    std::vector<PipelineXTask*> _finish_blocked_task;
 };
 
 class RuntimeFilterDependency;
@@ -260,15 +236,20 @@ private:
     const int32_t _wait_time_ms;
     IRuntimeFilter* _runtime_filter;
 };
+
 class RuntimeFilterDependency final : public Dependency {
 public:
     RuntimeFilterDependency(int id, int node_id, std::string name)
-            : Dependency(id, name), _node_id(node_id) {}
-    RuntimeFilterDependency* filter_blocked_by() {
+            : Dependency(id, node_id, name) {}
+    RuntimeFilterDependency* filter_blocked_by(PipelineXTask* task) {
         if (!_blocked_by_rf) {
             return nullptr;
         }
+        std::unique_lock<std::mutex> lc(_task_lock);
         if (*_blocked_by_rf) {
+            if (LIKELY(task)) {
+                add_block_task(task);
+            }
             return this;
         }
         return nullptr;
@@ -281,16 +262,20 @@ public:
     }
     std::string debug_string(int indentation_level = 0) override;
 
+    void add_block_task(PipelineXTask* task) override;
+
 protected:
-    const int _node_id;
     std::atomic_int _filters;
     std::shared_ptr<std::atomic_bool> _blocked_by_rf;
+
+private:
+    std::vector<PipelineXTask*> _filter_blocked_task;
 };
 
 class AndDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(AndDependency);
-    AndDependency(int id) : WriteDependency(id, "AndDependency") {}
+    AndDependency(int id, int node_id) : WriteDependency(id, node_id, "AndDependency") {}
 
     [[nodiscard]] std::string name() const override {
         fmt::memory_buffer debug_string_buffer;
@@ -306,19 +291,19 @@ public:
 
     std::string debug_string(int indentation_level = 0) override;
 
-    [[nodiscard]] Dependency* read_blocked_by() override {
+    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
         for (auto& child : _children) {
-            if (auto* dep = child->read_blocked_by()) {
+            if (auto* dep = child->read_blocked_by(task)) {
                 return dep;
             }
         }
         return nullptr;
     }
 
-    [[nodiscard]] WriteDependency* write_blocked_by() override {
+    [[nodiscard]] WriteDependency* write_blocked_by(PipelineXTask* task) override {
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
-            if (auto* dep = ((WriteDependency*)child.get())->write_blocked_by()) {
+            if (auto* dep = ((WriteDependency*)child.get())->write_blocked_by(task)) {
                 return dep;
             }
         }
@@ -329,7 +314,7 @@ public:
 class OrDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(OrDependency);
-    OrDependency(int id) : WriteDependency(id, "OrDependency") {}
+    OrDependency(int id, int node_id) : WriteDependency(id, node_id, "OrDependency") {}
 
     [[nodiscard]] std::string name() const override {
         fmt::memory_buffer debug_string_buffer;
@@ -347,9 +332,10 @@ public:
 
     bool is_or_dep() override { return true; }
 
-    [[nodiscard]] Dependency* read_blocked_by() override {
+    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
+        // TODO(gabriel):
         for (auto& child : _children) {
-            auto* cur_res = child->read_blocked_by();
+            auto* cur_res = child->read_blocked_by(nullptr);
             if (cur_res == nullptr) {
                 return nullptr;
             }
@@ -357,10 +343,10 @@ public:
         return this;
     }
 
-    [[nodiscard]] WriteDependency* write_blocked_by() override {
+    [[nodiscard]] WriteDependency* write_blocked_by(PipelineXTask* task) override {
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
-            auto* cur_res = ((WriteDependency*)child.get())->write_blocked_by();
+            auto* cur_res = ((WriteDependency*)child.get())->write_blocked_by(nullptr);
             if (cur_res == nullptr) {
                 return nullptr;
             }
@@ -372,11 +358,13 @@ public:
 struct FakeSharedState {};
 struct FakeDependency final : public WriteDependency {
 public:
-    FakeDependency(int id) : WriteDependency(id, "FakeDependency") {}
+    FakeDependency(int id, int node_id) : WriteDependency(id, node_id, "FakeDependency") {}
     using SharedState = FakeSharedState;
     void* shared_state() override { return nullptr; }
-    [[nodiscard]] Dependency* read_blocked_by() override { return nullptr; }
-    [[nodiscard]] WriteDependency* write_blocked_by() override { return nullptr; }
+    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override { return nullptr; }
+    [[nodiscard]] WriteDependency* write_blocked_by(PipelineXTask* task) override {
+        return nullptr;
+    }
     [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
     [[nodiscard]] int64_t write_watcher_elapse_time() override { return 0; }
 };
@@ -409,7 +397,7 @@ public:
 class AggDependency final : public WriteDependency {
 public:
     using SharedState = AggSharedState;
-    AggDependency(int id) : WriteDependency(id, "AggDependency") {
+    AggDependency(int id, int node_id) : WriteDependency(id, node_id, "AggDependency") {
         _mem_tracker = std::make_unique<MemTracker>("AggregateOperator:");
     }
     ~AggDependency() override = default;
@@ -515,7 +503,7 @@ public:
 class SortDependency final : public WriteDependency {
 public:
     using SharedState = SortSharedState;
-    SortDependency(int id) : WriteDependency(id, "SortDependency") {}
+    SortDependency(int id, int node_id) : WriteDependency(id, node_id, "SortDependency") {}
     ~SortDependency() override = default;
     void* shared_state() override { return (void*)&_sort_state; };
 
@@ -535,14 +523,14 @@ public:
 class UnionDependency final : public WriteDependency {
 public:
     using SharedState = UnionSharedState;
-    UnionDependency(int id) : WriteDependency(id, "UnionDependency") {}
+    UnionDependency(int id, int node_id) : WriteDependency(id, node_id, "UnionDependency") {}
     ~UnionDependency() override = default;
 
     void* shared_state() override { return (void*)_union_state.get(); }
     void set_shared_state(std::shared_ptr<UnionSharedState> union_state) {
         _union_state = union_state;
     }
-    void set_ready_for_read() override {}
+
     [[nodiscard]] Dependency* read_blocked_by() override {
         if (_union_state->child_count() == 0) {
             return nullptr;
@@ -563,14 +551,15 @@ private:
 struct MultiCastSharedState {
 public:
     MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count)
-            : multi_cast_data_streamer(row_desc, pool, cast_sender_count) {}
+            : multi_cast_data_streamer(row_desc, pool, cast_sender_count, true) {}
     pipeline::MultiCastDataStreamer multi_cast_data_streamer;
 };
 
 class MultiCastDependency final : public WriteDependency {
 public:
     using SharedState = MultiCastSharedState;
-    MultiCastDependency(int id) : WriteDependency(id, "MultiCastDependency") {}
+    MultiCastDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "MultiCastDependency") {}
     ~MultiCastDependency() override = default;
     void* shared_state() override { return (void*)_multi_cast_state.get(); };
     void set_shared_state(std::shared_ptr<MultiCastSharedState> multi_cast_state) {
@@ -606,7 +595,7 @@ public:
 class AnalyticDependency final : public WriteDependency {
 public:
     using SharedState = AnalyticSharedState;
-    AnalyticDependency(int id) : WriteDependency(id, "AnalyticDependency") {}
+    AnalyticDependency(int id, int node_id) : WriteDependency(id, node_id, "AnalyticDependency") {}
     ~AnalyticDependency() override = default;
 
     void* shared_state() override { return (void*)&_analytic_state; };
@@ -664,7 +653,7 @@ struct HashJoinSharedState : public JoinSharedState {
 class HashJoinDependency final : public WriteDependency {
 public:
     using SharedState = HashJoinSharedState;
-    HashJoinDependency(int id) : WriteDependency(id, "HashJoinDependency") {}
+    HashJoinDependency(int id, int node_id) : WriteDependency(id, node_id, "HashJoinDependency") {}
     ~HashJoinDependency() override = default;
 
     void* shared_state() override { return (void*)&_join_state; }
@@ -696,7 +685,8 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
 class NestedLoopJoinDependency final : public WriteDependency {
 public:
     using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinDependency(int id) : WriteDependency(id, "NestedLoopJoinDependency") {}
+    NestedLoopJoinDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "NestedLoopJoinDependency") {}
     ~NestedLoopJoinDependency() override = default;
 
     void* shared_state() override { return (void*)&_join_state; }
@@ -716,11 +706,23 @@ public:
 class PartitionSortDependency final : public WriteDependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortDependency(int id) : WriteDependency(id, "PartitionSortDependency"), _eos(false) {}
+    PartitionSortDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "PartitionSortDependency"), _eos(false) {}
     ~PartitionSortDependency() override = default;
     void* shared_state() override { return (void*)&_partition_sort_state; };
-    void set_ready_for_write() override {}
-    void block_writing() override {}
+    void set_ready_for_write() override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
+    }
+    void block_writing() override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
+    }
+
+    void block_reading() override {
+        if (_eos) {
+            return;
+        }
+        _ready_for_read = false;
+    }
 
     void set_eos() {
         _eos = true;
@@ -735,7 +737,8 @@ private:
 class AsyncWriterDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id) : WriteDependency(id, "AsyncWriterDependency") {}
+    AsyncWriterDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "AsyncWriterDependency") {}
     ~AsyncWriterDependency() override = default;
     void* shared_state() override { return nullptr; }
 };
@@ -743,6 +746,8 @@ public:
 class SetDependency;
 
 struct SetSharedState {
+public:
+    SetSharedState(int num_deps) { probe_finished_children_dependency.resize(num_deps, nullptr); }
     /// default init
     //record memory during running
     int64_t mem_used = 0;
@@ -767,19 +772,15 @@ struct SetSharedState {
     /// init in build side
     int child_quantity;
     vectorized::VExprContextSPtrs build_child_exprs;
-    std::vector<bool> probe_finished_children_index; // use in probe side
     std::vector<SetDependency*> probe_finished_children_dependency;
-    std::mutex child_lock;
 
     /// init in probe side
     std::vector<vectorized::VExprContextSPtrs> probe_child_exprs_lists;
 
     std::atomic<bool> ready_for_read = false;
 
-public:
     void set_probe_finished_children(int child_id);
 
-    void wake_up_dep();
     /// called in setup_local_state
     void hash_table_init() {
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
@@ -835,35 +836,24 @@ public:
 class SetDependency final : public WriteDependency {
 public:
     using SharedState = SetSharedState;
-    SetDependency(int id) : WriteDependency(id, "SetDependency") {}
+    SetDependency(int id, int node_id) : WriteDependency(id, node_id, "SetDependency") {}
     ~SetDependency() override = default;
     void* shared_state() override { return (void*)_set_state.get(); }
 
-    void set_shared_state(std::shared_ptr<SetSharedState> set_state) {
-        _set_state = set_state;
-        _set_state->probe_finished_children_dependency.push_back(this);
-    }
+    void set_shared_state(std::shared_ptr<SetSharedState> set_state) { _set_state = set_state; }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] Dependency* read_blocked_by() override {
+    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
         if (config::enable_fuzzy_mode && !_set_state->ready_for_read &&
             _should_log(_read_dependency_watcher.elapsed_time())) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id() << " block tasks: " << _block_task.size();
+                         << id() << " " << _node_id << " block tasks: " << _blocked_task.size();
         }
-        if (write_blocked_by() == nullptr) {
-            set_ready_for_write();
+        std::unique_lock<std::mutex> lc(_task_lock);
+        if (!_set_state->ready_for_read && task) {
+            add_block_task(task);
         }
-        _set_state->wake_up_dep();
         return _set_state->ready_for_read ? nullptr : this;
-    }
-
-    [[nodiscard]] WriteDependency* write_blocked_by() override {
-        if (is_set_probe) {
-            DCHECK((_cur_child_id - 1) < _set_state->probe_finished_children_index.size());
-            return _set_state->probe_finished_children_index[_cur_child_id - 1] ? nullptr : this;
-        }
-        return nullptr;
     }
 
     // Notify downstream pipeline tasks this dependency is ready.
@@ -874,15 +864,16 @@ public:
         _read_dependency_watcher.stop();
         _set_state->ready_for_read = true;
     }
+
     void set_cur_child_id(int id) {
-        _cur_child_id = id;
-        is_set_probe = true;
+        _set_state->probe_finished_children_dependency[id] = this;
+        if (id != 0) {
+            block_writing();
+        }
     }
 
 private:
     std::shared_ptr<SetSharedState> _set_state;
-    int _cur_child_id;
-    bool is_set_probe {false};
 };
 
 using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,
@@ -895,8 +886,8 @@ public:
     std::atomic<int> running_sink_operators = 0;
     void add_running_sink_operators() { running_sink_operators++; }
     void sub_running_sink_operators() {
-        running_sink_operators--;
-        if (running_sink_operators == 0) {
+        auto val = running_sink_operators.fetch_sub(1);
+        if (val == 1) {
             _set_ready_for_read();
         }
     }
@@ -910,7 +901,7 @@ public:
         source_dependencies[channel_id] = dep;
         dep->block_reading();
     }
-    void _set_ready_for_read(int channel_id) {
+    void set_ready_for_read(int channel_id) {
         auto* dep = source_dependencies[channel_id];
         DCHECK(dep);
         dep->set_ready_for_read();
@@ -920,8 +911,8 @@ public:
 struct LocalExchangeDependency final : public WriteDependency {
 public:
     using SharedState = LocalExchangeSharedState;
-    LocalExchangeDependency(int id)
-            : WriteDependency(id, "LocalExchangeDependency"),
+    LocalExchangeDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "LocalExchangeDependency"),
               _local_exchange_shared_state(nullptr) {}
     ~LocalExchangeDependency() override = default;
     void* shared_state() override { return _local_exchange_shared_state.get(); }
@@ -930,12 +921,8 @@ public:
         _local_exchange_shared_state = state;
     }
 
-    void set_channel_id(int channel_id) { _channel_id = channel_id; }
-
 private:
     std::shared_ptr<LocalExchangeSharedState> _local_exchange_shared_state;
-    int _channel_id;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline
