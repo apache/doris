@@ -51,6 +51,7 @@ class SuiteContext implements Closeable {
     public final File outputFile
     public final File realOutputFile
     public final ScriptContext scriptContext
+    public final SuiteCluster cluster
     public final String flowName
     public final String flowId
     public final ThreadLocal<OutputUtils.OutputBlocksIterator> threadLocalOutputIterator = new ThreadLocal<>()
@@ -62,13 +63,14 @@ class SuiteContext implements Closeable {
     private long finishTime
     private volatile Throwable throwable
 
-    SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext,
+    SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext, SuiteCluster cluster,
                  ExecutorService suiteExecutors, ExecutorService actionExecutors, Config config) {
         this.file = file
         this.suiteName = suiteName
         this.group = group
         this.config = config
         this.scriptContext = scriptContext
+        this.cluster = cluster
 
         String packageName = getPackageName()
         String className = getClassName()
@@ -215,6 +217,15 @@ class SuiteContext implements Closeable {
             context.targetConnection = config.getConnectionByDbName("TEST_" + dbName)
         }
         return context.targetConnection
+    }
+
+    InetSocketAddress getFeHttpAddress() {
+        if (cluster.isRunning()) {
+            def fe = cluster.getMasterFe()
+            return new InetSocketAddress(fe.host, fe.httpPort)
+        } else {
+            return config.feHttpInetSocketAddress
+        }
     }
 
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
