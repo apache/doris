@@ -1289,6 +1289,7 @@ suite("test_stream_load", "p0") {
         table "${tableName8}"
 
         set 'send_batch_parallelism', '1'
+        set 'column_separator', '|'
         file 'array_malformat.csv'
 
         check { result, exception, startTime, endTime ->
