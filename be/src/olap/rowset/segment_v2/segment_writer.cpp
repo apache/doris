@@ -738,7 +738,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                             << "found duplicate key or key is not sorted! current key: " << key
                             << ", last key" << last_key;
                     RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-                    _maybe_invalid_row_cache(key);
                     last_key = std::move(key);
                 }
             } else {
@@ -825,7 +824,8 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
 }
 
 std::string SegmentWriter::_full_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+        bool null_first) {
     assert(_key_index_size.size() == _num_key_columns);
     assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
 
@@ -859,7 +859,7 @@ std::string SegmentWriter::_full_encode_keys(
             if (null_first) {
                 encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
             } else {
-                encoded_keys.push_back(KEY_NULL_LAST_MARKER);
+                encoded_keys.push_back(KEY_NORMAL_MARKER);
             }
             ++cid;
             continue;
