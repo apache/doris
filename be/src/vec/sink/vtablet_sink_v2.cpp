@@ -224,7 +224,7 @@ Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
         }
         std::shared_ptr<Streams> streams;
         streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, src_id, dst_id, _stream_per_node);
+                _load_id, src_id, dst_id, _stream_per_node, _num_local_sink);
         // get tablet schema from each backend only in the 1st stream
         for (auto& stream : streams->streams() | std::ranges::views::take(1)) {
             const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
