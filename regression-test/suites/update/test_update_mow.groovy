@@ -96,4 +96,31 @@ suite("test_update_mow", "p0") {
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql "DROP TABLE IF EXISTS ${tbName3}"
     sql "DROP TABLE IF EXISTS ${tbName4}"
+
+
+    sql "set experimental_enable_nereids_planner=false;"
+    sql "set enable_nereids_planner=false"
+    sql "sync"
+    def tableName5 = "test_update_mow_5"
+    sql "DROP TABLE IF EXISTS ${tableName5}"
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName5} (
+                k1 int,
+                k2 int,
+                v1 int,
+                v2 int,
+                v3 int)
+            UNIQUE KEY(k1,k2)
+            DISTRIBUTED BY HASH(k1,k2) BUCKETS 5 properties(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true"
+            );
+        """
+    sql "insert into ${tableName5} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
+    qt_sql "select * from ${tableName5} order by k1,k2"
+    sql "update ${tableName5} t set t.v3=999, t.v2=888 where k1=2 and k2=2"
+    qt_sql "select * from ${tableName5} order by k1,k2" 
+    sql "update ${tableName5} t set t.v1=777, t.v2=666 where k1>3 and k2>=3"
+    qt_sql "select * from ${tableName5} order by k1,k2" 
+
+    sql "DROP TABLE IF EXISTS ${tableName5}"
 }

@@ -243,7 +243,9 @@ public class OriginalPlanner extends Planner {
 
         if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
-            rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
+            if (distributedPlanner != null) {
+                rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
+            }
             rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.complete();
             List<Expr> exprs = statement.getResultExprs();
