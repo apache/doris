@@ -163,18 +163,18 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
 
-    snapshot.type = "process virtual memory (from /proc VmSize VmPeak)";
-    snapshot.label = "";
-    snapshot.limit = -1;
-    snapshot.cur_consumption = PerfCounters::get_vm_size();
-    snapshot.peak_consumption = PerfCounters::get_vm_peak();
-    (*snapshots).emplace_back(snapshot);
-
     snapshot.type = "process resident memory (from /proc VmRSS VmHWM)";
     snapshot.label = "";
     snapshot.limit = -1;
     snapshot.cur_consumption = PerfCounters::get_vm_rss();
     snapshot.peak_consumption = PerfCounters::get_vm_hwm();
+    (*snapshots).emplace_back(snapshot);
+
+    snapshot.type = "process virtual memory (from /proc VmSize VmPeak)";
+    snapshot.label = "";
+    snapshot.limit = -1;
+    snapshot.cur_consumption = PerfCounters::get_vm_size();
+    snapshot.peak_consumption = PerfCounters::get_vm_peak();
     (*snapshots).emplace_back(snapshot);
 }
 
