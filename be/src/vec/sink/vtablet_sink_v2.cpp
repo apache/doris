@@ -272,7 +272,8 @@ Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
     return Status::OK();
 }
 
-Status VOlapTableSinkV2::_open_streams_to_backend(int64_t dst_id, ::doris::stream_load::LoadStreams& streams) {
+Status VOlapTableSinkV2::_open_streams_to_backend(int64_t dst_id,
+                                                  ::doris::stream_load::LoadStreams& streams) {
     auto node_info = _nodes_info->find_node(dst_id);
     if (node_info == nullptr) {
         return Status::InternalError("Unknown node {} in tablet location", dst_id);
@@ -280,15 +281,15 @@ Status VOlapTableSinkV2::_open_streams_to_backend(int64_t dst_id, ::doris::strea
     // get tablet schema from each backend only in the 1st stream
     for (auto& stream : streams.streams() | std::ranges::views::take(1)) {
         const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
-        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
-                                        *node_info, _txn_id, *_schema, tablets_for_schema,
-                                        _total_streams, _state->enable_profile()));
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+                                     _txn_id, *_schema, tablets_for_schema, _total_streams,
+                                     _state->enable_profile()));
     }
     // for the rest streams, open without getting tablet schema
     for (auto& stream : streams.streams() | std::ranges::views::drop(1)) {
-        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
-                                        *node_info, _txn_id, *_schema, {}, _total_streams,
-                                        _state->enable_profile()));
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+                                     _txn_id, *_schema, {}, _total_streams,
+                                     _state->enable_profile()));
     }
     return Status::OK();
 }

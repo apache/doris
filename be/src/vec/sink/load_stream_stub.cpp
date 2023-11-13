@@ -244,7 +244,7 @@ void LoadStreamStub::add_schema(const std::vector<PTabletSchemaWithIndex>& schem
         tablet_schema->init_from_pb(schema.tablet_schema());
         _tablet_schema_for_index->emplace(schema.index_id(), std::move(tablet_schema));
         _enable_unique_mow_for_index->emplace(schema.index_id(),
-                                                schema.enable_unique_key_merge_on_write());
+                                              schema.enable_unique_key_merge_on_write());
     }
     _schema_cv.notify_all();
 }
