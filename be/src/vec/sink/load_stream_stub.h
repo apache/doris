@@ -185,13 +185,12 @@ public:
 
     Status wait_for_schema(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                            int64_t timeout_ms = 60000);
-    
+
     Status wait_for_new_schema(int64_t timeout_ms) {
         std::unique_lock<bthread::Mutex> lock(_mutex);
         if (timeout_ms > 0) {
             int ret = _schema_cv.wait_for(lock, timeout_ms * 1000);
-            return ret == 0 ? Status::OK()
-                            : Status::Error<true>(ret, "wait schema update timeout");
+            return ret == 0 ? Status::OK() : Status::Error<true>(ret, "wait schema update timeout");
         }
         _schema_cv.wait(lock);
         return Status::OK();
