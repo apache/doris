@@ -97,7 +97,7 @@ public class SlotBinder extends SubExprAnalyzer {
         } else if (unboundVariable.getType() == VariableType.GLOBAL) {
             literal = VariableMgr.getLiteral(sessionVariable, name, SetType.GLOBAL);
         } else if (unboundVariable.getType() == VariableType.USER) {
-            literal = VariableMgr.getLiteralForUserVar(name);
+            literal = ConnectContext.get().getLiteralForUserVar(name);
         }
         if (literal == null) {
             throw new AnalysisException("Unsupported system variable: " + unboundVariable.getName());
