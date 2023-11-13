@@ -145,7 +145,8 @@ public class StorageBackend implements ParseNode {
         OFS("Tencent CHDFS"),
         GFS("Tencent Goose File System"),
         JFS("Juicefs"),
-        STREAM("Stream load pipe");
+        STREAM("Stream load pipe"),
+        KAFKA("Kafka load pipe");
 
         private final String description;
 

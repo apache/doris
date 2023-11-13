@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks
 import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
+import org.apache.doris.nereids.trees.expressions.functions.table.Kafka;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
@@ -72,6 +73,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitS3(S3 s3, C context) {
         return visitTableValuedFunction(s3, context);
+    }
+
+    default R visitKafka(Kafka kafka, C context) {
+        return visitTableValuedFunction(kafka, context);
     }
 
     default R visitWorkloadGroups(WorkloadGroups workloadGroups, C context) {
