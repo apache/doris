@@ -20,6 +20,7 @@ package org.apache.doris.planner.external.iceberg;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.MetaNotFoundException;
@@ -54,8 +55,9 @@ public class IcebergApiSource implements IcebergSource {
     public IcebergApiSource(IcebergExternalTable table, TupleDescriptor desc,
                             Map<String, ColumnRange> columnNameToRange) {
         this.icebergExtTable = table;
-        this.originTable = ((IcebergExternalCatalog) icebergExtTable.getCatalog())
-                .getIcebergTable(icebergExtTable.getDbName(), icebergExtTable.getName());
+        this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
+            ((IcebergExternalCatalog) icebergExtTable.getCatalog()).getCatalog(), icebergExtTable.getCatalog().getId(),
+            icebergExtTable.getDbName(), icebergExtTable.getName());
         this.desc = desc;
     }
 

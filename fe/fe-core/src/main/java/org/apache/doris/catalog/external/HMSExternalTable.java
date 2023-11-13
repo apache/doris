@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -322,7 +323,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
-        Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(this);
+        Table icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this);
         Schema schema = icebergTable.schema();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
         for (FieldSchema field : hmsSchema) {
