@@ -27,7 +27,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/olap_common.h"
@@ -93,6 +92,7 @@ public:
     bool is_null_at(size_t n) const override {
         return assert_cast<const ColumnUInt8&>(*null_map).get_data()[n] != 0;
     }
+    bool is_default_at(size_t n) const override { return is_null_at(n); }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -352,6 +352,10 @@ public:
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
         nested_column = get_nested_column().convert_to_predicate_column_if_dictionary();
         return get_ptr();
+    }
+
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return get_ratio_of_default_rows_impl<ColumnNullable>(sample_ratio);
     }
 
     void convert_dict_codes_if_necessary() override {

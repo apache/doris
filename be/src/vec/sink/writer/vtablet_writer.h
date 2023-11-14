@@ -65,6 +65,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/countdown_latch.h"
+#include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
@@ -74,6 +75,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/runtime/vfile_format_transformer.h"
+#include "vec/sink/vrow_distribution.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 #include "vec/sink/writer/async_result_writer.h"
@@ -87,8 +89,6 @@ class TExpr;
 class Thread;
 class ThreadPoolToken;
 class TupleDescriptor;
-template <typename T>
-class RefCountClosure;
 
 namespace vectorized {
 
@@ -119,26 +119,21 @@ struct AddBatchCounter {
 
 // It's very error-prone to guarantee the handler capture vars' & this closure's destruct sequence.
 // So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
-// Delete this point is safe, don't worry about RPC callback will run after ReusableClosure deleted.
+// Delete this point is safe, don't worry about RPC callback will run after WriteBlockCallback deleted.
 // "Ping-Pong" between sender and receiver, `try_set_in_flight` when send, `clear_in_flight` after rpc failure or callback,
 // then next send will start, and it will wait for the rpc callback to complete when it is destroyed.
 template <typename T>
-class ReusableClosure final : public google::protobuf::Closure {
-public:
-    ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
-    ~ReusableClosure() override {
-        // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
-        join();
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        cntl.Reset();
-    }
+class WriteBlockCallback final : public ::doris::DummyBrpcCallback<T> {
+    ENABLE_FACTORY_CREATOR(WriteBlockCallback);
 
-    static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
+public:
+    WriteBlockCallback() : cid(INVALID_BTHREAD_ID) {}
+    ~WriteBlockCallback() override = default;
 
     void addFailedHandler(const std::function<void(bool)>& fn) { failed_handler = fn; }
     void addSuccessHandler(const std::function<void(const T&, bool)>& fn) { success_handler = fn; }
 
-    void join() {
+    void join() override {
         // We rely on in_flight to assure one rpc is running,
         // while cid is not reliable due to memory order.
         // in_flight is written before getting callid,
@@ -157,9 +152,8 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        cntl.Reset();
-        cid = cntl.call_id();
+        ::doris::DummyBrpcCallback<T>::cntl_->Reset();
+        cid = ::doris::DummyBrpcCallback<T>::cntl_->call_id();
     }
 
     // if _packet_in_flight == false, set it to true. Return true.
@@ -178,20 +172,18 @@ public:
         _is_last_rpc = true;
     }
 
-    void Run() override {
+    void call() override {
         DCHECK(_packet_in_flight);
-        if (cntl.Failed()) {
-            LOG(WARNING) << "failed to send brpc batch, error=" << berror(cntl.ErrorCode())
-                         << ", error_text=" << cntl.ErrorText();
+        if (::doris::DummyBrpcCallback<T>::cntl_->Failed()) {
+            LOG(WARNING) << "failed to send brpc batch, error="
+                         << berror(::doris::DummyBrpcCallback<T>::cntl_->ErrorCode())
+                         << ", error_text=" << ::doris::DummyBrpcCallback<T>::cntl_->ErrorText();
             failed_handler(_is_last_rpc);
         } else {
-            success_handler(result, _is_last_rpc);
+            success_handler(*(::doris::DummyBrpcCallback<T>::response_), _is_last_rpc);
         }
         clear_in_flight();
     }
-
-    brpc::Controller cntl;
-    T result;
 
 private:
     brpc::CallId cid;
@@ -203,9 +195,6 @@ private:
 
 class IndexChannel;
 class VTabletWriter;
-
-// pair<row_id,tablet_id>
-using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
 
 class VNodeChannelStat {
 public:
@@ -220,6 +209,9 @@ public:
     int64_t where_clause_ns = 0;
     int64_t append_node_channel_ns = 0;
 };
+
+// pair<row_id,tablet_id>
+using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
 
 // every NodeChannel keeps a data transmission channel with one BE. for multiple times open, it has a dozen of requests and corresponding closures.
 class VNodeChannel {
@@ -380,7 +372,7 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     // because we have incremantal open, we should keep one relative closure for one request. it's similarly for adding block.
-    std::vector<RefCountClosure<PTabletWriterOpenResult>*> _open_closures;
+    std::vector<std::shared_ptr<DummyBrpcCallback<PTabletWriterOpenResult>>> _open_callbacks;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
@@ -412,12 +404,12 @@ protected:
 
     // build a _cur_mutable_block and push into _pending_blocks. when not building, this block is empty.
     std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
-    PTabletWriterAddBlockRequest _cur_add_block_request;
+    std::shared_ptr<PTabletWriterAddBlockRequest> _cur_add_block_request;
 
-    using AddBlockReq =
-            std::pair<std::unique_ptr<vectorized::MutableBlock>, PTabletWriterAddBlockRequest>;
+    using AddBlockReq = std::pair<std::unique_ptr<vectorized::MutableBlock>,
+                                  std::shared_ptr<PTabletWriterAddBlockRequest>>;
     std::queue<AddBlockReq> _pending_blocks;
-    ReusableClosure<PTabletWriterAddBlockResult>* _add_block_closure = nullptr;
+    std::shared_ptr<WriteBlockCallback<PTabletWriterAddBlockResult>> _send_block_callback = nullptr;
 
     bool _is_incremental;
 };
@@ -485,6 +477,7 @@ public:
 private:
     friend class VNodeChannel;
     friend class VTabletWriter;
+    friend class VRowDistribution;
 
     VTabletWriter* _parent;
     int64_t _index_id;
@@ -546,28 +539,31 @@ public:
 
     bool is_close_done();
 
+    Status on_partitions_created(TCreatePartitionResult* result);
+
 private:
     friend class VNodeChannel;
     friend class IndexChannel;
 
-    using ChannelDistributionPayload = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
+    using ChannelDistributionPayload = std::unordered_map<VNodeChannel*, Payload>;
+    using ChannelDistributionPayloadVec = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
+
+    Status _init_row_distribution();
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);
-    // payload for each row
-    void _generate_row_distribution_payload(ChannelDistributionPayload& payload,
-                                            const VOlapTablePartition* partition,
-                                            uint32_t tablet_index, int row_idx, size_t row_cnt);
-    Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
-                                      ChannelDistributionPayload& channel_to_payload,
-                                      size_t num_rows, bool has_filtered_rows);
+
+    void _generate_one_index_channel_payload(RowPartTabletIds& row_part_tablet_tuple,
+                                             int32_t index_idx,
+                                             ChannelDistributionPayload& channel_payload);
+
+    void _generate_index_channels_payloads(std::vector<RowPartTabletIds>& row_part_tablet_ids,
+                                           ChannelDistributionPayloadVec& payload);
 
     Status _cancel_channel_and_check_intolerable_failure(Status status, const std::string& err_msg,
                                                          const std::shared_ptr<IndexChannel> ich,
                                                          const std::shared_ptr<VNodeChannel> nch);
 
     void _cancel_all_channel(Status status);
-
-    std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
 
     void _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
                               std::vector<int64_t> filter);
@@ -686,6 +682,11 @@ private:
     RuntimeProfile* _profile = nullptr; // not owned, set when open
     bool _group_commit = false;
     std::shared_ptr<WalWriter> _wal_writer = nullptr;
+
+    VRowDistribution _row_distribution;
+    // reuse to avoid frequent memory allocation and release.
+    std::vector<RowPartTabletIds> _row_part_tablet_ids;
+
     int64_t _tb_id;
     int64_t _db_id;
     int64_t _wal_id;

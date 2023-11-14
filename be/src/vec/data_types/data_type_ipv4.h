@@ -50,8 +50,6 @@ public:
     const char* get_family_name() const override { return "IPv4"; }
     std::string do_get_name() const override { return "IPv4"; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
@@ -64,7 +62,9 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeIPv4SerDe>(); }
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeIPv4SerDe>(nesting_level);
+    }
 };
 
 template <typename DataType>

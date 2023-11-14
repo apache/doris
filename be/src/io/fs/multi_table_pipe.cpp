@@ -215,12 +215,12 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
 
         if constexpr (std::is_same_v<ExecParam, TExecPlanFragmentParams>) {
             RETURN_IF_ERROR(
-                    putPipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]));
+                    put_pipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]));
             LOG(INFO) << "fragment_instance_id=" << print_id(plan.params.fragment_instance_id)
                       << " table=" << plan.table_name;
         } else if constexpr (std::is_same_v<ExecParam, TPipelineFragmentParams>) {
             auto pipe_id = calculate_pipe_id(plan.query_id, plan.fragment_id);
-            RETURN_IF_ERROR(putPipe(pipe_id, _planned_pipes[plan.table_name]));
+            RETURN_IF_ERROR(put_pipe(pipe_id, _planned_pipes[plan.table_name]));
             LOG(INFO) << "pipe_id=" << pipe_id << "table=" << plan.table_name;
         } else {
             LOG(WARNING) << "illegal exec param type, need `TExecPlanFragmentParams` or "
@@ -247,7 +247,7 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                     if (num_selected_rows > 0 &&
                         (double)state->num_rows_load_filtered() / num_selected_rows >
                                 _ctx->max_filter_ratio) {
-                        *status = Status::InternalError("too many filtered rows");
+                        *status = Status::DataQualityError("too many filtered rows");
                     }
                     if (_number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
                         _ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
@@ -300,7 +300,8 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
 
 #endif
 
-Status MultiTablePipe::putPipe(const TUniqueId& pipe_id, std::shared_ptr<io::StreamLoadPipe> pipe) {
+Status MultiTablePipe::put_pipe(const TUniqueId& pipe_id,
+                                std::shared_ptr<io::StreamLoadPipe> pipe) {
     std::lock_guard<std::mutex> l(_pipe_map_lock);
     auto it = _pipe_map.find(pipe_id);
     if (it != std::end(_pipe_map)) {
@@ -310,16 +311,16 @@ Status MultiTablePipe::putPipe(const TUniqueId& pipe_id, std::shared_ptr<io::Str
     return Status::OK();
 }
 
-std::shared_ptr<io::StreamLoadPipe> MultiTablePipe::getPipe(const TUniqueId& pipe_id) {
+std::shared_ptr<io::StreamLoadPipe> MultiTablePipe::get_pipe(const TUniqueId& pipe_id) {
     std::lock_guard<std::mutex> l(_pipe_map_lock);
     auto it = _pipe_map.find(pipe_id);
     if (it == std::end(_pipe_map)) {
-        return std::shared_ptr<io::StreamLoadPipe>(nullptr);
+        return {};
     }
     return it->second;
 }
 
-void MultiTablePipe::removePipe(const TUniqueId& pipe_id) {
+void MultiTablePipe::remove_pipe(const TUniqueId& pipe_id) {
     std::lock_guard<std::mutex> l(_pipe_map_lock);
     auto it = _pipe_map.find(pipe_id);
     if (it != std::end(_pipe_map)) {

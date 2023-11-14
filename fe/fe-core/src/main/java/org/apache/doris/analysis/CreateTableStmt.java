@@ -559,8 +559,7 @@ public class CreateTableStmt extends DdlStmt {
                     tableName.getCtl(), tableName.getDb(), properties);
             // analyze partition
             if (partitionDesc != null) {
-                if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc
-                        || partitionDesc instanceof ColumnPartitionDesc) {
+                if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {
                     partitionDesc.analyze(columnDefs, properties);
                 } else {
                     throw new AnalysisException("Currently only support range"

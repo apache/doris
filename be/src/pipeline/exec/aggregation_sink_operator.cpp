@@ -67,7 +67,7 @@ template <typename DependencyType, typename Derived>
 Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
                                                         LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(Base::profile()->total_time_counter());
+    SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
     _agg_data = Base::_shared_state->agg_data.get();
     _agg_arena_pool = Base::_shared_state->agg_arena_pool.get();
@@ -160,7 +160,7 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
 
 template <typename DependencyType, typename Derived>
 Status AggSinkLocalState<DependencyType, Derived>::open(RuntimeState* state) {
-    SCOPED_TIMER(Base::profile()->total_time_counter());
+    SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     _agg_data = Base::_shared_state->agg_data.get();
@@ -784,7 +784,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
                                               vectorized::Block* in_block,
                                               SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
@@ -804,7 +804,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
 
 template <typename DependencyType, typename Derived>
 Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state, Status exec_status) {
-    SCOPED_TIMER(Base::profile()->total_time_counter());
+    SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     if (Base::_closed) {
         return Status::OK();

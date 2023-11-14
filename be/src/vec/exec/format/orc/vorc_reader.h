@@ -169,7 +169,6 @@ public:
 
     int64_t size() const;
 
-    std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
@@ -552,6 +551,8 @@ private:
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::shared_ptr<ObjectPool> _obj_pool;
     std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
+    bool _is_dict_cols_converted;
+    bool _has_complex_type = false;
 };
 
 class ORCFileInputStream : public orc::InputStream {

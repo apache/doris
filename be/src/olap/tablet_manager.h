@@ -239,6 +239,10 @@ private:
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
     std::vector<TabletSharedPtr> _shutdown_tablets;
 
+    // gc thread will move _shutdown_tablets to _shutdown_deleting_tablets
+    std::shared_mutex _shutdown_deleting_tablets_lock;
+    std::list<TabletSharedPtr> _shutdown_deleting_tablets;
+
     std::mutex _tablet_stat_cache_mutex;
     std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache =
             std::make_shared<std::vector<TTabletStat>>();

@@ -28,6 +28,9 @@
 namespace doris {
 namespace io {
 
+bvar::Adder<uint64_t> s3_file_buffer_allocated("s3_file_buffer_allocated");
+bvar::Adder<uint64_t> s3_file_buffer_allocating("s3_file_buffer_allocating");
+
 /**
  * 0. check if the inner memory buffer is empty or not
  * 1. relcaim the memory buffer if it's mot empty
@@ -143,6 +146,10 @@ Status UploadFileBuffer::append_data(const Slice& data) {
         } else {
             // wait allocate buffer pool
             auto tmp = S3FileBufferPool::GetInstance()->allocate(true);
+            if (tmp.empty()) [[unlikely]] {
+                return Status::InternalError("Failed to allocate S3 buffer for {} seconds",
+                                             config::s3_writer_buffer_allocation_timeout);
+            }
             swap_buffer(tmp);
         }
     }
@@ -156,6 +163,11 @@ Status UploadFileBuffer::append_data(const Slice& data) {
  */
 void UploadFileBuffer::read_from_cache() {
     auto tmp = S3FileBufferPool::GetInstance()->allocate(true);
+    if (tmp.empty()) [[unlikely]] {
+        set_val(Status::InternalError("Failed to allocate S3 buffer for {} seconds",
+                                      config::s3_writer_buffer_allocation_timeout));
+        return;
+    }
     swap_buffer(tmp);
 
     DCHECK(_holder != nullptr);
@@ -285,6 +297,16 @@ std::shared_ptr<FileBuffer> FileBufferBuilder::build() {
     return nullptr;
 }
 
+void S3FileBufferPool::reclaim(Slice buf) {
+    {
+        std::unique_lock<std::mutex> lck {_lock};
+        _free_raw_buffers.emplace_back(buf);
+        // only works when not set file cache
+        _cv.notify_all();
+    }
+    s3_file_buffer_allocated << -1;
+}
+
 void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,
                             ThreadPool* thread_pool) {
     // the nums could be one configuration
@@ -305,13 +327,23 @@ void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write
 
 Slice S3FileBufferPool::allocate(bool reserve) {
     Slice buf;
+    Defer defer {[&]() {
+        if (!buf.empty()) {
+            s3_file_buffer_allocated << 1;
+        }
+        s3_file_buffer_allocating << -1;
+    }};
+    s3_file_buffer_allocating << 1;
     // if need reserve or no cache then we must ensure return buf with memory preserved
     if (reserve || !config::enable_file_cache) {
         {
             std::unique_lock<std::mutex> lck {_lock};
-            _cv.wait(lck, [this]() { return !_free_raw_buffers.empty(); });
-            buf = _free_raw_buffers.front();
-            _free_raw_buffers.pop_front();
+            _cv.wait_for(lck, std::chrono::seconds(config::s3_writer_buffer_allocation_timeout),
+                         [this]() { return !_free_raw_buffers.empty(); });
+            if (!_free_raw_buffers.empty()) {
+                buf = _free_raw_buffers.front();
+                _free_raw_buffers.pop_front();
+            }
         }
         return buf;
     }

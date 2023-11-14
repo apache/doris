@@ -75,6 +75,11 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
         echo "Please set vm.max_map_count to be 2000000 under root using 'sysctl -w vm.max_map_count=2000000'."
         exit 1
     fi
+
+    if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+        echo "Please disable swap memory before installation."
+        exit 1
+    fi
 fi
 
 MAX_FILE_COUNT="$(ulimit -n)"

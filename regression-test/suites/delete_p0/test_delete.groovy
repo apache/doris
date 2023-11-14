@@ -280,4 +280,24 @@ PROPERTIES
     """
 
     sql "delete from dwd_pay partitions(p202310) where pay_time = '20231002';"
+
+    sql """
+    ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false');
+    """
+
+    sql "drop table if exists test"
+    sql """
+    CREATE TABLE `test`  
+    (
+            col_1 int,
+            col_2 decimalv2(10,3)
+    )ENGINE=OLAP
+    duplicate KEY(`col_1`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`col_1`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql "DELETE FROM test  WHERE col_2 = cast(123.45 as decimalv2(10,3));"
 }

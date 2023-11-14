@@ -146,4 +146,8 @@ public class Alias extends NamedExpression implements UnaryExpression {
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitAlias(this, context);
     }
+
+    public boolean isNameFromChild() {
+        return nameFromChild;
+    }
 }

@@ -38,6 +38,7 @@ import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
+import org.apache.doris.regression.util.DebugPoint
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -58,6 +59,9 @@ import org.junit.Assert
 @Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
+    final SuiteCluster cluster
+    final DebugPoint debugPoint
+
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
@@ -68,13 +72,12 @@ class Suite implements GroovyInterceptable {
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
 
-    SuiteCluster cluster
-
-    Suite(String name, String group, SuiteContext context) {
+    Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
         this.group = group
         this.context = context
-        this.cluster = null
+        this.cluster = cluster;
+        this.debugPoint = new DebugPoint(this)
     }
 
     String getConf(String key, String defaultValue = null) {
@@ -165,12 +168,7 @@ class Suite implements GroovyInterceptable {
             try {
                 Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
                 if (connInfo != null) {
-                    def newConnInfo = new ConnectionInfo()
-                    newConnInfo.conn = DriverManager.getConnection(connInfo.conn.getMetaData().getURL(),
-                            connInfo.username, connInfo.password)
-                    newConnInfo.username = connInfo.username
-                    newConnInfo.password = connInfo.password
-                    context.threadLocalConn.set(newConnInfo)
+                    context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
                 }
                 context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
 
@@ -215,13 +213,12 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        cluster = new SuiteCluster(name, context.config)
         try {
             cluster.destroy(true)
             cluster.init(options)
 
-            def user = "root"
-            def password = ""
+            def user = context.config.jdbcUser
+            def password = context.config.jdbcPassword
             def masterFe = cluster.getMasterFe()
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
@@ -267,6 +264,34 @@ class Suite implements GroovyInterceptable {
             result = DataUtils.sortByToString(result)
         }
         return result
+    }
+
+    List<List<Object>> insert_into_sql(String sqlStr, int num) {
+        logger.info("insert into " + num + " records")
+        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        return result
+    }
+
+    def sql_return_maparray(String sqlStr) {
+        logger.info("Execute sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+
+        // get all column names as list
+        List<String> columnNames = new ArrayList<>()
+        for (int i = 0; i < meta.getColumnCount(); i++) {
+            columnNames.add(meta.getColumnName(i + 1))
+        }
+
+        // add result to res map list, each row is a map with key is column name
+        List<Map<String, Object>> res = new ArrayList<>()
+        for (int i = 0; i < result.size(); i++) {
+            Map<String, Object> row = new HashMap<>()
+            for (int j = 0; j < columnNames.size(); j++) {
+                row.put(columnNames.get(j), result.get(i).get(j))
+            }
+            res.add(row)
+        }
+        return res;
     }
 
     List<List<Object>> target_sql(String sqlStr, boolean isOrder = false) {
@@ -476,7 +501,7 @@ class Suite implements GroovyInterceptable {
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
     }
-    
+
     void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
@@ -487,7 +512,7 @@ class Suite implements GroovyInterceptable {
         def code = process.waitFor()
         Assert.assertEquals(0, code)
     }
-    
+
     void sshExec(String username, String host, String cmd) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
@@ -499,7 +524,7 @@ class Suite implements GroovyInterceptable {
         assert errMsg.length() == 0: "error occurred!" + errMsg
         assert p.exitValue() == 0
     }
-    
+
 
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
@@ -509,7 +534,7 @@ class Suite implements GroovyInterceptable {
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
         }
         return;
-    } 
+    }
 
     int getTotalLine(String filePath) {
         def file = new File(filePath)
@@ -523,29 +548,6 @@ class Suite implements GroovyInterceptable {
     boolean deleteFile(String filePath) {
         def file = new File(filePath)
         file.delete()
-    }
-
-    void waitingMTMVTaskFinished(String mvName) {
-        String showTasks = "SHOW MTMV TASK ON " + mvName
-        List<List<String>> showTaskMetaResult = sql_meta(showTasks)
-        int index = showTaskMetaResult.indexOf(['State', 'CHAR'])
-        String status = "PENDING"
-        List<List<Object>> result
-        long startTime = System.currentTimeMillis()
-        long timeoutTimestamp = startTime + 30 * 60 * 1000 // 30 min
-        do {
-            result = sql(showTasks)
-            if (!result.isEmpty()) {
-                status = result.last().get(index)
-            }
-            println "The state of ${showTasks} is ${status}"
-            Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'))
-        if (status != "SUCCESS") {
-            println "status is not success"
-            println result.toString()
-        }
-        Assert.assertEquals("SUCCESS", status)
     }
 
     List<String> downloadExportFromHdfs(String label) {
@@ -693,14 +695,14 @@ class Suite implements GroovyInterceptable {
             String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
             sql = cleanedSqlStr
         }
-        quickRunTest(tag, sql, isOrder) 
+        quickRunTest(tag, sql, isOrder)
     }
 
     void quickExecute(String tag, PreparedStatement stmt) {
         logger.info("Execute tag: ${tag}, sql: ${stmt}".toString())
-        quickRunTest(tag, stmt) 
+        quickRunTest(tag, stmt)
     }
-    
+
     @Override
     Object invokeMethod(String name, Object args) {
         // qt: quick test
@@ -760,6 +762,10 @@ class Suite implements GroovyInterceptable {
         }
         // set server side prepared statement url
         return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true"
+    }
+
+    DebugPoint GetDebugPoint() {
+        return debugPoint
     }
 }
 

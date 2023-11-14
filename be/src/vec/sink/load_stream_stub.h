@@ -85,6 +85,8 @@ class LoadStreamStub {
 private:
     class LoadStreamReplyHandler : public brpc::StreamInputHandler {
     public:
+        LoadStreamReplyHandler(LoadStreamStub* stub) : _stub(stub) {}
+
         int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
                                  size_t size) override;
 
@@ -130,11 +132,13 @@ private:
         bthread::Mutex _failed_tablets_mutex;
         std::vector<int64_t> _success_tablets;
         std::vector<int64_t> _failed_tablets;
+
+        LoadStreamStub* _stub;
     };
 
 public:
     // construct new stub
-    LoadStreamStub(PUniqueId load_id, int64_t src_id);
+    LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use);
 
     // copy constructor, shared_ptr members are shared
     LoadStreamStub(LoadStreamStub& stub);
@@ -148,7 +152,8 @@ public:
     // open_load_stream
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
-                const std::vector<PTabletID>& tablets_for_schema, bool enable_profile);
+                const std::vector<PTabletID>& tablets_for_schema, int total_streams,
+                bool enable_profile);
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -161,10 +166,13 @@ public:
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                       int64_t segment_id, SegmentStatistics& segment_stat);
+                       int64_t segment_id, const SegmentStatistics& segment_stat);
 
     // CLOSE_LOAD
     Status close_load(const std::vector<PTabletID>& tablets_to_commit);
+
+    // GET_SCHEMA
+    Status get_schema(const std::vector<PTabletID>& tablets);
 
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
@@ -175,8 +183,23 @@ public:
         return _handler.close_wait(timeout_ms);
     }
 
+    Status wait_for_schema(int64_t partition_id, int64_t index_id, int64_t tablet_id,
+                           int64_t timeout_ms = 60000);
+
+    Status wait_for_new_schema(int64_t timeout_ms) {
+        std::unique_lock<bthread::Mutex> lock(_mutex);
+        if (timeout_ms > 0) {
+            int ret = _schema_cv.wait_for(lock, timeout_ms * 1000);
+            return ret == 0 ? Status::OK() : Status::Error<true>(ret, "wait schema update timeout");
+        }
+        _schema_cv.wait(lock);
+        return Status::OK();
+    };
+
+    void add_schema(const std::vector<PTabletSchemaWithIndex>& schemas);
+
     std::shared_ptr<TabletSchema> tablet_schema(int64_t index_id) const {
-        return _tablet_schema_for_index->at(index_id);
+        return (*_tablet_schema_for_index)[index_id];
     }
 
     bool enable_unique_mow(int64_t index_id) const {
@@ -195,14 +218,17 @@ public:
 
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
-    Status _send_with_buffer(butil::IOBuf& buf, bool eos = false);
+    Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
     Status _send_with_retry(butil::IOBuf& buf);
 
 protected:
     std::atomic<bool> _is_init;
     bthread::Mutex _mutex;
 
-    std::atomic<int> _num_open;
+    std::atomic<int> _use_cnt;
+
+    std::mutex _tablets_to_commit_mutex;
+    std::vector<PTabletID> _tablets_to_commit;
 
     std::mutex _buffer_mutex;
     std::mutex _send_mutex;
@@ -212,8 +238,9 @@ protected:
     brpc::StreamId _stream_id;
     int64_t _src_id = -1; // source backend_id
     int64_t _dst_id = -1; // destination backend_id
-    LoadStreamReplyHandler _handler;
+    LoadStreamReplyHandler _handler {this};
 
+    bthread::ConditionVariable _schema_cv;
     std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
 };

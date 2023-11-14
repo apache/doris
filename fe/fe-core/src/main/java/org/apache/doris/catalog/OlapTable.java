@@ -54,7 +54,6 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
-import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -789,6 +788,7 @@ public class OlapTable extends Table {
         defaultDistributionInfo.markAutoBucket();
     }
 
+    @Override
     public Set<String> getDistributionColumnNames() {
         Set<String> distributionColumnNames = Sets.newHashSet();
         if (defaultDistributionInfo instanceof RandomDistributionInfo) {
@@ -965,6 +965,10 @@ public class OlapTable extends Table {
         return partition;
     }
 
+    public int getPartitionNum() {
+        return idToPartition.size();
+    }
+
     // get all partitions except temp partitions
     public Collection<Partition> getPartitions() {
         return idToPartition.values();
@@ -1122,11 +1126,9 @@ public class OlapTable extends Table {
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         if (info.analysisType.equals(AnalysisType.HISTOGRAM)) {
             return new HistogramTask(info);
-        }
-        if (info.analysisType.equals(AnalysisType.FUNDAMENTALS)) {
+        } else {
             return new OlapAnalysisTask(info);
         }
-        return new MVAnalysisTask(info);
     }
 
     public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
@@ -1146,7 +1148,7 @@ public class OlapTable extends Table {
         }
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < Config.table_stats_health_threshold;
+        return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
     }
 
     @Override
@@ -2369,5 +2371,18 @@ public class OlapTable extends Table {
                 LOG.info(e);
             }
         }
+    }
+
+    @Override
+    public boolean isDistributionColumn(String columnName) {
+        Set<String> distributeColumns = getDistributionColumnNames()
+                .stream().map(String::toLowerCase).collect(Collectors.toSet());
+        return distributeColumns.contains(columnName.toLowerCase());
+    }
+
+    @Override
+    public boolean isPartitionColumn(String columnName) {
+        return getPartitionInfo().getPartitionColumns().stream()
+            .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
     }
 }

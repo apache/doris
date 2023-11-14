@@ -217,7 +217,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
-    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
     if (!_conjuncts.empty()) {
         std::string message;
@@ -247,13 +246,19 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
-    auto build_new_scanner = [&](const TPaloScanRange& scan_range,
+    auto build_new_scanner = [&](BaseTabletSPtr tablet, int64_t version,
                                  const std::vector<OlapScanRange*>& key_ranges) {
-        std::shared_ptr<vectorized::NewOlapScanner> scanner =
-                vectorized::NewOlapScanner::create_shared(
-                        state(), this, p._limit_per_scanner, p._olap_scan_node.is_preaggregation,
-                        scan_range, key_ranges, _scanner_profile.get());
-
+        auto scanner = vectorized::NewOlapScanner::create_shared(
+                this, vectorized::NewOlapScanner::Params {
+                              state(),
+                              _scanner_profile.get(),
+                              key_ranges,
+                              std::move(tablet),
+                              version,
+                              {},
+                              p._limit_per_scanner,
+                              p._olap_scan_node.is_preaggregation,
+                      });
         RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
         scanner->set_compound_filters(_compound_filters);
         scanners->push_back(scanner);
@@ -261,7 +266,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     };
     for (auto& scan_range : _scan_ranges) {
         auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
-
+        int64_t version = 0;
+        std::from_chars(scan_range->version.data(),
+                        scan_range->version.data() + scan_range->version.size(), version);
         std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
         int size_based_scanners_per_tablet = 1;
 
@@ -282,7 +289,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                  ++j, ++i) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
-            RETURN_IF_ERROR(build_new_scanner(*scan_range, scanner_ranges));
+            RETURN_IF_ERROR(build_new_scanner(tablet, version, scanner_ranges));
         }
     }
 
@@ -300,7 +307,6 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         //        COUNTER_UPDATE(_tablet_counter, 1);
     }
-    // telemetry::set_current_span_attribute(_tablet_counter);
 }
 
 static std::string olap_filter_to_string(const doris::TCondition& condition) {

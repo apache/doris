@@ -46,7 +46,7 @@ HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* 
 
 Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _shared_hash_table_dependency =
             SharedHashTableDependency::create_shared(_parent->operator_id());
@@ -132,7 +132,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 }
 
 Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
@@ -402,7 +402,7 @@ Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
 Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                         SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     // make one block for each 4 gigabytes

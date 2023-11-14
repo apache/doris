@@ -18,53 +18,42 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.nereids.PlanContext;
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import java.util.List;
 
 /**
  * Calculate the cost of a plan.
  */
-@Developing
-//TODO: memory cost and network cost should be estimated by byte size.
+// TODO: memory cost and network cost should be estimated by byte size.
 public class CostCalculator {
 
     /**
      * Calculate cost for groupExpression
      */
-    public static Cost calculateCost(GroupExpression groupExpression, List<PhysicalProperties> childrenProperties) {
-        PlanContext planContext = new PlanContext(groupExpression);
+    public static Cost calculateCost(ConnectContext connectContext, GroupExpression groupExpression,
+            List<PhysicalProperties> childrenProperties) {
+        PlanContext planContext = new PlanContext(connectContext, groupExpression);
         if (childrenProperties.size() >= 2
                 && childrenProperties.get(1).getDistributionSpec() instanceof DistributionSpecReplicated) {
             planContext.setBroadcastJoin();
         }
 
-        CostModelV1 costModelV1 = new CostModelV1();
+        CostModelV1 costModelV1 = new CostModelV1(connectContext);
         return groupExpression.getPlan().accept(costModelV1, planContext);
     }
 
-    /**
-     * Calculate cost without groupExpression
-     */
-    public static Cost calculateCost(Plan plan, PlanContext planContext) {
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
-            CostModelV2 costModel = new CostModelV2();
-            return plan.accept(costModel, planContext);
-        } else {
-            CostModelV1 costModel = new CostModelV1();
-            return plan.accept(costModel, planContext);
-        }
-    }
-
-    public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+    public static Cost addChildCost(ConnectContext connectContext, Plan plan, Cost planCost, Cost childCost,
+            int index) {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        if (sessionVariable.getEnableNewCostModel()) {
             return CostModelV2.addChildCost(plan, planCost, childCost, index);
         }
-        return CostModelV1.addChildCost(plan, planCost, childCost, index);
+        return CostModelV1.addChildCost(sessionVariable, planCost, childCost);
     }
 }

@@ -345,7 +345,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
         ExpressionEstimation estimator = new ExpressionEstimation();
         ColumnStatistic buildColStats = compare.right().accept(estimator, right.getStats());
-        return buildColStats.isUnKnown ? -1 : Math.max(1, (long) buildColStats.ndv);
+        return buildColStats.isUnKnown
+                ? Math.max(1, (long) right.getStats().getRowCount()) : Math.max(1, (long) buildColStats.ndv);
     }
 
     public static Slot checkTargetChild(Expression leftChild) {

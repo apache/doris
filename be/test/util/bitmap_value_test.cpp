@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <string>
 
+#include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
 #include "util/coding.h"
 
@@ -422,7 +423,7 @@ TEST(BitmapValueTest, set) {
 
     bitmap_value.add(4294967297);
     EXPECT_EQ(bitmap_value.get_type_code(), BitmapTypeCode::SINGLE64);
-    bitmap_value.clear();
+    bitmap_value.reset();
 
     bitmap_value.add(10);
     EXPECT_EQ(bitmap_value.get_type_code(), BitmapTypeCode::SINGLE32);
@@ -494,7 +495,7 @@ TEST(BitmapValueTest, add) {
     bitmap_value.add_many(values.data(), values.size());
     EXPECT_EQ(bitmap_value.get_type_code(), BitmapTypeCode::BITMAP32);
 
-    bitmap_value.clear();
+    bitmap_value.reset();
     values.clear();
     values.resize(31);
     std::iota(values.begin(), values.end(), 0);
@@ -543,6 +544,39 @@ void check_bitmap_value_operator(const BitmapValue& left, const BitmapValue& rig
     copy = left;
     copy ^= right;
     EXPECT_EQ(copy.cardinality(), left_cardinality + right_cardinality - and_cardinality * 2);
+}
+
+// '='
+TEST(BitmapValueTest, copy_operator) {
+    BitmapValue test_bitmap;
+
+    std::vector<uint64_t> values1(31);
+    BitmapValue bitmap;
+    values1.resize(128);
+    std::iota(values1.begin(), values1.begin() + 16, 0);
+    std::iota(values1.begin() + 16, values1.begin() + 32, 4294967297);
+    std::iota(values1.begin() + 32, values1.begin() + 64, 8589934594);
+    std::iota(values1.begin() + 64, values1.end(), 42949672970);
+    bitmap.add_many(values1.data(), values1.size());
+
+    test_bitmap = bitmap; //should be bitmap
+    EXPECT_EQ(test_bitmap.cardinality(), bitmap.cardinality());
+    EXPECT_EQ(test_bitmap.to_string(), bitmap.to_string());
+
+    BitmapValue single(1);
+    test_bitmap = single; //should be single
+    EXPECT_EQ(test_bitmap.cardinality(), 1);
+    EXPECT_EQ(test_bitmap.cardinality(), single.cardinality());
+    EXPECT_EQ(test_bitmap.to_string(), single.to_string());
+
+    BitmapValue empty;
+    test_bitmap = empty; // should be empty
+    EXPECT_TRUE(test_bitmap.empty());
+
+    BitmapValue bitmap2(bitmap);
+    EXPECT_EQ(bitmap2.to_string(), bitmap.to_string());
+    bitmap2 = bitmap;
+    EXPECT_EQ(bitmap2.to_string(), bitmap.to_string());
 }
 
 // '-=', '|=', '&=', '^='
@@ -658,7 +692,7 @@ TEST(BitmapValueTest, write_read) {
     buffer.reset(new char[size]);
 
     bitmap_single.write_to(buffer.get());
-    deserialized.clear();
+    deserialized.reset();
     deserialized.deserialize(buffer.get());
 
     check_bitmap_equal(deserialized, bitmap_single);
@@ -667,7 +701,7 @@ TEST(BitmapValueTest, write_read) {
     buffer.reset(new char[size]);
 
     bitmap_set.write_to(buffer.get());
-    deserialized.clear();
+    deserialized.reset();
     deserialized.deserialize(buffer.get());
 
     check_bitmap_equal(deserialized, bitmap_set);
@@ -676,7 +710,7 @@ TEST(BitmapValueTest, write_read) {
     buffer.reset(new char[size]);
 
     bitmap.write_to(buffer.get());
-    deserialized.clear();
+    deserialized.reset();
     deserialized.deserialize(buffer.get());
 
     check_bitmap_equal(deserialized, bitmap);

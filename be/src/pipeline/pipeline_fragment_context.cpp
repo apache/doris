@@ -21,10 +21,6 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/span_context.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
@@ -99,7 +95,6 @@
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
-#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exec/join/vhash_join_node.h"
@@ -211,22 +206,20 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     SCOPED_TIMER(_prepare_timer);
 
     auto* fragment_context = this;
-    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
-    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_id));
-    }
 
     LOG_INFO("Preparing instance {}, backend_num {}",
              PrintInstanceStandardInfo(_query_id, local_params.fragment_instance_id),
              local_params.backend_num);
 
     // 1. init _runtime_state
-    _runtime_state = RuntimeState::create_unique(local_params, request.query_id,
-                                                 request.fragment_id, request.query_options,
-                                                 _query_ctx->query_globals, _exec_env);
+    _runtime_state = RuntimeState::create_unique(
+            local_params.fragment_instance_id, request.query_id, request.fragment_id,
+            request.query_options, _query_ctx->query_globals, _exec_env);
+    if (local_params.__isset.runtime_filter_params) {
+        _runtime_state->set_runtime_filter_params(local_params.runtime_filter_params);
+    }
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-    _runtime_state->set_tracer(std::move(tracer));
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -315,6 +308,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     _runtime_state->set_per_fragment_instance_idx(local_params.sender_id);
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
+    _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
+    _runtime_state->set_total_load_streams(request.total_load_streams);
+    _runtime_state->set_num_local_sink(request.num_local_sink);
 
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(

@@ -350,7 +350,7 @@ public abstract class DataType {
         } else if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
                     .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
-                            cf.getContainsNull(), cf.getComment()))
+                            cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment()))
                     .collect(ImmutableList.toImmutableList());
             return new StructType(structFields);
         } else if (type.isMapType()) {

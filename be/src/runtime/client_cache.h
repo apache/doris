@@ -187,6 +187,8 @@ public:
 
     Status reopen() { return _client_cache->reopen_client(&_client, 0); }
 
+    inline bool is_alive() { return _client != nullptr; }
+
     T* operator->() const { return _client; }
 
 private:

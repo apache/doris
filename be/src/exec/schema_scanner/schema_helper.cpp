@@ -69,15 +69,6 @@ Status SchemaHelper::list_table_metadata_name_ids(const std::string& ip, const i
             });
 }
 
-Status SchemaHelper::describe_table(const std::string& ip, const int32_t port,
-                                    const TDescribeTableParams& request,
-                                    TDescribeTableResult* result) {
-    return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
-                client->describeTable(*result, request);
-            });
-}
-
 Status SchemaHelper::describe_tables(const std::string& ip, const int32_t port,
                                      const TDescribeTablesParams& request,
                                      TDescribeTablesResult* result) {

@@ -45,6 +45,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -307,8 +308,11 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    protected String getExprName() {
-        return toColumnLabel();
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(toColumnLabel());
+        }
+        return this.exprName.get();
     }
 
     @Override
@@ -613,8 +617,8 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public Expr getResultValue(boolean foldSlot) throws AnalysisException {
-        if (!foldSlot) {
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        if (!forPushDownPredicatesToView) {
             return this;
         }
         if (!isConstant() || desc == null) {
@@ -626,7 +630,7 @@ public class SlotRef extends Expr {
         }
         Expr expr = exprs.get(0);
         if (expr instanceof SlotRef) {
-            return expr.getResultValue(foldSlot);
+            return expr.getResultValue(forPushDownPredicatesToView);
         }
         if (expr.isConstant()) {
             return expr;

@@ -70,6 +70,7 @@ private:
     std::unique_ptr<vectorized::Block> _intermediate_block {};
     vectorized::VExprContextSPtrs _expr_ctxs;
 };
+
 class RepeatOperatorX final : public StatefulOperatorX<RepeatLocalState> {
 public:
     using Base = StatefulOperatorX<RepeatLocalState>;

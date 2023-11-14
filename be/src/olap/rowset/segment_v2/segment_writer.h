@@ -146,11 +146,10 @@ private:
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-                             size_t pos, bool null_first = true);
+                             size_t pos);
     // used for unique-key with merge on write and segment min_max key
     std::string _full_encode_keys(
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-            bool null_first = true);
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
                             string* encoded_keys);

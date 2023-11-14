@@ -61,7 +61,7 @@ public:
 
     Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override {
         auto& local_state = get_local_state(state);
-        SCOPED_TIMER(local_state.profile()->total_time_counter());
+        SCOPED_TIMER(local_state.exec_time_counter());
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                                block->columns()));

@@ -135,7 +135,7 @@ Status PipelineXTask::extract_dependencies() {
 
 void PipelineXTask::_init_profile() {
     std::stringstream ss;
-    ss << "PipelineTask"
+    ss << "PipelineXTask"
        << " (index=" << _index << ")";
     auto* task_profile = new RuntimeProfile(ss.str());
     _parent_profile->add_child(task_profile, true, nullptr);

@@ -97,11 +97,6 @@ protected:
     // Materialize build relation. For HashJoin, it will build a hash table while a list of build blocks for NLJoin.
     virtual Status _materialize_build_side(RuntimeState* state) = 0;
 
-    virtual void _init_short_circuit_for_probe() {
-        _short_circuit_for_probe = false;
-        _empty_right_table_need_probe_dispose = false;
-    }
-
     TJoinOp::type _join_op;
     JoinOpVariants _join_op_variants;
 

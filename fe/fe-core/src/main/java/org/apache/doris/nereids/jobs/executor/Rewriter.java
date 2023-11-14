@@ -28,7 +28,6 @@ import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
-import org.apache.doris.nereids.rules.analysis.RejectGroupCommitInsert;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
@@ -151,10 +150,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                     bottomUp(new PullUpProjectUnderApply()),
                     topDown(new PushdownFilterThroughProject()),
-                    costBased(
-                            custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
-                                    AggScalarSubQueryToWindowFunction::new)
-                    ),
+                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
+                            AggScalarSubQueryToWindowFunction::new),
                     bottomUp(
                             new EliminateUselessPlanUnderApply(),
                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -271,27 +268,24 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new BuildAggForUnion())
             ),
 
-            // TODO remove it after Nereids support group commit insert
-            topDown(new RejectGroupCommitInsert()),
-
             // topic("Distinct",
             //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
             // ),
 
             topic("Limit optimization",
+                    // TODO: the logical plan should not contains any phase information,
+                    //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
+                    //       generate one PhysicalLimit if current distribution is gather or two
+                    //       PhysicalLimits with gather exchange
+                    topDown(new LimitSortToTopN()),
+                    topDown(new SplitLimit()),
                     topDown(
-                            // TODO: the logical plan should not contains any phase information,
-                            //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
-                            //       generate one PhysicalLimit if current distribution is gather or two
-                            //       PhysicalLimits with gather exchange
-                            new LimitSortToTopN(),
-                            new SplitLimit(),
                             new PushdownLimit(),
                             new PushdownTopNThroughJoin(),
                             new PushdownLimitDistinctThroughJoin(),
-                            new PushdownTopNThroughWindow(),
-                            new CreatePartitionTopNFromWindow()
+                            new PushdownTopNThroughWindow()
                     ),
+                    topDown(new CreatePartitionTopNFromWindow()),
                     topDown(
                             new PullUpProjectUnderTopN(),
                             new PullUpProjectUnderLimit()
@@ -323,16 +317,16 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("topn optimize",
                     topDown(new DeferMaterializeTopNResult())
             ),
+            topic("eliminate",
+                    // SORT_PRUNING should be applied after mergeLimit
+                    custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
+                    bottomUp(new EliminateEmptyRelation())
+            ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
                     custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                     custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
-                    topDown(
-                            new PushdownFilterThroughProject(),
-                            new MergeProjects()
-                    ),
-                    // SORT_PRUNING should be applied after mergeLimit
-                    custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
+                    topDown(new PushdownFilterThroughProject(), new MergeProjects()),
                     custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
@@ -346,10 +340,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new CollectFilterAboveConsumer(),
                             new CollectProjectAboveConsumer()
                     )
-            ),
-
-            topic("eliminate empty relation",
-                    bottomUp(new EliminateEmptyRelation())
             )
     );
 

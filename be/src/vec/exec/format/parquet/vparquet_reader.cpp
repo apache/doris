@@ -19,31 +19,41 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Types_types.h>
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <functional>
 #include <ostream>
 #include <utility>
 
 #include "common/status.h"
+#include "exec/schema_scanner.h"
+#include "gen_cpp/descriptors.pb.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/slice.h"
+#include "util/timezone_utils.h"
+#include "vec/columns/column.h"
 #include "vec/common/typeid_cast.h"
-#include "vec/exec/format/format_common.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
 #include "vec/exec/format/parquet/vparquet_group_reader.h"
 #include "vec/exec/format/parquet/vparquet_page_index.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
@@ -459,18 +469,6 @@ Status ParquetReader::set_fill_columns(
     return Status::OK();
 }
 
-std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type() {
-    std::unordered_map<std::string, TypeDescriptor> map;
-    const auto& schema_desc = _file_metadata->schema();
-    std::unordered_set<std::string> column_names;
-    schema_desc.get_column_names(&column_names);
-    for (auto& name : column_names) {
-        auto field = schema_desc.get_column(name);
-        map.emplace(name, field->type);
-    }
-    return map;
-}
-
 Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
                                         std::vector<TypeDescriptor>* col_types) {
     RETURN_IF_ERROR(_open_file());
@@ -532,15 +530,14 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
-    {
-        SCOPED_RAW_TIMER(&_statistics.column_read_time);
-        Status batch_st =
-                _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
-        if (!batch_st.ok()) {
-            return Status::InternalError("Read parquet file {} failed, reason = {}",
-                                         _scan_range.path, batch_st.to_string());
-        }
+    SCOPED_RAW_TIMER(&_statistics.column_read_time);
+    Status batch_st =
+            _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
+    if (!batch_st.ok()) {
+        return Status::InternalError("Read parquet file {} failed, reason = {}", _scan_range.path,
+                                     batch_st.to_string());
     }
+
     if (_row_group_eof) {
         auto column_st = _current_group_reader->statistics();
         _column_statistics.merge(column_st);

@@ -19,7 +19,6 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
@@ -28,7 +27,6 @@
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr_context.h"
@@ -66,6 +64,8 @@ Status VExchangeNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_exec_timer);
     DCHECK_GT(_num_senders, 0);
     _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
+    CHECK(state->exec_env() != nullptr);
+    CHECK(state->exec_env()->vstream_mgr() != nullptr);
     _stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, _input_row_desc, state->fragment_instance_id(), _id, _num_senders,
             _runtime_profile.get(), _is_merging, _sub_plan_query_statistics_recvr);

@@ -95,8 +95,8 @@ static void tear_down() {
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
-    ExecEnv::GetInstance()->set_storage_engine(nullptr);
     k_engine.reset();
+    ExecEnv::GetInstance()->set_storage_engine(nullptr);
 }
 
 static void set_default_create_tablet_request(TCreateTabletReq* request) {

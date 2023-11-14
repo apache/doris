@@ -56,7 +56,7 @@ public class Multiply extends BinaryArithmetic implements CheckOverflowNullable 
             boolean enableDecimal256 = false;
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
-                enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+                enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
             }
             if (enableDecimal256) {
                 if (retPercision > DecimalV3Type.MAX_DECIMAL256_PRECISION) {

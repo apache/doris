@@ -21,7 +21,7 @@ namespace doris::pipeline {
 
 Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _compute_hash_value_timer = ADD_TIMER(profile(), "ComputeHashValueTime");
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
@@ -68,7 +68,7 @@ Status LocalExchangeSinkLocalState::split_rows(RuntimeState* state,
 Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                         SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     {
         SCOPED_TIMER(local_state._compute_hash_value_timer);

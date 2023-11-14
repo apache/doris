@@ -32,7 +32,6 @@
 #include <string>
 #include <type_traits>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/logging.h"
@@ -186,6 +185,19 @@ public:
         __builtin_unreachable();
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL32;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL64;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
+        }
+        __builtin_unreachable();
+    }
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
@@ -237,12 +249,11 @@ public:
 
     bool is_summable() const override { return true; }
     bool can_be_used_in_boolean_context() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeDecimalSerDe<T>>(scale, precision);
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeDecimalSerDe<T>>(scale, precision, nesting_level);
     };
 
     /// Decimal specific
@@ -595,6 +606,13 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
             if (value > static_cast<UInt64>(std::numeric_limits<Int64>::max())) {
                 return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType>(value, 0, scale);
             }
+        }
+        if constexpr (std::is_same_v<FromFieldType, Int128>) {
+            return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType>(value, 0, scale);
+        }
+
+        if constexpr (std::is_same_v<FromFieldType, wide::Int256>) {
+            return convert_decimals<DataTypeDecimal<Decimal256>, ToDataType>(value, 0, scale);
         }
         return convert_decimals<DataTypeDecimal<Decimal64>, ToDataType>(value, 0, scale);
     }
