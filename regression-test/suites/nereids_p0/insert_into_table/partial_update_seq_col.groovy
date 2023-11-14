@@ -18,17 +18,7 @@
 
 suite("nereids_partial_update_native_insert_seq_col", "p0") {
 
-    def db = "regression_test_nereids_p0_insert_into_table"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -44,7 +34,7 @@ suite("nereids_partial_update_native_insert_seq_col", "p0") {
 
             def tableName = "nereids_partial_update_native_insert_seq_col"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            def createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `name` varchar(65533) DEFAULT "unknown" COMMENT "用户姓名",
@@ -56,8 +46,8 @@ suite("nereids_partial_update_native_insert_seq_col", "p0") {
                     PROPERTIES(
                         "replication_num" = "1",
                         "enable_unique_key_merge_on_write" = "true",
-                        "function_column.sequence_col" = "update_time" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        "function_column.sequence_col" = "update_time",
+                        "store_row_column" = "${use_row_store}"); """
 
             sql """ insert into ${tableName} values
                     (2, "doris2", 2000, 223, 1, '2023-01-01'),
@@ -111,7 +101,7 @@ suite("nereids_partial_update_native_insert_seq_col", "p0") {
 
             def tableName2 = "nereids_partial_update_native_insert_seq_col2"
             sql """ DROP TABLE IF EXISTS ${tableName2} """
-            createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName2} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `score` int(11) NOT NULL COMMENT "用户得分",
@@ -120,8 +110,8 @@ suite("nereids_partial_update_native_insert_seq_col", "p0") {
                     PROPERTIES(
                         "replication_num" = "1",
                         "enable_unique_key_merge_on_write" = "true",
-                        "function_column.sequence_col" = "update_time" """ 
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        "function_column.sequence_col" = "update_time",
+                        "store_row_column" = "${use_row_store}"); """ 
             
             // don't set enable_unique_key_partial_update, it's a row update
             // the input data don't contains sequence mapping column but the sequence mapping

@@ -18,17 +18,7 @@
 
 suite("nereids_partial_update_native_insert_stmt", "p0") {
 
-    def db = "regression_test_nereids_p0_insert_into_table"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -44,7 +34,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             def tableName = "nereids_partial_update_native_insert_stmt"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            def createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `name` varchar(65533) NOT NULL DEFAULT "yixiu" COMMENT "用户姓名",
@@ -52,8 +42,8 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
                         `test` int(11) NULL COMMENT "null test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+                        "store_row_column" = "${use_row_store}"); """
 
             sql """insert into ${tableName} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1)"""
             qt_1 """ select * from ${tableName} order by id; """
@@ -75,7 +65,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             def tableName2 = "nereids_partial_update_native_insert_stmt2" 
             sql """ DROP TABLE IF EXISTS ${tableName2} """
-            createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName2} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `name` varchar(65533) DEFAULT "unknown" COMMENT "用户姓名",
@@ -87,8 +77,8 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
                     PROPERTIES(
                         "replication_num" = "1",
                         "enable_unique_key_merge_on_write" = "true",
-                        "function_column.sequence_col" = "update_time" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        "function_column.sequence_col" = "update_time",
+                        "store_row_column" = "${use_row_store}"); """
 
             sql """ insert into ${tableName2} values
                     (2, "doris2", 2000, 223, 1, '2023-01-01'),
@@ -112,7 +102,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             def tableName3 = "nereids_partial_update_native_insert_stmt3"
             sql """ DROP TABLE IF EXISTS ${tableName3}; """
-            createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName3} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `name` varchar(65533) NOT NULL COMMENT "用户姓名",
@@ -120,8 +110,8 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
                         `test` int(11) NULL COMMENT "null test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+                        "store_row_column" = "${use_row_store}"); """
 
             sql """insert into ${tableName3} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1);"""
             qt_3 """ select * from ${tableName3} order by id; """
@@ -142,7 +132,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             def tableName4 = "nereids_partial_update_native_insert_stmt4"
             sql """ DROP TABLE IF EXISTS ${tableName4} """
-            createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName4} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `name` varchar(65533) NOT NULL DEFAULT "yixiu" COMMENT "用户姓名",
@@ -150,8 +140,8 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
                         `test` int(11) NULL COMMENT "null test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+                        "store_row_column" = "${use_row_store}"); """
 
             sql """insert into ${tableName4} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1),(3,"doris3",5000,34,345);"""
             qt_4 """ select * from ${tableName4} order by id; """
@@ -168,7 +158,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             def tableName5 = "nereids_partial_update_native_insert_stmt5"
             sql """ DROP TABLE IF EXISTS ${tableName5} """
-            createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName5} ( 
                         `id` int(11) NULL, 
                         `name` varchar(10) NULL,
@@ -184,8 +174,8 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
                         "enable_unique_key_merge_on_write" = "true", 
                         "light_schema_change" = "true", 
                         "disable_auto_compaction" = "false", 
-                        "enable_single_replica_compaction" = "false" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        "enable_single_replica_compaction" = "false",
+                        "store_row_column" = "${use_row_store}"); """
 
             sql """insert into ${tableName5} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
             qt_5 """select * from ${tableName5} order by id;"""
@@ -205,7 +195,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             def tableName6 = "nereids_partial_update_native_insert_stmt6"
             sql """ DROP TABLE IF EXISTS ${tableName6} """
-            createTableStmt = """create table ${tableName6} (
+            sql """create table ${tableName6} (
                 k int null,
                 v int null,
                 v2 int null,
@@ -213,8 +203,8 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
             ) unique key (k) distributed by hash(k) buckets 1
             properties("replication_num" = "1",
             "enable_unique_key_merge_on_write"="true",
-            "disable_auto_compaction"="true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+            "disable_auto_compaction"="true",
+            "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName6} values(1,1,3,4),(2,2,4,5),(3,3,2,3),(4,4,1,2);"
             qt_6 "select * from ${tableName6} order by k;"
@@ -229,7 +219,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             def tableName7 = "nereids_partial_update_native_insert_stmt7"
             sql """ DROP TABLE IF EXISTS ${tableName7} """
-            createTableStmt = """create table ${tableName7} (
+            sql """create table ${tableName7} (
                 k1 int null,
                 k2 int null,
                 k3 int null,
@@ -238,8 +228,8 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
             ) unique key (k1,k2,k3) distributed by hash(k1,k2) buckets 4
             properties("replication_num" = "1",
             "enable_unique_key_merge_on_write"="true",
-            "disable_auto_compaction"="true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+            "disable_auto_compaction"="true",
+            "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName7} values(1,1,1,3,4),(2,2,2,4,5),(3,3,3,2,3),(4,4,4,1,2);"
             qt_7 "select * from ${tableName7} order by k1;"

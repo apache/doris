@@ -17,17 +17,7 @@
 
 suite("nereids_partial_update_native_insert_stmt_complex", "p0") {
 
-    def db = "regression_test_nereids_p0_insert_into_table"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -50,23 +40,21 @@ suite("nereids_partial_update_native_insert_stmt_complex", "p0") {
             sql "DROP TABLE IF EXISTS ${tbName2}"
             sql "DROP TABLE IF EXISTS ${tbName3}"
 
-            def createTableStmt = """create table ${tbName1} (
+            sql """create table ${tbName1} (
                     id int, 
                     c1 bigint, 
                     c2 string, 
                     c3 double, 
                     c4 date) unique key (id) distributed by hash(id) 
-                properties('replication_num'='1', 'enable_unique_key_merge_on_write' = 'true' """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                properties('replication_num'='1', 'enable_unique_key_merge_on_write' = 'true',"store_row_column" = "${use_row_store}"); """
 
-            createTableStmt = """create table ${tbName2} (
+            sql """create table ${tbName2} (
                     id int, 
                     c1 bigint, 
                     c2 string, 
                     c3 double, 
                     c4 date) unique key (id) distributed by hash(id) 
-                properties('replication_num'='1', 'enable_unique_key_merge_on_write' = 'true' """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                properties('replication_num'='1', 'enable_unique_key_merge_on_write' = 'true',"store_row_column" = "${use_row_store}"); """
 
             sql """create table ${tbName3} (id int) distributed by hash (id) properties('replication_num'='1');"""
 

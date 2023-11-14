@@ -17,17 +17,7 @@
 
 suite('nereids_delete_cte') {
 
-    def db = "regression_test_nereids_p0_delete"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -41,7 +31,7 @@ suite('nereids_delete_cte') {
             def t3 = 't3_cte'
 
             sql "drop table if exists ${t1}"
-            def createTableStmt = """
+            sql """
                 create table ${t1} (
                     id int,
                     id1 int,
@@ -53,8 +43,8 @@ suite('nereids_delete_cte') {
                 distributed by hash(id, id1)
                 properties(
                     "replication_num"="1",
-                    "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    "enable_unique_key_merge_on_write" = "true",
+                    "store_row_column" = "${use_row_store}"); """
 
             sql "drop table if exists ${t2}"
             sql """

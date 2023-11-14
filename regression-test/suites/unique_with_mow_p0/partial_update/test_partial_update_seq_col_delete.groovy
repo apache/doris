@@ -18,17 +18,7 @@
 
 suite("test_primary_key_partial_update_seq_col_delete", "p0") {
 
-    def db = "regression_test_unique_with_mow_p0_partial_update"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -41,7 +31,7 @@ suite("test_primary_key_partial_update_seq_col_delete", "p0") {
 
             // create table
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            def createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `name` varchar(65533) DEFAULT "unknown" COMMENT "用户姓名",
@@ -53,8 +43,8 @@ suite("test_primary_key_partial_update_seq_col_delete", "p0") {
                     PROPERTIES(
                         "replication_num" = "1",
                         "enable_unique_key_merge_on_write" = "true",
-                        "function_column.sequence_col" = "update_time" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        "function_column.sequence_col" = "update_time",
+                        "store_row_column" = "${use_row_store}"); """
             // insert 2 lines
             sql """
                 insert into ${tableName} values

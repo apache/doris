@@ -17,17 +17,7 @@
 
 suite('test_partial_update_delete_sign') {
 
-    def db = "regression_test_unique_with_mow_p0_partial_update"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -42,7 +32,7 @@ suite('test_partial_update_delete_sign') {
 
             def tableName1 = "test_partial_update_delete_sign1"
             sql "DROP TABLE IF EXISTS ${tableName1};"
-            def createTableStmt = """ CREATE TABLE IF NOT EXISTS ${tableName1} (
+            sql """ CREATE TABLE IF NOT EXISTS ${tableName1} (
                     `k1` int NOT NULL,
                     `c1` int,
                     `c2` int,
@@ -53,8 +43,8 @@ suite('test_partial_update_delete_sign') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "replication_num" = "1" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName1} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
             qt_sql "select * from ${tableName1} order by k1,c1,c2,c3,c4;"
@@ -146,15 +136,15 @@ suite('test_partial_update_delete_sign') {
             sql "sync"
             def tableName3 = "test_partial_update_delete_sign3"
             sql "DROP TABLE IF EXISTS ${tableName3};"
-            createTableStmt = """ create table ${tableName3} (
+            sql """ create table ${tableName3} (
                 k int,
                 v1 int,
                 v2 int
             ) ENGINE=OLAP unique key (k)
             distributed by hash(k) buckets 1
             properties("replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+            "enable_unique_key_merge_on_write" = "true",
+            "store_row_column" = "${use_row_store}"); """
             sql "insert into ${tableName3} values(1,1,1);"
             qt_1 "select * from ${tableName3} order by k;"
             sql "insert into ${tableName3}(k,v1,v2,__DORIS_DELETE_SIGN__) values(1,1,1,1);"
@@ -178,7 +168,7 @@ suite('test_partial_update_delete_sign') {
             // partial update a row that has been deleted by delete sign(table with sequence column)
             def tableName4 = "test_partial_update_delete_sign4"
             sql "DROP TABLE IF EXISTS ${tableName4};"
-            createTableStmt = """ create table ${tableName4} (
+            sql """ create table ${tableName4} (
                 k int,
                 v1 int,
                 v2 int,
@@ -187,8 +177,8 @@ suite('test_partial_update_delete_sign') {
             distributed by hash(k) buckets 1
             properties("replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "function_column.sequence_col" = "c" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+            "function_column.sequence_col" = "c",
+            "store_row_column" = "${use_row_store}"); """
             sql "insert into ${tableName4} values(1,1,1,1);"
             qt_1 "select * from ${tableName4} order by k;"
             sql "insert into ${tableName4}(k,v1,v2,c,__DORIS_DELETE_SIGN__) values(1,1,1,1,1);"

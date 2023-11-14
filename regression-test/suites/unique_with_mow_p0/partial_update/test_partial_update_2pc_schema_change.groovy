@@ -36,17 +36,7 @@ import org.apache.http.util.EntityUtils
 
 suite("test_partial_update_2pc_schema_change", "p0") {
 
-    def db = "regression_test_unique_with_mow_p0_partial_update"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -57,7 +47,7 @@ suite("test_partial_update_2pc_schema_change", "p0") {
 
             def tableName = "test_partial_update_2pc_schema_change"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            def createTableStmt = """ CREATE TABLE ${tableName} (
+            sql """ CREATE TABLE ${tableName} (
                 k1 varchar(20) not null,
                 v1 varchar(20),
                 v2 varchar(20),
@@ -69,8 +59,8 @@ suite("test_partial_update_2pc_schema_change", "p0") {
                     "replication_num" = "1",
                     "light_schema_change" = "true",
                     "enable_unique_key_merge_on_write" = "true",
-                    "disable_auto_compaction" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    "disable_auto_compaction" = "true",
+                    "store_row_column" = "${use_row_store}");"""
 
             streamLoad {
                 table "${tableName}"

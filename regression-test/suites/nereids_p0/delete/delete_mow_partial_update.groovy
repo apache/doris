@@ -17,7 +17,7 @@
 
 suite('nereids_delete_mow_partial_update') {
 
-    def db = "regression_test_nereids_p0_delete"
+    String db = context.config.getDbNameByFile(context.file)
     def genCreateTableStmt = { str, flag -> 
         String ret = str
         if (flag) {
@@ -45,7 +45,7 @@ suite('nereids_delete_mow_partial_update') {
 
             def tableName1 = "nereids_delete_mow_partial_update1"
             sql "DROP TABLE IF EXISTS ${tableName1};"
-            def createTableStmt = """ CREATE TABLE IF NOT EXISTS ${tableName1} (
+            sql """ CREATE TABLE IF NOT EXISTS ${tableName1} (
                         `uid` BIGINT NULL,
                         `v1` BIGINT NULL 
                     )UNIQUE KEY(uid)
@@ -53,20 +53,20 @@ suite('nereids_delete_mow_partial_update') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "replication_num" = "1" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
 
             def tableName2 = "nereids_delete_mow_partial_update2"
             sql "DROP TABLE IF EXISTS ${tableName2};"
-            createTableStmt = """ CREATE TABLE IF NOT EXISTS ${tableName2} (
+            sql """ CREATE TABLE IF NOT EXISTS ${tableName2} (
                         `uid` BIGINT NULL
                     ) UNIQUE KEY(uid)
                 DISTRIBUTED BY HASH(uid) BUCKETS 3
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "replication_num" = "1" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName1} values(1, 1), (2, 2), (3, 3), (4, 4), (5, 5);"
             qt_sql "select * from ${tableName1} order by uid;"
@@ -93,7 +93,7 @@ suite('nereids_delete_mow_partial_update') {
             sql "sync"
             def tableName3 = "test_partial_update_delete3"
             sql "DROP TABLE IF EXISTS ${tableName3};"
-            createTableStmt = """ CREATE TABLE IF NOT EXISTS ${tableName3} (
+            sql """ CREATE TABLE IF NOT EXISTS ${tableName3} (
                     `k1` int NOT NULL,
                     `c1` int,
                     `c2` int,
@@ -104,8 +104,8 @@ suite('nereids_delete_mow_partial_update') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "replication_num" = "1" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName3} values(1, 1, 1, 1, 1), (2, 2, 2, 2, 2), (3, 3, 3, 3, 3), (4, 4, 4, 4, 4), (5, 5, 5, 5, 5);"
             qt_sql "select k1, c1, c2, c3, c4 from ${tableName3} order by k1, c1, c2, c3, c4;"

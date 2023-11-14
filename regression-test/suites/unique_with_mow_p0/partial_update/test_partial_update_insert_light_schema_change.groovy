@@ -18,17 +18,7 @@
 
 suite("test_partial_update_insert_light_schema_change", "p0") {
 
-    def db = "regression_test_unique_with_mow_p0_partial_update"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -41,7 +31,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             // test add value column
             def tableName = "test_partial_update_insert_light_schema_change_add_column"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            def createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName} (
                         `c0` int NULL,
                         `c1` int NULL,
@@ -57,8 +47,8 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                         PROPERTIES(
                             "replication_num" = "1",
                             "light_schema_change" = "true",
-                            "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                            "enable_unique_key_merge_on_write" = "true",
+                            "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName} values(1, 0, 0, 0, 0, 0, 0, 0, 0, 0);"
             sql "sync"
@@ -102,7 +92,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             // test delete value column
             tableName = "test_partial_update_insert_light_schema_change_delete_column"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            createTableStmt = """CREATE TABLE ${tableName} (
+            sql """CREATE TABLE ${tableName} (
                         `c0` int NULL,
                         `c1` int NULL,
                         `c2` int NULL,
@@ -117,8 +107,8 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                         PROPERTIES(
                             "replication_num" = "1",
                             "light_schema_change" = "true",
-                            "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                            "enable_unique_key_merge_on_write" = "true",
+                            "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName} values(1, 0, 0, 0, 0, 0, 0, 0, 0, 0);"
             sql "sync"
@@ -155,7 +145,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             // test delete sequence col
             tableName = "test_partial_update_insert_light_schema_change_delete_seq_col"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            createTableStmt = """CREATE TABLE ${tableName} (
+            sql """CREATE TABLE ${tableName} (
                         `k` int NULL,
                         `v1` int NULL,
                         `v2` int NULL,
@@ -165,8 +155,8 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                             "replication_num" = "1",
                             "light_schema_change" = "true",
                             "enable_unique_key_merge_on_write" = "true",
-                            "function_column.sequence_col" = "c" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                            "function_column.sequence_col" = "c",
+                            "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName} values(1,1,1,1),(2,20,20,20),(1,10,10,10),(2,10,10,10);"
             qt_delete_seq_col_1 "select * from ${tableName} order by k;"
@@ -180,7 +170,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             // test update value column
             tableName = "test_partial_update_insert_light_schema_change_update_column"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            createTableStmt = """ CREATE TABLE ${tableName} (
+            sql """ CREATE TABLE ${tableName} (
                         `c0` int NULL,
                         `c1` int NULL,
                         `c2` int NULL,
@@ -195,8 +185,8 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                         PROPERTIES(
                             "replication_num" = "1",
                             "light_schema_change" = "true",
-                            "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                            "enable_unique_key_merge_on_write" = "true",
+                            "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName} values(1, 0, 0, 0, 0, 0, 0, 0, 0, 0);"
             sql "sync"
@@ -229,14 +219,14 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             // test add key column
             tableName = "test_partial_update_insert_light_schema_change_add_key_column"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            createTableStmt = """ CREATE TABLE ${tableName} (
+            sql """ CREATE TABLE ${tableName} (
                         `c0` int NULL)
                         UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                         PROPERTIES(
                             "replication_num" = "1",
                             "light_schema_change" = "true",
-                            "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                            "enable_unique_key_merge_on_write" = "true",
+                            "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName} values(1);"
             sql "sync"
@@ -300,7 +290,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
             // test create index
             tableName = "test_partial_update_insert_light_schema_change_create_index"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName} (
                         `c0` int NULL,
                         `c1` int NULL,
@@ -316,8 +306,8 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                         PROPERTIES(
                             "replication_num" = "1",
                             "light_schema_change" = "true",
-                            "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                            "enable_unique_key_merge_on_write" = "true",
+                            "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName} values(1, 0, 0, 0, 0, 0, 0, 0, 0, 0);"
             sql "sync"

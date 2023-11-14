@@ -18,17 +18,7 @@
 
 suite("test_primary_key_partial_update_with_delete_stmt", "p0") {
 
-    def db = "regression_test_unique_with_mow_p0_partial_update"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -45,15 +35,15 @@ suite("test_primary_key_partial_update_with_delete_stmt", "p0") {
             sql """ DROP TABLE IF EXISTS ${tableName} """
             sql """ DROP TABLE IF EXISTS ${tableNameJoinA} """
             sql """ DROP TABLE IF EXISTS ${tableNameJoinB} """
-            def createTableStmt = """CREATE TABLE ${tableName} (
+            sql """CREATE TABLE ${tableName} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `name` varchar(65533) NOT NULL COMMENT "用户姓名",
                         `score` int(11) NOT NULL COMMENT "用户得分",
                         `test` int(11) NULL COMMENT "null test",
                         `dft` int(11) DEFAULT "4321")
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+                        "store_row_column" = "${use_row_store}"); """
             // insert 3 lines
             sql """
                 insert into ${tableName} values(3, "doris3", 3000, 123, 1)
@@ -93,19 +83,19 @@ suite("test_primary_key_partial_update_with_delete_stmt", "p0") {
 
 
             // create two tables for join
-            createTableStmt = """CREATE TABLE ${tableNameJoinA} (
+            sql """CREATE TABLE ${tableNameJoinA} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `name` varchar(65533) NOT NULL COMMENT "用户姓名")
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+                        "store_row_column" = "${use_row_store}"); """
 
-            createTableStmt = """CREATE TABLE ${tableNameJoinB} (
+            sql """CREATE TABLE ${tableNameJoinB} (
                     `id` int(11) NOT NULL COMMENT "用户 ID",
                     `score` int(11) NOT NULL COMMENT "用户得分")
                     UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-                    PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+                    "store_row_column" = "${use_row_store}"); """
 
             // case 3: non-exsit key with join
             sql """

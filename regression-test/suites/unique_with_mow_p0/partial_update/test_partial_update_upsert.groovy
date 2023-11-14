@@ -18,17 +18,7 @@
 
 suite("test_partial_update_upsert", "p0") {
 
-    def db = "regression_test_unique_with_mow_p0_partial_update"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -39,7 +29,7 @@ suite("test_partial_update_upsert", "p0") {
 
             def tableName = "test_partial_update_upsert1"
             sql """ DROP TABLE IF EXISTS ${tableName} """
-            def createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName} ( 
                         `id` int(11) NULL, 
                         `name` varchar(10) NULL,
@@ -55,8 +45,8 @@ suite("test_partial_update_upsert", "p0") {
                         "enable_unique_key_merge_on_write" = "true", 
                         "light_schema_change" = "true", 
                         "disable_auto_compaction" = "false", 
-                        "enable_single_replica_compaction" = "false" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        "enable_single_replica_compaction" = "false",
+                        "store_row_column" = "${use_row_store}"); """
             sql """insert into ${tableName} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
             qt_sql """select * from ${tableName} order by id;"""
             streamLoad {
@@ -78,7 +68,7 @@ suite("test_partial_update_upsert", "p0") {
 
             def tableName2 = "test_partial_update_upsert2"
             sql """ DROP TABLE IF EXISTS ${tableName2} """
-            createTableStmt = """
+            sql """
                     CREATE TABLE ${tableName2} ( 
                         `id` int(11) NULL, 
                         `name` varchar(10) NULL,
@@ -94,8 +84,8 @@ suite("test_partial_update_upsert", "p0") {
                         "enable_unique_key_merge_on_write" = "true", 
                         "light_schema_change" = "true", 
                         "disable_auto_compaction" = "false", 
-                        "enable_single_replica_compaction" = "false" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                        "enable_single_replica_compaction" = "false",
+                        "store_row_column" = "${use_row_store}"); """
             sql """insert into ${tableName2} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
             qt_sql """select * from ${tableName2} order by id;"""
             streamLoad {

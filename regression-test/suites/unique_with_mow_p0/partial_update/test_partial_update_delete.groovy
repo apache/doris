@@ -17,17 +17,7 @@
 
 suite('test_partial_update_delete') {
 
-    def db = "regression_test_unique_with_mow_p0_partial_update"
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
+    String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
@@ -42,7 +32,7 @@ suite('test_partial_update_delete') {
 
             def tableName1 = "test_partial_update_delete1"
             sql "DROP TABLE IF EXISTS ${tableName1};"
-            def createTableStmt = """ CREATE TABLE IF NOT EXISTS ${tableName1} (
+            sql """ CREATE TABLE IF NOT EXISTS ${tableName1} (
                     `k1` int NOT NULL,
                     `c1` int,
                     `c2` int,
@@ -53,20 +43,20 @@ suite('test_partial_update_delete') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "replication_num" = "1" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
 
             def tableName2 = "test_partial_update_delete2"
             sql "DROP TABLE IF EXISTS ${tableName2};"
-            createTableStmt = """ CREATE TABLE IF NOT EXISTS ${tableName2} (
+            sql """ CREATE TABLE IF NOT EXISTS ${tableName2} (
                         `k` BIGINT NULL
                     ) UNIQUE KEY(k)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "replication_num" = "1" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName1} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
             qt_sql "select * from ${tableName1} order by k1;"
@@ -85,7 +75,7 @@ suite('test_partial_update_delete') {
             sql "set skip_delete_bitmap=false;"
             def tableName3 = "test_partial_update_delete3"
             sql "DROP TABLE IF EXISTS ${tableName3};"
-            createTableStmt = """ CREATE TABLE IF NOT EXISTS ${tableName3} (
+            sql """ CREATE TABLE IF NOT EXISTS ${tableName3} (
                     `k1` int NOT NULL,
                     `c1` int,
                     `c2` int,
@@ -96,8 +86,8 @@ suite('test_partial_update_delete') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "replication_num" = "1" """
-            sql genCreateTableStmt(createTableStmt, use_row_store)
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName3} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
             qt_sql "select k1,c1,c2,c3,c4 from ${tableName3} order by k1,c1,c2,c3,c4;"
