@@ -303,9 +303,9 @@ struct MethodOneNumber : public MethodBase<TData> {
         Base::keys = (FieldType*)(key_columns[0]->is_nullable()
                                           ? assert_cast<const ColumnNullable*>(key_columns[0])
                                                     ->get_nested_column_ptr()
-                                          : key_columns[0])
-                             ->get_raw_data()
-                             .data;
+                                                    ->get_raw_data()
+                                                    .data
+                                          : key_columns[0]->get_raw_data().data);
         std::string name = key_columns[0]->get_name();
         if (is_join) {
             Base::init_join_bucket_num(num_rows, bucket_size, null_map);
@@ -349,6 +349,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
     void pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                      const ColumnRawPtrs& nullmap_columns, std::vector<T>& result) {
         size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
+        result.clear();
         result.resize(row_numbers);
 
         size_t offset = 0;

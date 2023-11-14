@@ -25,8 +25,6 @@
 namespace doris {
 namespace pipeline {
 
-constexpr uint32_t JOIN_BUILD_SIZE_LIMIT = std::numeric_limits<uint32_t>::max();
-
 OPERATOR_CODE_GENERATOR(HashJoinProbeOperator, StatefulOperator)
 
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
@@ -91,8 +89,9 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
 
 void HashJoinProbeLocalState::prepare_for_next() {
     _probe_index = 0;
+    _build_index = 0;
     _ready_probe = false;
-    _last_probe_match = size_t(1) + JOIN_BUILD_SIZE_LIMIT;
+    _last_probe_match = -1;
     _prepare_probe_block();
 }
 

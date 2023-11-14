@@ -296,7 +296,7 @@ private:
     friend struct ProcessHashTableProbe;
 
     void _init_short_circuit_for_probe() {
-        bool empty_block = !_build_block || _build_block->empty();
+        bool empty_block = !_build_block;
         _short_circuit_for_probe =
                 (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                  !_is_mark_join) ||
@@ -382,7 +382,7 @@ private:
     uint32_t _build_index = 0;
     bool _ready_probe = false;
     bool _probe_eos = false;
-    size_t _last_probe_match;
+    int _last_probe_match;
 
     bool _build_side_ignore_null = false;
 

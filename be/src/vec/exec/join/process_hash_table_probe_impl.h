@@ -341,9 +341,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             orig_columns = _right_col_idx;
         }
-        static_cast<void>(
-                Block::filter_block(output_block, result_column_id,
-                                    is_mark_join ? output_block->columns() : orig_columns));
+        RETURN_IF_ERROR(Block::filter_block(output_block, result_column_id,
+                                            is_mark_join ? output_block->columns() : orig_columns));
     }
 
     return Status::OK();
@@ -387,7 +386,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
             _tuple_is_null_left_flags->resize_fill(block_size, 1);
         }
         output_block->swap(mutable_block.to_block(0));
-        DCHECK(block_size <= _batch_size);
     }
     return Status::OK();
 }

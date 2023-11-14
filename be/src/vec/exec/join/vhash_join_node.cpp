@@ -300,8 +300,9 @@ bool HashJoinNode::need_more_input_data() const {
 
 void HashJoinNode::prepare_for_next() {
     _probe_index = 0;
+    _build_index = 0;
     _ready_probe = false;
-    _last_probe_match = size_t(1) + JOIN_BUILD_SIZE_LIMIT;
+    _last_probe_match = -1;
     _prepare_probe_block();
 }
 
@@ -476,6 +477,7 @@ Status HashJoinNode::_filter_data_and_build_output(RuntimeState* state,
     }
     {
         SCOPED_TIMER(_join_filter_timer);
+        temp_block->check_number_of_rows(output_rows);
         RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, temp_block, temp_block->columns()));
     }
 

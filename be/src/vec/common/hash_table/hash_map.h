@@ -234,13 +234,13 @@ public:
                       JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
                       JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
                       JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
-            visited.resize(num_elem, 0);
+            visited.resize(num_elem);
         }
     }
 
     uint32_t get_bucket_size() const { return bucket_size; }
 
-    size_t size() const { return next.size(); }
+    size_t size() const { return Base::size() == 0 ? next.size() : Base::size(); }
 
     std::vector<uint8_t>& get_visited() { return visited; }
 
@@ -260,8 +260,8 @@ public:
                     int probe_idx, uint32_t build_idx, int probe_rows,
                     uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs) {
         if constexpr (with_other_conjuncts) {
-            return _find_batch_conjunct<JoinOpType>(keys, bucket_nums, probe_idx, build_idx, probe_rows,
-                                        probe_idxs, build_idxs);
+            return _find_batch_conjunct<JoinOpType>(keys, bucket_nums, probe_idx, build_idx,
+                                                    probe_rows, probe_idxs, build_idxs);
         }
         if constexpr (JoinOpType == doris::TJoinOp::INNER_JOIN ||
                       JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
@@ -308,7 +308,6 @@ private:
     auto _find_batch_right_semi_anti(const Key* __restrict keys,
                                      const uint32_t* __restrict bucket_nums, int probe_idx,
                                      int probe_rows) {
-        auto matched_cnt = 0;
         while (probe_idx < probe_rows) {
             auto build_idx = first[bucket_nums[probe_idx]];
 
@@ -320,7 +319,7 @@ private:
             }
             probe_idx++;
         }
-        return std::tuple {probe_idx, 0U, matched_cnt};
+        return std::tuple {probe_idx, 0U, 0};
     }
 
     template <int JoinOpType>
@@ -384,10 +383,8 @@ private:
                 } else {
                     mathced = keys[probe_idx] == build_keys[build_idx];
                 }
-                if (mathced) {
-                    build_idxs[matched_cnt] = build_idx;
-                    matched_cnt++;
-                }
+                build_idxs[matched_cnt] = build_idx;
+                matched_cnt += mathced;
                 build_idx = next[build_idx];
             }
 
@@ -412,8 +409,7 @@ private:
         }
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
-            uint32_t bucket_num = bucket_nums[probe_idx];
-            build_idx = first[bucket_num];
+            build_idx = first[bucket_nums[probe_idx]];
             do_the_probe();
         }
 
@@ -433,29 +429,27 @@ private:
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
-            auto matched_cnt_old = matched_cnt;
+            bool f = false;
             while (build_idx && matched_cnt < batch_size) {
                 if (keys[probe_idx] == build_keys[build_idx]) {
+                    probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = build_idx;
+                    matched_cnt++;
                     if constexpr (JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
                                   JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
                         if (!visited[build_idx]) {
                             visited[build_idx] = 1;
                         }
                     }
-                    matched_cnt++;
+                    f = true;
                 }
                 build_idx = next[build_idx];
-            }
-
-            for (auto i = matched_cnt_old; i < matched_cnt; i++) {
-                probe_idxs[i] = probe_idx;
             }
 
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
                 // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
-                if (!build_idx && (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)) {
+                if (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx) {
                     probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = 0;
                     matched_cnt++;
@@ -470,14 +464,11 @@ private:
         }
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
-            uint32_t bucket_num = bucket_nums[probe_idx];
-            build_idx = first[bucket_num];
+            build_idx = first[bucket_nums[probe_idx]];
             do_the_probe();
         }
 
-        probe_idx -=
-                (matched_cnt >= batch_size &&
-                 build_idx); // FULL_OUTER_JOIN may over batch_size when emplace 0 into build_idxs
+        probe_idx -= (matched_cnt == batch_size && build_idx);
         return std::tuple {probe_idx, build_idx, matched_cnt};
     }
 
