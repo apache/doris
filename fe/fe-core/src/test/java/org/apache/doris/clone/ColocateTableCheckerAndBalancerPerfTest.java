@@ -146,7 +146,12 @@ public class ColocateTableCheckerAndBalancerPerfTest {
             backends.get(i).setTagMap(tagMap);
         }
         Config.disable_colocate_balance = false;
-        Thread.sleep(5000);
+        for (int i = 0; i < 10; i++) {
+            Thread.sleep(1000);
+            if (groupIds.stream().allMatch(groupId -> colocateIndex.isGroupUnstable(groupId))) {
+                break;
+            }
+        }
         Assert.assertTrue("some groups are stable",
                 groupIds.stream().allMatch(groupId -> colocateIndex.isGroupUnstable(groupId)));
 
