@@ -360,6 +360,32 @@ void LoadStream::_report_result(StreamId stream, const Status& st,
     }
 }
 
+void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
+    butil::IOBuf buf;
+    PWriteStreamSinkResponse response;
+    Status st = Status::OK();
+    for (const auto& req : hdr.tablets()) {
+        TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+        TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
+        if (tablet == nullptr) {
+            st = Status::NotFound("Tablet {} not found", req.tablet_id());
+            break;
+        }
+        auto resp = response.add_tablet_schemas();
+        resp->set_index_id(req.index_id());
+        resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
+        tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+    }
+    st.to_protobuf(response.mutable_status());
+
+    buf.append(response.SerializeAsString());
+    int ret = brpc::StreamWrite(stream, buf);
+    // TODO: handle EAGAIN
+    if (ret != 0) {
+        LOG(INFO) << "stream write report schema " << ret << ": " << std::strerror(ret);
+    }
+}
+
 void LoadStream::_parse_header(butil::IOBuf* const message, PStreamHeader& hdr) {
     butil::IOBufAsZeroCopyInputStream wrapper(*message);
     hdr.ParseFromZeroCopyStream(&wrapper);
@@ -458,11 +484,13 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     case PStreamHeader::CLOSE_LOAD: {
         std::vector<int64_t> success_tablet_ids;
         std::vector<int64_t> failed_tablet_ids;
-        std::vector<PTabletID> tablets_to_commit(hdr.tablets_to_commit().begin(),
-                                                 hdr.tablets_to_commit().end());
+        std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
         auto st = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablet_ids);
         _report_result(id, st, success_tablet_ids, failed_tablet_ids);
         brpc::StreamClose(id);
+    } break;
+    case PStreamHeader::GET_SCHEMA: {
+        _report_schema(id, hdr);
     } break;
     default:
         LOG(WARNING) << "unexpected stream message " << hdr.opcode();
