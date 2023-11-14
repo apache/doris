@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("github_event_advance", "variant_type"){
+suite("github_event_advance_p2", "variant_type,p2"){
 
     def load_json_data = {table_name, file_name ->
         // load the json data
