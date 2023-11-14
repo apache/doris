@@ -66,6 +66,10 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             assertEquals("4.0", result[0][5])
             assertEquals("1", result[0][6])
             assertEquals("3", result[0][7])
+            assertEquals("FULL" , result[0][8])
+            assertEquals("FUNDAMENTALS" , result[0][9])
+            assertEquals("MANUAL" , result[0][10])
+            assertEquals("0" , result[0][11])
 
             result = sql """show column stats stats_test1(value);"""
             assertEquals(1, result.size())
@@ -77,6 +81,10 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             assertEquals("5.0", result[0][5])
             assertEquals("\'name1\'" , result[0][6])
             assertEquals("\'name3\'" , result[0][7])
+            assertEquals("FULL" , result[0][8])
+            assertEquals("FUNDAMENTALS" , result[0][9])
+            assertEquals("MANUAL" , result[0][10])
+            assertEquals("0" , result[0][11])
 
             result = sql """show column stats stats_test2(id);"""
             assertEquals(1, result.size())
@@ -88,6 +96,10 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             assertEquals("4.0", result[0][5])
             assertEquals("1", result[0][6])
             assertEquals("2", result[0][7])
+            assertEquals("FULL" , result[0][8])
+            assertEquals("FUNDAMENTALS" , result[0][9])
+            assertEquals("MANUAL" , result[0][10])
+            assertEquals("0" , result[0][11])
 
             result = sql """show column stats stats_test2(value);"""
             assertEquals(1, result.size())
@@ -99,6 +111,10 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             assertEquals("1.0", result[0][5])
             assertEquals("\'*\'", result[0][6])
             assertEquals("\';\'", result[0][7])
+            assertEquals("FULL" , result[0][8])
+            assertEquals("FUNDAMENTALS" , result[0][9])
+            assertEquals("MANUAL" , result[0][10])
+            assertEquals("0" , result[0][11])
 
             sql """drop catalog if exists ${catalog_name}"""
 
@@ -118,9 +134,29 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             assertEquals("5.0", result[0][5])
             assertEquals("\'name1\'" , result[0][6])
             assertEquals("\'name3\'" , result[0][7])
+            assertEquals("FULL" , result[0][8])
+            assertEquals("FUNDAMENTALS" , result[0][9])
+            assertEquals("MANUAL" , result[0][10])
+            assertEquals("0" , result[0][11])
 
             result = sql """show column stats stats_test1(id);"""
             assertEquals(0, result.size())
+
+            sql """analyze table stats_test1(id) with sync with sample rows 100"""
+            result = sql """show column stats stats_test1(id);"""
+            assertEquals(1, result.size())
+            assertEquals("id", result[0][0])
+            assertEquals("3.0", result[0][1])
+            assertEquals("3.0", result[0][2])
+            assertEquals("0.0", result[0][3])
+            assertEquals("12.0", result[0][4])
+            assertEquals("4.0", result[0][5])
+            assertEquals("N/A", result[0][6])
+            assertEquals("N/A", result[0][7])
+            assertEquals("SAMPLE" , result[0][8])
+            assertEquals("FUNDAMENTALS" , result[0][9])
+            assertEquals("MANUAL" , result[0][10])
+            assertEquals("0" , result[0][11])
 
             sql """analyze table stats_test2 with sync;"""
             result = sql """show column stats stats_test2(id);"""
@@ -133,6 +169,10 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             assertEquals("4.0", result[0][5])
             assertEquals("1", result[0][6])
             assertEquals("2", result[0][7])
+            assertEquals("FULL" , result[0][8])
+            assertEquals("FUNDAMENTALS" , result[0][9])
+            assertEquals("MANUAL" , result[0][10])
+            assertEquals("0" , result[0][11])
 
             result = sql """show column stats stats_test2(value);"""
             assertEquals(1, result.size())
@@ -144,8 +184,11 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             assertEquals("1.0", result[0][5])
             assertEquals("\'*\'", result[0][6])
             assertEquals("\';\'", result[0][7])
+            assertEquals("FULL" , result[0][8])
+            assertEquals("FUNDAMENTALS" , result[0][9])
+            assertEquals("MANUAL" , result[0][10])
+            assertEquals("0" , result[0][11])
             sql """drop catalog if exists ${catalog_name}"""
-
         } finally {
         }
     }
