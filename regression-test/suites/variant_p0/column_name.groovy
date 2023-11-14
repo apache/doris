@@ -31,6 +31,7 @@ suite("regression_test_variant_column_name", "variant_type"){
     sql """insert into ${table_name} values (1, '{"中文" : "中文", "\\\u4E2C\\\u6587": "unicode"}')"""
     qt_sql """select v:中文, v:`\\\u4E2C\\\u6587` from ${table_name}"""
     // sql """insert into ${table_name} values (2, '{}')"""
+    sql "truncate table ${table_name}"
     sql """insert into ${table_name} values (3, '{"": ""}')"""
     qt_sql """select v:`` from ${table_name} order by k"""
     sql """insert into ${table_name} values (4, '{"!@#^&*()": "11111"}')"""

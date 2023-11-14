@@ -829,9 +829,13 @@ bool ColumnObject::add_sub_column(const PathInData& key, MutableColumnPtr&& subc
     }
     if (key.empty() && ((!subcolumns.get_root()->is_scalar()) ||
                         is_nothing(subcolumns.get_root()->data.get_least_common_type()))) {
-        // update root
+        bool root_it_scalar = subcolumns.get_root()->is_scalar();
+        // update root to scalar
         subcolumns.get_mutable_root()->modify_to_scalar(
                 Subcolumn(std::move(subcolumn), type, is_nullable, true));
+        if (!root_it_scalar) {
+            subcolumns.add_leaf(subcolumns.get_root_ptr());
+        }
         if (num_rows == 0) {
             num_rows = new_size;
         }
@@ -861,6 +865,7 @@ bool ColumnObject::add_sub_column(const PathInData& key, size_t new_size) {
     if (key.empty() && (!subcolumns.get_root()->is_scalar())) {
         // update none scalar root column to scalar node
         subcolumns.get_mutable_root()->modify_to_scalar(Subcolumn(new_size, is_nullable, true));
+        subcolumns.add_leaf(subcolumns.get_root_ptr());
         if (num_rows == 0) {
             num_rows = new_size;
         }
@@ -1366,7 +1371,8 @@ bool ColumnObject::is_null_root() const {
 
 bool ColumnObject::is_scalar_variant() const {
     // Only root itself
-    return !is_null_root() && subcolumns.get_leaves().size() == 1;
+    return !is_null_root() && subcolumns.get_leaves().size() == 1 &&
+           subcolumns.get_root()->is_scalar();
 }
 
 DataTypePtr ColumnObject::get_root_type() const {
