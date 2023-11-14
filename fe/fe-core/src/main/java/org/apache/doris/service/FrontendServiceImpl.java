@@ -2156,6 +2156,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             coord.setQueryType(TQueryType.LOAD);
 
             TExecPlanFragmentParams plan = coord.getStreamLoadPlan();
+            int loadStreamPerNode = 20;
+            if (request.getStreamPerNode() > 0) {
+                loadStreamPerNode = request.getStreamPerNode();
+            }
+            plan.setLoadStreamPerNode(loadStreamPerNode);
+            plan.setTotalLoadStreams(loadStreamPerNode);
+            plan.setNumLocalSink(1);
             final long txn_id = parsedStmt.getTransactionId();
             result.setParams(plan);
             result.getParams().setDbName(parsedStmt.getDbName());
