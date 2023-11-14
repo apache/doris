@@ -1445,7 +1445,6 @@ public class SessionVariable implements Serializable, Writable {
         if (Config.pull_request_id > 0) {
             this.enablePipelineEngine = true;
             this.enableNereidsPlanner = true;
-            this.enableMemtableOnSinkNode = true;
 
             switch (Config.pull_request_id % 4) {
                 case 0:
