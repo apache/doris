@@ -332,9 +332,9 @@ Status SegmentFlusher::_flush_segment_writer(
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
-    VLOG_DEBUG << "tablet_id:" << _context.tablet_id
+    VLOG_DEBUG << "tablet_id:" << _context->tablet_id
                << " flushing filename: " << writer->data_dir_path()
-               << " rowset_id:" << _context.rowset_id;
+               << " rowset_id:" << _context->rowset_id;
 
     KeyBoundsPB key_bounds;
     Slice min_key = writer->min_encoded_key();
@@ -352,7 +352,7 @@ Status SegmentFlusher::_flush_segment_writer(
 
     writer.reset();
 
-    RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat));
+    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat));
 
     if (flush_size) {
         *flush_size = segment_size + index_size;
