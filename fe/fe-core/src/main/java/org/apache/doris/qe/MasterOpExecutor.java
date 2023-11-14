@@ -239,7 +239,7 @@ public class MasterOpExecutor {
         private final String msg;
 
         public ForwardToMasterException(String msg, TTransportException exception) {
-            this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType());
+            this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType()) + ", " + exception.getMessage();
         }
 
         @Override
