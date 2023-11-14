@@ -131,3 +131,11 @@
 -1	50	1	1	3	\N
 1	50	1	1	3	\N
 
+-- !trim_double_quotes --
+1	test
+2	test
+
+-- !trim_double_quotes_false --
+1	"test"
+2	test
+

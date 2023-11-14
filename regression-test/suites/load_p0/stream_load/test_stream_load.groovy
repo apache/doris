@@ -197,6 +197,7 @@ suite("test_stream_load", "p0") {
     def tableName10 = "test_struct"
     def tableName11 = "test_map"
     def tableName12 = "test_num_as_string"
+    def tableName17 = "test_trim_double_quotes"
 
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
@@ -207,6 +208,7 @@ suite("test_stream_load", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName10} """
     sql """ DROP TABLE IF EXISTS ${tableName11} """
     sql """ DROP TABLE IF EXISTS ${tableName12} """
+    sql """ DROP TABLE IF EXISTS ${tableName17} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
@@ -342,6 +344,18 @@ suite("test_stream_load", "p0") {
       `k1` int(11) NULL,
       `k2` float NULL,
       `k3` double NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName17} (
+      `k1` int(11) NULL,
+      `k2` VARCHAR(20) NULL
     ) ENGINE=OLAP
     DUPLICATE KEY(`k1`)
     DISTRIBUTED BY HASH(`k1`) BUCKETS 3
@@ -1294,5 +1308,48 @@ suite("test_stream_load", "p0") {
             assertEquals("test comment", json.Comment)
         }
     }
+
+    // test trim_double_quotes
+    streamLoad {
+        table "${tableName17}"
+        set 'column_separator', '|'
+        set 'trim_double_quotes' +
+                '' +
+                '', 'true'
+        file 'trim_double_quotes.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    order_qt_trim_double_quotes "SELECT * FROM ${tableName17} order by k1"
+
+    sql """truncate table ${tableName17}"""
+    sql """sync"""
+
+    streamLoad {
+        table "${tableName17}"
+        set 'column_separator', '|'
+        set 'trim_double_quotes', 'false'
+        file 'trim_double_quotes.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    order_qt_trim_double_quotes_false "SELECT * FROM ${tableName17} order by k1"
+
 }
 
