@@ -1281,7 +1281,7 @@ suite("test_stream_load", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("[INVALID_ARGUMENT]Invalid send_batch_parallelism format, stoi: no conversion", json.Message)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi: no conversion", json.Message)
         }
     }
 
