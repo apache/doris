@@ -905,7 +905,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit(), true);
+                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit());
             }
 
             if (right instanceof Interval) {
@@ -918,7 +918,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit(), false);
+                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit());
             }
 
             return ParserUtils.withOrigin(ctx, () -> {
