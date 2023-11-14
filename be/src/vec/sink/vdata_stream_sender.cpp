@@ -178,7 +178,6 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
         _send_remote_block_callback = DummyBrpcCallback<PTransmitDataResult>::create_shared();
     } else {
         RETURN_IF_ERROR(_wait_last_brpc());
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         _send_remote_block_callback->cntl_->Reset();
     }
     VLOG_ROW << "Channel<Parent>::send_batch() instance_id=" << print_id(_fragment_instance_id)
