@@ -27,7 +27,7 @@ suite('nereids_delete_using') {
             sql "use ${db};"
 
             sql 'drop table if exists t1'
-            sql '''
+            sql """
                 create table t1 (
                     id int,
                     id1 int,
@@ -40,7 +40,7 @@ suite('nereids_delete_using') {
                 properties(
                     'replication_num'='1',
                     "enable_unique_key_merge_on_write" = "true",
-                    "store_row_column" = "${use_row_store}"); '''
+                    "store_row_column" = "${use_row_store}"); """
 
             sql 'drop table if exists t2'
             sql '''

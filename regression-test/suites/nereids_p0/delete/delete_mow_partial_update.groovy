@@ -18,16 +18,6 @@
 suite('nereids_delete_mow_partial_update') {
 
     String db = context.config.getDbNameByFile(context.file)
-    def genCreateTableStmt = { str, flag -> 
-        String ret = str
-        if (flag) {
-            ret += """ ,"store_row_column" = "true"); """
-        } else {
-            ret += ");"
-        }
-        return ret
-    }
-
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
