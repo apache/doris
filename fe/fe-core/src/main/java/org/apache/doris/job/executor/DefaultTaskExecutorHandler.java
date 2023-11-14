@@ -18,13 +18,10 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.disruptor.ExecuteTaskEvent;
-import org.apache.doris.job.manager.TaskTokenManager;
 import org.apache.doris.job.task.AbstractTask;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.slf4j.Slf4j;
-
-import java.util.concurrent.Semaphore;
 
 /**
  * DefaultTaskExecutor is an implementation of the TaskExecutor interface.
@@ -48,16 +45,14 @@ public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkH
             log.info("task is canceled, ignore");
             return;
         }
-        if (null == executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum()
-                || executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum() <= 0) {
-            try {
-                task.runTask();
-                return;
-            } catch (Exception e) {
-                log.warn("execute task error, task id is {}", task.getTaskId(), e);
-            }
+        try {
+            task.runTask();
+        } catch (Exception e) {
+            //if task.onFail() throw exception, we will catch it here
+            log.warn("task before error, task id is {}", task.getTaskId(), e);
         }
-        Semaphore semaphore = null;
+        //todo we need discuss whether we need to use semaphore to control the concurrent task num
+        /* Semaphore semaphore = null;
         // get token
         try {
             int maxConcurrentTaskNum = executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum();
@@ -69,7 +64,6 @@ public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkH
         } finally {
             if (null != semaphore) {
                 semaphore.release();
-            }
-        }
+            }*/
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.base;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -41,31 +42,31 @@ import java.util.List;
 @Data
 public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Writable {
 
-    @SerializedName(value = "jobId")
+    @SerializedName(value = "jid")
     private Long jobId;
 
-    @SerializedName(value = "jobName")
+    @SerializedName(value = "jn")
     private String jobName;
 
-    @SerializedName(value = "jobStatus")
+    @SerializedName(value = "js")
     private JobStatus jobStatus;
 
-    @SerializedName(value = "currentDbName")
+    @SerializedName(value = "cdb")
     private String currentDbName;
 
-    @SerializedName(value = "comment")
+    @SerializedName(value = "c")
     private String comment;
 
-    @SerializedName(value = "jobType")
-    private String createUser;
+    @SerializedName(value = "cu")
+    private UserIdentity createUser;
 
-    @SerializedName(value = "jobConfig")
+    @SerializedName(value = "jc")
     private JobExecutionConfiguration jobConfig;
 
-    @SerializedName(value = "createTimeMs")
+    @SerializedName(value = "ctms")
     private Long createTimeMs;
 
-    @SerializedName(value = "executeSql")
+    @SerializedName(value = "sql")
     String executeSql;
 
     private List<T> runningTasks = new ArrayList<>();
@@ -98,6 +99,9 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     }
 
     public void checkJobParams() {
+        if (null == jobId) {
+            throw new IllegalArgumentException("jobId cannot be null");
+        }
         if (null == jobConfig) {
             throw new IllegalArgumentException("jobConfig cannot be null");
         }
@@ -128,6 +132,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     protected abstract void checkJobParamsInternal();
 
     public static AbstractJob readFields(DataInput in) throws IOException {
+        // todo use RuntimeTypeAdapterFactory of Gson to do the serde
         JobType jobType = JobType.valueOf(Text.readString(in));
         switch (jobType) {
             case INSERT:
@@ -188,7 +193,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         List<String> commonShowInfo = new ArrayList<>();
         commonShowInfo.add(String.valueOf(jobId));
         commonShowInfo.add(jobName);
-        commonShowInfo.add(createUser);
+        commonShowInfo.add(createUser.getQualifiedUser());
         commonShowInfo.add(jobConfig.getExecuteType().name());
         commonShowInfo.add(jobConfig.convertRecurringStrategyToString());
         commonShowInfo.add(jobStatus.name());

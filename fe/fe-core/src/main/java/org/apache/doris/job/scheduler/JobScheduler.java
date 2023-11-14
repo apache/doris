@@ -24,6 +24,7 @@ import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.disruptor.TaskDisruptor;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.executor.TimerJobSchedulerTask;
 import org.apache.doris.job.manager.TaskDisruptorGroupManager;
 import org.apache.doris.job.task.AbstractTask;
@@ -96,7 +97,7 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         executeTimerJobIdsWithinLastTenMinutesWindow();
     }
 
-    public void scheduleOneJob(T job) {
+    public void scheduleOneJob(T job) throws JobException {
         if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
             return;
         }
@@ -106,8 +107,8 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
                 return;
             }
             //todo skip streaming job,improve in the future
-            if (JobExecuteType.INSTANT.equals(job.getJobConfig().getExecuteType()) && job.isReadyForScheduling()) {
-                schedulerImmediateJob(job);
+            if (JobExecuteType.INSTANT.equals(job.getJobConfig().getExecuteType())) {
+                schedulerInstantJob(job, TaskType.SCHEDULED);
             }
         }
         //if it's timer job and trigger last window already start, we will scheduler it immediately
@@ -116,7 +117,7 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
 
     @Override
     public void close() throws IOException {
-
+        //todo implement this later
     }
 
 
@@ -132,23 +133,24 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
     }
 
 
-    private void schedulerImmediateJob(T job) {
-        List<? extends AbstractTask> tasks = job.createTasks(TaskType.MANUAL);
-        if (CollectionUtils.isEmpty(tasks)) {
-            return;
+    public void schedulerInstantJob(T job, TaskType taskType) throws JobException {
+        if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
+            throw new JobException("job is not running,job id is %d", job.getJobId());
         }
-        tasks.forEach(task -> taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
-                job.getJobConfig()));
-
-    }
-
-    private void triggerJob(T job) {
         if (!job.isReadyForScheduling()) {
+            log.info("job is not ready for scheduling,job id is {}", job.getJobId());
             return;
         }
-        List<? extends AbstractTask> tasks = job.createTasks(TaskType.MANUAL);
+        List<? extends AbstractTask> tasks = job.createTasks(taskType);
+        if (CollectionUtils.isEmpty(tasks)) {
+            if (job.getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+                job.setJobStatus(JobStatus.FINISHED);
+            }
+            return;
+        }
         tasks.forEach(task -> taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
                 job.getJobConfig()));
+
     }
 
     /**

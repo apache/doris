@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.manager;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
@@ -46,9 +47,21 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     @Getter
     private TaskDisruptor<TimerJobEvent<AbstractJob<?>>> dispatchDisruptor;
 
-    private static int DEFAULT_RING_BUFFER_SIZE = 1024;
+    private static final int DEFAULT_RING_BUFFER_SIZE = 1024;
 
-    private static int DEFAULT_CONSUMER_THREAD_NUM = 5;
+    private static final int DEFAULT_CONSUMER_THREAD_NUM = 5;
+
+    private static final int DISPATCH_TIMER_JOB_QUEUE_SIZE = Config.job_dispatch_timer_job_queue_size > 0
+            ? Config.job_dispatch_timer_job_queue_size : DEFAULT_RING_BUFFER_SIZE;
+
+    private static final int DISPATCH_TIMER_JOB_CONSUMER_THREAD_NUM = Config.job_dispatch_timer_job_thread_num > 0
+            ? Config.job_dispatch_timer_job_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
+
+    private static final int DISPATCH_INSERT_THREAD_NUM = Config.job_insert_task_consumer_thread_num > 0
+            ? Config.job_insert_task_consumer_thread_num : DEFAULT_RING_BUFFER_SIZE;
+
+    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = Config.job_insert_task_queue_size > 0
+            ? Config.job_insert_task_queue_size : DEFAULT_RING_BUFFER_SIZE;
 
 
     public void init() {
@@ -60,13 +73,13 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private void registerDispatchDisruptor() {
         EventFactory<TimerJobEvent<AbstractJob<T>>> dispatchEventFactory = TimerJobEvent.factory();
         ThreadFactory dispatchThreadFactory = new CustomThreadFactory("dispatch-task");
-        WorkHandler[] dispatchTaskExecutorHandlers = new WorkHandler[DEFAULT_CONSUMER_THREAD_NUM];
-        for (int i = 0; i < DEFAULT_CONSUMER_THREAD_NUM; i++) {
+        WorkHandler[] dispatchTaskExecutorHandlers = new WorkHandler[DISPATCH_TIMER_JOB_CONSUMER_THREAD_NUM];
+        for (int i = 0; i < DISPATCH_TIMER_JOB_CONSUMER_THREAD_NUM; i++) {
             dispatchTaskExecutorHandlers[i] = new DispatchTaskHandler(this.disruptorMap);
         }
         EventTranslatorVararg<TimerJobEvent<AbstractJob<T>>> eventTranslator =
                 (event, sequence, args) -> event.setJob((AbstractJob<T>) args[0]);
-        this.dispatchDisruptor = new TaskDisruptor<>(dispatchEventFactory, DEFAULT_RING_BUFFER_SIZE,
+        this.dispatchDisruptor = new TaskDisruptor<>(dispatchEventFactory, DISPATCH_TIMER_JOB_QUEUE_SIZE,
                 dispatchThreadFactory,
                 new BlockingWaitStrategy(), dispatchTaskExecutorHandlers, eventTranslator);
     }
@@ -74,8 +87,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private void registerInsertDisruptor() {
         EventFactory<ExecuteTaskEvent<InsertTask>> insertEventFactory = ExecuteTaskEvent.factory();
         ThreadFactory insertTaskThreadFactory = new CustomThreadFactory("insert-task-execute");
-        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DEFAULT_CONSUMER_THREAD_NUM];
-        for (int i = 0; i < DEFAULT_CONSUMER_THREAD_NUM; i++) {
+        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_INSERT_THREAD_NUM];
+        for (int i = 0; i < DISPATCH_INSERT_THREAD_NUM; i++) {
             insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<InsertTask>();
         }
         EventTranslatorVararg<ExecuteTaskEvent<InsertTask>> eventTranslator =
@@ -83,7 +96,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                     event.setTask((InsertTask) args[0]);
                     event.setJobConfig((JobExecutionConfiguration) args[1]);
                 };
-        TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DEFAULT_RING_BUFFER_SIZE,
+        TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
                 insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.INSERT, insertDisruptor);
     }

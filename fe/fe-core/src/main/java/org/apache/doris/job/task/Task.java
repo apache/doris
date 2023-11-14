@@ -17,18 +17,50 @@
 
 package org.apache.doris.job.task;
 
+/**
+ * The Task interface represents a task that can be executed and managed by a scheduler.
+ * All extension tasks must implement this interface.
+ * The methods defined in this interface are automatically called by the scheduler before and after the execution
+ * of the run method.
+ */
 public interface Task {
 
+    /**
+     * This method is called before the task is executed.
+     * Implementations can use this method to perform any necessary setup or initialization.
+     */
     void before();
 
+    /**
+     * This method contains the main logic of the task.
+     * Implementations should define the specific actions to be performed by the task.
+     */
     void run();
 
+    /**
+     * This method is called when the task fails to execute successfully.
+     * Implementations can use this method to handle any failure scenarios.
+     */
     void onFail();
 
+    /**
+     * This method is called when the task fails to execute successfully, with an additional error message.
+     * Implementations can use this method to handle any failure scenarios and provide a custom error message.
+     *
+     * @param msg The error message associated with the failure.
+     */
     void onFail(String msg);
 
+    /**
+     * This method is called when the task executes successfully.
+     * Implementations can use this method to handle successful execution scenarios.
+     */
     void onSuccess();
 
+    /**
+     * This method is called to cancel the execution of the task.
+     * Implementations should define the necessary steps to cancel the task.
+     */
     void cancel();
 
 }

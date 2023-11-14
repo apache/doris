@@ -20,23 +20,28 @@ package org.apache.doris.job.base;
 import org.apache.doris.common.util.TimeUtils;
 
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.util.ArrayList;
 import java.util.List;
 
 
-@Data
 public class JobExecutionConfiguration {
 
-    @SerializedName(value = "timerDefinition")
+    @Getter
+    @Setter
+    @SerializedName(value = "td")
     private TimerDefinition timerDefinition;
-    @SerializedName(value = "executeType")
+    @Getter
+    @Setter
+    @SerializedName(value = "ec")
     private JobExecuteType executeType;
 
     /**
      * Maximum number of concurrent tasks, <= 0 means no limit
      * if the number of tasks exceeds the limit, the task will be delayed execution
+     * todo: implement this later, we need to consider concurrency strategies
      */
     @SerializedName(value = "maxConcurrentTaskNum")
     private Integer maxConcurrentTaskNum;

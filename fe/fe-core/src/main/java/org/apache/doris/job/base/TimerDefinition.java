@@ -25,14 +25,14 @@ import lombok.Data;
 @Data
 public class TimerDefinition {
 
-    @SerializedName(value = "interval")
+    @SerializedName(value = "il")
     private Long interval;
 
-    @SerializedName(value = "intervalUnit")
+    @SerializedName(value = "iu")
     private IntervalUnit intervalUnit;
-    @SerializedName(value = "startTimeMs")
+    @SerializedName(value = "stm")
     private Long startTimeMs;
-    @SerializedName(value = "endTimeMs")
+    @SerializedName(value = "etm")
     private Long endTimeMs;
 
     private Long latestSchedulerTimeMs;

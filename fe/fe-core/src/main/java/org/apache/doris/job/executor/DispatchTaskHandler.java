@@ -55,7 +55,7 @@ public class DispatchTaskHandler<T extends AbstractJob<?>> implements WorkHandle
                 return;
             }
             if (event.getJob().isReadyForScheduling() && event.getJob().getJobStatus() == JobStatus.RUNNING) {
-                List<? extends AbstractTask> tasks = event.getJob().createTasks(TaskType.SCHEDULER);
+                List<? extends AbstractTask> tasks = event.getJob().createTasks(TaskType.SCHEDULED);
                 JobType jobType = event.getJob().getJobType();
                 for (AbstractTask task : tasks) {
                     disruptorMap.get(jobType).publishEvent(task, event.getJob().getJobConfig());

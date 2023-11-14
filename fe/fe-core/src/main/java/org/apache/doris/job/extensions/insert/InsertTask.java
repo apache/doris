@@ -25,7 +25,9 @@ import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 
 import lombok.extern.slf4j.Slf4j;
 
-
+/**
+ * todo implement this later
+ */
 @Slf4j
 public class InsertTask extends AbstractTask {
 

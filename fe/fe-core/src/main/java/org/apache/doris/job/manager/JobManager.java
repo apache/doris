@@ -17,13 +17,13 @@
 
 package org.apache.doris.job.manager;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.job.task.AbstractTask;
@@ -51,17 +51,17 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         jobScheduler.start();
     }
 
-    public Long registerJob(T job) throws JobException {
-        //job.checkJobParams();
+    public void registerJob(T job) throws JobException {
+        job.checkJobParams();
         checkJobNameExist(job.getJobName(), job.getJobType(), job.getCurrentDbName());
-        long id = Env.getCurrentEnv().getNextId();
-        job.setJobId(id);
+        if (jobMap.get(job.getJobId()) != null) {
+            throw new JobException("job id exist,jobId:" + job.getJobId());
+        }
         //Env.getCurrentEnv().getEditLog().logCreateJob(job);
         //check name exist
-        jobMap.put(id, job);
+        jobMap.put(job.getJobId(), job);
         //check its need to scheduler
         jobScheduler.scheduleOneJob(job);
-        return id;
     }
 
 
@@ -144,6 +144,11 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         return jobMap.get(jobId).queryTasks();
     }
 
+    public void triggerJob(long jobId) throws JobException {
+        checkJobExist(jobId);
+        jobScheduler.schedulerInstantJob(jobMap.get(jobId), TaskType.MANUAL);
+    }
+
     public void replayCreateJob(T job) {
         if (jobMap.containsKey(job.getJobId())) {
             return;
@@ -202,8 +207,6 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
             AbstractJob job = AbstractJob.readFields(in);
             jobMap.putIfAbsent(job.getJobId(), (T) job);
         }
-
-
     }
 
     public T getJob(Long jobId) {

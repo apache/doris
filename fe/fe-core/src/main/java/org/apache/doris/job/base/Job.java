@@ -26,78 +26,95 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import java.util.List;
 
 /**
- * Job is the core of the scheduler module, which is used to store the Job information of the job module.
- * We can use the job to uniquely identify a Job.
- * The jobName is used to identify the job, which is not unique.
- * The jobStatus is used to identify the status of the Job, which is used to control the execution of the
- * job.
+ * The Job interface represents a job in the scheduler module, which stores the information of a job.
+ * A job can be uniquely identified using the job identifier.
+ * The job name is used for identification purposes and is not necessarily unique.
+ * The job status is used to control the execution of the job.
+ *
+ * @param <T> The type of task associated with the job, extending AbstractTask.
  */
 public interface Job<T extends AbstractTask> {
 
+    /**
+     * Creates a list of tasks of the specified type for this job.
+     *
+     * @param taskType The type of tasks to create.
+     * @return A list of tasks.
+     */
     List<T> createTasks(TaskType taskType);
 
     /**
-     * cancel the task by taskId
+     * Cancels the task with the specified taskId.
      *
-     * @param taskId taskId
-     * @throws JobException if the task is not in the running state,it's maybe finish,
-     * it cannot be cancelled,and throw JobException
+     * @param taskId The ID of the task to cancel.
+     * @throws JobException If the task is not in the running state, it may have already
+     * finished and cannot be cancelled.
      */
     void cancel(long taskId) throws JobException;
 
     /**
-     * when start the schedule job, we will call this method
-     * if the job is not ready for scheduling, we will cancel this one scheduler
+     * Checks if the job is ready for scheduling.
+     * This method is called when starting the scheduled job,
+     * and if the job is not ready for scheduling, the scheduler will cancel it.
+     *
+     * @return True if the job is ready for scheduling, false otherwise.
      */
     boolean isReadyForScheduling();
 
-
     /**
-     * get the job's metadata title, which is used to show the job information
-     * @return ShowResultSetMetaData job metadata
+     * Retrieves the metadata for the job, which is used to display job information.
+     *
+     * @return The metadata for the job.
      */
     ShowResultSetMetaData getJobMetaData();
 
     /**
-     * get the task metadata title, which is used to show the task information
-     * eg: taskId, taskStatus, taskType, taskStartTime, taskEndTime, taskProgress
-     * @return ShowResultSetMetaData task metadata
+     * Retrieves the metadata for the tasks, which is used to display task information.
+     * The metadata includes fields such as taskId, taskStatus, taskType, taskStartTime, taskEndTime, and taskProgress.
+     *
+     * @return The metadata for the tasks.
      */
     ShowResultSetMetaData getTaskMetaData();
 
     /**
-     * JobType is used to identify the type of the job, which is used to distinguish the different types of jobs.
-     * @return JobType
+     * Retrieves the type of the job, which is used to identify different types of jobs.
+     *
+     * @return The type of the job.
      */
     JobType getJobType();
 
     /**
-     * Query the task list of this job
+     * Queries the list of tasks associated with this job.
+     *
+     * @return The list of tasks.
      */
     List<T> queryTasks();
 
     /**
-     * cancel this job's all running task
-     * @throws JobException if running task cancel failed, throw JobException
+     * Cancels all running tasks of this job.
+     *
+     * @throws JobException If cancelling a running task fails.
      */
     void cancel() throws JobException;
 
     /**
-     * When the task executed result is failed, the task will call this method to notify the job
-     * @param task task
+     * Notifies the job when a task execution fails.
+     *
+     * @param task The failed task.
      */
     void onTaskFail(T task);
 
     /**
-     * When the task executed is success, the task will call this method to notify the job
-     * @param task task
+     * Notifies the job when a task execution is successful.
+     *
+     * @param task The successful task.
      */
     void onTaskSuccess(T task);
 
     /**
-     * When the task executed is cancel, the task will call this method to notify the job
-     * @param task task
+     * Notifies the job when a task execution is cancelled.
+     *
+     * @param task The cancelled task.
      */
     void onTaskCancel(T task);
-
 }

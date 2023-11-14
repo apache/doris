@@ -114,6 +114,7 @@ public class CreateJobStmt extends DdlStmt {
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         analyzerSqlStmt();
         // check its insert stmt,currently only support insert stmt
+        //todo used InsertIntoCommand if job is InsertJob
         InsertJob job = new InsertJob();
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         jobExecutionConfiguration.setExecuteType(executeType);
@@ -141,8 +142,7 @@ public class CreateJobStmt extends DdlStmt {
         job.setComment(comment);
         job.setCurrentDbName(labelName.getDbName());
         job.setJobName(labelName.getLabelName());
-        job.setComment(comment);
-        job.setCreateUser(ConnectContext.get().getQualifiedUser());
+        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
         job.setJobStatus(JobStatus.RUNNING);
         job.checkJobParams();
         String originStmt = getOrigStmt().originStmt;
