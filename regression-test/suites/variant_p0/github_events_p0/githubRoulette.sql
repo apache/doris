@@ -1,1 +1,0 @@
-SELECT cast(v:repo.name as string) FROM github_events WHERE cast(v:type as string) = 'WatchEvent' ORDER BY cast(v:created_at as datetime),  cast(v:repo.name as string) LIMIT 50
