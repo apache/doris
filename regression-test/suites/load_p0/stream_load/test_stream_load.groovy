@@ -1281,7 +1281,39 @@ suite("test_stream_load", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi: no conversion", json.Message)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi", json.Message)
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '21474836471'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi", json.Message)
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '-1'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi", json.Message)
         }
     }
 
