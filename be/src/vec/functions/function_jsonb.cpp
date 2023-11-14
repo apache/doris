@@ -38,6 +38,8 @@
 #else
 #include "util/jsonb_parser.h"
 #endif
+#include <exprs/json_functions.h>
+
 #include "util/jsonb_stream.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -1287,6 +1289,157 @@ struct JsonbContainsAndPathImpl {
     }
 };
 
+template <typename Impl>
+class FunctionJsonbContainsPath : public IFunction {
+public:
+    static constexpr auto name = "json_contains_path";
+    String get_name() const override { return name; }
+    static FunctionPtr create() { return std::make_shared<FunctionJsonbContainsPath<Impl>>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeUInt8>());
+    }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (vectorized::HasGetVariadicArgumentTypesImpl<Impl>) {
+            return Impl::get_variadic_argument_types_impl();
+        } else {
+            return {};
+        }
+    }
+    size_t get_number_of_arguments() const override {
+        return 0; // variadic
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+    }
+};
+
+struct JsonbContainsPathUtil {
+    static Status jsonb_contains_path_execute(FunctionContext* context, Block& block,
+                                              const ColumnNumbers& arguments, size_t result,
+                                              size_t input_rows_count) {
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        DCHECK_GE(arguments.size(), 3);
+
+        const auto jsonb_data_column = block.get_by_position(arguments[0]).column;
+        const auto one_or_all_column = block.get_by_position(arguments[1]).column;
+
+        std::vector<const ColumnString*> jsonb_path_columns;
+        std::vector<bool> path_const(arguments.size() - 2);
+        bool any_path_null = false;
+        for (int i = 0; i < arguments.size() - 2; ++i) {
+            ColumnPtr path_column;
+            bool is_const = false;
+            std::tie(path_column, is_const) =
+                    unpack_if_const(block.get_by_position(arguments[i + 2]).column);
+            if (path_column->is_null_at(0)) {
+                any_path_null = true;
+            }
+            path_const[i] = is_const;
+            check_set_nullable(path_column, null_map, path_const[i]);
+            jsonb_path_columns.push_back(assert_cast<const ColumnString*>(path_column.get()));
+        }
+
+        std::vector<JsonbPath> json_path_list;
+        json_path_list.resize(jsonb_path_columns.size());
+
+        for (int i = 0; i < jsonb_path_columns.size(); ++i) {
+            if (path_const[i]) {
+                const auto path_value = jsonb_path_columns[i]->get_data_at(0);
+                if (!json_path_list[i].seek(path_value.data, path_value.size)) {
+                    return Status::InvalidArgument(
+                            "Json path error: {} for value: {}",
+                            JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                            std::string_view(path_value.data, path_value.size));
+                }
+            }
+        }
+
+        const auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (jsonb_data_column->is_null_at(i) || one_or_all_column->is_null_at(i) ||
+                any_path_null) {
+                null_map->get_data()[i] = 1;
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            for (int j = 0; j < jsonb_path_columns.size(); ++j) {
+                if (!path_const[j]) {
+                    const auto path_value = jsonb_path_columns[j]->get_data_at(0);
+                    if (!json_path_list[j].seek(path_value.data, path_value.size)) {
+                        return Status::InvalidArgument(
+                                "Json path error: {} for value: {}",
+                                JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                                std::string_view(path_value.data, path_value.size));
+                    }
+                }
+            }
+
+            const auto jsonb_value = jsonb_data_column->get_data_at(i);
+            auto one_or_all_value = to_lower(one_or_all_column->get_data_at(i).to_string());
+
+            JsonbDocument* doc = JsonbDocument::createDocument(jsonb_value.data, jsonb_value.size);
+
+            if (one_or_all_value != "one" && one_or_all_value != "all") {
+                return Status::InvalidArgument(
+                        "The oneOrAll argument to json_contains_path may take these values: 'one' "
+                        "or 'all'.");
+            }
+
+            const bool is_one = one_or_all_value == "one";
+            bool result_value = !is_one;
+
+            for (auto& path : json_path_list) {
+                const JsonbValue* value = doc->getValue()->findValue(path, nullptr);
+
+                if (is_one) {
+                    if (value) {
+                        result_value = true;
+                        break; // For 'one', if any path exists, set result to true and exit loop
+                    }
+                } else {
+                    if (!value) {
+                        result_value = false;
+                        break; // For 'all', if any path does not exist, set result to false and exit loop
+                    }
+                }
+            }
+
+            res->insert_data(reinterpret_cast<const char*>(&result_value), 0);
+        }
+
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct JsonbContainsPathImpl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>()};
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        return JsonbContainsPathUtil::jsonb_contains_path_execute(context, block, arguments, result,
+                                                                  input_rows_count);
+    }
+};
+
 void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbParse>(FunctionJsonbParse::name);
     factory.register_alias(FunctionJsonbParse::name, FunctionJsonbParse::alias);
@@ -1352,6 +1505,7 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbLength<JsonbLengthAndPathImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsAndPathImpl>>();
+    factory.register_function<FunctionJsonbContainsPath<JsonbContainsPathImpl>>();
 }
 
 } // namespace doris::vectorized

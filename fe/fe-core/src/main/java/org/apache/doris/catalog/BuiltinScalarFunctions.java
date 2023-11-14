@@ -192,6 +192,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContainsPath;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
@@ -635,6 +636,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbType.class, "jsonb_type"),
             scalar(JsonLength.class, "json_length"),
             scalar(JsonContains.class, "json_contains"),
+            scalar(JsonContainsPath.class, "json_contains_path"),
             scalar(L1Distance.class, "l1_distance"),
             scalar(L2Distance.class, "l2_distance"),
             scalar(LastDay.class, "last_day"),

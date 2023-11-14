@@ -512,4 +512,25 @@ suite("test_jsonb_unique_load_and_function", "p0") {
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k2":300}' as json)) FROM ${testTable} ORDER BY id"""
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k1":"v41","k2":400}' as json), '\$.a1') FROM ${testTable} ORDER BY id"""
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('[123,456]' as json)) FROM ${testTable} ORDER BY id"""
+
+    //json_contains_path
+    qt_select_json_contains_path1 """
+    SELECT
+        JSON_CONTAINS_PATH('[1, 2, {"x": 3}]', 'all', '\$[0]') as `\$[0]`,
+        JSON_CONTAINS_PATH('[1, 2, {"x": 3}]', 'all', '\$[3]') as `\$[3]`,
+        JSON_CONTAINS_PATH('[1, 2, {"x": 3}]', 'all', '\$[2].x') as `\$[2].x`;
+    """
+    qt_select_json_contains_path2 """
+    SELECT
+        JSON_CONTAINS_PATH('[1, 2, {"x": 3}]', 'one', '\$[0]', '\$[3]') as `one`,
+        JSON_CONTAINS_PATH('[1, 2, {"x": 3}]', 'all', '\$[0]', '\$[3]') as `all`;
+    """
+
+    qt_select_json_contains_path3 """
+    SELECT
+        id,
+        JSON_CONTAINS_PATH(j, 'one', '\$[0]', '\$[3]') as `one`,
+        JSON_CONTAINS_PATH(j, 'all', '\$[0]', '\$[3]') as `all`
+    FROM ${testTable} ORDER BY id;
+    """
 }
