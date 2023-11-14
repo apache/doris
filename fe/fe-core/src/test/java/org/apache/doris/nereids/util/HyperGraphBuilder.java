@@ -316,18 +316,18 @@ public class HyperGraphBuilder {
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         injectRowcount(cascadesContext.getMemo().getRoot());
-        return HyperGraph.from(cascadesContext.getMemo().getRoot());
+        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
     }
 
     public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        return HyperGraph.from(cascadesContext.getMemo().getRoot());
+        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
     }
 
     private void injectRowcount(Group group) {
-        if (!HyperGraph.isValidJoinGroup(group)) {
+        if (!HyperGraph.isValidJoin(group.getLogicalExpression().getPlan())) {
             LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();
             Statistics stats = injectRowcount(scanPlan);
             group.setStatistics(stats);

@@ -15,38 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
-import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 /**
  * HyperGraph Node.
  */
-public class Node {
-    private final int index;
-    // Due to group in Node is base group, so mergeGroup() don't need to consider it.
-    private final Group group;
-    private final List<Edge> edges;
+public class AbstractNode {
+    protected final int index;
+    protected final List<Edge> edges;
+    protected final Plan plan;
 
-    public Node(int index, Group group, List<Edge> edges) {
-        this.group = group;
+    protected AbstractNode(Plan plan, int index, List<Edge> edges) {
         this.index = index;
         this.edges = edges;
-    }
-
-    public Node(int index, Group group) {
-        this(index, group, new ArrayList<>());
-    }
-
-    public Node withGroup(Group group) {
-        return new Node(index, group, edges);
+        this.plan = plan;
     }
 
     public List<Edge> getEdges() {
@@ -62,7 +52,7 @@ public class Node {
     }
 
     public Plan getPlan() {
-        return group.getLogicalExpression().getPlan();
+        return plan;
     }
 
     /**
@@ -87,15 +77,7 @@ public class Node {
         return getPlan().getType().name() + index;
     }
 
-    public double getRowCount() {
-        return group.getStatistics().getRowCount();
-    }
-
-    public Group getGroup() {
-        return group;
-    }
-
     public Set<Slot> getOutput() {
-        return group.getLogicalExpression().getPlan().getOutputSet();
+        return plan.getOutputSet();
     }
 }

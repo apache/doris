@@ -19,12 +19,16 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -48,7 +52,7 @@ import java.util.Set;
  */
 public class HyperGraph {
     private final List<Edge> edges = new ArrayList<>();
-    private final List<Node> nodes = new ArrayList<>();
+    private final List<AbstractNode> nodes = new ArrayList<>();
     private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
     // record all edges that can be placed on the subgraph
     private final Map<Long, BitSet> treeEdgesCache = new HashMap<>();
@@ -62,7 +66,7 @@ public class HyperGraph {
         return edges;
     }
 
-    public List<Node> getNodes() {
+    public List<AbstractNode> getNodes() {
         return nodes;
     }
 
@@ -74,7 +78,7 @@ public class HyperGraph {
         return edges.get(index);
     }
 
-    public Node getNode(int index) {
+    public AbstractNode getNode(int index) {
         return nodes.get(index);
     }
 
@@ -123,17 +127,33 @@ public class HyperGraph {
      * @param group The group that is the end node in graph
      * @return return the node index
      */
-    public int addNode(Group group) {
+    public int addDPHyperNode(Group group) {
         for (Slot slot : group.getLogicalExpression().getPlan().getOutput()) {
             Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
             slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
         }
-        nodes.add(new Node(nodes.size(), group));
+        nodes.add(new DPhyperNode(nodes.size(), group));
+        return nodes.size() - 1;
+    }
+
+    /**
+     * add end node to HyperGraph
+     *
+     * @param plan The plan that is the end node in graph
+     * @return return the node index
+     */
+    public int addStructInfoNode(Plan plan) {
+        for (Slot slot : plan.getOutput()) {
+            Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
+            slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
+        }
+        nodes.add(new StructInfoNode(nodes.size(), plan));
         return nodes.size() - 1;
     }
 
     public void updateNode(int idx, Group group) {
-        nodes.set(idx, nodes.get(idx).withGroup(group));
+        Preconditions.checkArgument(nodes.get(idx) instanceof DPhyperNode);
+        nodes.set(idx, ((DPhyperNode) nodes.get(idx)).withGroup(group));
     }
 
     public HashMap<Long, List<NamedExpression>> getComplexProject() {
@@ -143,13 +163,9 @@ public class HyperGraph {
     /**
      * try to add edge for join group
      *
-     * @param group The join group
+     * @param join The join plan
      */
-    public BitSet addEdge(Group group, Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
-        Preconditions.checkArgument(isValidJoinGroup(group),
-                "HyperGraph edge must be join but was ", group);
-        LogicalJoin<? extends Plan, ? extends Plan> join =
-                (LogicalJoin<? extends Plan, ? extends Plan>) group.getLogicalExpression().getPlan();
+    public BitSet addEdge(LogicalJoin<?, ?> join, Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
         HashMap<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new HashMap<>();
         for (Expression expression : join.getHashJoinConjuncts()) {
             // TODO: avoid calling calculateEnds if calNodeMap's results are same
@@ -304,29 +320,26 @@ public class HyperGraph {
         return bitmap;
     }
 
-    public static HyperGraph from(Plan plan) {
+    public static HyperGraph toStructInfo(Plan plan) {
         Preconditions.checkArgument(plan.getGroupExpression().isPresent(),
                 "HyperGraph requires a GroupExpression in ", plan);
         HyperGraph hyperGraph = new HyperGraph();
-        hyperGraph.buildGraph(plan.getGroupExpression().get());
+        hyperGraph.buildStructInfo(plan);
         return hyperGraph;
     }
 
-    public static HyperGraph from(Group group) {
+    public static HyperGraph toDPhyperGraph(Group group) {
         HyperGraph hyperGraph = new HyperGraph();
-        hyperGraph.buildGraph(group.getLogicalExpressions().get(0));
+        hyperGraph.buildDPhyperGraph(group.getLogicalExpressions().get(0));
         return hyperGraph;
     }
 
-    private Pair<BitSet, Long> buildGraph(GroupExpression groupExpression) {
-        if (groupExpression.getOwnerGroup().getHyperGraph() != null) {
-            //TODO: mergeGroup
-            Preconditions.checkArgument(false, "mergeGroup has not been implemented");
-        }
+    // Build Graph for DPhyper
+    private Pair<BitSet, Long> buildDPhyperGraph(GroupExpression groupExpression) {
         // process Project
-        if (isValidProjectGroup(groupExpression.getOwnerGroup())) {
+        if (isValidProject(groupExpression.getPlan())) {
             LogicalProject<?> project = (LogicalProject<?>) groupExpression.getPlan();
-            Pair<BitSet, Long> res = this.buildGraph(groupExpression.child(0).getLogicalExpressions().get(0));
+            Pair<BitSet, Long> res = this.buildDPhyperGraph(groupExpression.child(0).getLogicalExpressions().get(0));
             for (NamedExpression expr : project.getProjects()) {
                 if (expr instanceof Alias) {
                     this.addAlias((Alias) expr, res.second);
@@ -335,24 +348,60 @@ public class HyperGraph {
             return res;
         }
 
+        // process Join
+        if (isValidJoin(groupExpression.getPlan())) {
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) groupExpression.getPlan();
+            Pair<BitSet, Long> left = this.buildDPhyperGraph(groupExpression.child(0).getLogicalExpressions().get(0));
+            Pair<BitSet, Long> right = this.buildDPhyperGraph(groupExpression.child(1).getLogicalExpressions().get(0));
+            return Pair.of(this.addEdge(join, left, right),
+                    LongBitmap.or(left.second, right.second));
+        }
+
         // process Other Node
-        if (!isValidJoinGroup(groupExpression.getOwnerGroup())) {
-            int idx = this.addNode(groupExpression.getOwnerGroup());
-            return Pair.of(new BitSet(), LongBitmap.newBitmap(idx));
+        int idx = this.addDPHyperNode(groupExpression.getOwnerGroup());
+        return Pair.of(new BitSet(), LongBitmap.newBitmap(idx));
+    }
+
+    // Build Graph for matching mv
+    private Pair<BitSet, Long> buildStructInfo(Plan plan) {
+        if (plan instanceof GroupPlan) {
+            Group group = ((GroupPlan) plan).getGroup();
+            if (group.getHyperGraph() == null) {
+                buildStructInfo(group.getLogicalExpressions().get(0).getPlan());
+            } else {
+                //TODO: merge Group
+            }
+        }
+        // process Project
+        if (isValidProject(plan)) {
+            LogicalProject<?> project = (LogicalProject<?>) plan;
+            Pair<BitSet, Long> res = this.buildStructInfo(plan.child(0));
+            for (NamedExpression expr : project.getProjects()) {
+                if (expr instanceof Alias) {
+                    this.addAlias((Alias) expr, res.second);
+                }
+            }
+            return res;
         }
 
         // process Join
-        Pair<BitSet, Long> left = this.buildGraph(groupExpression.child(0).getLogicalExpressions().get(0));
-        Pair<BitSet, Long> right = this.buildGraph(groupExpression.child(1).getLogicalExpressions().get(0));
-        return Pair.of(this.addEdge(groupExpression.getOwnerGroup(), left, right),
-                LongBitmap.or(left.second, right.second));
+        if (isValidJoin(plan)) {
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+            Pair<BitSet, Long> left = this.buildStructInfo(plan.child(0));
+            Pair<BitSet, Long> right = this.buildStructInfo(plan.child(1));
+            return Pair.of(this.addEdge(join, left, right),
+                    LongBitmap.or(left.second, right.second));
+        }
+
+        // process Other Node
+        int idx = this.addStructInfoNode(plan);
+        return Pair.of(new BitSet(), LongBitmap.newBitmap(idx));
     }
 
     /**
      * inner join group without mark slot
      */
-    public static boolean isValidJoinGroup(Group group) {
-        Plan plan = group.getLogicalExpressions().get(0).getPlan();
+    public static boolean isValidJoin(Plan plan) {
         if (!(plan instanceof LogicalJoin)) {
             return false;
         }
@@ -365,8 +414,7 @@ public class HyperGraph {
     /**
      * the project with alias and slot
      */
-    public static boolean isValidProjectGroup(Group group) {
-        Plan plan = group.getLogicalExpressions().get(0).getPlan();
+    public static boolean isValidProject(Plan plan) {
         if (!(plan instanceof LogicalProject)) {
             return false;
         }
@@ -419,15 +467,18 @@ public class HyperGraph {
         StringBuilder builder = new StringBuilder();
         builder.append(String.format("digraph G {  # %d edges\n", edges.size()));
         List<String> graphvisNodes = new ArrayList<>();
-        for (Node node : nodes) {
+        for (AbstractNode node : nodes) {
             String nodeName = node.getName();
             // nodeID is used to identify the node with the same name
             String nodeID = nodeName;
             while (graphvisNodes.contains(nodeID)) {
                 nodeID += "_";
             }
+            double rowCount = (node instanceof DPhyperNode)
+                    ? ((DPhyperNode) node).getRowCount()
+                    : -1;
             builder.append(String.format("  %s [label=\"%s \n rowCount=%.2f\"];\n",
-                    nodeID, nodeName, node.getRowCount()));
+                    nodeID, nodeName, rowCount));
             graphvisNodes.add(nodeName);
         }
         for (int i = 0; i < edges.size(); i += 1) {

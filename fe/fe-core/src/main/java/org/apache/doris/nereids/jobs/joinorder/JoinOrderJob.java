@@ -25,8 +25,9 @@ import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.GraphSimplifier;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.Node;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.SubgraphEnumerator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.PlanReceiver;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -60,7 +61,7 @@ public class JoinOrderJob extends Job {
     }
 
     private Group optimizePlan(Group group) {
-        if (HyperGraph.isValidJoinGroup(group)) {
+        if (HyperGraph.isValidJoin(group.getLogicalExpression().getPlan())) {
             return optimizeJoin(group);
         }
         GroupExpression rootExpr = group.getLogicalExpression();
@@ -72,9 +73,10 @@ public class JoinOrderJob extends Job {
     }
 
     private Group optimizeJoin(Group group) {
-        HyperGraph hyperGraph = HyperGraph.from(group);
-        for (Node node : hyperGraph.getNodes()) {
-            hyperGraph.updateNode(node.getIndex(), optimizePlan(node.getGroup()));
+        HyperGraph hyperGraph = HyperGraph.toDPhyperGraph(group);
+        for (AbstractNode node : hyperGraph.getNodes()) {
+            DPhyperNode dPhyperNode = (DPhyperNode) node;
+            hyperGraph.updateNode(node.getIndex(), optimizePlan(dPhyperNode.getGroup()));
         }
         // TODO: Right now, we just hardcode the limit with 10000, maybe we need a better way to set it
         int limit = 1000;
