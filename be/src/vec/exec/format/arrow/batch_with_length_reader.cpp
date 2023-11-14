@@ -32,6 +32,19 @@
 #define DEFAULT_READ_BUF_CAP (4 * 1024 * 1024)
 #define BATCH_SIZE_LENGTH (4)
 
+
+// BatchWithLengthReader used in fixed format:  <len><value><len><value>...
+// The <len> is of type int and represents the length of the <value>.
+// We obtain data through the following process:
+// 1. Get the buff length data from the _file_reader and fill data in the _read_buff.
+// 2. Read the first 4 bytes and convert them to the length of the int type, and save it as _bash_size.
+// 3. If _bash_size is greater than the capacity of the _read_buff, we need to expand the _read_buff.
+// 4. Here, we get a complete value, return it to the application layer.
+// 5. Continue parsing the _read_buff until the _read_buff is resolved.
+// 6. If there is some incomplete data left in the _read_buff, 
+// we copy some of the data that is currently parsed to the front end of the buff (because the data has been consumed by the upper-layer application), 
+// so that _read_buff can have the rest of the space to continue fetching data from the _read_file.
+
 namespace doris::vectorized {
 
 BatchWithLengthReader::BatchWithLengthReader(io::FileReaderSPtr file_reader)
@@ -42,7 +55,9 @@ BatchWithLengthReader::BatchWithLengthReader(io::FileReaderSPtr file_reader)
           _read_buf_len(0),
           _batch_size(-1) {}
 
-BatchWithLengthReader::~BatchWithLengthReader() = default;
+BatchWithLengthReader::~BatchWithLengthReader() {
+    delete[] _read_buf;
+}
 
 Status BatchWithLengthReader::get_one_batch(uint8_t** data, int* length) {
     _init();
