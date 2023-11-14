@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
+import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNetworkAddress;

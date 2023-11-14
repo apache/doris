@@ -484,7 +484,8 @@ struct TMetaScanRange {
   2: optional TIcebergMetadataParams iceberg_params
   3: optional TBackendsMetadataParams backends_params
   4: optional TFrontendsMetadataParams frontends_params
-  5: optional TQueriesMetadataParams queries_params;
+  5: optional TQueriesMetadataParams queries_params
+  6: optional TMaterializedViewsMetadataParams materialized_views_params
 }
 
 // Specification of an individual data range which is held in its entirety
