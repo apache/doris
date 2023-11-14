@@ -26,6 +26,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -155,6 +157,19 @@ public abstract class AlterJobV2 implements Writable {
         this.finishedTimeMs = finishedTimeMs;
     }
 
+    // /api/debug_point/add/{name}?value=100
+    private void stateWait(final String name) {
+        long waitTimeMs = DebugPointUtil.isEnable(name) ? DebugPointUtil.getDebugParamOrDefault(name, 0) : 0;
+        if (waitTimeMs > 0) {
+            try {
+                LOG.info("debug point {} wait {} ms", name, waitTimeMs);
+                Thread.sleep(waitTimeMs);
+            } catch (InterruptedException e) {
+                LOG.warn(name, e);
+            }
+        }
+    }
+
     /**
      * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()
@@ -171,15 +186,28 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
+        // /api/debug_point/add/FE.ALTER_JOB_V2_RUN?stop=true
+        if (DebugPointUtil.isEnable("FE.ALTER_JOB_V2_RUN")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint("FE.ALTER_JOB_V2_RUN");
+            Boolean stop = debugPoint.param("stop", false);
+            if (stop) {
+                LOG.info("debug point FE.ALTER_JOB_V2_RUN, schema change schedule stopped");
+                return;
+            }
+        }
+
         try {
             switch (jobState) {
                 case PENDING:
+                    stateWait("FE.ALTER_JOB_V2_PENDING");
                     runPendingJob();
                     break;
                 case WAITING_TXN:
+                    stateWait("FE.ALTER_JOB_V2_WAITING_TXN");
                     runWaitingTxnJob();
                     break;
                 case RUNNING:
+                    stateWait("FE.ALTER_JOB_V2_RUNNING");
                     runRunningJob();
                     break;
                 default:

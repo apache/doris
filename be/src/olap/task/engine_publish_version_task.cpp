@@ -92,13 +92,15 @@ Status EnginePublishVersionTask::finish() {
     int64_t transaction_id = _publish_version_req.transaction_id;
     OlapStopWatch watch;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
-    DBUG_EXECUTE_IF("EnginePublishVersionTask.finish", {
+    DBUG_EXECUTE_IF("EnginePublishVersionTask.finish.random", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-            LOG_WARNING("EnginePublishVersionTask.finish random failed");
+            LOG_WARNING("EnginePublishVersionTask.finish.random random failed");
             return Status::InternalError("debug engine publish version task random failed");
         }
-        if (auto wait = dp->param<int>("wait", 0); wait > 0) {
-            LOG_WARNING("EnginePublishVersionTask.finish wait")
+    });
+    DBUG_EXECUTE_IF("EnginePublishVersionTask.finish.wait", {
+        if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+            LOG_WARNING("EnginePublishVersionTask.finish.wait wait")
                     .tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
