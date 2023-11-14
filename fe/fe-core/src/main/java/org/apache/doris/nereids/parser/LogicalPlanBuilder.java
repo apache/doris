@@ -307,6 +307,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -2430,6 +2431,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
                         getExpression((havingClause.get().booleanExpression()))), project);
+            } else if (inputRelation instanceof OneRowRelation) {
+                // If OneRowRelation should not add project, because slot will be wrong when analyze
+                return withHaving(aggregate, havingClause);
             } else {
                 LogicalPlan having = withHaving(aggregate, havingClause);
                 return withProjection(having, selectColumnCtx, aggClause, isDistinct);
