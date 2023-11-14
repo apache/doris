@@ -469,9 +469,14 @@ struct TFrontendsMetadataParams {
   1: optional string cluster_name
 }
 
+struct TMaterializedViewsMetadataParams {
+  1: optional string database
+}
+
 struct TQueriesMetadataParams {
   1: optional string cluster_name
   2: optional bool   relay_to_other_fe
+  3: optional TMaterializedViewsMetadataParams materialized_views_params
 }
 
 struct TMetaScanRange {

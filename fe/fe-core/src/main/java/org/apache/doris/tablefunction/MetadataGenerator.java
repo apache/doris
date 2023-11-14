@@ -18,6 +18,8 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
@@ -26,6 +28,8 @@ import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryDetail;
@@ -92,6 +96,9 @@ public class MetadataGenerator {
                 break;
             case CATALOGS:
                 result = catalogsMetadataResult(params);
+                break;
+            case MATERIALIZED_VIEWS:
+                result = mtmvMetadataResult(params);
                 break;
             case QUERIES:
                 result = queriesMetadataResult(params, request);
@@ -475,6 +482,48 @@ public class MetadataGenerator {
             int year, int month, int day, int hour, int minute, int second, int microsecond) {
         return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
+    private static TFetchSchemaTableDataResult mtmvMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetMaterializedViewsMetadataParams()) {
+            return errorResult("MaterializedViews metadata params is not set.");
+        }
+
+        TMaterializedViewsMetadataParams mtmvMetadataParams = params.getMaterializedViewsMetadataParams();
+        String dbName = mtmvMetadataParams.getDatabase();
+        List<TRow> dataBatch = Lists.newArrayList();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<Table> tables;
+        try {
+            tables = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(InternalCatalog.INTERNAL_CATALOG_NAME)
+                    .getDbOrAnalysisException(dbName).getTables();
+        } catch (AnalysisException e) {
+            return errorResult(e.getMessage());
+        }
+
+        for (Table table : tables) {
+            if (table instanceof MTMV) {
+                // TODO: 2023/9/22  ConnectContext.get() is null
+                // check tbl privs
+                //
+                //      if (!Env.getCurrentEnv().getAccessManager()
+                //              .checkTblPriv(ConnectContext.get(), dbName, table.getName(), PrivPredicate.SHOW)) {
+                //          continue;
+                //      }
+                MTMV mv = (MTMV) table;
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getName()));
+                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getStatus())));
+                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getJobInfo())));
+                trow.addToColumnValue(new TCell().setStringVal(mv.toSql()));
+                dataBatch.add(trow);
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
     }
 }
 
