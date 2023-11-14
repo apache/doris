@@ -63,7 +63,7 @@ public class MasterCatalogExecutor {
         boolean isReturnToPool = false;
         try {
             TInitExternalCtlMetaResult result = client.initExternalCtlMeta(request);
-            ConnectContext.get().getEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
+            Env.getCurrentEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
             isReturnToPool = true;
         } catch (Exception e) {
             LOG.warn("Failed to finish forward init operation, please try again. ", e);
