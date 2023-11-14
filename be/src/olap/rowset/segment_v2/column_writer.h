@@ -230,28 +230,16 @@ private:
         // use vector for easier management for lifetime of OwnedSlice
         std::vector<OwnedSlice> data;
         PageFooterPB footer;
-        Page* next = nullptr;
     };
 
-    struct PageHead {
-        Page* head = nullptr;
-        Page* tail = nullptr;
-    };
-
-    void _push_back_page(Page* page) {
-        // add page to pages' tail
-        if (_pages.tail != nullptr) {
-            _pages.tail->next = page;
-        }
-        _pages.tail = page;
-        if (_pages.head == nullptr) {
-            _pages.head = page;
-        }
+    void _push_back_page(std::unique_ptr<Page> page) {
         for (auto& data_slice : page->data) {
             _data_size += data_slice.slice().size;
         }
         // estimate (page footer + footer size + checksum) took 20 bytes
         _data_size += 20;
+        // add page to pages' tail
+        _pages.emplace_back(std::move(page));
     }
 
     Status _write_data_page(Page* page);
@@ -262,7 +250,7 @@ private:
     uint64_t _data_size;
 
     // cached generated pages,
-    PageHead _pages;
+    std::vector<std::unique_ptr<Page>> _pages;
     ordinal_t _first_rowid = 0;
 
     BlockCompressionCodec* _compress_codec;

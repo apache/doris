@@ -446,12 +446,7 @@ ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
 
 ScalarColumnWriter::~ScalarColumnWriter() {
     // delete all pages
-    Page* page = _pages.head;
-    while (page != nullptr) {
-        Page* next_page = page->next;
-        delete page;
-        page = next_page;
-    }
+    _pages.clear();
 }
 
 Status ScalarColumnWriter::init() {
@@ -601,11 +596,10 @@ Status ScalarColumnWriter::finish() {
 }
 
 Status ScalarColumnWriter::write_data() {
-    Page* page = _pages.head;
-    while (page != nullptr) {
-        RETURN_IF_ERROR(_write_data_page(page));
-        page = page->next;
+    for (auto& page : _pages) {
+        RETURN_IF_ERROR(_write_data_page(page.get()));
     }
+    _pages.clear();
     // write column dict
     if (_encoding_info->encoding() == DICT_ENCODING) {
         OwnedSlice dict_body;
@@ -622,6 +616,7 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
+    _page_builder.reset();
     return Status::OK();
 }
 
@@ -731,7 +726,7 @@ Status ScalarColumnWriter::finish_current_page() {
         page->data.emplace_back(std::move(compressed_body));
     }
 
-    _push_back_page(page.release());
+    _push_back_page(std::move(page));
     _first_rowid = _next_rowid;
     return Status::OK();
 }
