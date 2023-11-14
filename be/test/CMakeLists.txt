@@ -67,9 +67,11 @@ set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-contro
 if (OS_MACOSX AND ARCH_ARM)
     find_program(DSYMUTIL NAMES dsymutil)
     message(STATUS "dsymutil found: ${DSYMUTIL}")
+    find_program(LLVM_STRIP NAMES llvm-strip)
+    message(STATUS "llvm-strip found: ${LLVM_STRIP}")
     add_custom_command(TARGET doris_be_test POST_BUILD
         COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
-        COMMAND ${CMAKE_STRIP} -S $<TARGET_FILE:doris_be_test>
+        COMMAND ${LLVM_STRIP} --strip-all $<TARGET_FILE:doris_be_test>
     )
 endif()
 
