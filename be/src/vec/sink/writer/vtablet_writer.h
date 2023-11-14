@@ -549,7 +549,7 @@ private:
     using ChannelDistributionPayload = std::unordered_map<VNodeChannel*, Payload>;
     using ChannelDistributionPayloadVec = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
 
-    void _init_row_distribution();
+    Status _init_row_distribution();
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);
 
@@ -563,8 +563,6 @@ private:
     Status _cancel_channel_and_check_intolerable_failure(Status status, const std::string& err_msg,
                                                          const std::shared_ptr<IndexChannel> ich,
                                                          const std::shared_ptr<VNodeChannel> nch);
-
-    std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
 
     void _cancel_all_channel(Status status);
 
