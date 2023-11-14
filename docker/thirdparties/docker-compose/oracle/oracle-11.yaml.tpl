@@ -39,7 +39,7 @@ services:
       - TZ=Asia/Shanghai
     networks:
       - doris--oracle_11
-  hello-world:
+  doris--oracle-hello-world:
     image: hello-world
     depends_on:
       doris--oracle_11:
