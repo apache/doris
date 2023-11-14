@@ -1214,5 +1214,28 @@ PARTITION `p599` VALUES IN (599)
 
     assert all_finished(show_result)
 
+    sql """
+        CREATE TABLE test_updated_rows (
+            `col1` varchar(16) NOT NULL,
+            `col2` int(11) NOT NULL,
+            `col3` int(11) NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`col1`)
+        DISTRIBUTED BY HASH(`col1`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false"
+        );
+    """
 
+    sql """ INSERT INTO test_updated_rows VALUES('1',1,1); """
+    def cnt = sql """ SHOW TABLE STATS test_updated_rows """
+    assertEquals(Integer.valueOf(cnt[1][0]), 1)
+    sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
+    sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
+    sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
+    assertEquals(Integer.valueOf(cnt[1][0]), 8)
 }
