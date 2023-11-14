@@ -189,8 +189,6 @@ import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -429,7 +427,7 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowJobStmt) {
             handleShowJob();
         } else if (stmt instanceof ShowJobTaskStmt) {
-            handleShowJobTask();
+            //handleShowJobTask();
         } else if (stmt instanceof ShowConvertLSCStmt) {
             handleShowConvertLSC();
         } else {
@@ -1418,7 +1416,7 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
     }
 
-    private void handleShowJobTask() {
+    /*private void handleShowJobTask() {
         ShowJobTaskStmt showJobTaskStmt = (ShowJobTaskStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         List<Job> jobs = Env.getCurrentEnv().getJobRegister()
@@ -1439,21 +1437,15 @@ public class ShowExecutor {
             rows.add(jobTask.getShowInfo(job.getJobName()));
         }
         resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
-    }
+    }*/
 
     private void handleShowJob() throws AnalysisException {
         ShowJobStmt showJobStmt = (ShowJobStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         // if job exists
-        List<Job> jobList;
-        PatternMatcher matcher = null;
-        if (showJobStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showJobStmt.getPattern(),
-                    CaseSensibility.JOB.getCaseSensibility());
-        }
-        jobList = Env.getCurrentEnv().getJobRegister()
-                .getJobs(showJobStmt.getDbFullName(), showJobStmt.getName(), showJobStmt.getJobCategory(),
-                        matcher);
+        List<org.apache.doris.job.base.AbstractJob> jobList;
+        jobList = Env.getCurrentEnv().getJobManager()
+                .queryJobs(showJobStmt.getDbFullName(), showJobStmt.getName());
 
         if (jobList.isEmpty()) {
             resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
@@ -1461,15 +1453,9 @@ public class ShowExecutor {
         }
 
         // check auth
-        for (Job job : jobList) {
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), job.getDbName(), PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                        ConnectContext.get().getQualifiedUser(), job.getDbName());
-            }
-        }
-        for (Job job : jobList) {
-            rows.add(job.getShowInfo());
+
+        for (org.apache.doris.job.base.AbstractJob job : jobList) {
+            rows.add(job.getCommonShowInfo());
         }
         resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
     }

@@ -39,7 +39,7 @@ public:
     Status finalize();
 
     Status append_blocks(const PBlockArray& blocks);
-    size_t disk_bytes() const { return _disk_bytes; };
+    size_t disk_bytes() const { return _disk_bytes.load(std::memory_order_relaxed); };
 
     std::string file_name() { return _file_name; };
     static const int64_t LENGTH_SIZE = 8;
@@ -52,7 +52,7 @@ private:
     io::FileWriterPtr _file_writer;
     int64_t _count;
     int64_t _batch;
-    size_t _disk_bytes;
+    std::atomic_size_t _disk_bytes;
     std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
     doris::Mutex _mutex;
 };

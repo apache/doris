@@ -203,6 +203,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
+    _runtime_state->set_num_local_sink(request.num_local_sink);
 
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
@@ -611,8 +612,14 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case doris::TPlanNodeType::JDBC_SCAN_NODE: {
-        op.reset(new JDBCScanOperatorX(pool, tnode, next_operator_id(), descs));
-        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (config::enable_java_support) {
+            op.reset(new JDBCScanOperatorX(pool, tnode, next_operator_id(), descs));
+            RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        } else {
+            return Status::InternalError(
+                    "Jdbc scan node is disabled, you can change be config enable_java_support "
+                    "to true and restart be.");
+        }
         break;
     }
     case doris::TPlanNodeType::FILE_SCAN_NODE: {
