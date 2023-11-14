@@ -71,7 +71,6 @@ public class HDFSFileReader extends AvroReader {
 
     @Override
     public void close() throws IOException {
-        fileSystem.close();
         if (Objects.nonNull(schemaReader)) {
             schemaReader.close();
         }

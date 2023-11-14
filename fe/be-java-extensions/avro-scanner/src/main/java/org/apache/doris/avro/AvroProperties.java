@@ -39,5 +39,4 @@ public class AvroProperties {
     protected static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
     protected static final String FS_S3A_REGION = "fs.s3a.region";
 
-
 }

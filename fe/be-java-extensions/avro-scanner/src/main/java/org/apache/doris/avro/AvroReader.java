@@ -95,7 +95,7 @@ public abstract class AvroReader {
         }
         Schema projectionSchema = new Parser().parse(copySchemaJson.toString());
         AvroJob.setInputSchema(job, projectionSchema);
-        LOG.debug("projection avro schema is:"+ projectionSchema.toString());
+        LOG.debug("projection avro schema is:" + projectionSchema.toString());
     }
 
 }
