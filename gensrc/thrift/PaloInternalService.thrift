@@ -255,6 +255,8 @@ struct TQueryOptions {
   89: optional bool enable_local_shuffle = false;
   // For emergency use, skip missing version when reading rowsets
   90: optional bool skip_missing_version = false;
+
+  91: optional bool runtime_filter_wait_infinitely = false;
 }
 
 
