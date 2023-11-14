@@ -501,7 +501,7 @@ public:
         header.set_opcode(PStreamHeader::CLOSE_LOAD);
         header.set_src_id(sender_id);
         /* TODO: fix test with tablets_to_commit 
-        PTabletID* tablets_to_commit = header.add_tablets_to_commit();
+        PTabletID* tablets_to_commit = header.add_tablets();
         tablets_to_commit->set_partition_id(NORMAL_PARTITION_ID);
         tablets_to_commit->set_index_id(NORMAL_INDEX_ID);
         tablets_to_commit->set_tablet_id(NORMAL_TABLET_ID);
