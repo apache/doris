@@ -88,7 +88,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -770,6 +769,7 @@ public class OlapTable extends Table {
         defaultDistributionInfo.markAutoBucket();
     }
 
+    @Override
     public Set<String> getDistributionColumnNames() {
         Set<String> distributionColumnNames = Sets.newHashSet();
         if (defaultDistributionInfo instanceof RandomDistributionInfo) {
@@ -2308,7 +2308,7 @@ public class OlapTable extends Table {
     public boolean isDistributionColumn(String columnName) {
         Set<String> distributeColumns = getDistributionColumnNames()
                 .stream().map(String::toLowerCase).collect(Collectors.toSet());
-        return distributeColumns.contains(columnName.toLowerCase(Locale.ROOT));
+        return distributeColumns.contains(columnName.toLowerCase());
     }
 
     @Override
