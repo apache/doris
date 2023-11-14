@@ -62,7 +62,7 @@ services:
       - SA_PASSWORD=Doris123456
     networks:
       - doris--sqlserver_2022
-  sqlserver-hello-world:
+  doris--sqlserver-hello-world:
     image: hello-world
     depends_on:
       doris--sqlserver_2022:
