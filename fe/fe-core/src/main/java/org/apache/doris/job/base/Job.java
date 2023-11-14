@@ -50,7 +50,7 @@ public interface Job<T extends AbstractTask> {
      * @throws JobException If the task is not in the running state, it may have already
      * finished and cannot be cancelled.
      */
-    void cancel(long taskId) throws JobException;
+    void cancelTaskById(long taskId) throws JobException;
 
     /**
      * Checks if the job is ready for scheduling.
@@ -95,7 +95,7 @@ public interface Job<T extends AbstractTask> {
      *
      * @throws JobException If cancelling a running task fails.
      */
-    void cancel() throws JobException;
+    void cancelAllTasks() throws JobException;
 
     /**
      * Notifies the job when a task execution fails.
@@ -117,4 +117,10 @@ public interface Job<T extends AbstractTask> {
      * @param task The cancelled task.
      */
     void onTaskCancel(T task);
+
+    /**
+     * get the job's show info, which is used to sql show the job information
+     * @return List<String> job common show info
+     */
+    List<String> getShowInfo();
 }

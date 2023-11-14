@@ -17,6 +17,8 @@
 
 package org.apache.doris.job.task;
 
+import java.util.List;
+
 /**
  * The Task interface represents a task that can be executed and managed by a scheduler.
  * All extension tasks must implement this interface.
@@ -63,4 +65,9 @@ public interface Task {
      */
     void cancel();
 
+    /**
+     * get the job's show info, which is used to sql show the task information
+     * @return List<String> task common show info
+     */
+    List<String> getShowInfo();
 }

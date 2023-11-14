@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.List;
+
 /**
  * todo implement this later
  */
@@ -74,4 +76,8 @@ public class InsertTask extends AbstractTask {
         super.cancel();
     }
 
+    @Override
+    public List<String> getShowInfo() {
+        return null;
+    }
 }

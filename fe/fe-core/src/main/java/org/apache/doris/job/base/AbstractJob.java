@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.base;
 
+import org.apache.commons.lang3.RandomUtils;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;
@@ -38,6 +39,7 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 @Data
 public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Writable {
@@ -72,7 +74,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     private List<T> runningTasks = new ArrayList<>();
 
     @Override
-    public void cancel() throws JobException {
+    public void cancelAllTasks() throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             return;
         }
@@ -81,7 +83,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     }
 
     @Override
-    public void cancel(long taskId) throws JobException {
+    public void cancelTaskById(long taskId) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             throw new JobException("no running task");
         }
@@ -92,7 +94,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     public void initTasks(List<T> tasks) {
         tasks.forEach(task -> {
             task.setJobId(jobId);
-            task.setTaskId(Env.getCurrentEnv().getNextId());
+            task.setTaskId(getNextId());
             task.setCreateTimeMs(System.currentTimeMillis());
             task.setStatus(TaskStatus.PENDING);
         });
@@ -201,5 +203,9 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         commonShowInfo.add(TimeUtils.longToTimeString(createTimeMs));
         commonShowInfo.add(comment);
         return commonShowInfo;
+    }
+    
+    private static long getNextId() {
+        return System.nanoTime()+ RandomUtils.nextInt();
     }
 }

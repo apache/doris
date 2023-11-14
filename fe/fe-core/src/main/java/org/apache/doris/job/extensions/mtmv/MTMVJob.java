@@ -17,87 +17,34 @@
 
 package org.apache.doris.job.extensions.mtmv;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
-import org.apache.doris.job.exception.JobException;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.gson.annotations.SerializedName;
-import lombok.Data;
-
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
-@Data
 public class MTMVJob extends AbstractJob<MTMVTask> {
-
-    @SerializedName(value = "dn")
-    private String dbName;
-    @SerializedName(value = "mi")
-    private long mtmvId;
-
-
     @Override
-    public List<MTMVTask> createTasks(TaskType taskType) {
-        MTMVTask task = new MTMVTask(dbName, mtmvId);
-        task.setJobId(getJobId());
-        task.setTaskType(taskType);
-        task.setTaskId(Env.getCurrentEnv().getNextId());
-        ArrayList<MTMVTask> tasks = new ArrayList<>();
-        tasks.add(task);
-        MTMV mtmv = getMTMV();
-        mtmv.getJobInfo().addPendingTask(task);
-        super.initTasks(tasks);
-        return tasks;
+    public void write(DataOutput out) throws IOException {
+        
     }
-
-    @Override
-    public void cancel(long taskId) throws JobException {
-        super.cancel();
-    }
-
-
-    @Override
-    public void cancel() throws JobException {
-        super.cancel();
-    }
-
-    @Override
-    public boolean isReadyForScheduling() {
-        MTMV mtmv = getMTMV();
-        return mtmv.getJobInfo().getPendingTasks().size() == 0;
-    }
-
 
     @Override
     protected void checkJobParamsInternal() {
 
     }
 
-    public static MTMVJob readFields(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), MTMVJob.class);
-    }
-
     @Override
-    public List<MTMVTask> queryTasks() {
+    public List<MTMVTask> createTasks(TaskType taskType) {
         return null;
     }
 
     @Override
-    public JobType getJobType() {
-        return JobType.INSERT;
+    public boolean isReadyForScheduling() {
+        return false;
     }
 
     @Override
@@ -111,34 +58,22 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     }
 
     @Override
-    public void onTaskFail(MTMVTask task) {
-        getRunningTasks().remove(task);
+    public JobType getJobType() {
+        return null;
     }
 
     @Override
-    public void onTaskSuccess(MTMVTask task) {
-        getRunningTasks().remove(task);
+    public List<MTMVTask> queryTasks() {
+        return null;
     }
 
     @Override
     public void onTaskCancel(MTMVTask task) {
-        getRunningTasks().remove(task);
-    }
 
-
-    private MTMV getMTMV() {
-        try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-            return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
-        } catch (MetaNotFoundException | DdlException e) {
-            e.printStackTrace();
-            return null;
-        }
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, JobType.INSERT.name());
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    public List<String> getShowInfo() {
+        return null;
     }
 }
