@@ -87,7 +87,8 @@ public class BackupJob extends AbstractJob {
         SAVE_META, // Save copied meta info to local file. When finished, transfer to UPLOAD_INFO
         UPLOAD_INFO, // Upload meta and job info file to repository. When finished, transfer to FINISHED
         FINISHED, // Job is finished.
-        CANCELLED // Job is cancelled.
+        CANCELLED, // Job is cancelled.
+        PARTIAL_FINISHED
     }
 
     // all objects which need backup
@@ -376,17 +377,29 @@ public class BackupJob extends AbstractJob {
                 switch (tbl.getType()) {
                     case OLAP:
                         OlapTable olapTable = (OlapTable) tbl;
-                        checkOlapTable(olapTable, tableRef);
-                        if (getContent() == BackupContent.ALL) {
-                            prepareSnapshotTaskForOlapTableWithoutLock(db, (OlapTable) tbl, tableRef, batchTask);
+                        if (!checkOlapTable(olapTable, tableRef).ok()) {
+                            return;
                         }
-                        prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables);
+                        if (getContent() == BackupContent.ALL) {
+                            if (!prepareSnapshotTaskForOlapTableWithoutLock(
+                                                    db, (OlapTable) tbl, tableRef, batchTask).ok()) {
+                                return;
+                            }
+                        }
+                        if (!prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables).ok()) {
+                            return;
+                        }
                         break;
                     case VIEW:
-                        prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables);
+                        if (!prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables).ok()) {
+                            return;
+                        }
                         break;
                     case ODBC:
-                        prepareBackupMetaForOdbcTableWithoutLock((OdbcTable) tbl, copiedTables, copiedResources);
+                        if (!prepareBackupMetaForOdbcTableWithoutLock(
+                                                    (OdbcTable) tbl, copiedTables, copiedResources).ok()) {
+                            return;
+                        }
                         break;
                     default:
                         status = new Status(ErrCode.COMMON_ERROR,
@@ -413,7 +426,7 @@ public class BackupJob extends AbstractJob {
         LOG.info("finished to send snapshot tasks to backend. {}", this);
     }
 
-    private void checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
+    private Status checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
         olapTable.readLock();
         try {
             // check backup table again
@@ -423,16 +436,17 @@ public class BackupJob extends AbstractJob {
                     if (partition == null) {
                         status = new Status(ErrCode.NOT_FOUND, "partition " + partName
                                 + " does not exist  in table" + backupTableRef.getName().getTbl());
-                        return;
+                        return status;
                     }
                 }
             }
         }  finally {
             olapTable.readUnlock();
         }
+        return Status.OK;
     }
 
-    private void prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
+    private Status prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
             TableRef backupTableRef, AgentBatchTask batchTask) {
         // Add barrier editolog for barrier commit seq
         long dbId = db.getId();
@@ -452,7 +466,7 @@ public class BackupJob extends AbstractJob {
                 if (partition == null) {
                     status = new Status(ErrCode.NOT_FOUND, "partition " + partName
                             + " does not exist  in table" + backupTableRef.getName().getTbl());
-                    return;
+                    return status;
                 }
             }
         }
@@ -481,7 +495,7 @@ public class BackupJob extends AbstractJob {
                         status = new Status(ErrCode.COMMON_ERROR,
                                 "failed to choose replica to make snapshot for tablet " + tablet.getId()
                                         + ". visible version: " + visibleVersion);
-                        return;
+                        return status;
                     }
                     SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
                             jobId, dbId, olapTable.getId(), partition.getId(),
@@ -496,6 +510,7 @@ public class BackupJob extends AbstractJob {
             LOG.info("snapshot for partition {}, version: {}",
                     partition.getId(), visibleVersion);
         }
+        return Status.OK;
     }
 
     private void checkResourceForOdbcTable(OdbcTable odbcTable) {
@@ -511,7 +526,7 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    private void prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
+    private Status prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
                                                           List<Table> copiedTables) {
         // only copy visible indexes
         List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
@@ -519,28 +534,30 @@ public class BackupJob extends AbstractJob {
         OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, IndexExtState.VISIBLE, true);
         if (copiedTbl == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
-            return;
+            return status;
         }
 
         removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
+        return Status.OK;
     }
 
-    private void prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
+    private Status prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
         View copiedView = view.clone();
         if (copiedView == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy view: " + view.getName());
-            return;
+            return status;
         }
         copiedTables.add(copiedView);
+        return Status.OK;
     }
 
-    private void prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
+    private Status prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
             List<Resource> copiedResources) {
         OdbcTable copiedOdbcTable = odbcTable.clone();
         if (copiedOdbcTable == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + odbcTable.getName());
-            return;
+            return status;
         }
         copiedTables.add(copiedOdbcTable);
         if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
@@ -550,10 +567,11 @@ public class BackupJob extends AbstractJob {
             if (copiedResource == null) {
                 status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
                         + resource.getName());
-                return;
+                return status;
             }
             copiedResources.add(copiedResource);
         }
+        return Status.OK;
     }
 
     private void removeUnsupportProperties(OlapTable tbl) {
@@ -1005,6 +1023,13 @@ public class BackupJob extends AbstractJob {
             String key = Text.readString(in);
             String value = Text.readString(in);
             properties.put(key, value);
+        }
+        if (Env.getCurrentEnvJournalVersion() >= org.apache.doris.common.FeMetaVersion.VERSION_127) {
+            size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                Text.readString(in);
+                Text.readString(in);
+            }
         }
     }
 
