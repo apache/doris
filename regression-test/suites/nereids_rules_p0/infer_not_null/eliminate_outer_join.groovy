@@ -58,12 +58,28 @@ suite("eliminate_outer_join") {
         explain shape plan select * from t t1 left outer join t t2 on t1.id = t2.id where t1.score > 10 and t2.score > 10;
     """
 
-    qt_multiple_left_outer """
+    qt_multiple_left_outer_1 """
         explain shape plan select * from t t1 left outer join t t2 on t1.id = t2.id left join t t3 on t1.id = t3.id  where t1.score > 10;
     """
 
-    qt_multiple_left_outer """
+    qt_multiple_left_outer_2 """
         explain shape plan select * from t t1 left outer join t t2 on t1.id = t2.id left join t t3 on t1.id = t3.id  where t2.score > 10;
+    """
+
+    qt_multiple_right_outer_1 """
+        explain shape plan select * from t t1 right outer join t t2 on t1.id = t2.id right join t t3 on t1.id = t3.id  where t1.score > 10;
+    """
+
+    qt_multiple_right_outer_2 """
+        explain shape plan select * from t t1 right outer join t t2 on t1.id = t2.id right join t t3 on t1.id = t3.id  where t2.score > 10;
+    """
+
+    qt_multiple_full_outer_1 """
+        explain shape plan select * from t t1 full outer join t t2 on t1.id = t2.id full join t t3 on t1.id = t3.id  where t1.score > 10;
+    """
+
+    qt_multiple_full_outer_2 """
+        explain shape plan select * from t t1 full outer join t t2 on t1.id = t2.id full join t t3 on t1.id = t3.id  where t2.score > 10;
     """
 
     qt_left_outer_join_non_null_assertion """
@@ -96,6 +112,14 @@ suite("eliminate_outer_join") {
 
     qt_left_outer """
         explain shape plan select * from t t1 left outer join t t2 on t1.id = t2.id where t1.score > 10 and t2.name is not null;
+    """
+
+    qt_right_outer """
+        explain shape plan select * from t t1 right outer join t t2 on t1.id = t2.id where t1.score > 10 and t2.name is not null;
+    """
+
+    qt_full_outer """
+        explain shape plan select * from t t1 full outer join t t2 on t1.id = t2.id where t1.score > 10 and t2.name is not null;
     """
 
     qt_self_left_outer """

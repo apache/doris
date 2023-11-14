@@ -60,9 +60,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t.score = t.score))otherCondition=()
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t.score = t.score)) otherCondition=() build RFs:RF0 score->[score]
 --------filter(( not score IS NULL) and (t.score > 0))
-----------PhysicalOlapScan[t]
+----------PhysicalOlapScan[t] apply RFs: RF0
 --------PhysicalDistribute
 ----------PhysicalProject
 ------------filter((t.score > 0))
