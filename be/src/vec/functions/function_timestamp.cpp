@@ -605,7 +605,8 @@ struct UnixTimeStampDateImpl {
         const ColumnPtr& col_source = block.get_by_position(arguments[0]).column;
         DCHECK(!col_source->is_nullable());
 
-        if constexpr (std::is_same_v<DateType, DataTypeDate>) {
+        if constexpr (std::is_same_v<DateType, DataTypeDate> ||
+                      std::is_same_v<DateType, DataTypeDateTime>) {
             auto col_result = ColumnVector<Int32>::create();
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
@@ -1371,6 +1372,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateV2>>>();
+    factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateTime>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateTimeV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampStrImpl>>();
     factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, DataTypeDateTime>>();

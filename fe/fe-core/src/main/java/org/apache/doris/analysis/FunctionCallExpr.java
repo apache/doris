@@ -1693,10 +1693,14 @@ public class FunctionCallExpr extends Expr {
                                     type.getScalarScale()));
                 } else if (getChild(0).type.isStringType()) {
                     // use DATETIME to make scale adaptive
-                    int scale = ((ScalarType) (((StringLiteral) getChild(0))
-                            .uncheckedCastTo(ScalarType.DATETIME).type)).getScalarScale();
-                    fn.setReturnType(
-                            ScalarType.createDecimalType(PrimitiveType.DECIMAL64, 10 + scale, scale));
+                    ScalarType type = ((ScalarType) (((StringLiteral) getChild(0))
+                            .uncheckedCastTo(ScalarType.DATETIME).type));
+                    if (type.isDatetimeV2()) {
+                        int scale = ((ScalarType) (((StringLiteral) getChild(0))
+                                .uncheckedCastTo(ScalarType.DATETIME).type)).getScalarScale();
+                        fn.setReturnType(
+                                ScalarType.createDecimalType(PrimitiveType.DECIMAL64, 10 + scale, scale));
+                    }
                 }
             }
         }
