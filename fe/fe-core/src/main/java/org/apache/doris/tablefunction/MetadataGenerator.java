@@ -505,13 +505,6 @@ public class MetadataGenerator {
 
         for (Table table : tables) {
             if (table instanceof MTMV) {
-                // TODO: 2023/9/22  ConnectContext.get() is null
-                // check tbl privs
-                //
-                //      if (!Env.getCurrentEnv().getAccessManager()
-                //              .checkTblPriv(ConnectContext.get(), dbName, table.getName(), PrivPredicate.SHOW)) {
-                //          continue;
-                //      }
                 MTMV mv = (MTMV) table;
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
