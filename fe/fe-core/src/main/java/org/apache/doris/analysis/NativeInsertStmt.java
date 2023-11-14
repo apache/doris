@@ -241,6 +241,10 @@ public class NativeInsertStmt extends InsertStmt {
         return tblName.getTbl();
     }
 
+    public List<String> getTargetColumnNames() {
+        return targetColumnNames;
+    }
+
     public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
             throws AnalysisException {
         if (tableId != -1) {
