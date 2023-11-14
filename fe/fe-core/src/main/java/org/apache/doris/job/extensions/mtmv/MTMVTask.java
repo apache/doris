@@ -15,50 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.extensions.insert;
+package org.apache.doris.job.extensions.mtmv;
 
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.loadv2.LoadJob;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
-
-import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 
-/**
- * todo implement this later
- */
-@Slf4j
-public class InsertTask extends AbstractTask {
-
-    private String labelName;
-
-    private InsertIntoTableCommand command;
-    private LoadJob.LoadStatistic statistic;
-    private FailMsg failMsg;
-
-    private InsertIntoState insertIntoState;
-
-    @Override
-    public void before() {
-        super.before();
-    }
-
-    public InsertTask(String labelName, InsertIntoTableCommand command, LoadJob.LoadStatistic statistic,
-                      FailMsg failMsg, InsertIntoState insertIntoState) {
-        this.labelName = labelName;
-        this.command = command;
-        this.statistic = statistic;
-        this.failMsg = failMsg;
-        this.insertIntoState = insertIntoState;
-    }
-
+public class MTMVTask extends AbstractTask {
     @Override
     public void run() {
-        //just for test
-        log.info(getJobId() + "InsertTask run" + TimeUtils.longToTimeString(System.currentTimeMillis()));
+        
+    }
+
+    @Override
+    public void onFail(String msg) {
+        super.onFail(msg);
     }
 
     @Override
@@ -74,6 +45,16 @@ public class InsertTask extends AbstractTask {
     @Override
     public void cancel() {
         super.cancel();
+    }
+
+    @Override
+    public void before() {
+        super.before();
+    }
+
+    @Override
+    public void runTask() {
+        super.runTask();
     }
 
     @Override
