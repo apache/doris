@@ -28,6 +28,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
@@ -375,7 +376,6 @@ import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.scheduler.common.IntervalUnit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;

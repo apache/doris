@@ -15,21 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.job;
+package org.apache.doris.job.common;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
+public enum JobStatus {
 
-@Data
-@AllArgsConstructor
-public class ExecutorResult<T> {
 
-    private T result;
+    /**
+     * When the task is not started, the initial state will be triggered.
+     * The initial state can be started
+     */
+    RUNNING,
+    /**
+     * When the task execution encounters an exception or manually suspends the task,
+     * the pause state will be triggered.
+     * Pause state can be resumed
+     */
+    PAUSED,
+    /**
+     * When the task is manually stopped, the stop state will be triggered.
+     * The stop state cannot be resumed
+     */
+    STOPPED,
 
-    private boolean success;
-
-    private String errorMsg;
-
-    private String executorSql;
-
+    /**
+     * When the task is finished, the finished state will be triggered.
+     */
+    FINISHED
 }
+
