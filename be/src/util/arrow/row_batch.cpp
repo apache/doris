@@ -43,6 +43,7 @@
 #include "runtime/row_batch.h"
 #include "util/arrow/utils.h"
 #include "util/types.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -76,8 +77,11 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_HLL:
     case TYPE_LARGEINT:
     case TYPE_DATE:
+    case TYPE_DATEV2:
     case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
     case TYPE_STRING:
+    case TYPE_OBJECT:
         *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
@@ -218,6 +222,7 @@ public:
             case TYPE_VARCHAR:
             case TYPE_CHAR:
             case TYPE_HLL:
+            case TYPE_OBJECT:
             case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(cell_ptr);
                 if (string_val->len == 0) {
@@ -227,6 +232,22 @@ public:
                 } else {
                     ARROW_RETURN_NOT_OK(builder.Append(string_val->ptr, string_val->len));
                 }
+                break;
+            }
+            case TYPE_DATEV2: {
+                const vectorized::DateV2Value<vectorized::DateV2ValueType>* date_val =
+                        (const vectorized::DateV2Value<vectorized::DateV2ValueType>*)(cell_ptr);
+                char buf[64];
+                int len = date_val->to_buffer(buf);
+                ARROW_RETURN_NOT_OK(builder.Append(buf, len));
+                break;
+            }
+            case TYPE_DATETIMEV2: {
+                const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* datetime_val =
+                        (const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*)(cell_ptr);
+                char buf[64];
+                int len = datetime_val->to_buffer(buf);
+                ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case TYPE_DATE:
