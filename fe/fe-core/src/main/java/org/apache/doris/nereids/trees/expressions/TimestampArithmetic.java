@@ -86,11 +86,7 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
 
     @Override
     public DataType getDataType() throws UnboundException {
-        int dateChildIndex = 0;
-        if (intervalFirst) {
-            dateChildIndex = 1;
-        }
-        DataType childType = child(dateChildIndex).getDataType();
+        DataType childType = child(0).getDataType();
         if (childType instanceof DateTimeV2Type) {
             return childType;
         }
