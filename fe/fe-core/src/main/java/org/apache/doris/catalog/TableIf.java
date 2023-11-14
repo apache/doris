@@ -252,5 +252,12 @@ public interface TableIf {
         return 0;
     }
 
+    default boolean isDistributionColumn(String columnName) {
+        return false;
+    }
+
+    default boolean isPartitionColumn(String columnName) {
+        return false;
+    }
 }
 
