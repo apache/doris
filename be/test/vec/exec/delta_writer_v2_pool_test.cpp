@@ -42,9 +42,9 @@ TEST_F(DeltaWriterV2PoolTest, test_pool) {
     EXPECT_EQ(2, pool.size());
     EXPECT_EQ(map, map3);
     EXPECT_NE(map, map2);
-    map.reset();
-    map2.reset();
-    map3.reset();
+    EXPECT_TRUE(map->close().ok());
+    EXPECT_TRUE(map2->close().ok());
+    EXPECT_TRUE(map3->close().ok());
     EXPECT_EQ(0, pool.size());
 }
 
@@ -62,7 +62,7 @@ TEST_F(DeltaWriterV2PoolTest, test_map) {
     EXPECT_EQ(2, map->size());
     EXPECT_EQ(writer, writer3);
     EXPECT_NE(writer, writer2);
-    map.reset();
+    static_cast<void>(map->close());
     EXPECT_EQ(0, pool.size());
 }
 

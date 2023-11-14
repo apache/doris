@@ -319,6 +319,10 @@ public:
 
     int total_load_streams() const { return _total_load_streams; }
 
+    void set_num_local_sink(int num_local_sink) { _num_local_sink = num_local_sink; }
+
+    int num_local_sink() const { return _num_local_sink; }
+
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
@@ -553,6 +557,7 @@ private:
     int _num_per_fragment_instances = 0;
     int _load_stream_per_node = 0;
     int _total_load_streams = 0;
+    int _num_local_sink = 0;
 
     // The backend id on which this fragment instance runs
     int64_t _backend_id = -1;

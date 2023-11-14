@@ -134,7 +134,7 @@ private:
 
 public:
     // construct new stub
-    LoadStreamStub(PUniqueId load_id, int64_t src_id);
+    LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use);
 
     // copy constructor, shared_ptr members are shared
     LoadStreamStub(LoadStreamStub& stub);
@@ -177,7 +177,7 @@ public:
     }
 
     std::shared_ptr<TabletSchema> tablet_schema(int64_t index_id) const {
-        return _tablet_schema_for_index->at(index_id);
+        return (*_tablet_schema_for_index)[index_id];
     }
 
     bool enable_unique_mow(int64_t index_id) const {
@@ -203,7 +203,10 @@ protected:
     std::atomic<bool> _is_init;
     bthread::Mutex _mutex;
 
-    std::atomic<int> _num_open;
+    std::atomic<int> _use_cnt;
+
+    std::mutex _tablets_to_commit_mutex;
+    std::vector<PTabletID> _tablets_to_commit;
 
     std::mutex _buffer_mutex;
     std::mutex _send_mutex;
