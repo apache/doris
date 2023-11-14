@@ -1063,7 +1063,7 @@ static Status on_partitions_created(void* writer, TCreatePartitionResult* result
     return static_cast<VTabletWriter*>(writer)->on_partitions_created(result);
 }
 
-void VTabletWriter::_init_row_distribution() {
+Status VTabletWriter::_init_row_distribution() {
     VRowDistributionContext ctx;
 
     ctx.state = _state;
@@ -1080,6 +1080,9 @@ void VTabletWriter::_init_row_distribution() {
     ctx.schema = _schema;
 
     _row_distribution.init(&ctx);
+
+    RETURN_IF_ERROR(_row_distribution.open(_output_row_desc));
+    return Status::OK();
 }
 
 Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
@@ -1218,19 +1221,13 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
     }
 
-    // prepare for auto partition functions
-    if (_vpartition->is_auto_partition()) {
-        auto [part_ctx, part_func] = _get_partition_function();
-        RETURN_IF_ERROR(part_ctx->prepare(_state, *_output_row_desc));
-        RETURN_IF_ERROR(part_ctx->open(_state));
-    }
     if (_group_commit) {
         RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_path(_db_id, _tb_id, _wal_id,
                                                                     _state->import_label()));
         RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->create_wal_writer(_wal_id, _wal_writer));
     }
 
-    _init_row_distribution();
+    RETURN_IF_ERROR(_init_row_distribution());
 
     _inited = true;
     return Status::OK();
@@ -1285,11 +1282,6 @@ Status VTabletWriter::_incremental_open_node_channel(
     }
 
     return Status::OK();
-}
-
-std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr>
-VTabletWriter::_get_partition_function() {
-    return {_vpartition->get_part_func_ctx(), _vpartition->get_partition_function()};
 }
 
 Status VTabletWriter::_cancel_channel_and_check_intolerable_failure(

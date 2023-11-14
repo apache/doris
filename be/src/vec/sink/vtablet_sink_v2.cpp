@@ -91,7 +91,7 @@ static Status on_partitions_created(void* writer, TCreatePartitionResult* result
     return static_cast<VOlapTableSinkV2*>(writer)->on_partitions_created(result);
 }
 
-void VOlapTableSinkV2::_init_row_distribution() {
+Status VOlapTableSinkV2::_init_row_distribution() {
     VRowDistributionContext ctx;
 
     ctx.state = _state;
@@ -108,6 +108,10 @@ void VOlapTableSinkV2::_init_row_distribution() {
     ctx.schema = _schema;
 
     _row_distribution.init(&ctx);
+
+    RETURN_IF_ERROR(_row_distribution.open(_output_row_desc));
+
+    return Status::OK();
 }
 
 Status VOlapTableSinkV2::init(const TDataSink& t_sink) {
@@ -174,6 +178,8 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
     _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
                                         _state->batch_size());
+    _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
+
     // add all counter
     _input_rows_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _output_rows_counter = ADD_COUNTER(_profile, "RowsReturned", TUnit::UNIT);
@@ -209,7 +215,7 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
 
     _build_tablet_node_mapping();
     RETURN_IF_ERROR(_open_streams(state->backend_id()));
-    _init_row_distribution();
+    RETURN_IF_ERROR(_init_row_distribution());
 
     return Status::OK();
 }
