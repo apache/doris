@@ -160,6 +160,7 @@ include (cmake/thirdparty.cmake)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 set(BUILD_JAVA OFF)
 set(BUILD_CPP_TESTS OFF)
 set(STOP_BUILD_ON_WARNING OFF)
