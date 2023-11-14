@@ -81,8 +81,8 @@ public class StatisticsUtilTest {
             @Mock
             protected SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
                 SessionVariable sessionVariable = new SessionVariable();
-                sessionVariable.fullAutoAnalyzeStartTime = "00:00:00";
-                sessionVariable.fullAutoAnalyzeEndTime = "02:00:00";
+                sessionVariable.autoAnalyzeStartTime = "00:00:00";
+                sessionVariable.autoAnalyzeEndTime = "02:00:00";
                 return sessionVariable;
             }
         };
@@ -100,8 +100,8 @@ public class StatisticsUtilTest {
             @Mock
             protected SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
                 SessionVariable sessionVariable = new SessionVariable();
-                sessionVariable.fullAutoAnalyzeStartTime = "00:00:00";
-                sessionVariable.fullAutoAnalyzeEndTime = "23:00:00";
+                sessionVariable.autoAnalyzeStartTime = "00:00:00";
+                sessionVariable.autoAnalyzeEndTime = "23:00:00";
                 return sessionVariable;
             }
         };
