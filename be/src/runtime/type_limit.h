@@ -25,8 +25,8 @@ namespace doris {
 
 template <typename T>
 struct type_limit {
-    static T min() { return std::numeric_limits<T>::lowest(); }
-    static T max() { return std::numeric_limits<T>::max(); }
+    static constexpr T min() { return std::numeric_limits<T>::lowest(); }
+    static constexpr T max() { return std::numeric_limits<T>::max(); }
 };
 
 template <>
@@ -107,5 +107,32 @@ struct type_limit<DateV2Value<DateTimeV2ValueType>> {
         return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(max);
     }
 };
+
+template <typename T>
+constexpr vectorized::UInt32 get_number_max_digits() {
+    if constexpr (std::is_same_v<T, vectorized::UInt8> || std::is_same_v<T, vectorized::Int8>) {
+        return 3;
+    }
+    if constexpr (std::is_same_v<T, vectorized::UInt16> || std::is_same_v<T, vectorized::Int16>) {
+        return 5;
+    }
+    if constexpr (std::is_same_v<T, vectorized::UInt32> || std::is_same_v<T, vectorized::Int32>) {
+        return 10;
+    }
+    if constexpr (std::is_same_v<T, vectorized::UInt64>) {
+        return 20;
+    }
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        return 19;
+    }
+    if constexpr (std::is_same_v<T, vectorized::Int128>) {
+        return 39;
+    }
+    if constexpr (std::is_same_v<T, wide::Int256>) {
+        return 77;
+    }
+    LOG(FATAL) << "Not implemented";
+    return 0;
+}
 
 } // namespace doris

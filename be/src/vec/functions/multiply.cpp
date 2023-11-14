@@ -48,6 +48,7 @@ struct MultiplyImpl {
         return a * b;
     }
 
+    template <bool check_overflow>
     static void vector_vector(const ColumnDecimal128::Container::value_type* __restrict a,
                               const ColumnDecimal128::Container::value_type* __restrict b,
                               ColumnDecimal128::Container::value_type* c, size_t size) {
@@ -65,13 +66,17 @@ struct MultiplyImpl {
 
         for (int i = 0; i < size; i++) {
             int128_t i128_mul_result;
-            if (common::mul_overflow(DecimalV2Value(a[i]).value(), DecimalV2Value(b[i]).value(),
-                                     i128_mul_result)) {
-                VLOG_DEBUG << "Decimal multiply overflow";
-                c[i] = (sgn[i] == -1) ? -DecimalV2Value::MAX_DECIMAL_VALUE
-                                      : DecimalV2Value::MAX_DECIMAL_VALUE;
+            if constexpr (check_overflow) {
+                if (common::mul_overflow(DecimalV2Value(a[i]).value(), DecimalV2Value(b[i]).value(),
+                                         i128_mul_result)) {
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                } else {
+                    c[i] = (i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION + sgn[i];
+                }
             } else {
-                c[i] = (i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION + sgn[i];
+                c[i] = (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
+                               DecimalV2Value::ONE_BILLION +
+                       sgn[i];
             }
         }
     }
