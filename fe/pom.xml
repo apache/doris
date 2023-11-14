@@ -374,7 +374,7 @@ under the License.
                 <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <repository>
                     <id>cloudera</id>
-                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
+                    <url>https://repository.cloudera.com/repository/libs-release-local/</url>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -386,7 +386,7 @@ under the License.
                 <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <pluginRepository>
                     <id>cloudera</id>
-                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
+                    <url>https://repository.cloudera.com/repository/libs-release-local/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
