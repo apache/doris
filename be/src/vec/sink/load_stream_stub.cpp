@@ -17,6 +17,8 @@
 
 #include "vec/sink/load_stream_stub.h"
 
+#include <sstream>
+
 #include "olap/rowset/rowset_writer.h"
 #include "util/brpc_client_cache.h"
 #include "util/network_util.h"
@@ -72,6 +74,12 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
                 LOG(WARNING) << "load stream TRuntimeProfileTree deserialize failed, errmsg="
                              << status;
             }
+        }
+
+        if (response.tablet_schemas_size() > 0) {
+            std::vector<PTabletSchemaWithIndex> schemas(response.tablet_schemas().begin(),
+                                                        response.tablet_schemas().end());
+            _stub->add_schema(schemas);
         }
     }
     return 0;
@@ -206,10 +214,63 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     {
         std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
         for (const auto& tablet : _tablets_to_commit) {
-            *header.add_tablets_to_commit() = tablet;
+            *header.add_tablets() = tablet;
         }
     }
     return _encode_and_send(header);
+}
+
+// GET_SCHEMA
+Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
+    PStreamHeader header;
+    *header.mutable_load_id() = _load_id;
+    header.set_src_id(_src_id);
+    header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
+    std::ostringstream oss;
+    oss << "fetching tablet schema from stream " << _stream_id << ", load id: " << _load_id
+        << ", tablet id:";
+    for (const auto& tablet : tablets) {
+        *header.add_tablets() = tablet;
+        oss << " " << tablet.tablet_id();
+    }
+    LOG(INFO) << oss.str();
+    return _encode_and_send(header);
+}
+
+void LoadStreamStub::add_schema(const std::vector<PTabletSchemaWithIndex>& schemas) {
+    std::lock_guard<bthread::Mutex> lock(_mutex);
+    for (const auto& schema : schemas) {
+        auto tablet_schema = std::make_unique<TabletSchema>();
+        tablet_schema->init_from_pb(schema.tablet_schema());
+        _tablet_schema_for_index->emplace(schema.index_id(), std::move(tablet_schema));
+        _enable_unique_mow_for_index->emplace(schema.index_id(),
+                                              schema.enable_unique_key_merge_on_write());
+    }
+    _schema_cv.notify_all();
+}
+
+Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, int64_t tablet_id,
+                                       int64_t timeout_ms) {
+    if (_tablet_schema_for_index->contains(index_id)) {
+        return Status::OK();
+    }
+    PTabletID tablet;
+    tablet.set_partition_id(partition_id);
+    tablet.set_index_id(index_id);
+    tablet.set_tablet_id(tablet_id);
+    RETURN_IF_ERROR(get_schema({tablet}));
+
+    MonotonicStopWatch watch;
+    watch.start();
+    while (!_tablet_schema_for_index->contains(index_id) &&
+           watch.elapsed_time() / 1000 / 1000 < timeout_ms) {
+        static_cast<void>(wait_for_new_schema(100));
+    }
+
+    if (!_tablet_schema_for_index->contains(index_id)) {
+        return Status::TimedOut("timeout to get tablet schema for index {}", index_id);
+    }
+    return Status::OK();
 }
 
 Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const Slice> data) {
@@ -224,21 +285,22 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
         buf.append(slice.get_data(), slice.get_size());
     }
     bool eos = header.opcode() == doris::PStreamHeader::CLOSE_LOAD;
-    return _send_with_buffer(buf, eos);
+    bool get_schema = header.opcode() == doris::PStreamHeader::GET_SCHEMA;
+    return _send_with_buffer(buf, eos || get_schema);
 }
 
-Status LoadStreamStub::_send_with_buffer(butil::IOBuf& buf, bool eos) {
+Status LoadStreamStub::_send_with_buffer(butil::IOBuf& buf, bool sync) {
     butil::IOBuf output;
     std::unique_lock<decltype(_buffer_mutex)> buffer_lock(_buffer_mutex);
     _buffer.append(buf);
-    if (!eos && _buffer.size() < config::brpc_streaming_client_batch_bytes) {
+    if (!sync && _buffer.size() < config::brpc_streaming_client_batch_bytes) {
         return Status::OK();
     }
     output.swap(_buffer);
     // acquire send lock while holding buffer lock, to ensure the message order
     std::lock_guard<decltype(_send_mutex)> send_lock(_send_mutex);
     buffer_lock.unlock();
-    VLOG_DEBUG << "send buf size : " << output.size() << ", eos: " << eos;
+    VLOG_DEBUG << "send buf size : " << output.size() << ", sync: " << sync;
     return _send_with_retry(output);
 }
 

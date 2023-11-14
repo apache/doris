@@ -127,6 +127,10 @@ private:
 
     Status _open_streams(int64_t src_id);
 
+    Status _open_streams_to_backend(int64_t dst_id, ::doris::stream_load::LoadStreams& streams);
+
+    Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
+
     void _build_tablet_node_mapping();
 
     void _generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
@@ -135,7 +139,8 @@ private:
     Status _write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
                            const Rows& rows, const Streams& streams);
 
-    Status _select_streams(int64_t tablet_id, Streams& streams);
+    Status _select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
+                           Streams& streams);
 
     Status _close_load(const Streams& streams);
 
@@ -160,6 +165,7 @@ private:
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;
+    int64_t _backend_id = -1;
     int _stream_per_node = -1;
     int _total_streams = -1;
     int _num_local_sink = -1;
@@ -206,7 +212,7 @@ private:
 
     std::unordered_set<int64_t> _opened_partitions;
 
-    std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_for_node;
+    std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
     std::unordered_map<int64_t, std::shared_ptr<::doris::stream_load::LoadStreams>>
