@@ -129,8 +129,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             }
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql;
-            // Distribution columns don't fit for DUJ1 estimator, use linear estimator.
-            if (tbl.isDistributionColumn(col.getName())) {
+            // Single distribution column is not fit for DUJ1 estimator, use linear estimator.
+            Set<String> distributionColumns = tbl.getDistributionColumnNames();
+            if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
                 params.put("min", StatisticsUtil.quote(min));
                 params.put("max", StatisticsUtil.quote(max));
                 sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);

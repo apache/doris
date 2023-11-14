@@ -257,6 +257,76 @@ public class OlapAnalysisTaskTest {
     }
 
     @Test
+    public void testManualSampleTwoDistributeKey(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked OlapTable tableIf)
+            throws Exception {
+
+        new Expectations() {
+            {
+                tableIf.getRowCount();
+                result = 500;
+                tableIf.getId();
+                result = 30001;
+                catalogIf.getId();
+                result = 10001;
+                catalogIf.getName();
+                result = "catalogName";
+                databaseIf.getId();
+                result = 20001;
+            }
+        };
+
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            public Pair<List<Long>, Long> calcActualSampleTablets() {
+                return Pair.of(Lists.newArrayList(), 100L);
+            }
+
+            @Mock
+            public ResultRow collectBasicStat(AutoCloseConnectContext context) {
+                List<String> values = Lists.newArrayList();
+                values.add("1");
+                values.add("2");
+                return new ResultRow(values);
+            }
+
+            @Mock
+            public void runQuery(String sql, boolean needEncode) {
+                Assertions.assertFalse(needEncode);
+                Assertions.assertEquals("SELECT CONCAT('30001', '-', '-1', '-', 'null') AS `id`, 10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, 'null' AS `col_id`, NULL AS `part_id`, 500 AS `row_count`, SUM(t1.count) * COUNT(1) / (SUM(t1.count) - SUM(IF(t1.count = 1, 1, 0)) + SUM(IF(t1.count = 1, 1, 0)) * SUM(t1.count) / 500) as `ndv`, IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.count, 0)), 0) * 5.0 as `null_count`, 'MQ==' AS `min`, 'Mg==' AS `max`, SUM(LENGTH(`column_key`) * count) * 5.0 AS `data_size`, NOW() FROM (     SELECT t0.`${colName}` as column_key, COUNT(1) as `count`     FROM     (SELECT `${colName}` FROM `catalogName`.`${dbName}`.`${tblName}`      limit 100) as `t0`     GROUP BY `t0`.`${colName}` ) as `t1` ", sql);
+                return;
+            }
+        };
+
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public AutoCloseConnectContext buildConnectContext(boolean scanLimit) {
+                return null;
+            }
+        };
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public Set<String> getDistributionColumnNames() {
+                HashSet<String> cols = Sets.newHashSet();
+                cols.add("test1");
+                cols.add("test2");
+                return cols;
+            }
+        };
+
+        OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
+        olapAnalysisTask.col = new Column("test1", PrimitiveType.STRING);
+        olapAnalysisTask.tbl = tableIf;
+        AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
+        analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
+        olapAnalysisTask.info = analysisInfoBuilder.build();
+        olapAnalysisTask.catalog = catalogIf;
+        olapAnalysisTask.db = databaseIf;
+        olapAnalysisTask.tableSample = new TableSample(false, 100L);
+        olapAnalysisTask.doSample();
+    }
+
+    @Test
     public void testNeedLimitFalse(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked OlapTable tableIf)
             throws Exception {
 
