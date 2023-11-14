@@ -1273,6 +1273,7 @@ suite("test_stream_load", "p0") {
         table "${tableName8}"
 
         set 'send_batch_parallelism', 'a'
+        set 'column_separator', '|'
         file 'array_malformat.csv'
 
         check { result, exception, startTime, endTime ->
@@ -1289,6 +1290,7 @@ suite("test_stream_load", "p0") {
         table "${tableName8}"
 
         set 'send_batch_parallelism', '21474836471'
+        set 'column_separator', '|'
         file 'array_malformat.csv'
 
         check { result, exception, startTime, endTime ->
@@ -1297,7 +1299,7 @@ suite("test_stream_load", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi", json.Message)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism out of range, stoi", json.Message)
         }
     }
 
@@ -1305,6 +1307,7 @@ suite("test_stream_load", "p0") {
         table "${tableName8}"
 
         set 'send_batch_parallelism', '-1'
+        set 'column_separator', '|'
         file 'array_malformat.csv'
 
         check { result, exception, startTime, endTime ->
