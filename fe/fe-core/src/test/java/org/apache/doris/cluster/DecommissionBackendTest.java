@@ -56,6 +56,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         Config.allow_replica_on_same_host = true;
+        Config.disable_balance = true;
     }
 
     @Test
@@ -104,11 +105,8 @@ public class DecommissionBackendTest extends TestWithFeService {
                 Env.getCurrentInvertedIndex().getTabletMetaMap().size());
 
         // 6. add backend
-        String addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
-        AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
+        addNewBackend();
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
-
     }
 
     @Test
@@ -132,9 +130,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
 
         // add backend
-        String addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
-        AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
+        addNewBackend();
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
 
     }
@@ -205,9 +201,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> recoverTable("db2.tbl1"));
         Assertions.assertDoesNotThrow(() -> showCreateTable(sql));
 
-        String addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
-        AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
+        addNewBackend();
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
     }
 
