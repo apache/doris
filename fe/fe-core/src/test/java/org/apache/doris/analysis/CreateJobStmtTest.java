@@ -31,8 +31,8 @@ public class CreateJobStmtTest {
     public void createOnceTimeJobStmt() throws Exception {
         String sql = "CREATE JOB job1 ON SCHEDULER AT \"2023-02-15\" DO SELECT * FROM `address` ;";
         CreateJobStmt jobStmt = sqlParse(sql);
-        System.out.println(jobStmt.getStmt().toSql());
-        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getStmt().toSql());
+        System.out.println(jobStmt.getDoStmt().toSql());
+        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getDoStmt().toSql());
 
         String badExecuteSql = "CREATE JOB job1 ON SCHEDULER AT \"2023-02-15\" DO selects * from address ;";
         Assertions.assertThrows(AnalysisException.class, () -> {
@@ -56,16 +56,16 @@ public class CreateJobStmtTest {
     public void createCycleJob() throws Exception {
         String sql = "CREATE JOB job1 ON SCHEDULER EVERY  1 SECOND STARTS \"2023-02-15\" DO SELECT * FROM `address` ;";
         CreateJobStmt jobStmt = sqlParse(sql);
-        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getStmt().toSql());
+        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getDoStmt().toSql());
         sql = "CREATE JOB job1 ON SCHEDULER EVERY  1 SECOND ENDS \"2023-02-15\" DO SELECT * FROM `address` ;";
         jobStmt = sqlParse(sql);
-        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getStmt().toSql());
+        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getDoStmt().toSql());
         sql = "CREATE JOB job1 ON SCHEDULER EVERY  1 SECOND STARTS \"2023-02-15\" ENDS \"2023-02-16\" DO SELECT * FROM `address` ;";
         jobStmt = sqlParse(sql);
-        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getStmt().toSql());
+        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getDoStmt().toSql());
         sql = "CREATE JOB job1 ON SCHEDULER EVERY  1 SECOND  DO SELECT * FROM `address` ;";
         jobStmt = sqlParse(sql);
-        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getStmt().toSql());
+        Assertions.assertEquals("SELECT * FROM `address`", jobStmt.getDoStmt().toSql());
         String badExecuteSql = "CREATE JOB job1 ON SCHEDULER AT \"2023-02-15\" DO selects * from address ;";
         Assertions.assertThrows(AnalysisException.class, () -> {
             sqlParse(badExecuteSql);

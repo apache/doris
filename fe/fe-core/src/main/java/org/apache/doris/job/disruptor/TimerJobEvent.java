@@ -15,24 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.constants;
+package org.apache.doris.job.disruptor;
 
-public enum JobType {
-    /**
-     * The job will be executed only once.
-     */
-    ONE_TIME,
-    /**
-     * The job will be executed periodically.
-     */
-    RECURRING,
-    /**
-     * JOB_TYPE_STREAMING is used to identify the streaming job.
-     */
-    STREAMING,
+import org.apache.doris.job.base.AbstractJob;
 
-    /**
-     * The job will be executed manually and need to be triggered by the user.
-     */
-    MANUAL
+import com.lmax.disruptor.EventFactory;
+import lombok.Data;
+
+@Data
+public class TimerJobEvent<T extends AbstractJob<?>> {
+
+
+    private T job;
+
+    public static <T extends AbstractJob<?>> EventFactory<TimerJobEvent<T>> factory() {
+        return TimerJobEvent::new;
+    }
+
 }

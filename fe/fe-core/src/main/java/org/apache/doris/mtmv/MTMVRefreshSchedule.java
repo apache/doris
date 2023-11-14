@@ -18,8 +18,8 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.scheduler.common.IntervalUnit;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;

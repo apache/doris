@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.common;
+package org.apache.doris.job.common;
 
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
@@ -60,7 +60,7 @@ public enum IntervalUnit {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown configuration " + name));
     }
 
-    public Long getParameterValue(Long param) {
-        return (Long) (param != null ? converter.apply(param) : defaultValue);
+    public Long getIntervalMs(Long interval) {
+        return (Long) (interval != null ? converter.apply(interval) : defaultValue);
     }
 }
