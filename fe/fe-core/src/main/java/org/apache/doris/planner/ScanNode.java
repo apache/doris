@@ -618,7 +618,7 @@ public abstract class ScanNode extends PlanNode {
 
     @Override
     public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
-        if (outputTupleDesc != null) {
+        if (outputTupleDesc != null && requiredSlotIdSet != null) {
             Preconditions.checkNotNull(outputSmap);
             ArrayList<SlotId> materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
             Preconditions.checkState(projectList != null && projectList.size() == materializedSlotIds.size(),
