@@ -266,6 +266,12 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    List<List<Object>> insert_into_sql(String sqlStr, int num) {
+        logger.info("insert into " + num + " records")
+        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        return result
+    }
+
     def sql_return_maparray(String sqlStr) {
         logger.info("Execute sql: ${sqlStr}".toString())
         def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
