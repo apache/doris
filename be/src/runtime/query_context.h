@@ -210,6 +210,11 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
+    bool runtime_filter_wait_infinitly() const {
+        return _query_options.__isset.runtime_filter_wait_infinitly &&
+               _query_options.runtime_filter_wait_infinitly;
+    }
+
     bool enable_pipeline_exec() const {
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;

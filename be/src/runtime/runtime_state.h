@@ -329,6 +329,11 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
+    bool runtime_filter_wait_infinitly() const {
+        return _query_options.__isset.runtime_filter_wait_infinitly &&
+               _query_options.runtime_filter_wait_infinitly;
+    }
+
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
