@@ -167,7 +167,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_RF_DEFAULT = "use_rf_default";
     // Time in ms to wait until runtime filters are delivered.
     public static final String RUNTIME_FILTER_WAIT_TIME_MS = "runtime_filter_wait_time_ms";
-    public static final String RUNTIME_FILTER_WAIT_INFINITLY = "runtime_filter_wait_infinitly";
+    public static final String runtime_filter_wait_infinitely = "runtime_filter_wait_infinitely";
 
     // Maximum number of bloom runtime filters allowed per query
     public static final String RUNTIME_FILTERS_MAX_NUM = "runtime_filters_max_num";
@@ -794,8 +794,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
     private int runtimeFilterWaitTimeMs = 1000;
 
-    @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_INFINITLY, needForward = true)
-    private boolean runtimeFIlterWaitInfinitly = false;
+    @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, needForward = true)
+    private boolean runtimeFilterWaitInfinitely = false;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM, needForward = true)
     private int runtimeFiltersMaxNum = 10;
@@ -2491,7 +2491,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
-        tResult.setRuntimeFilterWaitInfinitly(runtimeFIlterWaitInfinitly);
+        tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
         if (cpuResourceLimit > 0) {
             TResourceLimit resourceLimit = new TResourceLimit();

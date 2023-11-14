@@ -211,7 +211,7 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
-              _wait_infinitly(_state->runtime_filter_wait_infinitly()),
+              _wait_infinitely(_state->runtime_filter_wait_infinitely()),
               _rf_wait_time_ms(_state->runtime_filter_wait_time_ms()),
               _enable_pipeline_exec(_state->enable_pipeline_exec()),
               _profile(new RuntimeProfile(_name)) {
@@ -238,7 +238,7 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
-              _wait_infinitly(query_ctx->runtime_filter_wait_infinitly()),
+              _wait_infinitely(query_ctx->runtime_filter_wait_infinitely()),
               _rf_wait_time_ms(query_ctx->runtime_filter_wait_time_ms()),
               _enable_pipeline_exec(query_ctx->enable_pipeline_exec()),
               _profile(new RuntimeProfile(_name)) {
@@ -395,7 +395,7 @@ public:
     // For pipelineX & Producer
     int32_t wait_time_ms() const {
         int32_t res = 0;
-        if (wait_infinitly()) {
+        if (wait_infinitely()) {
             res = _state == nullptr ? _query_ctx->execution_timeout() : _state->execution_timeout();
             // Convert to ms
             res *= 1000;
@@ -405,7 +405,7 @@ public:
         return res;
     }
 
-    bool wait_infinitly() const;
+    bool wait_infinitely() const;
 
     int64_t registration_time() const { return registration_time_; }
 
@@ -492,7 +492,7 @@ protected:
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
     /// runtime filter wait time will be ignored if wait_infinitly is true
-    const bool _wait_infinitly;
+    const bool _wait_infinitely;
     const int32_t _rf_wait_time_ms;
 
     const bool _enable_pipeline_exec;

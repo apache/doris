@@ -107,7 +107,7 @@ For query options related to Runtime Filter, please refer to the following secti
 
   - `runtime_filter_max_in_num`: If the number of rows in the right table of the join is greater than this value, we will not generate an IN predicate, the default is 1024
 
-  - `runtime_filter_wait_infinitly`: If the parameter is true, the scan node of the left table will wait until it receives a runtime filter or the query times out, default is false
+  - `runtime_filter_wait_infinitely`: If the parameter is true, the scan node of the left table will wait until it receives a runtime filter or the query times out, default is false
 
 The query options are further explained below.
 
