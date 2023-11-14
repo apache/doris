@@ -548,7 +548,7 @@ Status VFileScanner::_pre_filter_src_block() {
 }
 
 Status VFileScanner::_convert_to_output_block(Block* block) {
-    if (!_is_load && _params->format_type != TFileFormatType::FORMAT_WAL) {
+    if (!_is_load) {
         return Status::OK();
     }
 
@@ -557,25 +557,25 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     // which is initialized by output columns
     // so no need to clear it
     // block->clear();
-    if (_params->format_type == TFileFormatType::FORMAT_WAL) {
-        vectorized::Block tmp_block;
-        auto* wal_reader = dynamic_cast<vectorized::WalReader*>(_cur_reader.get());
-        auto index_vector = wal_reader->get_index();
-        int index = 0;
-        for (auto slot_desc : _output_tuple_desc->slots()) {
-            auto pos = index_vector[index];
-            vectorized::ColumnPtr column_ptr = _src_block_ptr->get_by_position(pos).column;
-            if (slot_desc->is_nullable()) {
-                column_ptr = make_nullable(column_ptr);
-            }
-            tmp_block.insert(index, vectorized::ColumnWithTypeAndName(
-                                            std::move(column_ptr), slot_desc->get_data_type_ptr(),
-                                            slot_desc->col_name()));
-            index++;
-        }
-        block->swap(tmp_block);
-        return Status::OK();
-    }
+//    if (_params->format_type == TFileFormatType::FORMAT_WAL) {
+//        vectorized::Block tmp_block;
+//        auto* wal_reader = dynamic_cast<vectorized::WalReader*>(_cur_reader.get());
+//        auto index_vector = wal_reader->get_index();
+//        int index = 0;
+//        for (auto slot_desc : _output_tuple_desc->slots()) {
+//            auto pos = index_vector[index];
+//            vectorized::ColumnPtr column_ptr = _src_block_ptr->get_by_position(pos).column;
+//            if (slot_desc->is_nullable()) {
+//                column_ptr = make_nullable(column_ptr);
+//            }
+//            tmp_block.insert(index, vectorized::ColumnWithTypeAndName(
+//                                            std::move(column_ptr), slot_desc->get_data_type_ptr(),
+//                                            slot_desc->col_name()));
+//            index++;
+//        }
+//        block->swap(tmp_block);
+//        return Status::OK();
+//    }
 
     int ctx_idx = 0;
     size_t rows = _src_block_ptr->rows();

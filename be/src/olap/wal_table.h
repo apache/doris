@@ -59,7 +59,7 @@ private:
     std::map<std::string, replay_wal_info> _replay_wal_map;
     bool need_replay(const replay_wal_info& info);
     Status replay_wal_internal(const std::string& wal);
-    bool _stop = false;
+    std::atomic<bool> _stop;
     std::map<int64_t, std::string> _column_id_name_map;
     std::map<int64_t, int64_t> _column_id_index_map;
 };

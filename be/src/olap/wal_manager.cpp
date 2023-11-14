@@ -38,7 +38,7 @@
 
 namespace doris {
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
-        : _exec_env(exec_env), _stop_background_threads_latch(1) {
+        : _exec_env(exec_env), _stop_background_threads_latch(1), _stop(false) {
     doris::vectorized::WalReader::string_split(wal_dir_list, ",", _wal_dirs);
     _all_wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
 }
@@ -48,16 +48,15 @@ WalManager::~WalManager() {
 }
 
 void WalManager::stop() {
-    {
-        std::lock_guard<std::shared_mutex> wrlock(_stop_lock);
-        _stop = true;
+    if (!this->_stop.load()) {
+        this->_stop.store(true);
+        stop_relay_wal();
+        _stop_background_threads_latch.count_down();
+        if (_replay_thread) {
+            _replay_thread->join();
+        }
+        LOG(INFO) << "WalManager is stopped";
     }
-    stop_relay_wal();
-    _stop_background_threads_latch.count_down();
-    if (_replay_thread) {
-        _replay_thread->join();
-    }
-    LOG(INFO) << "WalManager is stopped";
 }
 
 Status WalManager::init() {
@@ -284,11 +283,12 @@ Status WalManager::scan_wals(const std::string& wal_path) {
 
 Status WalManager::replay() {
     do {
-        if (_stop || _exec_env->master_info() == nullptr) {
+        if (_stop.load()) {
             break;
         }
         // port == 0 means not received heartbeat yet
-        if (_exec_env->master_info()->network_address.port == 0) {
+        if (_exec_env->master_info() != nullptr &&
+            _exec_env->master_info()->network_address.port == 0) {
             continue;
         }
         std::vector<std::string> replay_tables;

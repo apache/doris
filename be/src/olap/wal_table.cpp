@@ -41,7 +41,7 @@
 namespace doris {
 
 WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
-        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id) {}
+        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {}
 WalTable::~WalTable() {}
 
 #ifdef BE_TEST
@@ -88,7 +88,7 @@ Status WalTable::replay_wals() {
     for (const auto& wal : need_replay_wals) {
         {
             std::lock_guard<std::mutex> lock(_replay_wal_lock);
-            if (_stop) {
+            if (_stop.load()) {
                 break;
             } else {
                 auto it = _replay_wal_map.find(wal);
@@ -350,8 +350,8 @@ void WalTable::stop() {
     do {
         {
             std::lock_guard<std::mutex> lock(_replay_wal_lock);
-            if (!_stop) {
-                _stop = true;
+            if (!this->_stop.load()) {
+                this->_stop.store(true);
             }
             auto it = _replay_wal_map.begin();
             for (; it != _replay_wal_map.end(); it++) {

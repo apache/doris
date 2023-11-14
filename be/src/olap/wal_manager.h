@@ -77,12 +77,11 @@ private:
     std::vector<std::string> _wal_dirs;
     std::shared_mutex _wal_lock;
     std::shared_mutex _wal_status_lock;
-    std::shared_mutex _stop_lock;
     std::unordered_map<int64_t, std::string> _wal_path_map;
     std::unordered_map<int64_t, std::shared_ptr<WalWriter>> _wal_id_to_writer_map;
     std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
     std::unordered_map<int64_t, std::unordered_map<int64_t, WAL_STATUS>> _wal_status_queues;
-    bool _stop = false;
+    std::atomic<bool> _stop;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
 };
 } // namespace doris
