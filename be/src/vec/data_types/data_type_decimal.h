@@ -178,6 +178,9 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
         }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL256;
+        }
         __builtin_unreachable();
     }
 
