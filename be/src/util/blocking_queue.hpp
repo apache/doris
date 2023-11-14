@@ -81,7 +81,7 @@ public:
         std::unique_lock<std::mutex> unique_lock(_lock);
         while (!(_shutdown || _list.size() < _max_elements)) {
             ++_put_waiting;
-            _get_cv.wait(unique_lock);
+            _put_cv.wait(unique_lock);
         }
         _total_put_wait_time += timer.elapsed_time();
 
