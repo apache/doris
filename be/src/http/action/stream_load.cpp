@@ -526,8 +526,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             return Status::InvalidArgument("send_batch_parallelism must be an integer, {}",
                                            e.what());
         } catch (const std::out_of_range& e) {
-            return Status::InvalidArgument("send_batch_parallelism out of range, {}",
-                                           e.what());
+            return Status::InvalidArgument("send_batch_parallelism out of range, {}", e.what());
         }
     }
 
