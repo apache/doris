@@ -60,8 +60,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private static final int DISPATCH_INSERT_THREAD_NUM = Config.job_insert_task_consumer_thread_num > 0
             ? Config.job_insert_task_consumer_thread_num : DEFAULT_RING_BUFFER_SIZE;
 
-    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = Config.job_insert_task_queue_size > 0
-            ? Config.job_insert_task_queue_size : DEFAULT_RING_BUFFER_SIZE;
+    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
 
 
     public void init() {

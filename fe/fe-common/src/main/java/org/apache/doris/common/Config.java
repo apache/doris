@@ -1578,7 +1578,8 @@ public class Config extends ConfigBase {
      * corresponding type of job
      * The value should be greater than 0, if it is 0 or <=0, set it to 5
      */
-    @ConfField
+    @ConfField(description = {"用于分发定时任务的线程数",
+            "The number of threads used to dispatch timer job."})
     public static int job_dispatch_timer_job_thread_num = 5;
 
     /**
@@ -1588,7 +1589,7 @@ public class Config extends ConfigBase {
      * {@code @dispatch_timer_job_thread_num}
      * The value should be greater than 0, if it is 0 or <=0, set it to 1024
      */
-    @ConfField
+    @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
 
     /**
@@ -1597,18 +1598,9 @@ public class Config extends ConfigBase {
      * this value or increase the number of {@code @job_insert_task_queue_size}
      * The value should be greater than 0, if it is 0 or <=0, set it to 5
      */
-    @ConfField
-    public static int job_insert_task_consumer_thread_num = 5;
+    @ConfField(description = {"用于执行 Insert 任务的线程数", "The number of threads used to consume insert tasks."})
+    public static int job_insert_task_consumer_thread_num = 10;
 
-    /**
-     * The number of insert tasks that can be queued.
-     * if consumer is slow, the queue will be full, and the producer will be blocked.
-     * if you have a lot of timer jobs, you need to increase this value or increase the number of
-     * {@code @job_insert_task_consumer_thread_num}
-     * The value should be greater than 0, if it is 0 or <=0, set it to 1024
-     */
-    @ConfField
-    public static int job_insert_task_queue_size = 1024;
     /*---------------------- JOB CONFIG END------------------------*/
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor
