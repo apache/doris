@@ -87,8 +87,7 @@ public class BackupJob extends AbstractJob {
         SAVE_META, // Save copied meta info to local file. When finished, transfer to UPLOAD_INFO
         UPLOAD_INFO, // Upload meta and job info file to repository. When finished, transfer to FINISHED
         FINISHED, // Job is finished.
-        CANCELLED, // Job is cancelled.
-        PARTIAL_FINISHED
+        CANCELLED // Job is cancelled.
     }
 
     // all objects which need backup
@@ -1023,13 +1022,6 @@ public class BackupJob extends AbstractJob {
             String key = Text.readString(in);
             String value = Text.readString(in);
             properties.put(key, value);
-        }
-        if (Env.getCurrentEnvJournalVersion() >= org.apache.doris.common.FeMetaVersion.VERSION_127) {
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                Text.readString(in);
-                Text.readString(in);
-            }
         }
     }
 
