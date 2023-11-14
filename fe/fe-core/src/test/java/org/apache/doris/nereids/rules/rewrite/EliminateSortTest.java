@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 /**
  * column prune ut.
  */
-public class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSupported {
+class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -37,7 +37,7 @@ public class EliminateSortTest extends TestWithFeService implements MemoPatternM
     }
 
     @Test
-    public void test() {
+    void test() {
         PlanChecker.from(connectContext)
                 .analyze("select * from student order by id")
                 .rewrite()
@@ -46,5 +46,28 @@ public class EliminateSortTest extends TestWithFeService implements MemoPatternM
                 .analyze("select count(*) from (select * from student order by id) t")
                 .rewrite()
                 .nonMatch(logicalSort());
+    }
+
+    @Test
+    void testSortLimit() {
+        PlanChecker.from(connectContext)
+                .analyze("select count(*) from (select * from student order by id) t limit 1")
+                .rewrite()
+                .nonMatch(logicalTopN());
+        PlanChecker.from(connectContext)
+                .analyze("select count(*) from (select * from student order by id limit 1) t")
+                .rewrite()
+                .matches(logicalTopN());
+
+        PlanChecker.from(connectContext)
+                .analyze("select count(*) from "
+                        + "(select * from student order by id limit 1) a join student on true")
+                .rewrite()
+                .matches(logicalTopN());
+        PlanChecker.from(connectContext)
+                .analyze("select count(*) from "
+                        + "(select * from student order by id) a join student on true limit 1")
+                .rewrite()
+                .nonMatch(logicalTopN());
     }
 }
