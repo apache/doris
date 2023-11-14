@@ -119,7 +119,7 @@ public:
     Status on_partitions_created(TCreatePartitionResult* result);
 
 private:
-    void _init_row_distribution();
+    Status _init_row_distribution();
 
     Status _open_streams(int64_t src_id);
 
@@ -149,6 +149,7 @@ private:
 
     // this is tuple descriptor of destination OLAP table
     TupleDescriptor* _output_tuple_desc = nullptr;
+    RowDescriptor* _output_row_desc = nullptr;
 
     // number of senders used to insert into OlapTable, if we only support single node insert,
     // all data from select should collectted and then send to OlapTable.
