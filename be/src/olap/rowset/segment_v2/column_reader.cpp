@@ -25,7 +25,6 @@
 #include <ostream>
 #include <set>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "io/fs/file_reader.h"
@@ -88,6 +87,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
             // not support empty struct
             DCHECK(meta.children_columns_size() >= 1);
+            num_rows = meta.children_columns(0).num_rows();
             // create struct column reader
             std::unique_ptr<ColumnReader> struct_reader(
                     new ColumnReader(opts, meta, num_rows, file_reader));

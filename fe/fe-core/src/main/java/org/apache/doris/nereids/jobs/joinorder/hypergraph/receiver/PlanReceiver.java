@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -76,6 +77,8 @@ public class PlanReceiver implements AbstractReceiver {
 
     HyperGraph hyperGraph;
     final Set<Slot> finalOutputs;
+    long startTime = System.currentTimeMillis();
+    long timeLimit = ConnectContext.get().getSessionVariable().joinReorderTimeLimit;
 
     public PlanReceiver(JobContext jobContext, int limit, HyperGraph hyperGraph, Set<Slot> outputs) {
         this.jobContext = jobContext;
@@ -104,7 +107,7 @@ public class PlanReceiver implements AbstractReceiver {
         processMissedEdges(left, right, edges);
 
         emitCount += 1;
-        if (emitCount > limit) {
+        if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
             return false;
         }
 
@@ -272,6 +275,7 @@ public class PlanReceiver implements AbstractReceiver {
         usdEdges.clear();
         complexProjectMap.clear();
         complexProjectMap.putAll(hyperGraph.getComplexProject());
+        startTime = System.currentTimeMillis();
     }
 
     @Override

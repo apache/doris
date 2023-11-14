@@ -37,14 +37,15 @@ class LoadBlockQueue {
 public:
     LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
                    int64_t schema_version,
-                   std::shared_ptr<std::atomic_size_t> all_block_queues_bytes)
+                   std::shared_ptr<std::atomic_size_t> all_block_queues_bytes,
+                   bool wait_internal_group_commit_finish)
             : load_instance_id(load_instance_id),
               label(label),
               txn_id(txn_id),
               schema_version(schema_version),
+              wait_internal_group_commit_finish(wait_internal_group_commit_finish),
               _start_time(std::chrono::steady_clock::now()),
               _all_block_queues_bytes(all_block_queues_bytes) {
-        _mutex = std::make_shared<doris::Mutex>();
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
@@ -60,11 +61,13 @@ public:
     int64_t txn_id;
     int64_t schema_version;
     bool need_commit = false;
+    bool wait_internal_group_commit_finish = false;
+    doris::Mutex mutex;
+    doris::ConditionVariable internal_group_commit_finish_cv;
 
 private:
     std::chrono::steady_clock::time_point _start_time;
 
-    std::shared_ptr<doris::Mutex> _mutex;
     doris::ConditionVariable _put_cond;
     doris::ConditionVariable _get_cond;
     // the set of load ids of all blocks in this queue

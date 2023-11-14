@@ -167,7 +167,7 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
-### `grpc_threadmgr_threads_nums`
+#### `grpc_threadmgr_threads_nums`
 
 Default: 4096
 
@@ -665,43 +665,6 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 Default：1048576  （1M）
 
 http header size configuration parameter, the default value is 1M.
-
-#### `enable_tracing`
-
-Default：false
-
-IsMutable：false
-
-MasterOnly：false
-
-Whether to enable tracking
-
-If this configuration is enabled, you should also specify the trace_export_url.
-
-#### `trace_exporter`
-
-Default：zipkin
-
-IsMutable：false
-
-MasterOnly：false
-
-Current support for exporting traces:
-  zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-  collector: The collector can be used to receive and process traces and support export to a variety of third-party systems.
-If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-
-#### `trace_export_url`
-
-Default：`http://127.0.0.1:9411/api/v2/spans`
-
-IsMutable：false
-
-MasterOnly：false
-
-trace export to zipkin like: `http://127.0.0.1:9411/api/v2/spans`
-
-trace export to collector like: `http://127.0.0.1:4318/v1/traces`
 
 ### Query Engine
 
@@ -2763,3 +2726,9 @@ Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file 
 Default: mysql
 
 To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. If this database conflicts with a user's own database, please modify this field to replace the name of the Doris built-in MySQL database with a different name.
+
+#### `max_auto_partition_num`
+
+Default value: 2000
+
+For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000.

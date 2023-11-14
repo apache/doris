@@ -186,9 +186,7 @@ Status NewOlapScanner::init() {
                                                      _state->skip_missing_version());
                 if (!st.ok()) {
                     LOG(WARNING) << "fail to init reader.res=" << st;
-                    return Status::InternalError(
-                            "failed to initialize storage reader. tablet_id={} : {}",
-                            tablet->tablet_id(), st.to_string());
+                    return st;
                 }
             }
             if (!_state->skip_delete_predicate()) {

@@ -134,7 +134,7 @@ private:
 
 public:
     // construct new stub
-    LoadStreamStub(PUniqueId load_id, int64_t src_id);
+    LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use);
 
     // copy constructor, shared_ptr members are shared
     LoadStreamStub(LoadStreamStub& stub);
@@ -148,7 +148,8 @@ public:
     // open_load_stream
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
-                const std::vector<PTabletID>& tablets_for_schema, bool enable_profile);
+                const std::vector<PTabletID>& tablets_for_schema, int total_streams,
+                bool enable_profile);
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -161,7 +162,7 @@ public:
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                       int64_t segment_id, SegmentStatistics& segment_stat);
+                       int64_t segment_id, const SegmentStatistics& segment_stat);
 
     // CLOSE_LOAD
     Status close_load(const std::vector<PTabletID>& tablets_to_commit);
@@ -176,7 +177,7 @@ public:
     }
 
     std::shared_ptr<TabletSchema> tablet_schema(int64_t index_id) const {
-        return _tablet_schema_for_index->at(index_id);
+        return (*_tablet_schema_for_index)[index_id];
     }
 
     bool enable_unique_mow(int64_t index_id) const {
@@ -202,7 +203,10 @@ protected:
     std::atomic<bool> _is_init;
     bthread::Mutex _mutex;
 
-    std::atomic<int> _num_open;
+    std::atomic<int> _use_cnt;
+
+    std::mutex _tablets_to_commit_mutex;
+    std::vector<PTabletID> _tablets_to_commit;
 
     std::mutex _buffer_mutex;
     std::mutex _send_mutex;

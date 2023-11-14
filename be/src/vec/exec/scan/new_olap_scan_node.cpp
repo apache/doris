@@ -22,7 +22,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <opentelemetry/trace/tracer.h>
 #include <stdio.h>
 
 #include <algorithm>
@@ -409,7 +408,6 @@ void NewOlapScanNode::set_scan_ranges(RuntimeState* state,
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         COUNTER_UPDATE(_tablet_counter, 1);
     }
-    // telemetry::set_current_span_attribute(_tablet_counter);
 }
 
 std::string NewOlapScanNode::get_name() {
@@ -422,7 +420,6 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
-    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
     if (!_conjuncts.empty()) {
         std::string message;

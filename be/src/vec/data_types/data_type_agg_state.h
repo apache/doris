@@ -82,6 +82,10 @@ public:
         return TPrimitiveType::AGG_STATE;
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_AGG_STATE;
+    }
+
     std::string to_string(const IColumn& column, size_t row_num) const override {
         std::string res = "binary(";
         StringRef str = column.get_data_at(row_num);

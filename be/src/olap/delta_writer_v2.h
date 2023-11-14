@@ -63,9 +63,8 @@ class Block;
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriterV2 {
 public:
-    static Status open(WriteRequest* req,
-                       const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                       DeltaWriterV2** writer);
+    static std::unique_ptr<DeltaWriterV2> open(
+            WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams);
 
     ~DeltaWriterV2();
 

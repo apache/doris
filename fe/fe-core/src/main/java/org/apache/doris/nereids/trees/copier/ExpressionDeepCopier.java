@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -70,15 +71,14 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
     @Override
     public Expression visitSlotReference(SlotReference slotReference, DeepCopierContext context) {
         Map<ExprId, ExprId> exprIdReplaceMap = context.exprIdReplaceMap;
+        ExprId newExprId;
         if (exprIdReplaceMap.containsKey(slotReference.getExprId())) {
-            ExprId newExprId = exprIdReplaceMap.get(slotReference.getExprId());
-            return slotReference.withExprId(newExprId);
+            newExprId = exprIdReplaceMap.get(slotReference.getExprId());
         } else {
-            SlotReference newOne = new SlotReference(slotReference.getName(), slotReference.getDataType(),
-                    slotReference.nullable(), slotReference.getQualifier());
-            exprIdReplaceMap.put(slotReference.getExprId(), newOne.getExprId());
-            return newOne;
+            newExprId = StatementScopeIdGenerator.newExprId();
+            exprIdReplaceMap.put(slotReference.getExprId(), newExprId);
         }
+        return slotReference.withExprId(newExprId);
     }
 
     @Override
@@ -102,6 +102,21 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
                 virtualSlotReference.nullable(), virtualSlotReference.getQualifier(),
                 newOriginExpression, newFunction);
         exprIdReplaceMap.put(virtualSlotReference.getExprId(), newOne.getExprId());
+        return newOne;
+    }
+
+    @Override
+    public Expression visitArrayItemReference(ArrayItemReference arrayItemSlot, DeepCopierContext context) {
+        Expression arrayExpression = arrayItemSlot.getArrayExpression().accept(this, context);
+        Map<ExprId, ExprId> exprIdReplaceMap = context.exprIdReplaceMap;
+        ArrayItemReference newOne;
+        if (exprIdReplaceMap.containsKey(arrayItemSlot.getExprId())) {
+            newOne = new ArrayItemReference(exprIdReplaceMap.get(arrayItemSlot.getExprId()),
+                    arrayItemSlot.getName(), arrayExpression);
+        } else {
+            newOne = new ArrayItemReference(arrayItemSlot.getName(), arrayExpression);
+            exprIdReplaceMap.put(arrayItemSlot.getExprId(), newOne.getExprId());
+        }
         return newOne;
     }
 

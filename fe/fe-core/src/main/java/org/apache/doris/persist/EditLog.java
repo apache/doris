@@ -530,6 +530,7 @@ public class EditLog {
                     Env.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
                     LOG.debug("logid: {}, opcode: {}, tid: {}", logId, opCode, state.getTransactionId());
 
+                    // state.loadedTableIndexIds is updated after replay
                     if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
                         UpsertRecord upsertRecord = new UpsertRecord(logId, state);
                         Env.getCurrentEnv().getBinlogManager().addUpsertRecord(upsertRecord);

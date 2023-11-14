@@ -28,7 +28,6 @@
 #include <ostream>
 #include <shared_mutex>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -662,7 +661,7 @@ Status TabletReader::init_reader_params_and_create_block(
     std::transform(input_rowsets.begin(), input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     TabletSchemaSPtr read_tablet_schema =
-            tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
+            tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*read_tablet_schema);
 

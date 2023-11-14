@@ -70,8 +70,8 @@ struct type_limit<vectorized::Decimal128> {
     }
     static vectorized::Decimal128 min() { return -max(); }
 };
-static Int256 MAX_DECIMAL256_INT({18446744073709551615ul, 8607968719199866879ul,
-                                  532749306367912313ul, 1593091911132452277ul});
+static wide::Int256 MAX_DECIMAL256_INT({18446744073709551615ul, 8607968719199866879ul,
+                                        532749306367912313ul, 1593091911132452277ul});
 template <>
 struct type_limit<vectorized::Decimal256> {
     static vectorized::Decimal256 max() { return vectorized::Decimal256(MAX_DECIMAL256_INT); }

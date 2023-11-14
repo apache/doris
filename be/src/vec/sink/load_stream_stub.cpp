@@ -83,14 +83,16 @@ void LoadStreamStub::LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
     _close_cv.notify_all();
 }
 
-LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id)
-        : _load_id(load_id),
+LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use)
+        : _use_cnt(num_use),
+          _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
           _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {};
 
 LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
-        : _load_id(stub._load_id),
+        : _use_cnt(stub._use_cnt.load()),
+          _load_id(stub._load_id),
           _src_id(stub._src_id),
           _tablet_schema_for_index(stub._tablet_schema_for_index),
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
@@ -102,12 +104,11 @@ LoadStreamStub::~LoadStreamStub() {
 }
 
 // open_load_stream
-// tablets means
 Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
-                            const std::vector<PTabletID>& tablets_for_schema, bool enable_profile) {
-    _num_open++;
+                            const std::vector<PTabletID>& tablets_for_schema, int total_streams,
+                            bool enable_profile) {
     std::unique_lock<bthread::Mutex> lock(_mutex);
     if (_is_init.load()) {
         return Status::OK();
@@ -125,16 +126,17 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         return Status::Error<true>(ret, "Failed to create stream");
     }
     cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
-    POpenStreamSinkRequest request;
+    POpenLoadStreamRequest request;
     *request.mutable_load_id() = _load_id;
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
+    request.set_total_streams(total_streams);
     schema.to_protobuf(request.mutable_schema());
     for (auto& tablet : tablets_for_schema) {
         *request.add_tablets() = tablet;
     }
-    POpenStreamSinkResponse response;
+    POpenLoadStreamResponse response;
     // use "pooled" connection to avoid conflicts between streaming rpc and regular rpc,
     // see: https://github.com/apache/brpc/issues/392
     const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "pooled");
@@ -174,7 +176,7 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 
 // ADD_SEGMENT
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, SegmentStatistics& segment_stat) {
+                                   int64_t segment_id, const SegmentStatistics& segment_stat) {
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -189,15 +191,23 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 
 // CLOSE_LOAD
 Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
-    if (--_num_open > 0) {
+    {
+        std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
+        _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
+                                  tablets_to_commit.end());
+    }
+    if (--_use_cnt > 0) {
         return Status::OK();
     }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
-    for (const auto& tablet : tablets_to_commit) {
-        *header.add_tablets_to_commit() = tablet;
+    {
+        std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
+        for (const auto& tablet : _tablets_to_commit) {
+            *header.add_tablets_to_commit() = tablet;
+        }
     }
     return _encode_and_send(header);
 }
