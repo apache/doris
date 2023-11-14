@@ -1209,6 +1209,11 @@ public class OlapTable extends Table {
     }
 
     @Override
+    public long getCacheRowCount() {
+        return getRowCount();
+    }
+
+    @Override
     public long getAvgRowLength() {
         long rowCount = 0;
         long dataSize = 0;
