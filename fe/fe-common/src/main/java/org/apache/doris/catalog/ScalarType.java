@@ -598,7 +598,7 @@ public class ScalarType extends Type {
             return "TIMEV2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
-                return "VARCHAR(*)";
+                return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
             }
             return "VARCHAR(" + len + ")";
         } else if (type == PrimitiveType.STRING) {

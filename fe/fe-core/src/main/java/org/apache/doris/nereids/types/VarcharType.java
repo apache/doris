@@ -67,7 +67,7 @@ public class VarcharType extends CharacterType {
     @Override
     public String toSql() {
         if (len == -1) {
-            return "VARCHAR(*)";
+            return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
         }
         return "VARCHAR(" + len + ")";
     }
@@ -84,5 +84,9 @@ public class VarcharType extends CharacterType {
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), len);
+    }
+
+    public boolean isWildcardVarchar() {
+        return len == -1 || len == MAX_VARCHAR_LENGTH;
     }
 }

@@ -305,7 +305,7 @@ binary	TEXT	Yes	false	\N	NONE
 bit	TEXT	Yes	false	\N	NONE
 blob	TEXT	Yes	false	\N	NONE
 boolean	TINYINT	Yes	false	\N	NONE
-char	VARCHAR(*)	Yes	false	\N	NONE
+char	VARCHAR(65533)	Yes	false	\N	NONE
 date	DATE	Yes	false	\N	NONE
 datetime	DATETIME	Yes	false	\N	NONE
 decimal	DECIMAL(12, 4)	Yes	false	\N	NONE
