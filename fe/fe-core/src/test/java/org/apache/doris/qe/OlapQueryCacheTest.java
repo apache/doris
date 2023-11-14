@@ -48,7 +48,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogMgr;
@@ -303,10 +302,6 @@ public class OlapQueryCacheTest {
                 ctx.getStmtId();
                 minTimes = 0;
                 result = 1L;
-
-                ctx.getTracer();
-                minTimes = 0;
-                result = Telemetry.getNoopTracer();
 
                 ctx.getCurrentCatalog();
                 minTimes = 0;

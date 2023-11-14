@@ -28,7 +28,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -283,8 +282,9 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     closure->cntl_->set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
     closure->cntl_->ignore_eovercrowded();
     stub->request_slave_tablet_pull_rowset(closure->cntl_.get(), closure->request_.get(),
-                                           closure->response_.get(), closure.release());
+                                           closure->response_.get(), closure.get());
 
+    closure.release();
     pull_callback->join();
     if (pull_callback->cntl_->Failed()) {
         if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(

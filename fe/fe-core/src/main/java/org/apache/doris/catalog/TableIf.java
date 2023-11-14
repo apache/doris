@@ -267,5 +267,13 @@ public interface TableIf {
         // TODO: Each tableIf should impl it by itself.
         return 0;
     }
+
+    default boolean isDistributionColumn(String columnName) {
+        return false;
+    }
+
+    default boolean isPartitionColumn(String columnName) {
+        return false;
+    }
 }
 

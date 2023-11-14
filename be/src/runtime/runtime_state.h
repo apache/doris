@@ -35,14 +35,12 @@
 #include <vector>
 
 #include "cctz/time_zone.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 
 namespace doris {
 
@@ -321,6 +319,10 @@ public:
 
     int total_load_streams() const { return _total_load_streams; }
 
+    void set_num_local_sink(int num_local_sink) { _num_local_sink = num_local_sink; }
+
+    int num_local_sink() const { return _num_local_sink; }
+
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
@@ -428,10 +430,6 @@ public:
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
-
-    OpentelemetryTracer get_tracer() { return _tracer; }
-
-    void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
@@ -559,6 +557,7 @@ private:
     int _num_per_fragment_instances = 0;
     int _load_stream_per_node = 0;
     int _total_load_streams = 0;
+    int _num_local_sink = 0;
 
     // The backend id on which this fragment instance runs
     int64_t _backend_id = -1;
@@ -606,8 +605,6 @@ private:
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
-
-    OpentelemetryTracer _tracer = telemetry::get_noop_tracer();
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

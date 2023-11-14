@@ -77,6 +77,10 @@ class TExpr;
 class TabletSchema;
 class TupleDescriptor;
 
+namespace stream_load {
+class LoadStreams;
+}
+
 namespace vectorized {
 
 class OlapTableBlockConvertor;
@@ -119,7 +123,7 @@ public:
     Status on_partitions_created(TCreatePartitionResult* result);
 
 private:
-    void _init_row_distribution();
+    Status _init_row_distribution();
 
     Status _open_streams(int64_t src_id);
 
@@ -149,14 +153,16 @@ private:
 
     // this is tuple descriptor of destination OLAP table
     TupleDescriptor* _output_tuple_desc = nullptr;
+    RowDescriptor* _output_row_desc = nullptr;
 
     // number of senders used to insert into OlapTable, if we only support single node insert,
     // all data from select should collectted and then send to OlapTable.
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;
-    int _stream_per_node = 0;
-    int _total_streams = 0;
+    int _stream_per_node = -1;
+    int _total_streams = -1;
+    int _num_local_sink = -1;
     bool _is_high_priority = false;
     bool _write_file_cache = false;
 
@@ -203,7 +209,9 @@ private:
     std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
-    std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
+    std::unordered_map<int64_t, std::shared_ptr<::doris::stream_load::LoadStreams>>
+            _streams_for_node;
+
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
 

@@ -245,6 +245,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
 
+    public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
@@ -908,6 +909,17 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
     private int nthOptimizedPlan = 1;
+
+    public boolean isEnableLeftZigZag() {
+        return enableLeftZigZag;
+    }
+
+    public void setEnableLeftZigZag(boolean enableLeftZigZag) {
+        this.enableLeftZigZag = enableLeftZigZag;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_LEFT_ZIG_ZAG)
+    private boolean enableLeftZigZag = false;
 
     /**
      * as the new optimizer is not mature yet, use this var
@@ -2905,5 +2917,9 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
             throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
         }
+    }
+
+    public boolean isEnableInsertGroupCommit() {
+        return enableInsertGroupCommit || Config.wait_internal_group_commit_finish;
     }
 }
