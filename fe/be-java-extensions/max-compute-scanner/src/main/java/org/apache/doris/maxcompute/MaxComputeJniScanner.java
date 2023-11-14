@@ -24,10 +24,13 @@ import org.apache.doris.common.jni.vec.ScanPredicate;
 import com.aliyun.odps.Column;
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.PartitionSpec;
+import com.aliyun.odps.TableSchema;
 import com.aliyun.odps.data.ArrowRecordReader;
 import com.aliyun.odps.tunnel.TableTunnel;
+import com.aliyun.odps.tunnel.TunnelException;
 import com.aliyun.odps.type.TypeInfo;
 import com.aliyun.odps.type.TypeInfoFactory;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
@@ -37,7 +40,6 @@ import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,7 +68,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private final String table;
     private PartitionSpec partitionSpec;
     private Set<String> partitionColumns;
-    private final MaxComputeTableScan curTableScan;
+    private MaxComputeTableScan curTableScan;
     private MaxComputeColumnValue columnValue;
     private long remainBatchRows = 0;
     private long totalRows = 0;
@@ -75,12 +77,15 @@ public class MaxComputeJniScanner extends JniScanner {
     private List<Column> readColumns;
     private Map<String, Integer> readColumnsToId;
     private long startOffset = -1L;
+    private int retryCount = 2;
     private long splitSize = -1L;
+    private final Map<String, String> refreshParams;
 
     public MaxComputeJniScanner(int batchSize, Map<String, String> params) {
         region = Objects.requireNonNull(params.get(REGION), "required property '" + REGION + "'.");
         project = Objects.requireNonNull(params.get(PROJECT), "required property '" + PROJECT + "'.");
         table = Objects.requireNonNull(params.get(TABLE), "required property '" + TABLE + "'.");
+        refreshParams = params;
         tableScans.putIfAbsent(tableUniqKey(), newTableScan(params));
         curTableScan = tableScans.get(tableUniqKey());
         String partitionSpec = params.get(PARTITION_SPEC);
@@ -102,6 +107,11 @@ public class MaxComputeJniScanner extends JniScanner {
             }
         }
         initTableInfo(columnTypes, requiredFields, predicates, batchSize);
+    }
+
+    public void refreshTableScan() {
+        curTableScan = newTableScan(refreshParams);
+        tableScans.put(tableUniqKey(), curTableScan);
     }
 
     private MaxComputeTableScan newTableScan(Map<String, String> params) {
@@ -132,16 +142,11 @@ public class MaxComputeJniScanner extends JniScanner {
                 readColumnsToId.put(fields[i], i);
             }
         }
-        // reorder columns
-        List<Column> columnList = curTableScan.getSchema().getColumns();
-        columnList.addAll(curTableScan.getSchema().getPartitionColumns());
-        Map<String, Integer> columnRank = new HashMap<>();
-        for (int i = 0; i < columnList.size(); i++) {
-            columnRank.put(columnList.get(i).getName(), i);
-        }
-        // Downloading columns data from Max compute only supports the order of table metadata.
-        // We might get an error message if no sort here: Column reorder is not supported in legacy arrow mode.
-        readColumns.sort((Comparator.comparing(o -> columnRank.get(o.getName()))));
+    }
+
+    @VisibleForTesting
+    protected TableSchema getSchema() {
+        return curTableScan.getSchema();
     }
 
     @Override
@@ -167,11 +172,21 @@ public class MaxComputeJniScanner extends JniScanner {
             List<Column> maxComputeColumns = new ArrayList<>(readColumns);
             maxComputeColumns.removeIf(e -> partitionColumns.contains(e.getName()));
             curReader = session.openArrowRecordReader(start, totalRows, maxComputeColumns, arrowAllocator);
+            remainBatchRows = totalRows;
+        } catch (TunnelException e) {
+            if (retryCount > 0 && e.getErrorMsg().contains("TableModified")) {
+                retryCount--;
+                // try to refresh table scan and re-open odps
+                refreshTableScan();
+                open();
+            } else {
+                retryCount = 2;
+                throw new IOException(e);
+            }
         } catch (Exception e) {
             close();
             throw new IOException(e);
         }
-        remainBatchRows = totalRows;
     }
 
     private Column createOdpsColumn(int colIdx, ColumnType dorisType) {
@@ -204,9 +219,11 @@ public class MaxComputeJniScanner extends JniScanner {
             case DOUBLE:
                 odpsType = TypeInfoFactory.DOUBLE;
                 break;
+            case DATETIME:
             case DATETIMEV2:
                 odpsType = TypeInfoFactory.DATETIME;
                 break;
+            case DATE:
             case DATEV2:
                 odpsType = TypeInfoFactory.DATE;
                 break;
