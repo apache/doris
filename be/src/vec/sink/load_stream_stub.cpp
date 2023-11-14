@@ -108,6 +108,10 @@ LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
 LoadStreamStub::~LoadStreamStub() {
     if (_is_init.load() && !_handler.is_closed()) {
         brpc::StreamClose(_stream_id);
+        auto st = close_wait(60000); // timeout 60s
+        if (!st.ok()) {
+            LOG(WARNING) << st;
+        }
     }
 }
 
