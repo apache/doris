@@ -258,6 +258,11 @@ Status WalManager::delete_wal(int64_t wal_id) {
                                                    std::memory_order_relaxed),
                     std::memory_order_relaxed);
             _wal_id_to_writer_map[wal_id]->cv.notify_one();
+            std::string wal_path = _wal_path_map[wal_id];
+            LOG(INFO) << "wal delete file=" << wal_path << ", this file disk usage is"
+                      << _wal_id_to_writer_map[wal_id]->disk_bytes()
+                      << " ,after deleting it, all wals disk usage is "
+                      << _all_wal_disk_bytes->load(std::memory_order_relaxed);
             _wal_id_to_writer_map.erase(wal_id);
         }
         if (_wal_id_to_writer_map.empty()) {
