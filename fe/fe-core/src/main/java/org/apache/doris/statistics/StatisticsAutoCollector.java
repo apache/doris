@@ -50,7 +50,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     public StatisticsAutoCollector() {
         super("Automatic Analyzer",
-                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
+                TimeUnit.SECONDS.toMillis(Config.auto_check_statistics_in_minutes),
                 new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num));
     }
 
@@ -142,12 +142,15 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
-                .setSampleRows(StatisticsUtil.getHugeTableSampleRows())
+                .setSampleRows(analysisMethod.equals(AnalysisMethod.SAMPLE)
+                        ? StatisticsUtil.getHugeTableSampleRows() : -1)
                 .setScheduleType(ScheduleType.AUTOMATIC)
                 .setState(AnalysisState.PENDING)
                 .setTaskIds(new ArrayList<>())
                 .setLastExecTimeInMs(System.currentTimeMillis())
-                .setJobType(JobType.SYSTEM).build();
+                .setJobType(JobType.SYSTEM)
+                .setTblUpdateTime(table.getUpdateTime())
+                .build();
         analysisInfos.add(jobInfo);
     }
 
