@@ -166,6 +166,12 @@ private:
     void set_max_key(const Slice& key);
     bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
     void _serialize_block_to_row_column(vectorized::Block& block);
+    Status _generate_primary_key_index(
+            const std::vector<const KeyCoder*>& primary_key_coders,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
+    Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+                                     size_t num_rows, const std::vector<size_t>& short_key_pos);
 
 private:
     uint32_t _segment_id;
