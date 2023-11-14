@@ -498,6 +498,9 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "unix_timestamp", argTypes = { "DATETIMEV2" }, returnType = "DECIMALV3")
     public static Expression unixTimestamp(DateTimeV2Literal date) {
+        if (date.getMicroSecond() == 0) {
+            return new DecimalV3Literal(new BigDecimal(getTimestamp(date.toJavaDateType()).toString()));
+        }
         String val = getTimestamp(date.toJavaDateType()).toString() + "." + date.getMicrosecondString();
         return new DecimalV3Literal(new BigDecimal(val));
     }
