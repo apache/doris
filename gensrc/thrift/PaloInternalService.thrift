@@ -461,6 +461,8 @@ struct TExecPlanFragmentParams {
 
   // total num of load streams the downstream backend will see
   27: optional i32 total_load_streams
+
+  28: optional i32 num_local_sink
 }
 
 struct TExecPlanFragmentParamsList {
@@ -678,6 +680,7 @@ struct TPipelineFragmentParams {
   30: optional bool group_commit = false;
   31: optional i32 load_stream_per_node // num load stream for each sink backend
   32: optional i32 total_load_streams // total num of load streams the downstream backend will see
+  33: optional i32 num_local_sink
 }
 
 struct TPipelineFragmentParamsList {

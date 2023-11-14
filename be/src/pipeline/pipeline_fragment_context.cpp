@@ -310,6 +310,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
+    _runtime_state->set_num_local_sink(request.num_local_sink);
 
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
