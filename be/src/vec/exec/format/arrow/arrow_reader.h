@@ -29,6 +29,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "arrow_batch_reader.h"
 #include "common/status.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -53,10 +54,9 @@ class ArrowReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ArrowReader);
 
 public:
-
     ArrowReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
-            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-            const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
+                const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
 
     ~ArrowReader() override;
 
@@ -73,9 +73,10 @@ private:
     // ScannerCounter* _counter;
     // const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
+    const std::vector<SlotDescriptor*>& _file_slot_descs;
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<uint8_t[]> _file_buf;
-
+    uint8_t* _file_buf;
+    std::unique_ptr<doris::vectorized::ArrowBatchReader> _arrow_batch_reader;
 };
 } // namespace vectorized
 } // namespace doris
