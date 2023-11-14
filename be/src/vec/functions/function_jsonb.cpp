@@ -1304,20 +1304,20 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         auto jsonb_data_column = block.get_by_position(arguments[0]).column;
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto return_type = block.get_data_type(result);
-        MutableColumnPtr res = return_type->create_column();
-
-        //if(jsonb_data_column->)
+        auto col_result = ColumnVector<Int32>::create();
+        col_result->resize(input_rows_count);
+        auto& res_data = col_result->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data_column->is_null_at(i)) {
                 null_map->get_data()[i] = 1;
-                res->insert_data(nullptr, 0);
+                res_data[i] = 0;
                 continue;
             }
 
@@ -1327,14 +1327,15 @@ public:
             JsonbValue* value = doc->getValue();
             if (UNLIKELY(jsonb_value.size == 0 || !value)) {
                 null_map->get_data()[i] = 1;
-                res->insert_data(nullptr, 0);
+                res_data[i] = 0;
                 continue;
             }
-            auto depth = value->depth();
-            res->insert_data(const_cast<const char*>((char*)&depth), 0);
+            auto depth = value->base_depth();
+            res_data[i] = depth;
         }
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
         return Status::OK();
     }
 };
