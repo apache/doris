@@ -24,7 +24,7 @@
 #include "arrow/ipc/reader.h"
 #include "arrow/record_batch.h"
 #include "arrow/result.h"
-#include "arrow_batch_reader.h"
+#include "batch_with_length_reader.h"
 #include "common/logging.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/wal_manager.h"
@@ -48,7 +48,7 @@ ArrowReader::~ArrowReader() = default;
 Status ArrowReader::init_reader() {
     RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, false));
 
-    _arrow_batch_reader = ArrowBatchReader::create_unique(_file_reader);
+    _arrow_batch_reader = BatchWithLengthReader::create_unique(_file_reader);
 
     return Status::OK();
 }
@@ -64,24 +64,22 @@ Status ArrowReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     }
 
     auto buf_reader = std::make_shared<arrow::io::BufferReader>(_file_buf, (int64_t)read_size);
-    // ARROW_ASSIGN_OR_RAISE(auto reader, arrow::ipc::RecordBatchStreamReader::Open(buf_reader.get(), arrow::ipc::IpcReadOptions::Defaults()));
     std::vector<std::shared_ptr<arrow::RecordBatch>> out_batches;
-    // ARROW_ASSIGN_OR_RAISE(out_batches, reader->ToRecordBatches());
-
-    // TODO use ARROW_ASSIGN_OR_RAISE
-    arrow::Result<std::shared_ptr<arrow::ipc::RecordBatchStreamReader>> tmp =
+    arrow::Result<std::shared_ptr<arrow::ipc::RecordBatchStreamReader>> tRet =
             arrow::ipc::RecordBatchStreamReader::Open(buf_reader,
                                                       arrow::ipc::IpcReadOptions::Defaults());
-    if (!tmp.ok()) {
+    if (!tRet.ok()) {
         LOG(ERROR) << "open stream reader Open failed";
+        return Status::InternalError("open stream reader Open failed");
     }
-    auto reader = std::move(tmp).ValueUnsafe();
+    auto reader = std::move(tRet).ValueUnsafe();
 
-    arrow::Result<arrow::RecordBatchVector> tmp2 = reader->ToRecordBatches();
-    if (!tmp2.ok()) {
-        LOG(ERROR) << "open stream reader ToRecordBatches failed";
+    arrow::Result<arrow::RecordBatchVector> tRet2 = reader->ToRecordBatches();
+    if (!tRet2.ok()) {
+        LOG(ERROR) << "wrong batch size or content";
+        return Status::InternalError("wrong batch size or content");
     }
-    out_batches = std::move(tmp2).ValueUnsafe();
+    out_batches = std::move(tRet2).ValueUnsafe();
 
     cctz::time_zone ctzz;
     TimezoneUtils::find_cctz_time_zone("UTC", ctzz);
@@ -91,8 +89,6 @@ Status ArrowReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         arrow::RecordBatch& batch = *out_batches[i];
         int num_rows = batch.num_rows();
         int num_columns = batch.num_columns();
-        // LOG(INFO) << "wuwenchi xxxx batch.num_rows:" << num_rows;
-        // LOG(INFO) << "wuwenchi xxxx batch.num_columns:" << num_columns;
         for (int c = 0; c < num_columns; ++c) {
             arrow::Array* column = batch.column(c).get();
 
@@ -100,8 +96,8 @@ Status ArrowReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
             vectorized::ColumnWithTypeAndName& column_with_name = block->get_by_name(column_name);
 
-            RETURN_IF_ERROR(doris::vectorized::arrow_column_to_doris_column(
-                    column, 0, column_with_name.column, column_with_name.type, num_rows, ctzz));
+            column_with_name.type->get_serde()->read_column_from_arrow(
+                    column_with_name.column->assume_mutable_ref(), column, 0, num_rows, ctzz);
         }
         *read_rows += batch.num_rows();
     }

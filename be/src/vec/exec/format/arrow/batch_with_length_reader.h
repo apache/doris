@@ -19,10 +19,9 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -49,30 +48,24 @@ namespace vectorized {
 struct ScannerCounter;
 class Block;
 
-class ArrowBatchReader {
-    ENABLE_FACTORY_CREATOR(ArrowBatchReader);
+class BatchWithLengthReader {
+    ENABLE_FACTORY_CREATOR(BatchWithLengthReader);
 
 public:
-    ArrowBatchReader(io::FileReaderSPtr file_reader);
+    BatchWithLengthReader(io::FileReaderSPtr file_reader);
 
-    ~ArrowBatchReader();
+    ~BatchWithLengthReader();
 
-    // Status read_one_batch(std::unique_ptr<uint8_t[]>* data, size_t* length);
     Status get_one_batch(uint8_t** data, int* length);
 
 private:
     void _init();
     Status _get_batch_size();
-    uint32_t _convert_to_length(uint8_t* data);
+    static uint32_t _convert_to_length(const uint8_t* data);
     Status _get_batch_value();
-    int _get_valid_cap();
+    void _ensure_cap(int req_size);
+    Status _get_data_from_reader(int req_size);
 
-private:
-    // RuntimeState* _state;
-    // RuntimeProfile* _profile;
-    // ScannerCounter* _counter;
-    // const TFileScanRangeParams& _params;
-    // const TFileRangeDesc& _range;
     io::FileReaderSPtr _file_reader;
     uint8_t* _read_buf;
     int _read_buf_cap;

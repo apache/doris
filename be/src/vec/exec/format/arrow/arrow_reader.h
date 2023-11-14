@@ -29,7 +29,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "arrow_batch_reader.h"
+#include "batch_with_length_reader.h"
 #include "common/status.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -69,14 +69,11 @@ public:
 
 private:
     RuntimeState* _state;
-    // RuntimeProfile* _profile;
-    // ScannerCounter* _counter;
-    // const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     io::FileReaderSPtr _file_reader;
     uint8_t* _file_buf;
-    std::unique_ptr<doris::vectorized::ArrowBatchReader> _arrow_batch_reader;
+    std::unique_ptr<doris::vectorized::BatchWithLengthReader> _arrow_batch_reader;
 };
 } // namespace vectorized
 } // namespace doris

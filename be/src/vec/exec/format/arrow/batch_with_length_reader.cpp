@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "arrow_batch_reader.h"
+#include "batch_with_length_reader.h"
 
 #include "arrow/array.h"
 #include "arrow/io/buffered.h"
@@ -34,7 +34,7 @@
 
 namespace doris::vectorized {
 
-ArrowBatchReader::ArrowBatchReader(io::FileReaderSPtr file_reader)
+BatchWithLengthReader::BatchWithLengthReader(io::FileReaderSPtr file_reader)
         : _file_reader(file_reader),
           _read_buf(new uint8_t[DEFAULT_READ_BUF_CAP]),
           _read_buf_cap(DEFAULT_READ_BUF_CAP),
@@ -42,9 +42,9 @@ ArrowBatchReader::ArrowBatchReader(io::FileReaderSPtr file_reader)
           _read_buf_len(0),
           _batch_size(-1) {}
 
-ArrowBatchReader::~ArrowBatchReader() = default;
+BatchWithLengthReader::~BatchWithLengthReader() = default;
 
-Status ArrowBatchReader::get_one_batch(uint8_t** data, int* length) {
+Status BatchWithLengthReader::get_one_batch(uint8_t** data, int* length) {
     _init();
     RETURN_IF_ERROR(_get_batch_size());
     RETURN_IF_ERROR(_get_batch_value());
@@ -53,37 +53,32 @@ Status ArrowBatchReader::get_one_batch(uint8_t** data, int* length) {
     if (_batch_size <= 0) {
         *length = 0;
     } else {
-        *length = _read_buf_len;
+        *length = _batch_size;
     }
     return Status::OK();
 }
 
-void ArrowBatchReader::_init() {
-    _read_buf_pos = _read_buf_pos + _read_buf_len;
+void BatchWithLengthReader::_init() {
+    if (_batch_size > 0) {
+        _read_buf_pos += _batch_size;
+        _read_buf_len -= _batch_size;
+    }
     _batch_size = -1;
-    _read_buf_len = 0;
 }
 
-Status ArrowBatchReader::_get_batch_size() {
+Status BatchWithLengthReader::_get_batch_size() {
     if (_batch_size >= 0) {
         return Status::OK();
     }
 
-    if (_get_valid_cap() < BATCH_SIZE_LENGTH) {
-        memmove(_read_buf, _read_buf + _read_buf_pos, _read_buf_len);
+    _ensure_cap(BATCH_SIZE_LENGTH);
+
+    RETURN_IF_ERROR(_get_data_from_reader(BATCH_SIZE_LENGTH));
+    if (_read_buf_len < BATCH_SIZE_LENGTH) {
+        return Status::OK();
     }
 
-    while (_read_buf_len < BATCH_SIZE_LENGTH) {
-        Slice file_slice(_read_buf + _read_buf_pos + _read_buf_len, _get_valid_cap());
-        size_t read_length = 0;
-        RETURN_IF_ERROR(_file_reader->read_at(0, file_slice, &read_length, NULL));
-        if (read_length == 0) {
-            return Status::OK();
-        }
-        _read_buf_len += read_length;
-    }
-
-    _batch_size = _convert_to_length(_read_buf);
+    _batch_size = _convert_to_length(_read_buf + _read_buf_pos);
 
     if (_batch_size < 0) {
         return Status::InternalError("Invalid batch size");
@@ -97,19 +92,40 @@ Status ArrowBatchReader::_get_batch_size() {
             _read_buf_cap *= 2;
         }
 
-        uint8_t* new_read_buf = new uint8_t[_read_buf_cap];
+        // The current buff capacity is not enough and needs to be expanded
+        auto* new_read_buf = new uint8_t[_read_buf_cap];
         memmove(new_read_buf, _read_buf + _read_buf_pos, _read_buf_len);
         delete[] _read_buf;
         _read_buf = new_read_buf;
+        _read_buf_pos = 0;
     }
     return Status::OK();
 }
 
-int ArrowBatchReader::_get_valid_cap() {
-    return _read_buf_cap - _read_buf_pos - _read_buf_len;
+Status BatchWithLengthReader::_get_data_from_reader(int req_size) {
+    while (_read_buf_len < req_size) {
+        Slice file_slice(_read_buf + _read_buf_pos + _read_buf_len,
+                         _read_buf_cap - _read_buf_pos - _read_buf_len);
+        size_t read_length = 0;
+        RETURN_IF_ERROR(_file_reader->read_at(0, file_slice, &read_length, NULL));
+        _read_buf_len += read_length;
+        if (read_length == 0) {
+            break;
+        }
+    }
+    return Status::OK();
 }
 
-uint32_t ArrowBatchReader::_convert_to_length(uint8_t* data) {
+void BatchWithLengthReader::_ensure_cap(int req_size) {
+    if (_read_buf_len < req_size && _read_buf_cap - _read_buf_pos < req_size) {
+        // there is not enough space for data,
+        // we need to move the data that has been used before and the useful data forward
+        memmove(_read_buf, _read_buf + _read_buf_pos, _read_buf_len);
+        _read_buf_pos = 0;
+    }
+}
+
+uint32_t BatchWithLengthReader::_convert_to_length(const uint8_t* data) {
     uint32_t len = (((uint32_t)data[0]) << 24) & 0xff000000;
     len |= (((uint32_t)data[1]) << 16) & 0xff0000;
     len |= (((uint32_t)data[2]) << 8) & 0xff00;
@@ -117,21 +133,14 @@ uint32_t ArrowBatchReader::_convert_to_length(uint8_t* data) {
     return len;
 }
 
-Status ArrowBatchReader::_get_batch_value() {
+Status BatchWithLengthReader::_get_batch_value() {
     if (_batch_size <= 0) {
         return Status::OK();
     }
 
-    if (_get_valid_cap() < _batch_size) {
-        memmove(_read_buf, _read_buf + _read_buf_pos, _read_buf_len);
-    }
+    _ensure_cap(_batch_size);
 
-    while (_read_buf_len < _batch_size) {
-        Slice file_slice(_read_buf + _read_buf_pos + _read_buf_len, _get_valid_cap());
-        size_t read_length = 0;
-        RETURN_IF_ERROR(_file_reader->read_at(0, file_slice, &read_length, NULL));
-        _read_buf_len += read_length;
-    }
+    RETURN_IF_ERROR(_get_data_from_reader(_batch_size));
     return Status::OK();
 }
 
