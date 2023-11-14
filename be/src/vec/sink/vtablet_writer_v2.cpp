@@ -63,12 +63,13 @@ class TExpr;
 
 namespace vectorized {
 
-VTabletWriterV2::VTabletWriterV2(ObjectPool* pool, const RowDescriptor& row_desc,
-                                 const std::vector<TExpr>& texprs, Status* status)
-        : DataSink(row_desc), _pool(pool) {
-    // From the thrift expressions create the real exprs.
-    *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
-    _name = "VTabletWriterV2";
+VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
+        : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
+    DCHECK(t_sink.__isset.olap_table_sink);
+    //auto& table_sink = t_sink.olap_table_sink;
+    //_db_id = table_sink.db_id;
+    //_table_id = table_sink.table_id;
+    //_txn_id = table_sink.txn_id;
 }
 
 VTabletWriterV2::~VTabletWriterV2() = default;
@@ -152,9 +153,14 @@ Status VTabletWriterV2::_init_row_distribution() {
     return Status::OK();
 }
 
-Status VTabletWriterV2::init(const TDataSink& t_sink) {
-    DCHECK(t_sink.__isset.olap_table_sink);
-    auto& table_sink = t_sink.olap_table_sink;
+Status VTabletWriterV2::init_properties(ObjectPool* pool, bool group_commit) {
+    _pool = pool;
+    _group_commit = group_commit;
+    return Status::OK();
+}
+
+Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
+    auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
     _txn_id = table_sink.txn_id;
@@ -181,13 +187,8 @@ Status VTabletWriterV2::init(const TDataSink& t_sink) {
     _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition, find_tablet_mode);
     RETURN_IF_ERROR(_vpartition->init());
 
-    return Status::OK();
-}
-
-Status VTabletWriterV2::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSink::prepare(state));
-
     _state = state;
+    _profile = profile;
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
@@ -235,8 +236,6 @@ Status VTabletWriterV2::prepare(RuntimeState* state) {
     _close_writer_timer = ADD_CHILD_TIMER(_profile, "CloseWriterTime", "CloseWaitTime");
     _close_load_timer = ADD_CHILD_TIMER(_profile, "CloseLoadTime", "CloseWaitTime");
 
-    // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     if (config::share_delta_writers) {
         _delta_writer_for_tablet = ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(
                 _load_id, _num_local_sink);
@@ -246,9 +245,8 @@ Status VTabletWriterV2::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VTabletWriterV2::open(RuntimeState* state) {
-    // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
+Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
+    RETURN_IF_ERROR(_init(state, profile));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -359,16 +357,16 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
     return Status::OK();
 }
 
-Status VTabletWriterV2::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+Status VTabletWriterV2::append_block(Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
-    if (state->query_options().dry_run_query) {
+    if (_state->query_options().dry_run_query) {
         return status;
     }
 
-    auto input_rows = input_block->rows();
-    auto input_bytes = input_block->bytes();
+    auto input_rows = input_block.rows();
+    auto input_bytes = input_block.bytes();
     if (UNLIKELY(input_rows == 0)) {
         return status;
     }
@@ -376,8 +374,8 @@ Status VTabletWriterV2::send(RuntimeState* state, vectorized::Block* input_block
     _number_input_rows += input_rows;
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
-    state->update_num_rows_load_total(input_rows);
-    state->update_num_bytes_load_total(input_bytes);
+    _state->update_num_rows_load_total(input_rows);
+    _state->update_num_bytes_load_total(input_bytes);
     DorisMetrics::instance()->load_rows->increment(input_rows);
     DorisMetrics::instance()->load_bytes->increment(input_bytes);
 
@@ -390,7 +388,7 @@ Status VTabletWriterV2::send(RuntimeState* state, vectorized::Block* input_block
 
     std::shared_ptr<vectorized::Block> block;
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-            *input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids));
+            input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids));
     RowsForTablet rows_for_tablet;
     _generate_rows_for_tablet(_row_part_tablet_ids, rows_for_tablet);
 
@@ -451,8 +449,9 @@ Status VTabletWriterV2::_cancel(Status status) {
     return Status::OK();
 }
 
-Status VTabletWriterV2::close(RuntimeState* state, Status exec_status) {
-    if (_closed) {
+Status VTabletWriterV2::close(Status exec_status) {
+    std::lock_guard<std::mutex> close_lock(_close_mutex);
+    if (_is_closed) {
         return _close_status;
     }
     SCOPED_TIMER(_close_timer);
@@ -509,18 +508,18 @@ Status VTabletWriterV2::close(RuntimeState* state, Status exec_status) {
                 }
             }
         }
-        state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
-                                            std::make_move_iterator(tablet_commit_infos.begin()),
-                                            std::make_move_iterator(tablet_commit_infos.end()));
+        _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
+                                             std::make_move_iterator(tablet_commit_infos.begin()),
+                                             std::make_move_iterator(tablet_commit_infos.end()));
         _streams_for_node.clear();
 
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
-        int64_t num_rows_load_total = _number_input_rows + state->num_rows_load_filtered() +
-                                      state->num_rows_load_unselected();
-        state->set_num_rows_load_total(num_rows_load_total);
-        state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
-                                             _tablet_finder->num_filtered_rows());
-        state->update_num_rows_load_unselected(
+        int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
+                                      _state->num_rows_load_unselected();
+        _state->set_num_rows_load_total(num_rows_load_total);
+        _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
+                                              _tablet_finder->num_filtered_rows());
+        _state->update_num_rows_load_unselected(
                 _tablet_finder->num_immutable_partition_filtered_rows());
 
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
@@ -529,8 +528,8 @@ Status VTabletWriterV2::close(RuntimeState* state, Status exec_status) {
         RETURN_IF_ERROR(_cancel(status));
     }
 
+    _is_closed = true;
     _close_status = status;
-    RETURN_IF_ERROR(DataSink::close(state, exec_status));
     return status;
 }
 
