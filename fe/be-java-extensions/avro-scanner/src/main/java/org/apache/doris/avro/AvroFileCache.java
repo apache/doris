@@ -109,10 +109,10 @@ public class AvroFileCache {
 
         @Override
         public String toString() {
-            return "AvroFileCacheKey{" +
-                    "fileType='" + fileType + '\'' +
-                    ", uri='" + uri + '\'' +
-                    '}';
+            return "AvroFileCacheKey{"
+                    + "fileType='" + fileType + '\''
+                    + ", uri='" + uri + '\''
+                    + '}';
         }
     }
 }

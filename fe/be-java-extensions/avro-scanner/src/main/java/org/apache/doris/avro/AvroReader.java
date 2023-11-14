@@ -81,17 +81,17 @@ public abstract class AvroReader {
 
     protected void projectionSchema(JobConf job, AvroFileMeta avroFileMeta) {
         Set<String> filedNames = avroFileMeta.getRequiredFields();
-        JsonObject SchemaJson = new Gson().fromJson(avroFileMeta.getSchema(), JsonObject.class);
-        JsonObject copySchemaJson = SchemaJson.deepCopy();
-        JsonArray SchemaFields = SchemaJson.get("fields").getAsJsonArray();
+        JsonObject schemaJson = new Gson().fromJson(avroFileMeta.getSchema(), JsonObject.class);
+        JsonObject copySchemaJson = schemaJson.deepCopy();
+        JsonArray schemaFields = schemaJson.get("fields").getAsJsonArray();
         JsonArray copySchemaFields = copySchemaJson.get("fields").getAsJsonArray();
-        for (int i = 0; i < SchemaFields.size(); i++) {
-            JsonObject object = SchemaFields.get(i).getAsJsonObject();
+        for (int i = 0; i < schemaFields.size(); i++) {
+            JsonObject object = schemaFields.get(i).getAsJsonObject();
             String name = object.get("name").getAsString();
             if (filedNames.contains(name)) {
                 continue;
             }
-            copySchemaFields.remove(SchemaFields.get(i));
+            copySchemaFields.remove(schemaFields.get(i));
         }
         Schema projectionSchema = new Parser().parse(copySchemaJson.toString());
         AvroJob.setInputSchema(job, projectionSchema);
