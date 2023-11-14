@@ -112,13 +112,6 @@ public interface Job<T extends AbstractTask> {
     void onTaskSuccess(T task);
 
     /**
-     * Notifies the job when a task execution is cancelled.
-     *
-     * @param task The cancelled task.
-     */
-    void onTaskCancel(T task);
-
-    /**
      * get the job's show info, which is used to sql show the job information
      * @return List<String> job common show info
      */

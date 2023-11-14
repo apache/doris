@@ -32,8 +32,6 @@ public class MTMVJobInfo {
     private String jobName;
     @SerializedName("ht")
     private LinkedList<MTMVTask> historyTasks;
-    // not persist pending tasks
-    private LinkedList<MTMVTask> pendingTasks;
 
     public MTMVJobInfo(String jobName) {
         this.jobName = jobName;
@@ -51,16 +49,8 @@ public class MTMVJobInfo {
         }
     }
 
-    public void addPendingTask(MTMVTask task) {
-       pendingTasks.add(task);
-    }
-
     public LinkedList<MTMVTask> getHistoryTasks() {
         return historyTasks;
-    }
-
-    public LinkedList<MTMVTask> getPendingTasks() {
-        return pendingTasks;
     }
 
     @Override

@@ -17,7 +17,6 @@
 
 package org.apache.doris.job.base;
 
-import org.apache.commons.lang3.RandomUtils;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;
@@ -28,18 +27,19 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.job.task.Task;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.RandomUtils;
 
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 @Data
 public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Writable {
@@ -98,6 +98,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
             task.setCreateTimeMs(System.currentTimeMillis());
             task.setStatus(TaskStatus.PENDING);
         });
+        getRunningTasks().addAll(tasks);
     }
 
     public void checkJobParams() {
@@ -140,12 +141,10 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
             case INSERT:
                 return InsertJob.readFields(in);
             case MTMV:
-                // return MTMVJob.readFields(in);
-                break;
+                return MTMVJob.readFields(in);
             default:
                 throw new IllegalArgumentException("unknown job type");
         }
-        throw new IllegalArgumentException("unknown job type");
     }
 
     @Override
@@ -204,8 +203,8 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         commonShowInfo.add(comment);
         return commonShowInfo;
     }
-    
+
     private static long getNextId() {
-        return System.nanoTime()+ RandomUtils.nextInt();
+        return System.nanoTime() + RandomUtils.nextInt();
     }
 }

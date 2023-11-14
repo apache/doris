@@ -129,11 +129,8 @@ public class MTMVJobManager implements MTMVHookService {
         if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
             throw new DdlException("jobs not normal");
         }
-        Env.getCurrentEnv().getJobRegister().immediateExecuteTask(jobs.get(0).getJobId(), new MTMVTaskParams());
+        Env.getCurrentEnv().getJobRegister().immediateExecuteTask(jobs.get(0).getJobId(), null);
     }
 
-    private MTMVJobExecutor generateJobExecutor(MTMV materializedView) {
-        return new MTMVJobExecutor(materializedView.getQualifiedDbName(), materializedView.getId());
-    }
 
 }

@@ -51,7 +51,6 @@ public class InsertJob extends AbstractJob<InsertTask> {
         ArrayList<InsertTask> tasks = new ArrayList<>();
         tasks.add(task);
         super.initTasks(tasks);
-        getRunningTasks().addAll(tasks);
         return tasks;
     }
 
@@ -108,11 +107,6 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     public void onTaskSuccess(InsertTask task) {
-        getRunningTasks().remove(task);
-    }
-
-    @Override
-    public void onTaskCancel(InsertTask task) {
         getRunningTasks().remove(task);
     }
 

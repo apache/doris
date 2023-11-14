@@ -17,20 +17,43 @@
 
 package org.apache.doris.job.extensions.mtmv;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 public class MTMVJob extends AbstractJob<MTMVTask> {
-    @Override
-    public void write(DataOutput out) throws IOException {
-        
-    }
+    private static final ShowResultSetMetaData JOB_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("JobId", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("JobName", ScalarType.createVarchar(20)))
+                    .build();
+    private static final ShowResultSetMetaData TASK_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("JobId", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("TaskId", ScalarType.createVarchar(20)))
+                    .build();
+
+    @SerializedName(value = "dn")
+    private String dbName;
+    @SerializedName(value = "mi")
+    private long mtmvId;
 
     @Override
     protected void checkJobParamsInternal() {
@@ -39,7 +62,12 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public List<MTMVTask> createTasks(TaskType taskType) {
-        return null;
+        MTMVTask task = new MTMVTask(dbName, mtmvId);
+        task.setTaskType(taskType);
+        ArrayList<MTMVTask> tasks = new ArrayList<>();
+        tasks.add(task);
+        super.initTasks(tasks);
+        return tasks;
     }
 
     @Override
@@ -49,31 +77,45 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public ShowResultSetMetaData getJobMetaData() {
-        return null;
+        return JOB_META_DATA;
     }
 
     @Override
     public ShowResultSetMetaData getTaskMetaData() {
-        return null;
+        return TASK_META_DATA;
     }
 
     @Override
     public JobType getJobType() {
-        return null;
+        return JobType.MTMV;
     }
 
     @Override
     public List<MTMVTask> queryTasks() {
-        return null;
-    }
-
-    @Override
-    public void onTaskCancel(MTMVTask task) {
-
+        return getMTMV().getJobInfo().getHistoryTasks();
     }
 
     @Override
     public List<String> getShowInfo() {
-        return null;
+        List<String> data = Lists.newArrayList();
+        data.add(super.getJobId() + "");
+        data.add(super.getJobName());
+        return data;
+    }
+
+    private MTMV getMTMV() {
+        try {
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+            return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+        } catch (MetaNotFoundException | DdlException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+
     }
 }
