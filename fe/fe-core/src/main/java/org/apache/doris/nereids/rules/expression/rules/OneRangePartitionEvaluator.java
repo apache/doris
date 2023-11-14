@@ -222,8 +222,12 @@ public class OneRangePartitionEvaluator
         if (expr.getDataType() instanceof BooleanType && !(expr instanceof Literal)
                 && result.childrenResult.stream().anyMatch(childResult ->
                 childResult.columnRanges.values().stream().anyMatch(ColumnRange::isEmptyRange))) {
+            // this assumes that for expression: func(A)
+            // if A reject partition, then func(A) reject partition.
+            // implement visitFunc for Func if Func does not satisfy the above assumption.
             return new EvaluateRangeResult(BooleanLiteral.FALSE, result.columnRanges, result.childrenResult);
         }
+        // assumption: for func(A), if A accept range (n, m), then func(A) accept range (n, m).
         return result;
     }
 
