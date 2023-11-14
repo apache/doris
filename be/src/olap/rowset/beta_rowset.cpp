@@ -289,9 +289,9 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 }
             }
             if (need_to_link) {
-                DBUG_EXECUTE_IF("error_inject::BetaRowset::link_files_to::_link_inverted_index_file",
+                DBUG_EXECUTE_IF("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file",
                                 {
-                    status = Status::Error<OS_ERROR>("error_inject link_file error from={}, to={}",
+                    status = Status::Error<OS_ERROR>("fault_inject link_file error from={}, to={}",
                              inverted_index_src_file_path, inverted_index_dst_file_path);
                     return status;
                 });

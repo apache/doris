@@ -198,12 +198,12 @@ suite("test_build_index_fault", "inverted_index"){
     // BUILD INDEX with error injection
     sql """ ALTER TABLE ${tableName} ADD INDEX idx_title (`title`) USING INVERTED """
     // enable error_inject for BetaRowset link inverted index file and expect state is RUNNGING
-    GetDebugPoint().enableDebugPointForAllBEs("error_inject::BetaRowset::link_files_to::_link_inverted_index_file")
+    GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file")
     sql """ BUILD INDEX idx_title ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
     assertEquals(state, "wait_timeout")
     // disable error_inject for BetaRowset link inverted index file and expect state is FINISHED
-    GetDebugPoint().disableDebugPointForAllBEs("error_inject::BetaRowset::link_files_to::_link_inverted_index_file")
+    GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file")
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
     assertEquals(state, "FINISHED")
 }
