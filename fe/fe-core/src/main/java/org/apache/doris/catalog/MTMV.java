@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
@@ -29,7 +31,6 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.mtmv.MTMVTaskResult;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -116,8 +117,8 @@ public class MTMV extends OlapTable {
         return this.status.updateNotNull(newStatus);
     }
 
-    public void alterTaskResult(MTMVTaskResult taskResult, MTMVCache cache) {
-        if (taskResult.isSuccess()) {
+    public void addTaskResult(MTMVTask task, MTMVCache cache) {
+        if (task.getStatus() == TaskStatus.SUCCESS) {
             this.status.setState(MTMVState.NORMAL);
             this.status.setSchemaChangeDetail(null);
             this.status.setRefreshState(MTMVRefreshState.SUCCESS);
@@ -126,7 +127,7 @@ public class MTMV extends OlapTable {
         } else {
             this.status.setRefreshState(MTMVRefreshState.FAIL);
         }
-        this.jobInfo.setLastTaskResult(taskResult);
+        this.jobInfo.addHistoryTask(task);
     }
 
     public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {

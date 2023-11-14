@@ -17,7 +17,12 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
+
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+
+import java.util.LinkedList;
 
 /**
  * MTMVJobInfo
@@ -25,31 +30,44 @@ import com.google.gson.annotations.SerializedName;
 public class MTMVJobInfo {
     @SerializedName("jobName")
     private String jobName;
-    @SerializedName("lastTaskResult")
-    private MTMVTaskResult lastTaskResult;
+    @SerializedName("ht")
+    private LinkedList<MTMVTask> historyTasks;
+    // not persist pending tasks
+    private LinkedList<MTMVTask> pendingTasks;
 
     public MTMVJobInfo(String jobName) {
         this.jobName = jobName;
-        lastTaskResult = new MTMVTaskResult();
+        historyTasks = Lists.newLinkedList();
     }
 
     public String getJobName() {
         return jobName;
     }
 
-    public MTMVTaskResult getLastTaskResult() {
-        return lastTaskResult;
+    public void addHistoryTask(MTMVTask task) {
+        historyTasks.add(task);
+        if (historyTasks.size() > MTMVTask.MAX_HISTORY_TASKS_NUM) {
+            historyTasks.removeFirst();
+        }
     }
 
-    public void setLastTaskResult(MTMVTaskResult lastTaskResult) {
-        this.lastTaskResult = lastTaskResult;
+    public void addPendingTask(MTMVTask task) {
+       pendingTasks.add(task);
+    }
+
+    public LinkedList<MTMVTask> getHistoryTasks() {
+        return historyTasks;
+    }
+
+    public LinkedList<MTMVTask> getPendingTasks() {
+        return pendingTasks;
     }
 
     @Override
     public String toString() {
         return "MTMVJobInfo{"
                 + "jobName='" + jobName + '\''
-                + ", lastTaskResult=" + lastTaskResult
+                + ", historyTasks=" + historyTasks
                 + '}';
     }
 }

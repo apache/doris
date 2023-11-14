@@ -888,8 +888,8 @@ public class Alter {
                 mtmv.alterStatus(alterMTMV.getStatus());
             } else if (alterMTMV.getMvProperties() != null) {
                 mtmv.alterMvProperties(alterMTMV.getMvProperties());
-            } else if (alterMTMV.getTaskResult() != null) {
-                mtmv.alterTaskResult(alterMTMV.getTaskResult(), alterMTMV.getCache());
+            } else if (alterMTMV.getTask() != null) {
+                mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getCache());
             }
             // 4. log it and replay it in the follower
             if (!isReplay) {

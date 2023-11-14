@@ -148,6 +148,7 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -177,7 +178,6 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.mtmv.MTMVTaskResult;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -5777,10 +5777,10 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void alterMTMVTaskResult(TableNameInfo mvName, MTMVTaskResult taskResult, MTMVCache cache)
+    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVCache cache)
             throws UserException {
         AlterMTMV alter = new AlterMTMV(mvName);
-        alter.setTaskResult(taskResult);
+        alter.setTask(task);
         alter.setCache(cache);
         this.alter.processAlterMTMV(alter, false);
     }
