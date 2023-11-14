@@ -429,7 +429,6 @@ private:
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
-            bool f = false;
             while (build_idx && matched_cnt < batch_size) {
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     probe_idxs[matched_cnt] = probe_idx;
@@ -441,7 +440,6 @@ private:
                             visited[build_idx] = 1;
                         }
                     }
-                    f = true;
                 }
                 build_idx = next[build_idx];
             }
@@ -455,7 +453,6 @@ private:
                     matched_cnt++;
                 }
             }
-
             probe_idx++;
         };
 
