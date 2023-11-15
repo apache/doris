@@ -40,7 +40,7 @@ class DebugPoint {
      *    name:        debug point name
      *    params:      timeout, execute, or other customized input params
      */
-    static def enableDebugPoint(String host, String httpPort, NodeType type, String name, Map<String, String> params = null) {
+    static def enableDebugPoint(String host, int httpPort, NodeType type, String name, Map<String, String> params = null) {
         def url = 'http://' + host + ':' + httpPort + '/api/debug_point/add/' + name
         if (params != null && params.size() > 0) {
             url += '?' + params.collect((k, v) -> k + '=' + v).join('&')
@@ -56,7 +56,7 @@ class DebugPoint {
      *    type:        NodeType.BE or NodeType.FE
      *    name:        debug point name
      */
-    static def disableDebugPoint(String host, String httpPort, NodeType type, String name) {
+    static def disableDebugPoint(String host, int httpPort, NodeType type, String name) {
         def url = 'http://' + host + ':' + httpPort + '/api/debug_point/remove/' + name
         def result = Http.http_post(url, null, true)
         checkHttpResult(result, type)
@@ -68,7 +68,7 @@ class DebugPoint {
      *    httpPort:    http port of target node
      *    type:        NodeType.BE or NodeType.FE
      */
-    static def clearDebugPoints(String host, String httpPort, NodeType type) {
+    static def clearDebugPoints(String host, int httpPort, NodeType type) {
         def url = 'http://' + host + ':' + httpPort + '/api/debug_point/clear'
         def result = Http.http_post(url, null, true)
         checkHttpResult(result, type)
@@ -79,7 +79,7 @@ class DebugPoint {
         def portList = [:]
         (ipList, portList) = getBEHostAndHTTPPort()
         ipList.each { beid, ip ->
-            closure.call(ip, portList[beid])
+            closure.call(ip, portList[beid] as int)
         }
     }
 

@@ -58,24 +58,23 @@ class RuntimeProfile;
 
 namespace vectorized {
 
+class DeltaWriterV2Pool;
+
 class DeltaWriterV2Map {
 public:
-    DeltaWriterV2Map(UniqueId load_id);
+    DeltaWriterV2Map(UniqueId load_id, int num_use = 1, DeltaWriterV2Pool* pool = nullptr);
 
     ~DeltaWriterV2Map();
 
-    void grab() { ++_use_cnt; }
-
     // get or create delta writer for the given tablet, memory is managed by DeltaWriterV2Map
-    DeltaWriterV2* get_or_create(int64_t tablet_id, std::function<DeltaWriterV2*()> creator);
+    DeltaWriterV2* get_or_create(int64_t tablet_id,
+                                 std::function<std::unique_ptr<DeltaWriterV2>()> creator);
 
     // close all delta writers in this DeltaWriterV2Map if there is no other users
-    Status close(RuntimeProfile* profile);
+    Status close(RuntimeProfile* profile = nullptr);
 
     // cancel all delta writers in this DeltaWriterV2Map
     void cancel(Status status);
-
-    UniqueId unique_id() const { return _load_id; }
 
     size_t size() const { return _map.size(); }
 
@@ -88,6 +87,7 @@ private:
     UniqueId _load_id;
     TabletToDeltaWriterV2Map _map;
     std::atomic<int> _use_cnt;
+    DeltaWriterV2Pool* _pool;
 };
 
 class DeltaWriterV2Pool {
@@ -96,7 +96,9 @@ public:
 
     ~DeltaWriterV2Pool();
 
-    std::shared_ptr<DeltaWriterV2Map> get_or_create(PUniqueId load_id);
+    std::shared_ptr<DeltaWriterV2Map> get_or_create(PUniqueId load_id, int num_sink = 1);
+
+    void erase(UniqueId load_id);
 
     size_t size() {
         std::lock_guard<std::mutex> lock(_mutex);
@@ -105,7 +107,7 @@ public:
 
 private:
     std::mutex _mutex;
-    std::unordered_map<UniqueId, std::weak_ptr<DeltaWriterV2Map>> _pool;
+    std::unordered_map<UniqueId, std::shared_ptr<DeltaWriterV2Map>> _pool;
 };
 
 } // namespace vectorized

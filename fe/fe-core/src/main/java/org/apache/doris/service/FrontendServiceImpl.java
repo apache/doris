@@ -83,15 +83,18 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.MasterCatalogExecutor;
+import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsCacheKey;
@@ -1104,7 +1107,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ConnectContext context = new ConnectContext();
         // Set current connected FE to the client address, so that we can know where this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
-        ConnectProcessor processor = new ConnectProcessor(context);
+
+        ConnectProcessor processor = null;
+        if (context.getConnectType().equals(ConnectType.MYSQL)) {
+            processor = new MysqlConnectProcessor(context);
+        } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
+            processor = new FlightSqlConnectProcessor(context);
+        } else {
+            throw new TException("unknown ConnectType: " + context.getConnectType());
+        }
+
         TMasterOpResult result = processor.proxyExecute(params);
         if (QueryState.MysqlStateType.ERR.name().equalsIgnoreCase(result.getStatus())) {
             context.getState().setError(result.getStatus());
@@ -2144,6 +2156,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             coord.setQueryType(TQueryType.LOAD);
 
             TExecPlanFragmentParams plan = coord.getStreamLoadPlan();
+            int loadStreamPerNode = 20;
+            if (request.getStreamPerNode() > 0) {
+                loadStreamPerNode = request.getStreamPerNode();
+            }
+            plan.setLoadStreamPerNode(loadStreamPerNode);
+            plan.setTotalLoadStreams(loadStreamPerNode);
+            plan.setNumLocalSink(1);
             final long txn_id = parsedStmt.getTransactionId();
             result.setParams(plan);
             result.getParams().setDbName(parsedStmt.getDbName());
@@ -2157,6 +2176,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setDbId(parsedStmt.getTargetTable().getDatabase().getId());
             result.setTableId(parsedStmt.getTargetTable().getId());
             result.setBaseSchemaVersion(((OlapTable) parsedStmt.getTargetTable()).getBaseSchemaVersion());
+            result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
             throw new UserException("exec sql error" + e);
@@ -2221,6 +2241,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
                 txnState.addTableIndexes(table);
+                if (request.isPartialUpdate()) {
+                    txnState.setSchemaForPartialUpdate(table);
+                }
             }
             plan.setTableName(table.getName());
             plan.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
@@ -2284,6 +2307,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
                 txnState.addTableIndexes(table);
+                if (request.isPartialUpdate()) {
+                    txnState.setSchemaForPartialUpdate(table);
+                }
             }
             return plan;
         } finally {
@@ -3052,14 +3078,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             ctx.setCluster(cluster);
             ctx.setQualifiedUser(request.getUser());
-            UserIdentity currentUserIdentity = new UserIdentity(request.getUser(), "%");
+            String fullUserName = ClusterNamespace.getFullName(cluster, request.getUser());
+            UserIdentity currentUserIdentity = new UserIdentity(fullUserName, "%");
             ctx.setCurrentUserIdentity(currentUserIdentity);
 
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
             restoreStmt.analyze(analyzer);
             DdlExecutor.execute(Env.getCurrentEnv(), restoreStmt);
         } catch (UserException e) {
-            LOG.warn("failed to get snapshot info: {}", e.getMessage());
+            LOG.warn("failed to restore: {}", e.getMessage(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -3273,6 +3300,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     partitionValues, partitionInfo);
         } catch (AnalysisException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+            result.setStatus(errorStatus);
+            return result;
+        }
+
+        // check partition's number limit.
+        int partitionNum = olapTable.getPartitionNum() + addPartitionClauseMap.size();
+        if (partitionNum > Config.max_auto_partition_num) {
+            olapTable.writeUnlock();
+            String errorMessage = String.format(
+                    "create partition failed. partition numbers %d will exceed limit variable max_auto_partition_num%d",
+                    partitionNum, Config.max_auto_partition_num);
+            LOG.warn(errorMessage);
+            errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
             result.setStatus(errorStatus);
             return result;
         }

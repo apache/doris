@@ -2,13 +2,13 @@
 -- !ds_shape_89 --
 PhysicalResultSink
 --PhysicalProject
-----PhysicalTopN
+----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalTopN
+--------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
 ------------filter((if(( not (avg_monthly_sales = 0.0000)), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1))
 --------------PhysicalWindow
-----------------PhysicalQuickSort
+----------------PhysicalQuickSort[LOCAL_SORT]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]

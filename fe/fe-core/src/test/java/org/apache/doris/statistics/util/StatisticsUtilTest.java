@@ -19,9 +19,15 @@ package org.apache.doris.statistics.util;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.SessionVariable;
 
-import org.junit.Test;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 
 public class StatisticsUtilTest {
     @Test
@@ -66,5 +72,43 @@ public class StatisticsUtilTest {
         } catch (AnalysisException e) {
             Assertions.fail();
         }
+    }
+
+    @Test
+    public void testInAnalyzeTime1() {
+        new MockUp<StatisticsUtil>() {
+
+            @Mock
+            protected SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
+                SessionVariable sessionVariable = new SessionVariable();
+                sessionVariable.fullAutoAnalyzeStartTime = "00:00:00";
+                sessionVariable.fullAutoAnalyzeEndTime = "02:00:00";
+                return sessionVariable;
+            }
+        };
+        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+        String now = "01:00:00";
+        Assertions.assertTrue(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+        now = "13:00:00";
+        Assertions.assertFalse(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+    }
+
+    @Test
+    public void testInAnalyzeTime2() {
+        new MockUp<StatisticsUtil>() {
+
+            @Mock
+            protected SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
+                SessionVariable sessionVariable = new SessionVariable();
+                sessionVariable.fullAutoAnalyzeStartTime = "00:00:00";
+                sessionVariable.fullAutoAnalyzeEndTime = "23:00:00";
+                return sessionVariable;
+            }
+        };
+        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+        String now = "15:00:00";
+        Assertions.assertTrue(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
+        now = "23:30:00";
+        Assertions.assertFalse(StatisticsUtil.inAnalyzeTime(LocalTime.parse(now, timeFormatter)));
     }
 }

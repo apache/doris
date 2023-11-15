@@ -55,9 +55,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[customer]
 --PhysicalResultSink
-----PhysicalTopN
+----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalTopN
+--------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id))otherCondition=((if((year_total > 0.000000), (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)), NULL) > if((year_total > 0.000000), (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)), NULL)))
 --------------PhysicalProject

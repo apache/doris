@@ -29,6 +29,9 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         String oracle_port = context.config.otherConfigs.get("oracle_11_port");
         String SID = "XE";
         String test_insert = "TEST_INSERT";
+        String test_all_types = "TEST_ALL_TYPES";
+        String test_insert_all_types = "test_insert_all_types";
+        String test_ctas = "test_ctas";
 
         String inDorisTable = "doris_in_tb";
 
@@ -53,6 +56,49 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                 `age` INT NULL COMMENT "年龄"
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10
                 PROPERTIES("replication_num" = "1");
+        """
+
+        sql """ drop table if exists ${internal_db_name}.${test_insert_all_types} """
+        sql """
+            CREATE TABLE ${internal_db_name}.${test_insert_all_types} (
+                `ID` LARGEINT NULL,
+                `N1` TEXT NULL,
+                `N2` LARGEINT NULL,
+                `N3` DECIMAL(9, 2) NULL,
+                `N4` LARGEINT NULL,
+                `N5` LARGEINT NULL,
+                `N6` DECIMAL(5, 2) NULL,
+                `N7` DOUBLE NULL,
+                `N8` DOUBLE NULL,
+                `N9` DOUBLE NULL,
+                `TINYINT_VALUE1` TINYINT NULL,
+                `SMALLINT_VALUE1` SMALLINT NULL,
+                `INT_VALUE1` INT NULL,
+                `BIGINT_VALUE1` BIGINT NULL,
+                `TINYINT_VALUE2` SMALLINT NULL,
+                `SMALLINT_VALUE2` INT NULL,
+                `INT_VALUE2` BIGINT NULL,
+                `BIGINT_VALUE2` LARGEINT NULL,
+                `COUNTRY` TEXT NULL,
+                `CITY` TEXT NULL,
+                `ADDRESS` TEXT NULL,
+                `NAME` TEXT NULL,
+                `REMARK` TEXT NULL,
+                `NUM1` DECIMAL(5, 2) NULL,
+                `NUM2` INT NULL,
+                `NUM4` DECIMAL(7, 7) NULL,
+                `T1` DATETIME NULL,
+                `T2` DATETIME(3) NULL,
+                `T3` DATETIME(6) NULL,
+                `T4` DATETIME(6) NULL,
+                `T5` DATETIME(6) NULL,
+                `T6` TEXT NULL,
+                `T7` TEXT NULL
+                )
+            DISTRIBUTED BY HASH(`ID`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
         """
 
         sql """switch ${catalog_name}"""
@@ -97,6 +143,24 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
 
         sql """ insert into ${test_insert} select * from ${test_insert} where id = '${uuid2}' """
         order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
+
+        // test select all types
+        order_qt_select_all_types """select * from ${test_all_types}; """
+
+        // test test ctas
+        sql """ drop table if exists internal.${internal_db_name}.${test_ctas} """
+        sql """ create table internal.${internal_db_name}.${test_ctas}
+                PROPERTIES("replication_num" = "1")
+                AS select * from ${test_all_types};
+            """
+
+        order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas};"""
+
+        order_qt_ctas_desc """desc internal.${internal_db_name}.${test_ctas};"""
+
+        // test insert into internal.db.tbl
+        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from ${test_all_types}; """
+        order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by id; """
 
         sql """drop catalog if exists ${catalog_name} """
 

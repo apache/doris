@@ -298,6 +298,10 @@ UNIQUE KEY(k1, k2)
 
     根据 Tag 设置副本分布情况。该属性可以完全覆盖 `replication_num` 属性的功能。
 
+* `min_load_replica_num`
+
+    设定数据导入成功所需的最小副本数，默认值为-1。当该属性小于等于0时，表示导入数据仍需多数派副本成功。
+
 * `is_being_synced`  
 
     用于标识此表是否是被CCR复制而来并且正在被syncer同步，默认为 `false`。  

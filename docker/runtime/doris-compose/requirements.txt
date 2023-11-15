@@ -20,3 +20,4 @@ docker-compose
 jsonpickle
 prettytable
 pymysql
+python-dateutil

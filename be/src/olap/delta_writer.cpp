@@ -28,7 +28,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -243,21 +242,20 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         }
     }
 
-    PTabletWriteSlaveRequest request;
-    RowsetMetaPB rowset_meta_pb = cur_rowset->rowset_meta()->get_rowset_pb();
-    request.set_allocated_rowset_meta(&rowset_meta_pb);
-    request.set_host(BackendOptions::get_localhost());
-    request.set_http_port(config::webserver_port);
+    auto request = std::make_shared<PTabletWriteSlaveRequest>();
+    *(request->mutable_rowset_meta()) = cur_rowset->rowset_meta()->get_rowset_pb();
+    request->set_host(BackendOptions::get_localhost());
+    request->set_http_port(config::webserver_port);
     string tablet_path = _rowset_builder.tablet()->tablet_path();
-    request.set_rowset_path(tablet_path);
-    request.set_token(ExecEnv::GetInstance()->token());
-    request.set_brpc_port(config::brpc_port);
-    request.set_node_id(node_info.id());
+    request->set_rowset_path(tablet_path);
+    request->set_token(ExecEnv::GetInstance()->token());
+    request->set_brpc_port(config::brpc_port);
+    request->set_node_id(node_info.id());
     for (int segment_id = 0; segment_id < cur_rowset->rowset_meta()->num_segments(); segment_id++) {
         std::stringstream segment_name;
         segment_name << cur_rowset->rowset_id() << "_" << segment_id << ".dat";
         int64_t segment_size = std::filesystem::file_size(tablet_path + "/" + segment_name.str());
-        request.mutable_segments_size()->insert({segment_id, segment_size});
+        request->mutable_segments_size()->insert({segment_id, segment_size});
 
         if (!indices_ids.empty()) {
             for (auto index_id : indices_ids) {
@@ -269,41 +267,39 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
                 index_size.set_size(size);
                 // Fetch the map value for the current segment_id.
                 // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
-                auto& index_size_map_value = (*request.mutable_inverted_indices_size())[segment_id];
+                auto& index_size_map_value =
+                        (*(request->mutable_inverted_indices_size()))[segment_id];
                 // Add the new index size to the map value.
                 *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
             }
         }
     }
-    RefCountClosure<PTabletWriteSlaveResult>* closure =
-            new RefCountClosure<PTabletWriteSlaveResult>();
-    closure->ref();
-    closure->ref();
-    closure->cntl.set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
-    closure->cntl.ignore_eovercrowded();
-    stub->request_slave_tablet_pull_rowset(&closure->cntl, &request, &closure->result, closure);
-    static_cast<void>(request.release_rowset_meta());
 
-    closure->join();
-    if (closure->cntl.Failed()) {
+    auto pull_callback = DummyBrpcCallback<PTabletWriteSlaveResult>::create_shared();
+    auto closure = AutoReleaseClosure<
+            PTabletWriteSlaveRequest,
+            DummyBrpcCallback<PTabletWriteSlaveResult>>::create_unique(request, pull_callback);
+    closure->cntl_->set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
+    closure->cntl_->ignore_eovercrowded();
+    stub->request_slave_tablet_pull_rowset(closure->cntl_.get(), closure->request_.get(),
+                                           closure->response_.get(), closure.get());
+
+    closure.release();
+    pull_callback->join();
+    if (pull_callback->cntl_->Failed()) {
         if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
                     stub, node_info.host(), node_info.async_internal_port())) {
             ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    closure->cntl.remote_side());
+                    pull_callback->cntl_->remote_side());
         }
         LOG(WARNING) << "failed to send pull rowset request to slave replica, error="
-                     << berror(closure->cntl.ErrorCode())
-                     << ", error_text=" << closure->cntl.ErrorText()
+                     << berror(pull_callback->cntl_->ErrorCode())
+                     << ", error_text=" << pull_callback->cntl_->ErrorText()
                      << ". slave host: " << node_info.host() << ", tablet_id=" << _req.tablet_id
                      << ", txn_id=" << _req.txn_id;
         std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
         _unfinished_slave_node.erase(node_info.id());
     }
-
-    if (closure->unref()) {
-        delete closure;
-    }
-    closure = nullptr;
 }
 
 void DeltaWriter::finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed) {

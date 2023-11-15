@@ -52,6 +52,7 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -78,8 +79,6 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
-import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -530,6 +529,7 @@ public class EditLog {
                     Env.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
                     LOG.debug("logid: {}, opcode: {}, tid: {}", logId, opCode, state.getTransactionId());
 
+                    // state.loadedTableIndexIds is updated after replay
                     if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
                         UpsertRecord upsertRecord = new UpsertRecord(logId, state);
                         Env.getCurrentEnv().getBinlogManager().addUpsertRecord(upsertRecord);
@@ -661,21 +661,21 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_SCHEDULER_JOB: {
-                    Job job = (Job) journal.getData();
-                    Env.getCurrentEnv().getAsyncJobManager().replayCreateJob(job);
+                    AbstractJob job = (AbstractJob) journal.getData();
+                    Env.getCurrentEnv().getJobManager().replayCreateJob(job);
                     break;
                 }
                 case OperationType.OP_UPDATE_SCHEDULER_JOB: {
-                    Job job = (Job) journal.getData();
-                    Env.getCurrentEnv().getAsyncJobManager().replayUpdateJob(job);
+                    AbstractJob job = (AbstractJob) journal.getData();
+                    Env.getCurrentEnv().getJobManager().replayUpdateJob(job);
                     break;
                 }
                 case OperationType.OP_DELETE_SCHEDULER_JOB: {
-                    Job job = (Job) journal.getData();
-                    Env.getCurrentEnv().getAsyncJobManager().replayDeleteJob(job);
+                    AbstractJob job = (AbstractJob) journal.getData();
+                    Env.getCurrentEnv().getJobManager().replayDeleteJob(job);
                     break;
                 }
-                case OperationType.OP_CREATE_SCHEDULER_TASK: {
+                /*case OperationType.OP_CREATE_SCHEDULER_TASK: {
                     JobTask task = (JobTask) journal.getData();
                     Env.getCurrentEnv().getJobTaskManager().replayCreateTask(task);
                     break;
@@ -684,7 +684,7 @@ public class EditLog {
                     JobTask task = (JobTask) journal.getData();
                     Env.getCurrentEnv().getJobTaskManager().replayDeleteTask(task);
                     break;
-                }
+                }*/
                 case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
                     RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
                     Env.getCurrentEnv().getRoutineLoadManager().replayChangeRoutineLoadJob(operation);
@@ -1602,23 +1602,15 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_ROUTINE_LOAD_JOB, routineLoadJob);
     }
 
-    public void logCreateJob(Job job) {
+    public void logCreateJob(AbstractJob job) {
         logEdit(OperationType.OP_CREATE_SCHEDULER_JOB, job);
     }
 
-    public void logUpdateJob(Job job) {
+    public void logUpdateJob(AbstractJob job) {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
-    public void logCreateJobTask(JobTask jobTask) {
-        logEdit(OperationType.OP_CREATE_SCHEDULER_TASK, jobTask);
-    }
-
-    public void logDeleteJobTask(JobTask jobTask) {
-        logEdit(OperationType.OP_DELETE_SCHEDULER_TASK, jobTask);
-    }
-
-    public void logDeleteJob(Job job) {
+    public void logDeleteJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
 

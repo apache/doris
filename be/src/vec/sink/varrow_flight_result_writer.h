@@ -31,7 +31,6 @@
 namespace doris {
 class BufferControlBlock;
 class RuntimeState;
-class RowDescriptor;
 
 namespace vectorized {
 class Block;
@@ -39,7 +38,8 @@ class Block;
 class VArrowFlightResultWriter final : public ResultWriter {
 public:
     VArrowFlightResultWriter(BufferControlBlock* sinker, const VExprContextSPtrs& output_vexpr_ctxs,
-                             RuntimeProfile* parent_profile, const RowDescriptor& row_desc);
+                             RuntimeProfile* parent_profile,
+                             const std::shared_ptr<arrow::Schema>& arrow_schema);
 
     Status init(RuntimeState* state) override;
 
@@ -72,7 +72,6 @@ private:
 
     uint64_t _bytes_sent = 0;
 
-    const RowDescriptor& _row_desc;
     std::shared_ptr<arrow::Schema> _arrow_schema;
 };
 } // namespace vectorized

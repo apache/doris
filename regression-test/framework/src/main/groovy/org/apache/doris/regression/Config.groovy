@@ -62,6 +62,7 @@ class Config {
     public String sslCertificatePath
     public String dorisComposePath
     public String image
+    public String dockerCoverageOutputDir
     public Boolean dockerEndDeleteFiles
     public Boolean excludeDockerTest
 
@@ -310,6 +311,7 @@ class Config {
         )
 
         config.image = configToString(obj.image)
+        config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
 

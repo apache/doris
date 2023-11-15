@@ -151,8 +151,9 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
 
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
-    return SnapshotManager::instance()->convert_rowset_ids(
-            full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash);
+    _pending_rs_guards = DORIS_TRY(SnapshotManager::instance()->convert_rowset_ids(
+            full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash));
+    return Status::OK();
 }
 
 Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) {
@@ -213,7 +214,7 @@ Status EngineStorageMigrationTask::_migrate() {
         RETURN_IF_ERROR(_get_versions(start_version, &end_version, &consistent_rowsets));
 
         // TODO(ygl): the tablet should not under schema change or rollup or load
-        RETURN_IF_ERROR(_dest_store->get_shard(&shard));
+        shard = _dest_store->get_shard();
 
         auto shard_path = fmt::format("{}/{}/{}", _dest_store->path(), DATA_PREFIX, shard);
         full_path = SnapshotManager::get_schema_hash_full_path(_tablet, shard_path);

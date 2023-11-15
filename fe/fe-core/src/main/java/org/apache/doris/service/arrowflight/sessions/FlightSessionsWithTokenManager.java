@@ -58,6 +58,7 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
             if (flightTokenDetails.getCreatedSession()) {
                 return null;
             }
+            flightTokenDetails.setCreatedSession(true);
             return FlightSessionsManager.buildConnectContext(peerIdentity, flightTokenDetails.getUserIdentity(),
                     flightTokenDetails.getRemoteIp());
         } catch (IllegalArgumentException e) {

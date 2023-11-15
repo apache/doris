@@ -60,10 +60,10 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         queues[i]->set_dependency(deps[i]);
         source_dependency->add_child(deps[i]);
     }
+    static const std::string timer_name =
+            "WaitForDependency[" + source_dependency->name() + "]Time";
+    _wait_for_dependency_timer = ADD_TIMER(_runtime_profile, timer_name);
     for (size_t i = 0; i < queues.size(); i++) {
-        static const std::string timer_name =
-                "WaitForDependency[" + source_dependency->name() + "]Time";
-        _wait_for_dependency_timer = ADD_TIMER(_runtime_profile, timer_name);
         metrics[i] = ADD_CHILD_TIMER(_runtime_profile, fmt::format("WaitForData{}", i), timer_name);
     }
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(

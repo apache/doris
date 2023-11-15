@@ -55,3 +55,18 @@ __DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
 __DORIS_VERSION_COL__	BIGINT	No	false	0	REPLACE
 __DORIS_SEQUENCE_COL__	INT	Yes	false	\N	REPLACE
 
+-- !1 --
+1	1	1	1	1	0	2	1
+2	2	2	2	2	0	2	2
+3	3	3	3	3	0	2	3
+
+-- !2 --
+1	1	1	1	1	0	2	1
+2	20	20	20	20	0	3	20
+3	3	3	3	3	0	2	3
+
+-- !3 --
+1	1	1	1	1	0	2	1
+2	20	20	20	20	0	3	20
+3	3	3	3	3	0	2	3
+

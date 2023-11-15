@@ -1204,7 +1204,10 @@ public enum ErrorCode {
             "the auto increment must be BIGINT type."),
 
     ERR_AUTO_INCREMENT_COLUMN_IN_AGGREGATE_TABLE(5096, new byte[]{'4', '2', '0', '0', '0'},
-            "the auto increment is only supported in duplicate table and unique table.");
+            "the auto increment is only supported in duplicate table and unique table."),
+
+    ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT(5097, new byte[]{'4', '2', '0', '0', '0'},
+            "There can only be one stmt that returns the result and it is at the end.");
 
     // This is error code
     private final int code;

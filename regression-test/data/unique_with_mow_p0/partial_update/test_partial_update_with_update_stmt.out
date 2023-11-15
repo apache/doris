@@ -7,3 +7,11 @@
 1	doris	4000	123	1
 2	doris4	8000	223	1
 
+-- !select_default --
+1	doris	4000	123	1
+2	doris2	2000	223	1
+
+-- !select_join --
+1	doris	4000	123	1
+2	doris4	8000	223	1
+

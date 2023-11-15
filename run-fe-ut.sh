@@ -107,18 +107,22 @@ if [[ -z "${FE_UT_PARALLEL}" ]]; then
 fi
 echo "Unit test parallel is: ${FE_UT_PARALLEL}"
 
-if [[ "${COVERAGE}" -eq 1 ]]; then
-    echo "Run coverage statistic"
-    ant cover-test
-else
-    if [[ "${RUN}" -eq 1 ]]; then
-        echo "Run the specified class: $1"
-        # eg:
-        # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest
-        # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -D test="$1"
+if [[ "${RUN}" -eq 1 ]]; then
+    echo "Run the specified class: $1"
+    # eg:
+    # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest
+    # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
+
+    if [[ "${COVERAGE}" -eq 1 ]]; then
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1"
     else
-        echo "Run Frontend UT"
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dtest="$1"
+    fi
+else
+    echo "Run Frontend UT"
+    if [[ "${COVERAGE}" -eq 1 ]]; then
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false
+    else
         "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false
     fi
 fi

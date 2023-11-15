@@ -17,8 +17,6 @@
 
 package org.apache.doris.common;
 
-import java.util.concurrent.TimeUnit;
-
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -441,6 +439,13 @@ public class Config extends ConfigBase {
             + "then the load task will be successful." })
     public static int publish_wait_time_second = 300;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段是否检查正在做 Schema 变更的副本。"
+            + "正常情况下，不要关闭此检查。除非在极端情况下出现导入和 Schema 变更出现互相等待死锁时才临时打开。",
+            "Check the replicas which are doing schema change when publish transaction. Do not turn off this check "
+            + " under normal circumstances. It's only temporarily skip check if publish version and schema change have"
+            + " dead lock" })
+    public static boolean publish_version_check_alter_replica = true;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -485,6 +490,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"Insert load 的默认超时时间，单位是秒。",
             "Default timeout for insert load job, in seconds."})
     public static int insert_load_default_timeout_second = 14400; // 4 hour
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "等内部攒批真正写入完成才返回；insert into和stream load默认开启攒批",
+            "Wait for the internal batch to be written before returning; "
+                    + "insert into and stream load use group commit by default."})
+    public static boolean wait_internal_group_commit_finish = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
@@ -1533,30 +1544,6 @@ public class Config extends ConfigBase {
     public static int auto_check_statistics_in_minutes = 10;
 
     /**
-     * If this configuration is enabled, you should also specify the trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static boolean enable_tracing = false;
-
-    /**
-     * Current support for exporting traces:
-     *   zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-     *   collector: The collector can be used to receive and process traces and support export to a variety of
-     *     third-party systems.
-     * If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static String trace_exporter = "zipkin";
-
-    /**
-     * The endpoint to export spans to.
-     * export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-     * export to collector like: http://127.0.0.1:4318/v1/traces
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
-
-    /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
      * Default is true.
      */
@@ -1572,10 +1559,38 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean enable_pipeline_load = false;
+    /*---------------------- JOB CONFIG START------------------------*/
+    /**
+     * The number of threads used to dispatch timer job.
+     * If we have a lot of timer jobs, we need more threads to dispatch them.
+     * All timer job will be dispatched to a thread pool, and they will be dispatched to the thread queue of the
+     * corresponding type of job
+     * The value should be greater than 0, if it is 0 or <=0, set it to 5
+     */
+    @ConfField(description = {"用于分发定时任务的线程数",
+            "The number of threads used to dispatch timer job."})
+    public static int job_dispatch_timer_job_thread_num = 5;
 
-    @ConfField
-    public static int scheduler_job_task_max_saved_count = 20;
+    /**
+     * The number of timer jobs that can be queued.
+     * if consumer is slow, the queue will be full, and the producer will be blocked.
+     * if you have a lot of timer jobs, you need to increase this value or increase the number of
+     * {@code @dispatch_timer_job_thread_num}
+     * The value should be greater than 0, if it is 0 or <=0, set it to 1024
+     */
+    @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
+    public static int job_dispatch_timer_job_queue_size = 1024;
 
+    /**
+     * The number of threads used to consume insert tasks.
+     * if you have a lot of insert jobs,and the average execution frequency is relatively high you need to increase
+     * this value or increase the number of {@code @job_insert_task_queue_size}
+     * The value should be greater than 0, if it is 0 or <=0, set it to 5
+     */
+    @ConfField(description = {"用于执行 Insert 任务的线程数", "The number of threads used to consume insert tasks."})
+    public static int job_insert_task_consumer_thread_num = 10;
+
+    /*---------------------- JOB CONFIG END------------------------*/
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor
      * if consumer is slow, the queue will be full, and the producer will be blocked.
@@ -1607,9 +1622,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
-
-    @ConfField(mutable = true)
-    public static boolean disable_shared_scan = false;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
@@ -1761,7 +1773,7 @@ public class Config extends ConfigBase {
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
-    public static int statistics_simultaneously_running_task_num = 5;
+    public static int statistics_simultaneously_running_task_num = 3;
 
     /**
      * if table has too many replicas, Fe occur oom when schema change.
@@ -2068,7 +2080,7 @@ public class Config extends ConfigBase {
      * FE OOM.
      */
     @ConfField
-    public static long stats_cache_size = 10_0000;
+    public static long stats_cache_size = 50_0000;
 
     /**
      * This configuration is used to enable the statistics of query information, which will record
@@ -2090,9 +2102,6 @@ public class Config extends ConfigBase {
             "是否启用binlog特性",
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
-
-    @ConfField
-    public static int analyze_task_timeout_in_hours = 12;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
@@ -2159,9 +2168,6 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean forbid_running_alter_job = false;
 
-    @ConfField
-    public static int table_stats_health_threshold = 80;
-
     @ConfField(description = {
             "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
             "temporary config filed, will make all olap tables enable light schema change"
@@ -2187,28 +2193,6 @@ public class Config extends ConfigBase {
                     + "The larger the value, the more uniform the distribution of the hash algorithm, "
                     + "but it will increase the memory overhead."})
     public static int virtual_node_number = 2048;
-
-    @ConfField(description = {"控制对大表的自动ANALYZE的最小时间间隔，"
-            + "在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次",
-            "This controls the minimum time interval for automatic ANALYZE on large tables. Within this interval,"
-                    + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
-    public static long huge_table_auto_analyze_interval_in_millis = TimeUnit.HOURS.toMillis(12);
-
-    @ConfField(description = {"定义大表的大小下界，在开启enable_auto_sample的情况下，"
-            + "大小超过该值的表将会自动通过采样收集统计信息", "This defines the lower size bound for large tables. "
-            + "When enable_auto_sample is enabled, tables larger than this value will automatically collect "
-            + "statistics through sampling"})
-    public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
-
-    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样比例",
-            "This defines the number of sample percent for large tables when automatic sampling for"
-                    + "large tables is enabled"})
-    public static int huge_table_default_sample_rows = 4194304;
-
-    @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
-            + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
-            + "collects statistics through sampling for tables larger than 'huge_table_lower_bound_size_in_bytes'"})
-    public static boolean enable_auto_sample = false;
 
     @ConfField(description = {
             "控制统计信息的自动触发作业执行记录的持久化行数",
@@ -2279,4 +2263,25 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "对于自动分区表，防止用户意外创建大量分区，每个OLAP表允许的分区数量为`max_auto_partition_num`。默认2000。",
+            "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "
+                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."
+    })
+    public static int max_auto_partition_num = 2000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Partition rebalance 方式下各个 BE 的 tablet 数最大差值，小于该值时，会诊断为已均衡",
+            "The maximum difference in the number of tablets of each BE in partition rebalance mode. "
+                    + "If it is less than this value, it will be diagnosed as balanced."
+    })
+    public static int diagnose_balance_max_tablet_num_diff = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Partition rebalance 方式下各个 BE 的 tablet 数的最大比率，小于该值时，会诊断为已均衡",
+            "The maximum ratio of the number of tablets in each BE in partition rebalance mode. "
+                    + "If it is less than this value, it will be diagnosed as balanced."
+    })
+    public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 }

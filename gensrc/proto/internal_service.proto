@@ -742,13 +742,14 @@ message PGroupCommitInsertResponse {
     optional int64 filtered_rows = 5;
 }
 
-message POpenStreamSinkRequest {
+message POpenLoadStreamRequest {
     optional PUniqueId load_id = 1;
     optional int64 txn_id = 2;
     optional int64 src_id = 3;
     optional POlapTableSchemaParam schema = 4;
     repeated PTabletID tablets = 5;
     optional bool enable_profile = 6 [default = false];
+    optional int64 total_streams = 7;
 }
 
 message PTabletSchemaWithIndex {
@@ -757,7 +758,7 @@ message PTabletSchemaWithIndex {
     optional bool enable_unique_key_merge_on_write = 3;
 }
 
-message POpenStreamSinkResponse {
+message POpenLoadStreamResponse {
     optional PStatus status = 1;
     repeated PTabletSchemaWithIndex tablet_schemas = 2;
 }
@@ -767,6 +768,7 @@ message PWriteStreamSinkResponse {
     repeated int64 success_tablet_ids = 2;
     repeated int64 failed_tablet_ids = 3;
     optional bytes load_stream_profile = 4;
+    repeated PTabletSchemaWithIndex tablet_schemas = 5;
 }
 
 message PStreamHeader {
@@ -774,6 +776,7 @@ message PStreamHeader {
         APPEND_DATA = 1;
         CLOSE_LOAD = 2;
         ADD_SEGMENT = 3;
+        GET_SCHEMA = 4;
     }
     optional PUniqueId load_id = 1;
     optional int64 partition_id = 2;
@@ -784,7 +787,7 @@ message PStreamHeader {
     optional bool segment_eos = 7;
     optional int64 src_id = 8;
     optional SegmentStatisticsPB segment_statistics = 9;
-    repeated PTabletID tablets_to_commit = 10;
+    repeated PTabletID tablets = 10;
 }
 
 service PBackendService {
@@ -798,7 +801,7 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
-    rpc open_load_stream(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
+    rpc open_load_stream(POpenLoadStreamRequest) returns (POpenLoadStreamResponse);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);

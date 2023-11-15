@@ -83,17 +83,10 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
     EXPECT_EQ(backend_uid.lo, rowset_id.lo);
     EXPECT_EQ(backend_uid.hi, rowset_id.mi);
     EXPECT_NE(rowset_id.hi, 0);
-    bool in_use = id_generator.id_in_use(rowset_id);
-    EXPECT_TRUE(in_use);
-    id_generator.release_id(rowset_id);
-    in_use = id_generator.id_in_use(rowset_id);
-    EXPECT_FALSE(in_use);
 
     int64_t high = rowset_id.hi + 1;
     rowset_id = id_generator.next_id(); // hi == 3
     EXPECT_EQ(rowset_id.hi, high);
-    in_use = id_generator.id_in_use(rowset_id);
-    EXPECT_TRUE(in_use);
 
     std::string rowset_mid_str = rowset_id.to_string().substr(16, 16);
     std::string backend_mid_str = backend_uid.to_string().substr(0, 16);

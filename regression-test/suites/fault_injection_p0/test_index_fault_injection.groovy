@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_index_failure_injection", "p0") {
+suite("test_index_failure_injection", "p0", "nonConcurrent") {
     // define a sql table
     def testTable_dup = "httplogs_dup"
     def testTable_unique = "httplogs_unique"

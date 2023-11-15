@@ -338,10 +338,16 @@ CREATE CATALOG hive PROPERTIES (
 <property>
     <name>metastore.transactional.event.listeners</name>
     <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+```
 
 ## Hive 版本
 
-Doris 可以正确访问不同 Hive 版本中的 Hive Metastore。在默认情况下，Doris 会以 Hive 2.3 版本的兼容接口访问 Hive Metastore。你也可以在创建 Catalog 时指定 hive 的版本。如访问 Hive 1.1.0 版本：
+Doris 可以正确访问不同 Hive 版本中的 Hive Metastore。在默认情况下，Doris 会以 Hive 2.3 版本的兼容接口访问 Hive Metastore。
+
+如在查询时遇到如 `Invalid method name: 'get_table_req'` 类似错误，说明 hive 版本不匹配。
+
+你可以在创建 Catalog 时指定 hive 的版本。如访问 Hive 1.1.0 版本：
 
 ```sql 
 CREATE CATALOG hive PROPERTIES (

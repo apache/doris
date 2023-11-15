@@ -37,6 +37,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -47,6 +49,7 @@ import java.util.Set;
  * Join Order job with DPHyp
  */
 public class JoinOrderJob extends Job {
+    public static final Logger LOG = LogManager.getLogger(JoinOrderJob.class);
     private final Group group;
     private final Set<NamedExpression> otherProject = new HashSet<>();
 
@@ -87,25 +90,28 @@ public class JoinOrderJob extends Job {
         int limit = 1000;
         PlanReceiver planReceiver = new PlanReceiver(this.context, limit, hyperGraph,
                 group.getLogicalProperties().getOutputSet());
-        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(planReceiver, hyperGraph);
-        if (!subgraphEnumerator.enumerate()) {
-            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-            graphSimplifier.simplifyGraph(limit);
-            if (!subgraphEnumerator.enumerate()) {
-                throw new RuntimeException("DPHyp can not enumerate all sub graphs with limit=" + limit);
-            }
+        if (!tryEnumerateJoin(hyperGraph, planReceiver, limit)) {
+            return group;
         }
         Group optimized = planReceiver.getBestPlan(hyperGraph.getNodesMap());
-
         // For other projects, such as project constant or project nullable, we construct a new project above root
-        if (otherProject.size() != 0) {
+        if (!otherProject.isEmpty()) {
             otherProject.addAll(optimized.getLogicalExpression().getPlan().getOutput());
-            LogicalProject logicalProject = new LogicalProject<>(new ArrayList<>(otherProject),
+            LogicalProject<Plan> logicalProject = new LogicalProject<>(new ArrayList<>(otherProject),
                     optimized.getLogicalExpression().getPlan());
             GroupExpression groupExpression = new GroupExpression(logicalProject, Lists.newArrayList(group));
             optimized = context.getCascadesContext().getMemo().copyInGroupExpression(groupExpression);
         }
         return optimized;
+    }
+
+    private boolean tryEnumerateJoin(HyperGraph hyperGraph, PlanReceiver planReceiver, int limit) {
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(planReceiver, hyperGraph);
+        if (!subgraphEnumerator.enumerate()) {
+            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+            return graphSimplifier.simplifyGraph(limit) && subgraphEnumerator.enumerate();
+        }
+        return true;
     }
 
     /**

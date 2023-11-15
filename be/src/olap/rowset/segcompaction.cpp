@@ -33,7 +33,6 @@
 #include <utility>
 
 #include "beta_rowset_writer.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "gutil/stringprintf.h"

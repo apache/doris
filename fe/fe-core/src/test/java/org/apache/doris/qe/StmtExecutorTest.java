@@ -38,6 +38,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.planner.OriginalPlanner;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
@@ -380,6 +381,10 @@ public class StmtExecutorTest {
                 killCtx.kill(true);
                 minTimes = 0;
 
+                killCtx.getConnectType();
+                minTimes = 0;
+                result = ConnectType.MYSQL;
+
                 ConnectContext.get();
                 minTimes = 0;
                 result = ctx;
@@ -436,6 +441,10 @@ public class StmtExecutorTest {
 
                 killCtx.kill(true);
                 minTimes = 0;
+
+                killCtx.getConnectType();
+                minTimes = 0;
+                result = ConnectType.MYSQL;
 
                 ConnectContext.get();
                 minTimes = 0;

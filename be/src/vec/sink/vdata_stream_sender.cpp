@@ -23,7 +23,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <stddef.h>
 
 #include <algorithm>
@@ -41,7 +40,6 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/proto_util.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/sip_hash.h"
 #include "vec/exprs/vexpr.h"
@@ -59,19 +57,19 @@ Status Channel<Parent>::init(RuntimeState* state) {
                         ", maybe version is not compatible.";
         return Status::InternalError("no brpc destination");
     }
-
+    _brpc_request = std::make_shared<PTransmitDataParams>();
     // initialize brpc request
-    _brpc_request.mutable_finst_id()->set_hi(_fragment_instance_id.hi);
-    _brpc_request.mutable_finst_id()->set_lo(_fragment_instance_id.lo);
-    _finst_id = _brpc_request.finst_id();
+    _brpc_request->mutable_finst_id()->set_hi(_fragment_instance_id.hi);
+    _brpc_request->mutable_finst_id()->set_lo(_fragment_instance_id.lo);
+    _finst_id = _brpc_request->finst_id();
 
-    _brpc_request.mutable_query_id()->set_hi(state->query_id().hi);
-    _brpc_request.mutable_query_id()->set_lo(state->query_id().lo);
-    _query_id = _brpc_request.query_id();
+    _brpc_request->mutable_query_id()->set_hi(state->query_id().hi);
+    _brpc_request->mutable_query_id()->set_lo(state->query_id().lo);
+    _query_id = _brpc_request->query_id();
 
-    _brpc_request.set_node_id(_dest_node_id);
-    _brpc_request.set_sender_id(_parent->sender_id());
-    _brpc_request.set_be_number(_be_number);
+    _brpc_request->set_node_id(_dest_node_id);
+    _brpc_request->set_sender_id(_parent->sender_id());
+    _brpc_request->set_be_number(_be_number);
 
     _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
 
@@ -176,49 +174,49 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
     }
     SCOPED_TIMER(_parent->brpc_send_timer());
 
-    if (_closure == nullptr) {
-        _closure = new RefCountClosure<PTransmitDataResult>();
-        _closure->ref();
+    if (_send_remote_block_callback == nullptr) {
+        _send_remote_block_callback = DummyBrpcCallback<PTransmitDataResult>::create_shared();
     } else {
         RETURN_IF_ERROR(_wait_last_brpc());
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        _closure->cntl.Reset();
+        _send_remote_block_callback->cntl_->Reset();
     }
     VLOG_ROW << "Channel<Parent>::send_batch() instance_id=" << print_id(_fragment_instance_id)
              << " dest_node=" << _dest_node_id << " to_host=" << _brpc_dest_addr.hostname
              << " _packet_seq=" << _packet_seq << " row_desc=" << _row_desc.debug_string();
     if (_is_transfer_chain && (_send_query_statistics_with_every_batch || eos)) {
-        auto statistic = _brpc_request.mutable_query_statistics();
+        auto statistic = _brpc_request->mutable_query_statistics();
         _parent->query_statistics()->to_pb(statistic);
     }
 
-    _brpc_request.set_eos(eos);
+    _brpc_request->set_eos(eos);
     if (!exec_status.ok()) {
-        exec_status.to_protobuf(_brpc_request.mutable_exec_status());
+        exec_status.to_protobuf(_brpc_request->mutable_exec_status());
     }
     if (block != nullptr) {
-        _brpc_request.set_allocated_block(block);
+        _brpc_request->set_allocated_block(block);
     }
-    _brpc_request.set_packet_seq(_packet_seq++);
+    _brpc_request->set_packet_seq(_packet_seq++);
 
-    _closure->ref();
-    _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
+    _send_remote_block_callback->cntl_->set_timeout_ms(_brpc_timeout_ms);
     if (config::exchange_sink_ignore_eovercrowded) {
-        _closure->cntl.ignore_eovercrowded();
+        _send_remote_block_callback->cntl_->ignore_eovercrowded();
     }
 
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-        if (enable_http_send_block(_brpc_request)) {
-            RETURN_IF_ERROR(transmit_block_http(_state->exec_env(), _closure, _brpc_request,
-                                                _brpc_dest_addr));
+        auto send_remote_block_closure =
+                AutoReleaseClosure<PTransmitDataParams, DummyBrpcCallback<PTransmitDataResult>>::
+                        create_unique(_brpc_request, _send_remote_block_callback);
+        if (enable_http_send_block(*_brpc_request)) {
+            RETURN_IF_ERROR(transmit_block_httpv2(
+                    _state->exec_env(), std::move(send_remote_block_closure), _brpc_dest_addr));
         } else {
-            transmit_block(*_brpc_stub, _closure, _brpc_request);
+            transmit_blockv2(*_brpc_stub, std::move(send_remote_block_closure));
         }
     }
 
     if (block != nullptr) {
-        static_cast<void>(_brpc_request.release_block());
+        static_cast<void>(_brpc_request->release_block());
     }
     return Status::OK();
 }
@@ -323,13 +321,6 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _pool(pool),
           _current_channel_idx(0),
           _part_type(sink.output_partition.type),
-          _serialize_batch_timer(nullptr),
-          _bytes_sent_counter(nullptr),
-          _local_send_timer(nullptr),
-          _split_block_hash_compute_timer(nullptr),
-          _split_block_distribute_by_channel_timer(nullptr),
-          _blocks_sent_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc),
           _serializer(this) {
@@ -387,16 +378,6 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _pool(pool),
           _current_channel_idx(0),
           _part_type(TPartitionType::UNPARTITIONED),
-          _serialize_batch_timer(nullptr),
-          _compress_timer(nullptr),
-          _brpc_send_timer(nullptr),
-          _brpc_wait_timer(nullptr),
-          _bytes_sent_counter(nullptr),
-          _local_send_timer(nullptr),
-          _split_block_hash_compute_timer(nullptr),
-          _split_block_distribute_by_channel_timer(nullptr),
-          _blocks_sent_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
           _dest_node_id(dest_node_id),
           _serializer(this) {
     _cur_pb_block = &_pb_block1;
@@ -462,6 +443,13 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         RETURN_IF_ERROR(_partitioner->prepare(state, _row_desc));
+        if (_part_type == TPartitionType::HASH_PARTITIONED) {
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("XXHashPartitioner({})", _partition_count));
+        } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("Crc32HashPartitioner({})", _partition_count));
+        }
     }
 
     _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);
@@ -562,15 +550,19 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         block_holder->get_block()->Clear();
                     }
                     Status status;
+                    block_holder->ref(_channels.size());
                     for (auto channel : _channels) {
                         if (!channel->is_receiver_eof()) {
                             if (channel->is_local()) {
+                                block_holder->unref();
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                status = channel->send_broadcast_block(block_holder, nullptr, eos);
+                                status = channel->send_broadcast_block(block_holder, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
+                        } else {
+                            block_holder->unref();
                         }
                     }
                     cur_block.clear_column_data();

@@ -20,6 +20,7 @@
 #include <gen_cpp/Types_types.h>
 #include <netinet/in.h>
 
+#include <charconv>
 #include <cstdint>
 #include <functional>
 #include <list>
@@ -380,11 +381,16 @@ struct RowsetId {
     int64_t mi = 0;
     int64_t lo = 0;
 
-    void init(const std::string& rowset_id_str) {
+    void init(std::string_view rowset_id_str) {
         // for new rowsetid its a 48 hex string
         // if the len < 48, then it is an old format rowset id
-        if (rowset_id_str.length() < 48) {
-            int64_t high = std::stol(rowset_id_str, nullptr, 10);
+        if (rowset_id_str.length() < 48) [[unlikely]] {
+            int64_t high;
+            auto [_, ec] = std::from_chars(rowset_id_str.data(),
+                                           rowset_id_str.data() + rowset_id_str.length(), high);
+            if (ec != std::errc {}) [[unlikely]] {
+                LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
+            }
             init(1, high, 0, 0);
         } else {
             int64_t high = 0;
@@ -459,6 +465,30 @@ struct HashOfRowsetId {
 };
 
 using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+
+// Extract rowset id from filename, return uninitialized rowset id if filename is invalid
+inline RowsetId extract_rowset_id(std::string_view filename) {
+    RowsetId rowset_id;
+    if (filename.ends_with(".dat")) {
+        // filename format: {rowset_id}_{segment_num}.dat
+        auto end = filename.find('_');
+        if (end == std::string::npos) {
+            return rowset_id;
+        }
+        rowset_id.init(filename.substr(0, end));
+        return rowset_id;
+    }
+    if (filename.ends_with(".idx")) {
+        // filename format: {rowset_id}_{segment_num}_{index_id}.idx
+        auto end = filename.find('_');
+        if (end == std::string::npos) {
+            return rowset_id;
+        }
+        rowset_id.init(filename.substr(0, end));
+        return rowset_id;
+    }
+    return rowset_id;
+}
 
 class DeleteBitmap;
 // merge on write context

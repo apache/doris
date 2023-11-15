@@ -181,17 +181,17 @@ bool lessOp(A a, B b) {
     /// int vs int
     if constexpr (wide::is_integer<A> && wide::is_integer<B>) {
         /// same signedness
-        if constexpr (wide::is_signed_v<A> == wide::is_signed_v<B>) {
+        if constexpr (std::is_signed_v<A> == std::is_signed_v<B>) {
             return a < b;
         }
 
         /// different signedness
 
-        if constexpr (wide::is_signed_v<A> && !wide::is_signed_v<B>) {
+        if constexpr (std::is_signed_v<A> && !std::is_signed_v<B>) {
             return a < 0 || static_cast<std::make_unsigned_t<A>>(a) < b;
         }
 
-        if constexpr (!wide::is_signed_v<A> && wide::is_signed_v<B>) {
+        if constexpr (!std::is_signed_v<A> && std::is_signed_v<B>) {
             return b >= 0 && a < static_cast<std::make_unsigned_t<B>>(b);
         }
     }
@@ -260,17 +260,17 @@ bool equalsOp(A a, B b) {
     /// int vs int
     if constexpr (wide::is_integer<A> && wide::is_integer<B>) {
         /// same signedness
-        if constexpr (wide::is_signed_v<A> == wide::is_signed_v<B>) {
+        if constexpr (std::is_signed_v<A> == std::is_signed_v<B>) {
             return a == b;
         }
 
         /// different signedness
 
-        if constexpr (wide::is_signed_v<A> && !wide::is_signed_v<B>) {
+        if constexpr (std::is_signed_v<A> && !std::is_signed_v<B>) {
             return a >= 0 && static_cast<std::make_unsigned_t<A>>(a) == b;
         }
 
-        if constexpr (!wide::is_signed_v<A> && wide::is_signed_v<B>) {
+        if constexpr (!std::is_signed_v<A> && std::is_signed_v<B>) {
             return b >= 0 && a == static_cast<std::make_unsigned_t<B>>(b);
         }
     }

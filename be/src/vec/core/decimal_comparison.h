@@ -56,7 +56,7 @@ struct ConstructDecInt<16> {
 };
 template <>
 struct ConstructDecInt<32> {
-    using Type = Int256;
+    using Type = wide::Int256;
 };
 
 template <typename T, typename U>

@@ -33,7 +33,6 @@
 #include <thread>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -246,31 +245,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         return Status::InternalError("unknown load source type");
     }
 
-    VLOG_CRITICAL << "receive a new routine load task: " << ctx->brief();
-    // register the task
-    _task_map[ctx->id] = ctx;
-
-    // offer the task to thread pool
-    if (!_thread_pool.offer(std::bind<void>(
-                &RoutineLoadTaskExecutor::exec_task, this, ctx, &_data_consumer_pool,
-                [this](std::shared_ptr<StreamLoadContext> ctx) {
-                    std::unique_lock<std::mutex> l(_lock);
-                    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
-                    _task_map.erase(ctx->id);
-                    LOG(INFO) << "finished routine load task " << ctx->brief()
-                              << ", status: " << ctx->status
-                              << ", current tasks num: " << _task_map.size();
-                }))) {
-        // failed to submit task, clear and return
-        LOG(WARNING) << "failed to submit routine load task: " << ctx->brief();
-        ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
-        _task_map.erase(ctx->id);
-        return Status::InternalError("failed to submit routine load task");
-    } else {
-        LOG(INFO) << "submit a new routine load task: " << ctx->brief()
-                  << ", current tasks num: " << _task_map.size();
-        return Status::OK();
-    }
+    return offer_task(ctx);
 }
 
 void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
@@ -324,7 +299,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     // must put pipe before executing plan fragment
     HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx), "failed to add pipe");
 
-    if (!ctx->is_multi_table) {
+    if (!ctx->is_multi_table && ctx->load_type == TLoadType::ROUTINE_LOAD) {
         // only for normal load, single-stream-multi-table load will be planned during consuming
 #ifndef BE_TEST
         // execute plan fragment, async
@@ -411,6 +386,33 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         break;
     }
     cb(ctx);
+}
+
+Status RoutineLoadTaskExecutor::offer_task(std::shared_ptr<StreamLoadContext> ctx) {
+    VLOG_CRITICAL << "receive a new routine load task: " << ctx->brief();
+    // register the task
+    _task_map[ctx->id] = ctx;
+
+    // offer the task to thread pool
+    if (!_thread_pool.offer(std::bind<void>(
+                &RoutineLoadTaskExecutor::exec_task, this, ctx, &_data_consumer_pool,
+                [this](std::shared_ptr<StreamLoadContext> ctx) {
+                    std::unique_lock<std::mutex> l(_lock);
+                    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+                    _task_map.erase(ctx->id);
+                    LOG(INFO) << "finished routine load task " << ctx->brief()
+                              << ", status: " << ctx->status
+                              << ", current tasks num: " << _task_map.size();
+                }))) {
+        // failed to submit task, clear and return
+        LOG(WARNING) << "failed to submit routine load task: " << ctx->brief();
+        ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+        _task_map.erase(ctx->id);
+        return Status::InternalError("failed to submit routine load task");
+    }
+    LOG(INFO) << "submit a new routine load task: " << ctx->brief()
+              << ", current tasks num: " << _task_map.size();
+    return Status::OK();
 }
 
 void RoutineLoadTaskExecutor::err_handler(std::shared_ptr<StreamLoadContext> ctx, const Status& st,

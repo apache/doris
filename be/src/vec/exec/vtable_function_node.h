@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <stdint.h>
 
 #include <vector>
@@ -28,7 +27,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"

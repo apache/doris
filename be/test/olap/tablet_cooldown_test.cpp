@@ -257,10 +257,10 @@ public:
     }
 
     static void TearDownTestSuite() {
+        k_engine.reset();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(nullptr);
         exec_env->set_memtable_memory_limiter(nullptr);
-        k_engine.reset();
     }
 };
 

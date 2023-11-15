@@ -82,7 +82,7 @@ suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,exte
 
         explain {
             sql("""select id from ${ex_tb0} where id = 111;""")
-            contains "WHERE (id = 111)"
+            contains "WHERE (`id` = 111)"
         }
         qt_ex_tb0_where """select id from ${ex_tb0} where id = 111;"""
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """

@@ -241,7 +241,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                     status = channel->send_broadcast_block(_block_holder.get(),
-                                                                           nullptr, true);
+                                                                           true);
                                 }
                                 HANDLE_CHANNEL_STATUS(state, channel, status);
                             }

@@ -35,6 +35,7 @@ class Block;
 
 namespace segment_v2 {
 class SegmentWriter;
+class VerticalSegmentWriter;
 } // namespace segment_v2
 
 struct SegmentStatistics;
@@ -127,10 +128,17 @@ public:
 private:
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
+    Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
+                     const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false,
                                   TabletSchemaSPtr flush_schema = nullptr);
+    Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
+                                  int32_t segment_id, bool no_compression = false,
+                                  TabletSchemaSPtr flush_schema = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
+                                 int64_t* flush_size = nullptr);
+    Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
                                  int64_t* flush_size = nullptr);
 
 private:

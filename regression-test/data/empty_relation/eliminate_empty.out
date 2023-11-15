@@ -70,3 +70,13 @@ PhysicalResultSink
 
 -- !except_empty_data --
 
+-- !prune_partition1 --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalEmptyRelation
+
+-- !prune_partition2 --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalEmptyRelation
+

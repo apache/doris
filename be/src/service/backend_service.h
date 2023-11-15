@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/BackendService.h>
+#include <gen_cpp/BackendService_types.h>
 #include <stdint.h>
 
 #include <memory>
@@ -45,6 +46,7 @@ class TDiskTrashInfo;
 class TCancelPlanFragmentParams;
 class TCheckStorageFormatResult;
 class TRoutineLoadTask;
+class TKafkaTvfTask;
 class TScanBatchResult;
 class TScanCloseParams;
 class TScanCloseResult;
@@ -58,6 +60,7 @@ class TTransmitDataParams;
 class TUniqueId;
 class TIngestBinlogRequest;
 class TIngestBinlogResult;
+class ThreadPool;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
@@ -119,6 +122,8 @@ public:
     void submit_routine_load_task(TStatus& t_status,
                                   const std::vector<TRoutineLoadTask>& tasks) override;
 
+    void send_kafka_tvf_task(TStatus& t_status, const TKafkaTvfTask& tasks) override;
+
     // used for external service, open means start the scan procedure
     void open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) override;
 
@@ -137,10 +142,14 @@ public:
 
     void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
 
+    void query_ingest_binlog(TQueryIngestBinlogResult& result,
+                             const TQueryIngestBinlogRequest& request) override;
+
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env;
     std::unique_ptr<AgentServer> _agent_server;
+    std::unique_ptr<ThreadPool> _ingest_binlog_workers;
 };
 
 } // namespace doris

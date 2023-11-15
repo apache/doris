@@ -79,8 +79,8 @@ public:
         if (k_engine != nullptr) {
             k_engine->stop();
         }
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         SAFE_DELETE(k_engine);
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         _tablet_mgr = nullptr;
     }
     StorageEngine* k_engine = nullptr;

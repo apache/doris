@@ -707,6 +707,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Array, ColumnArray)              \
     M(Map, ColumnMap)                  \
     M(Struct, ColumnStruct)            \
+    M(VARIANT, ColumnObject)           \
     M(BitMap, ColumnBitmap)            \
     M(HLL, ColumnHLL)
 

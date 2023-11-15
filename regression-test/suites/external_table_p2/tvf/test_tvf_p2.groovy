@@ -53,6 +53,13 @@ suite("test_tvf_p2", "p2,external,tvf,external_remote,external_remote_tvf") {
             "format" = "parquet");
         """
 
+        // test for page v2 & fix_length_byte_array stored decimal
+        qt_fix_byte_array """select *
+            from hdfs(
+            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/fix_byte_array.snappy.parquet",
+            "format" = "parquet");
+        """
+
         // viewfs
         qt_viewfs """select count(id), count(m1), count(m2)
             from hdfs(

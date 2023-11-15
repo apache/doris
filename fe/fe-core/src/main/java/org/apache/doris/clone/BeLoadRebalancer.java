@@ -245,7 +245,7 @@ public class BeLoadRebalancer extends Rebalancer {
         clusterStat.getBackendStatisticByClass(lowBe, midBe, highBe, tabletCtx.getStorageMedium());
 
         if (lowBe.isEmpty() && highBe.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "cluster is balance");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "cluster is balance");
         }
 
         // if all low backends is not available, return
@@ -265,12 +265,14 @@ public class BeLoadRebalancer extends Rebalancer {
             }
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "backend is dropped: " + replica.getBackendId());
+                throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                        "backend is dropped: " + replica.getBackendId());
             }
             hosts.add(be.getHost());
         }
         if (!hasHighReplica) {
-            throw new SchedException(Status.UNRECOVERABLE, "no replica on high load backend");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                    "no replica on high load backend");
         }
 
         // select a replica as source
@@ -288,7 +290,7 @@ public class BeLoadRebalancer extends Rebalancer {
             }
         }
         if (!setSource) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to take src slot");
         }
 
         // Select a low load backend as destination.
@@ -331,7 +333,7 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         if (candidates.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find low backend");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to find low backend");
         }
 
         List<BePathLoadStatPair> candFitPaths = Lists.newArrayList();

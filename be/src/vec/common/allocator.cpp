@@ -38,33 +38,45 @@
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t size) const {
-    if (doris::thread_context()->skip_memory_check) return;
+    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
+        return;
+    }
     if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
         // Only thread attach query, and has not completely waited for thread_wait_gc_max_milliseconds,
         // will wait for gc, asynchronous cancel or throw bad::alloc.
         // Otherwise, if the external catch, directly throw bad::alloc.
-        auto err_msg = fmt::format(
-                "Allocator sys memory check failed: Cannot alloc:{}, consuming "
-                "tracker:<{}>, peak used {}, current used {}, exec node:<{}>, {}.",
-                size, doris::thread_context()->thread_mem_tracker()->label(),
-                doris::thread_context()->thread_mem_tracker()->peak_consumption(),
-                doris::thread_context()->thread_mem_tracker()->consumption(),
-                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
-                doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        std::string err_msg;
+        if (doris::is_thread_context_init()) {
+            err_msg += fmt::format(
+                    "Allocator sys memory check failed: Cannot alloc:{}, consuming "
+                    "tracker:<{}>, peak used {}, current used {}, exec node:<{}>, {}.",
+                    size, doris::thread_context()->thread_mem_tracker()->label(),
+                    doris::thread_context()->thread_mem_tracker()->peak_consumption(),
+                    doris::thread_context()->thread_mem_tracker()->consumption(),
+                    doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
+                    doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        } else {
+            err_msg += fmt::format(
+                    "Allocator sys memory check failed: Cannot alloc:{}, consuming "
+                    "tracker:<{}>, {}.",
+                    size, "Orphan", doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        }
+
         if (size > 1024l * 1024 * 1024 && !doris::enable_thread_catch_bad_alloc &&
             !doris::config::disable_memory_gc) { // 1G
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
         }
 
         // TODO, Save the query context in the thread context, instead of finding whether the query id is canceled in fragment_mgr.
-        if (doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
+        if (doris::is_thread_context_init() &&
+            doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
                     doris::thread_context()->task_id())) {
             if (doris::enable_thread_catch_bad_alloc) {
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
             }
             return;
         }
-        if (!doris::config::disable_memory_gc &&
+        if (doris::is_thread_context_init() && !doris::config::disable_memory_gc &&
             doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
             doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
@@ -120,7 +132,12 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(size_t size) const {
-    if (doris::thread_context()->skip_memory_check) return;
+    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
+        return;
+    }
+    if (!doris::is_thread_context_init()) {
+        return;
+    }
     auto st = doris::thread_context()->thread_mem_tracker()->check_limit(size);
     if (!st) {
         auto err_msg = fmt::format("Allocator mem tracker check failed, {}", st.to_string());

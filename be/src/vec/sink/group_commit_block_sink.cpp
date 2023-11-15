@@ -102,6 +102,10 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
                                          loaded_rows);
     state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
                                    state->num_rows_load_filtered());
+    if (_load_block_queue && _load_block_queue->wait_internal_group_commit_finish) {
+        std::unique_lock l(_load_block_queue->mutex);
+        _load_block_queue->internal_group_commit_finish_cv.wait(l);
+    }
     return Status::OK();
 }
 

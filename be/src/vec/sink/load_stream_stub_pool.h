@@ -70,7 +70,25 @@ class LoadStreamStub;
 
 namespace stream_load {
 
+class LoadStreamStubPool;
+
 using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
+
+class LoadStreams {
+public:
+    LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStreamStubPool* pool);
+
+    void release();
+
+    Streams& streams() { return _streams; }
+
+private:
+    Streams _streams;
+    UniqueId _load_id;
+    int64_t _dst_id;
+    std::atomic<int> _use_cnt;
+    LoadStreamStubPool* _pool;
+};
 
 class LoadStreamStubPool {
 public:
@@ -78,7 +96,10 @@ public:
 
     ~LoadStreamStubPool();
 
-    std::shared_ptr<Streams> get_or_create(PUniqueId load_id, int64_t src_id, int64_t dst_id);
+    std::shared_ptr<LoadStreams> get_or_create(PUniqueId load_id, int64_t src_id, int64_t dst_id,
+                                               int num_streams, int num_sink);
+
+    void erase(UniqueId load_id, int64_t dst_id);
 
     size_t size() {
         std::lock_guard<std::mutex> lock(_mutex);
@@ -94,7 +115,7 @@ public:
 private:
     std::mutex _mutex;
     std::unordered_map<UniqueId, std::unique_ptr<LoadStreamStub>> _template_stubs;
-    std::unordered_map<std::pair<UniqueId, int64_t>, std::weak_ptr<Streams>> _pool;
+    std::unordered_map<std::pair<UniqueId, int64_t>, std::shared_ptr<LoadStreams>> _pool;
 };
 
 } // namespace stream_load

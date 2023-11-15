@@ -434,6 +434,8 @@ insert into doris_sink select id,name from cdc_mysql_source;
      [--excluding-tables <mysql-table-name|name-regular-expr>] \
      --mysql-conf <mysql-cdc-source-conf> [--mysql-conf <mysql-cdc-source-conf> ...] \
      --oracle-conf <oracle-cdc-source-conf> [--oracle-conf <oracle-cdc-source-conf> ...] \
+     --postgres-conf <postgres-cdc-source-conf> [--postgres-conf <postgres-cdc-source-conf> ...] \
+     --sqlserver-conf <sqlserver-cdc-source-conf> [--sqlserver-conf <sqlserver-cdc-source-conf> ...] \
      --sink-conf <doris-sink-conf> [--table-conf <doris-sink-conf> ...] \
      [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
 ```
@@ -444,8 +446,10 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--table-suffix** Same as above, the suffix name of the Doris table.
 - **--including-tables** MySQL tables that need to be synchronized, you can use "|" to separate multiple tables, and support regular expressions. For example --including-tables table1|tbl.* is to synchronize table1 and all tables beginning with tbl.
 - **--excluding-tables** Tables that do not need to be synchronized, the usage is the same as above.
-- **--mysql-conf** MySQL CDCSource configuration, eg --mysql-conf hostname=127.0.0.1 , you can see all configuration MySQL-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html), where hostname/username/password/database-name is required.
+- **--mysql-conf** MySQL CDCSource configuration, eg --mysql-conf hostname=127.0.0.1 , you can see all configuration MySQL-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html), where hostname/username/password/database-name is required.To synchronize tables without primary keys, you must configure `scan.incremental.snapshot.chunk.key-column` the option, and specify only one non-null field. For example, `scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1.column...`,columns are separated by `,`.
 - **--oracle-conf** Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can view all configurations of Oracle-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html), where hostname/username/password/database-name/schema-name is required.
+- **--postgres-conf** Postgres CDCSource configuration，for example --postgres-conf hostname=127.0.0.1 ，you can see all configuration of Postgres-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)，where hostname/username/password/database-name/schema-name/slot.name  is required.
+- **--sqlserver-conf** SQLServer CDCSource configuration，for example --sqlserver-conf hostname=127.0.0.1 ，you can see all configuration of SQLServer-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)，where hostname/username/password/database-name/schema-name is required.
 - **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items in [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
 - **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
 - **--ignore-default-value** Turn off the default for synchronizing mysql table structures. It is suitable for synchronizing mysql data to doris, the field has a default value, but the actual inserted data is null. refer to[#152](https://github.com/apache/doris-flink-connector/pull/152)

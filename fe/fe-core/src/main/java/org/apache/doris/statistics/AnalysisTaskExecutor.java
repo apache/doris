@@ -18,9 +18,9 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,7 +36,7 @@ public class AnalysisTaskExecutor extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisTaskExecutor.class);
 
-    private final ThreadPoolExecutor executors;
+    protected final ThreadPoolExecutor executors;
 
     private final BlockingQueue<AnalysisTaskWrapper> taskQueue =
             new PriorityBlockingQueue<AnalysisTaskWrapper>(20,
@@ -72,18 +72,22 @@ public class AnalysisTaskExecutor extends Thread {
 
     private void doCancelExpiredJob() {
         for (;;) {
+            tryToCancel();
+        }
+    }
+
+    protected void tryToCancel() {
+        try {
+            AnalysisTaskWrapper taskWrapper = taskQueue.take();
             try {
-                AnalysisTaskWrapper taskWrapper = taskQueue.take();
-                try {
-                    long timeout = TimeUnit.HOURS.toMillis(Config.analyze_task_timeout_in_hours)
-                            - (System.currentTimeMillis() - taskWrapper.getStartTime());
-                    taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
-                } catch (Exception e) {
-                    taskWrapper.cancel(e.getMessage());
-                }
-            } catch (Throwable throwable) {
-                LOG.warn(throwable);
+                long timeout = TimeUnit.SECONDS.toMillis(StatisticsUtil.getAnalyzeTimeout())
+                        - (System.currentTimeMillis() - taskWrapper.getStartTime());
+                taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                taskWrapper.cancel(e.getMessage());
             }
+        } catch (Throwable throwable) {
+            LOG.warn("cancel analysis task failed", throwable);
         }
     }
 

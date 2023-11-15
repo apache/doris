@@ -17,18 +17,22 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.GarbageCollector;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
 
 import com.codahale.metrics.Histogram;
+import com.codahale.metrics.Snapshot;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
 public class JsonMetricVisitor extends MetricVisitor {
-    private int ordinal = 0;
+    private int metricOrdinal = 0;
+    private int histogramOrdinal = 0;
     private boolean closed = false;
 
     // jvm
@@ -113,7 +117,7 @@ public class JsonMetricVisitor extends MetricVisitor {
 
     @Override
     public void visit(String prefix, @SuppressWarnings("rawtypes") Metric metric) {
-        if (ordinal++ != 0) {
+        if (metricOrdinal++ != 0) {
             sb.append(",\n");
         }
         sb.append("{\n\t\"tags\":\n\t{\n");
@@ -140,12 +144,88 @@ public class JsonMetricVisitor extends MetricVisitor {
 
     @Override
     public void visitHistogram(String prefix, String name, Histogram histogram) {
-        return;
+        if (histogramOrdinal++ == 0) {
+            sb.append(",\n");
+        }
+
+        // part.part.part.k1=v1.k2=v2
+        List<String> names = new ArrayList<>();
+        List<String> tags = new ArrayList<>();
+        for (String part : name.split("\\.")) {
+            String[] kv = part.split("=");
+            if (kv.length == 1) {
+                names.add(kv[0]);
+            } else if (kv.length == 2) {
+                tags.add(String.format("\"%s\":\"%s\"", kv[0], kv[1]));
+            }
+        }
+        final String fullName = prefix + String.join("_", names);
+        Snapshot snapshot = histogram.getSnapshot();
+        setHistogramJsonMetric(sb, fullName, "\"quantile\":\"0.75\"", tags, snapshot.get75thPercentile());
+        setHistogramJsonMetric(sb, fullName, "\"quantile\":\"0.95\"", tags, snapshot.get95thPercentile());
+        setHistogramJsonMetric(sb, fullName, "\"quantile\":\"0.98\"", tags, snapshot.get98thPercentile());
+        setHistogramJsonMetric(sb, fullName, "\"quantile\":\"0.99\"", tags, snapshot.get99thPercentile());
+        setHistogramJsonMetric(sb, fullName, "\"quantile\":\"0.999\"", tags, snapshot.get999thPercentile());
+        setHistogramJsonMetric(sb, fullName.concat("_sum"), null, null,
+                histogram.getCount() * snapshot.getMean());
+        setHistogramJsonMetric(sb, fullName.concat("_count"), null, null, histogram.getCount());
+    }
+
+    private void setHistogramJsonMetric(StringBuilder sb, String metric, String quantile,
+                                        List<String> tags, double value) {
+        sb.append("{\n\t\"tags\":\n\t{\n");
+        sb.append("\t\t\"metric\":\"").append(metric).append("\"");
+        if (quantile != null) {
+            sb.append(",\n");
+            sb.append("\t\t").append(quantile).append("\n");
+        }
+        if (tags != null) {
+            for (String tag : tags) {
+                sb.append(",\n");
+                sb.append("\t\t").append(tag).append("\n");
+            }
+        }
+        sb.append("\n\t},\n");
+        sb.append("\t\"unit\":\"").append("ms").append("\",\n");
+        sb.append("\t\"value\":").append(value).append("\n}");
+        sb.append(",\n");
     }
 
     @Override
     public void getNodeInfo() {
-        return;
+        if (Env.getCurrentEnv().isMaster()) {
+            setNodeInfo(sb, "node_info", "is_master", null, 1, false);
+        }
+        setNodeInfo(sb, "node_info", "fe_node_num", "total",
+                Env.getCurrentEnv().getFrontends(null).size(), false);
+        setNodeInfo(sb, "node_info", "be_node_num", "total",
+                Env.getCurrentSystemInfo().getAllBackendIds(false).size(), false);
+        setNodeInfo(sb, "node_info", "be_node_num", "alive",
+                Env.getCurrentSystemInfo().getAllBackendIds(true).size(), false);
+        setNodeInfo(sb, "node_info", "be_node_num", "decommissioned",
+                Env.getCurrentSystemInfo().getDecommissionedBackendIds().size(), false);
+        setNodeInfo(sb, "node_info", "be_node_num", "dead",
+                Env.getCurrentEnv().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count(), true);
+    }
+
+    private void setNodeInfo(StringBuilder sb, String metric, String type,
+                             String status, long value, boolean lastMetric) {
+        sb.append("{\n\t\"tags\":\n\t{\n");
+        sb.append("\t\t\"metric\":\"").append(metric).append("\"");
+        if (type != null) {
+            sb.append(",\n");
+            sb.append("\t\t\"type\":\"").append(type).append("\"");
+        }
+        if (status != null) {
+            sb.append(",\n");
+            sb.append("\t\t\"state\":\"").append(status).append("\"\n");
+        }
+        sb.append("\n\t},\n");
+        sb.append("\t\"unit\":\"").append("nounit").append("\",\n");
+        sb.append("\t\"value\":").append(value).append("\n}");
+        if (!lastMetric) {
+            sb.append(",\n");
+        }
     }
 
     @Override

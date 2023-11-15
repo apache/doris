@@ -101,11 +101,10 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     DCHECK(status.ok());
 }
 
-RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
-                           const TUniqueId& query_id, int32_t fragment_id,
-                           const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
-        : _profile("Fragment " + print_id(pipeline_params.fragment_instance_id)),
+RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
+                           int32_t fragment_id, const TQueryOptions& query_options,
+                           const TQueryGlobals& query_globals, ExecEnv* exec_env)
+        : _profile("Fragment " + print_id(instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),
@@ -125,11 +124,7 @@ RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file(nullptr) {
-    if (pipeline_params.__isset.runtime_filter_params) {
-        _runtime_filter_mgr->set_runtime_filter_params(pipeline_params.runtime_filter_params);
-    }
-    Status status =
-            init(pipeline_params.fragment_instance_id, query_options, query_globals, exec_env);
+    [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
 
@@ -273,6 +268,11 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     return Status::OK();
 }
 
+void RuntimeState::set_runtime_filter_params(
+        const TRuntimeFilterParams& runtime_filter_params) const {
+    _runtime_filter_mgr->set_runtime_filter_params(runtime_filter_params);
+}
+
 void RuntimeState::init_mem_trackers(const TUniqueId& id, const std::string& name) {
     _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::EXPERIMENTAL, fmt::format("{}#Id={}", name, print_id(id)));
@@ -334,7 +334,7 @@ Status RuntimeState::check_query_state(const std::string& msg) {
     //
     // If the thread MemTrackerLimiter exceeds the limit, an error status is returned.
     // Usually used after SCOPED_ATTACH_TASK, during query execution.
-    if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
+    if (is_thread_context_init() && thread_context()->thread_mem_tracker()->limit_exceeded() &&
         !config::enable_query_memory_overcommit) {
         auto failed_msg =
                 fmt::format("{}, {}", msg,

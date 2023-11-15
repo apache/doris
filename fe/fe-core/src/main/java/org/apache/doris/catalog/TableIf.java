@@ -27,6 +27,7 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -253,6 +254,18 @@ public interface TableIf {
     default long getDataSize(boolean singleReplica) {
         // TODO: Each tableIf should impl it by itself.
         return 0;
+    }
+
+    default boolean isDistributionColumn(String columnName) {
+        return false;
+    }
+
+    default boolean isPartitionColumn(String columnName) {
+        return false;
+    }
+
+    default Set<String> getDistributionColumnNames() {
+        return Sets.newHashSet();
     }
 }
 

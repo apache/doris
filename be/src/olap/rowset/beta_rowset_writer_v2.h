@@ -104,6 +104,8 @@ public:
 
     PUniqueId load_id() override { return _context.load_id; }
 
+    const RowsetWriterContext& context() const override { return _context; }
+
     Version version() override { return _context.version; }
 
     int64_t num_rows() const override { return _segment_creator.num_rows_written(); }
@@ -120,7 +122,7 @@ public:
         return Status::OK();
     }
 
-    Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
 

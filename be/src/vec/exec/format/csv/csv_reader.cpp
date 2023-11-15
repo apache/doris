@@ -30,7 +30,6 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
@@ -292,7 +291,7 @@ Status CsvReader::init_reader(bool is_load) {
         _skip_lines = 1;
     }
 
-    if (_params.file_type == TFileType::FILE_STREAM) {
+    if (_params.file_type == TFileType::FILE_STREAM || _params.file_type == TFileType::FILE_KAFKA) {
         RETURN_IF_ERROR(
                 FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, false));
     } else {
@@ -305,7 +304,7 @@ Status CsvReader::init_reader(bool is_load) {
                 io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
-        _params.file_type != TFileType::FILE_BROKER) {
+        _params.file_type != TFileType::FILE_KAFKA && _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("init reader failed, empty csv file: " + _range.path);
     }
 

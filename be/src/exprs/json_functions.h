@@ -108,6 +108,13 @@ public:
     static Status extract_from_object(simdjson::ondemand::object& obj,
                                       const std::vector<JsonPath>& jsonpath,
                                       simdjson::ondemand::value* value) noexcept;
+    // src:    {"a" : "b" {"c" : 1}, "e" : 123}
+    // dst:    {"a" : "b" {"d" : 1}}
+    // merged: {"a" : "b" : {"c" : 1, "d" : 1}, "e" : 123}
+    static void merge_objects(rapidjson::Value& dst_object, rapidjson::Value& src_object,
+                              rapidjson::Document::AllocatorType& allocator);
+
+    static std::string print_json_value(const rapidjson::Value& value);
 
 private:
     static rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths,

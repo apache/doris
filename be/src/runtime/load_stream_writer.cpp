@@ -28,7 +28,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -121,7 +120,15 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
     return Status::OK();
 }
 
-Status LoadStreamWriter::add_segment(uint32_t segid, SegmentStatistics& stat) {
+Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat) {
+    if (_segment_file_writers[segid]->bytes_appended() != stat.data_size) {
+        LOG(WARNING) << _segment_file_writers[segid]->path() << " is incomplete, actual size: "
+                     << _segment_file_writers[segid]->bytes_appended()
+                     << ", expected size: " << stat.data_size;
+        return Status::Corruption("segment {} is incomplete, actual size: {}, expected size: {}",
+                                  _segment_file_writers[segid]->path().native(),
+                                  _segment_file_writers[segid]->bytes_appended(), stat.data_size);
+    }
     return _rowset_writer->add_segment(segid, stat);
 }
 
@@ -143,9 +150,9 @@ Status LoadStreamWriter::close() {
         return Status::Error<ErrorCode::INTERNAL_ERROR>("flush segment failed");
     }
 
-    for (size_t i = 0; i < _segment_file_writers.size(); i++) {
-        if (!_segment_file_writers[i]->is_closed()) {
-            return Status::Corruption("segment {} is not eos", i);
+    for (const auto& writer : _segment_file_writers) {
+        if (!writer->is_closed()) {
+            return Status::Corruption("segment {} is not closed", writer->path().native());
         }
     }
 

@@ -217,7 +217,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
-    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
     if (!_conjuncts.empty()) {
         std::string message;
@@ -308,7 +307,6 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         //        COUNTER_UPDATE(_tablet_counter, 1);
     }
-    // telemetry::set_current_span_attribute(_tablet_counter);
 }
 
 static std::string olap_filter_to_string(const doris::TCondition& condition) {

@@ -28,6 +28,12 @@
 
 namespace doris {
 
+// cgroup cpu.cfs_quota_us default value, it means disable cpu hard limit
+const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
+
+// cgroup cpu.shares default value
+const static uint64_t CPU_SOFT_LIMIT_DEFAULT_VALUE = 1024;
+
 class CgroupCpuCtl {
 public:
     virtual ~CgroupCpuCtl() = default;
@@ -35,14 +41,18 @@ public:
 
     virtual Status init();
 
-    virtual Status modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) = 0;
-
     virtual Status add_thread_to_cgroup() = 0;
 
     void update_cpu_hard_limit(int cpu_hard_limit);
 
+    void update_cpu_soft_limit(int cpu_shares);
+
 protected:
     Status write_cg_sys_file(std::string file_path, int value, std::string msg, bool is_append);
+
+    virtual Status modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) = 0;
+
+    virtual Status modify_cg_cpu_soft_limit_no_lock(int cpu_shares) = 0;
 
     std::string _doris_cgroup_cpu_path;
     uint64_t _cpu_core_num = CpuInfo::num_cores();
@@ -51,6 +61,7 @@ protected:
     std::shared_mutex _lock_mutex;
     bool _init_succ = false;
     uint64_t _tg_id; // workload group id
+    uint64_t _cpu_shares = 0;
 };
 
 /*
@@ -73,20 +84,25 @@ protected:
     6 workload group quota file:
         /sys/fs/cgroup/cpu/{doris_home}/query/{workload group id}/cpu.cfs_quota_us
     
-     7 workload group tasks file:
+    7 workload group tasks file:
         /sys/fs/cgroup/cpu/{doris_home}/query/{workload group id}/tasks
+    
+    8 workload group cpu.shares file:
+    /sys/fs/cgroup/cpu/{doris_home}/query/{workload group id}/cpu.shares
 */
 class CgroupV1CpuCtl : public CgroupCpuCtl {
 public:
     CgroupV1CpuCtl(uint64_t tg_id) : CgroupCpuCtl(tg_id) {}
     Status init() override;
     Status modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) override;
+    Status modify_cg_cpu_soft_limit_no_lock(int cpu_shares) override;
     Status add_thread_to_cgroup() override;
 
 private:
     std::string _cgroup_v1_cpu_query_path;
     std::string _cgroup_v1_cpu_tg_path; // workload group path
     std::string _cgroup_v1_cpu_tg_quota_file;
+    std::string _cgroup_v1_cpu_tg_shares_file;
     std::string _cgroup_v1_cpu_tg_task_file;
 };
 

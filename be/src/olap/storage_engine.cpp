@@ -49,6 +49,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
 #include "olap/binlog.h"
@@ -1058,39 +1059,38 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
-    std::unordered_map<std::string, RowsetSharedPtr> unused_rowsets_copy;
+    std::vector<RowsetSharedPtr> unused_rowsets_copy;
+    unused_rowsets_copy.reserve(_unused_rowsets.size());
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             uint64_t now = UnixSeconds();
-            if (it->second.use_count() == 1 && it->second->need_delete_file() &&
+            auto&& rs = it->second;
+            if (rs.use_count() == 1 && rs->need_delete_file() &&
                 // We delay the GC time of this rowset since it's maybe still needed, see #20732
-                now > it->second->delayed_expired_timestamp()) {
-                if (it->second->is_local()) {
-                    unused_rowsets_copy[it->first] = it->second;
-                }
-                // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                now > rs->delayed_expired_timestamp()) {
                 evict_querying_rowset(it->second->rowset_id());
+                // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                if (rs->is_local()) {
+                    unused_rowsets_copy.push_back(std::move(rs));
+                }
                 it = _unused_rowsets.erase(it);
             } else {
                 ++it;
             }
         }
     }
-    for (auto it = unused_rowsets_copy.begin(); it != unused_rowsets_copy.end(); ++it) {
-        VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
-                    << ", version:" << it->second->version().first << "-"
-                    << it->second->version().second;
-        auto tablet_id = it->second->rowset_meta()->tablet_id();
-        auto tablet = _tablet_manager->get_tablet(tablet_id);
+    for (auto&& rs : unused_rowsets_copy) {
+        VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
+                    << ", version:" << rs->version();
         // delete delete_bitmap of unused rowsets
-        if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
-            tablet->tablet_meta()->delete_bitmap().remove({it->second->rowset_id(), 0, 0},
-                                                          {it->second->rowset_id(), UINT32_MAX, 0});
+        if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
+            tablet && tablet->enable_unique_key_merge_on_write()) {
+            tablet->tablet_meta()->delete_bitmap().remove({rs->rowset_id(), 0, 0},
+                                                          {rs->rowset_id(), UINT32_MAX, 0});
         }
-        Status status = it->second->remove();
-        VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
-                    << " finished. status:" << status;
+        Status status = rs->remove();
+        VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
     }
 }
 
@@ -1098,19 +1098,14 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     if (rowset == nullptr) {
         return;
     }
-
     VLOG_NOTICE << "add unused rowset, rowset id:" << rowset->rowset_id()
                 << ", version:" << rowset->version();
-
-    auto rowset_id = rowset->rowset_id().to_string();
-
     std::lock_guard<std::mutex> lock(_gc_mutex);
-    auto it = _unused_rowsets.find(rowset_id);
+    auto it = _unused_rowsets.find(rowset->rowset_id());
     if (it == _unused_rowsets.end()) {
         rowset->set_need_delete_file();
         rowset->close();
-        _unused_rowsets[rowset_id] = rowset;
-        release_rowset_id(rowset->rowset_id());
+        _unused_rowsets[rowset->rowset_id()] = std::move(rowset);
     }
 }
 
@@ -1157,20 +1152,14 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
         *store = stores[0];
     }
 
-    Status res = Status::OK();
-    uint64_t shard = 0;
-    res = (*store)->get_shard(&shard);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to get root path shard. res=" << res;
-        return res;
-    }
+    uint64_t shard = (*store)->get_shard();
 
     std::stringstream root_path_stream;
     root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
 
     LOG(INFO) << "success to process obtain root path. path=" << shard_path;
-    return res;
+    return Status::OK();
 }
 
 Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
@@ -1247,8 +1236,14 @@ Status StorageEngine::execute_task(EngineTask* task) {
 // check whether any unused rowsets's id equal to rowset_id
 bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
     std::lock_guard<std::mutex> lock(_gc_mutex);
-    auto search = _unused_rowsets.find(rowset_id.to_string());
-    return search != _unused_rowsets.end();
+    return _unused_rowsets.contains(rowset_id);
+}
+
+PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& ctx) {
+    if (!ctx.fs || ctx.fs->type() == io::FileSystemType::LOCAL) {
+        return _pending_local_rowsets.add(ctx.rowset_id);
+    }
+    return _pending_remote_rowsets.add(ctx.rowset_id);
 }
 
 void StorageEngine::create_cumulative_compaction(

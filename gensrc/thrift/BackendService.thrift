@@ -69,6 +69,15 @@ struct TRoutineLoadTask {
     16: optional bool is_multi_table
 }
 
+struct TKafkaTvfTask {
+    1: required Types.TLoadSourceType type
+    2: required Types.TUniqueId id 
+    3: required TKafkaLoadInfo info
+    4: optional i64 max_interval_s
+    5: optional i64 max_batch_rows
+    6: optional i64 max_batch_size
+}
+
 struct TKafkaMetaProxyRequest {
     1: optional TKafkaLoadInfo kafka_info
 }
@@ -136,6 +145,28 @@ struct TIngestBinlogRequest {
 
 struct TIngestBinlogResult {
     1: optional Status.TStatus status;
+    2: optional bool is_async;
+}
+
+struct TQueryIngestBinlogRequest {
+    1: optional i64 txn_id;
+    2: optional i64 partition_id;
+    3: optional i64 tablet_id;
+    4: optional Types.TUniqueId load_id;
+}
+
+enum TIngestBinlogStatus {
+    ANALYSIS_ERROR,
+    UNKNOWN,
+    NOT_FOUND,
+    OK,
+    FAILED,
+    DOING
+}
+
+struct TQueryIngestBinlogResult {
+    1: optional TIngestBinlogStatus status;
+    2: optional string err_msg;
 }
 
 enum TTopicInfoType {
@@ -194,6 +225,8 @@ service BackendService {
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
 
+    Status.TStatus send_kafka_tvf_task(1:TKafkaTvfTask task);
+
     // doris will build  a scan context for this session, context_id returned if success
     DorisExternalService.TScanOpenResult open_scanner(1: DorisExternalService.TScanOpenParams params);
 
@@ -211,6 +244,7 @@ service BackendService {
     TCheckStorageFormatResult check_storage_format();
 
     TIngestBinlogResult ingest_binlog(1: TIngestBinlogRequest ingest_binlog_request);
+    TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
 
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 }

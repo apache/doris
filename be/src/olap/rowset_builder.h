@@ -30,6 +30,7 @@
 #include "olap/delta_writer_context.h"
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet_fwd.h"
 #include "util/runtime_profile.h"
@@ -107,6 +108,7 @@ private:
     BaseTabletSPtr _tablet;
     RowsetSharedPtr _rowset;
     std::shared_ptr<RowsetWriter> _rowset_writer;
+    PendingRowsetGuard _pending_rs_guard;
     TabletSchemaSPtr _tablet_schema;
 
     std::mutex _lock;

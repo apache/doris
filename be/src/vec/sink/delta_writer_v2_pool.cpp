@@ -25,12 +25,13 @@ class TExpr;
 
 namespace vectorized {
 
-DeltaWriterV2Map::DeltaWriterV2Map(UniqueId load_id) : _load_id(load_id), _use_cnt(1) {}
+DeltaWriterV2Map::DeltaWriterV2Map(UniqueId load_id, int num_use, DeltaWriterV2Pool* pool)
+        : _load_id(load_id), _use_cnt(num_use), _pool(pool) {}
 
 DeltaWriterV2Map::~DeltaWriterV2Map() = default;
 
-DeltaWriterV2* DeltaWriterV2Map::get_or_create(int64_t tablet_id,
-                                               std::function<DeltaWriterV2*()> creator) {
+DeltaWriterV2* DeltaWriterV2Map::get_or_create(
+        int64_t tablet_id, std::function<std::unique_ptr<DeltaWriterV2>()> creator) {
     _map.lazy_emplace(tablet_id, [&](const TabletToDeltaWriterV2Map::constructor& ctor) {
         ctor(tablet_id, creator());
     });
@@ -38,8 +39,14 @@ DeltaWriterV2* DeltaWriterV2Map::get_or_create(int64_t tablet_id,
 }
 
 Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
-    if (--_use_cnt > 0) {
+    int num_use = --_use_cnt;
+    if (num_use > 0) {
+        LOG(INFO) << "not closing DeltaWriterV2Map << " << _load_id << " , use_cnt = " << num_use;
         return Status::OK();
+    }
+    LOG(INFO) << "closing DeltaWriterV2Map " << _load_id;
+    if (_pool != nullptr) {
+        _pool->erase(_load_id);
     }
     Status status = Status::OK();
     _map.for_each([&status](auto& entry) {
@@ -59,6 +66,11 @@ Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
 }
 
 void DeltaWriterV2Map::cancel(Status status) {
+    int num_use = --_use_cnt;
+    LOG(INFO) << "cancelling DeltaWriterV2Map " << _load_id << ", use_cnt = " << num_use;
+    if (num_use == 0 && _pool != nullptr) {
+        _pool->erase(_load_id);
+    }
     _map.for_each([&status](auto& entry) {
         static_cast<void>(entry.second->cancel_with_status(status));
     });
@@ -68,22 +80,23 @@ DeltaWriterV2Pool::DeltaWriterV2Pool() = default;
 
 DeltaWriterV2Pool::~DeltaWriterV2Pool() = default;
 
-std::shared_ptr<DeltaWriterV2Map> DeltaWriterV2Pool::get_or_create(PUniqueId load_id) {
+std::shared_ptr<DeltaWriterV2Map> DeltaWriterV2Pool::get_or_create(PUniqueId load_id,
+                                                                   int num_sink) {
     UniqueId id {load_id};
     std::lock_guard<std::mutex> lock(_mutex);
-    std::shared_ptr<DeltaWriterV2Map> map = _pool[id].lock();
+    std::shared_ptr<DeltaWriterV2Map> map = _pool[id];
     if (map) {
-        map->grab();
         return map;
     }
-    auto deleter = [this](DeltaWriterV2Map* m) {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _pool.erase(m->unique_id());
-        delete m;
-    };
-    map = std::shared_ptr<DeltaWriterV2Map>(new DeltaWriterV2Map(id), deleter);
+    map = std::make_shared<DeltaWriterV2Map>(id, num_sink, this);
     _pool[id] = map;
     return map;
+}
+
+void DeltaWriterV2Pool::erase(UniqueId load_id) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    LOG(INFO) << "erasing DeltaWriterV2Map, load_id = " << load_id;
+    _pool.erase(load_id);
 }
 
 } // namespace vectorized

@@ -43,7 +43,6 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     status.to_protobuf(result->mutable_status());
     {
         // call by result sink
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         done->Run();
     }
     delete this;
@@ -57,10 +56,7 @@ void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics
     }
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
-    {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        done->Run();
-    }
+    { done->Run(); }
     delete this;
 }
 
@@ -85,10 +81,7 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
         result->set_eos(eos);
     }
     st.to_protobuf(result->mutable_status());
-    {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        done->Run();
-    }
+    { done->Run(); }
     delete this;
 }
 

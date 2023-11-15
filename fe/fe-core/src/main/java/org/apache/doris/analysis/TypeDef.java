@@ -29,7 +29,6 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -304,15 +303,7 @@ public class TypeDef implements ParseNode {
                 break;
             }
             case DECIMAL256: {
-                boolean enableNereidsPlanner = false;
-                boolean enableDecimal256 = false;
-                ConnectContext connectContext = ConnectContext.get();
-                if (connectContext != null) {
-                    SessionVariable sessionVariable = connectContext.getSessionVariable();
-                    enableDecimal256 = sessionVariable.enableDecimal256();
-                    enableNereidsPlanner = sessionVariable.isEnableNereidsPlanner();
-                }
-                if (enableNereidsPlanner && enableDecimal256) {
+                if (SessionVariable.getEnableDecimal256()) {
                     int precision = scalarType.decimalPrecision();
                     int scale = scalarType.decimalScale();
                     if (precision < 1 || precision > ScalarType.MAX_DECIMAL256_PRECISION) {

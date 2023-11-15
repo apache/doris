@@ -65,7 +65,7 @@ enum CompressionTypePB : int;
 namespace pipeline {
 class ExchangeSinkOperator;
 class ExchangeSinkOperatorX;
-class ChannelDependency;
+class LocalExchangeChannelDependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -194,20 +194,20 @@ protected:
     std::vector<Channel<VDataStreamSender>*> _channels;
     std::vector<std::shared_ptr<Channel<VDataStreamSender>>> _channel_shared_ptrs;
 
-    RuntimeProfile::Counter* _serialize_batch_timer;
-    RuntimeProfile::Counter* _compress_timer;
-    RuntimeProfile::Counter* _brpc_send_timer;
-    RuntimeProfile::Counter* _brpc_wait_timer;
-    RuntimeProfile::Counter* _bytes_sent_counter;
-    RuntimeProfile::Counter* _uncompressed_bytes_counter;
-    RuntimeProfile::Counter* _local_sent_rows;
-    RuntimeProfile::Counter* _local_send_timer;
-    RuntimeProfile::Counter* _split_block_hash_compute_timer;
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
-    RuntimeProfile::Counter* _blocks_sent_counter;
-    RuntimeProfile::Counter* _merge_block_timer;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
+    RuntimeProfile::Counter* _serialize_batch_timer {};
+    RuntimeProfile::Counter* _compress_timer {};
+    RuntimeProfile::Counter* _brpc_send_timer {};
+    RuntimeProfile::Counter* _brpc_wait_timer {};
+    RuntimeProfile::Counter* _bytes_sent_counter {};
+    RuntimeProfile::Counter* _uncompressed_bytes_counter {};
+    RuntimeProfile::Counter* _local_sent_rows {};
+    RuntimeProfile::Counter* _local_send_timer {};
+    RuntimeProfile::Counter* _split_block_hash_compute_timer {};
+    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer {};
+    RuntimeProfile::Counter* _blocks_sent_counter {};
+    RuntimeProfile::Counter* _merge_block_timer {};
+    RuntimeProfile::Counter* _memory_usage_counter {};
+    RuntimeProfile::Counter* _peak_memory_usage_counter {};
 
     std::unique_ptr<MemTracker> _mem_tracker;
 
@@ -261,11 +261,7 @@ public:
         _ch_cur_pb_block = &_ch_pb_block1;
     }
 
-    virtual ~Channel() {
-        if (_closure != nullptr && _closure->unref()) {
-            delete _closure;
-        }
-    }
+    virtual ~Channel() = default;
 
     // Initialize channel.
     // Returns OK if successful, error indication otherwise.
@@ -278,8 +274,7 @@ public:
     virtual Status send_remote_block(PBlock* block, bool eos = false,
                                      Status exec_status = Status::OK());
 
-    virtual Status send_broadcast_block(BroadcastPBlockHolder* block, [[maybe_unused]] bool* sent,
-                                        bool eos = false) {
+    virtual Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) {
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
@@ -310,11 +305,6 @@ public:
 
     bool is_local() const { return _is_local; }
 
-    VDataStreamRecvr* local_recvr() {
-        DCHECK(_is_local && _local_recvr != nullptr);
-        return _local_recvr.get();
-    }
-
     virtual void ch_roll_pb_block();
 
     bool can_write() {
@@ -343,22 +333,22 @@ protected:
 
     Status _wait_last_brpc() {
         SCOPED_TIMER(_parent->brpc_wait_timer());
-        if (_closure == nullptr) {
+        if (_send_remote_block_callback == nullptr) {
             return Status::OK();
         }
-        auto cntl = &_closure->cntl;
-        auto call_id = _closure->cntl.call_id();
-        brpc::Join(call_id);
-        _receiver_status = Status::create(_closure->result.status());
-        if (cntl->Failed()) {
+        _send_remote_block_callback->join();
+        if (_send_remote_block_callback->cntl_->Failed()) {
             std::string err = fmt::format(
                     "failed to send brpc batch, error={}, error_text={}, client: {}, "
                     "latency = {}",
-                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
-                    cntl->latency_us());
+                    berror(_send_remote_block_callback->cntl_->ErrorCode()),
+                    _send_remote_block_callback->cntl_->ErrorText(),
+                    BackendOptions::get_localhost(),
+                    _send_remote_block_callback->cntl_->latency_us());
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }
+        _receiver_status = Status::create(_send_remote_block_callback->response_->status());
         return _receiver_status;
     }
 
@@ -386,9 +376,9 @@ protected:
     PUniqueId _finst_id;
     PUniqueId _query_id;
     PBlock _pb_block;
-    PTransmitDataParams _brpc_request;
+    std::shared_ptr<PTransmitDataParams> _brpc_request;
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
-    RefCountClosure<PTransmitDataResult>* _closure = nullptr;
+    std::shared_ptr<DummyBrpcCallback<PTransmitDataResult>> _send_remote_block_callback = nullptr;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as query statistics transfer chain.
@@ -499,18 +489,17 @@ public:
         return Status::OK();
     }
 
-    Status send_broadcast_block(BroadcastPBlockHolder* block, [[maybe_unused]] bool* sent,
-                                bool eos = false) override {
+    Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) override {
         COUNTER_UPDATE(Channel<Parent>::_parent->blocks_sent_counter(), 1);
         if (eos) {
             if (_eos_send) {
+                block->unref();
                 return Status::OK();
-            } else {
-                _eos_send = true;
             }
+            _eos_send = true;
         }
         if (eos || block->get_block()->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}, sent));
+            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
         }
         return Status::OK();
     }
@@ -547,22 +536,23 @@ public:
         _buffer->register_sink(Channel<Parent>::_fragment_instance_id);
     }
 
-    pipeline::SelfDeleteClosure<PTransmitDataResult>* get_closure(
+    std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
             InstanceLoId id, bool eos, vectorized::BroadcastPBlockHolder* data) {
-        if (!_closure) {
-            _closure.reset(new pipeline::SelfDeleteClosure<PTransmitDataResult>());
+        if (!_send_callback) {
+            _send_callback = pipeline::ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {
-            _closure->cntl.Reset();
+            _send_callback->cntl_->Reset();
         }
-        _closure->init(id, eos, data);
-        return _closure.get();
+        _send_callback->init(id, eos, data);
+        return _send_callback;
     }
 
-    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency) {
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency() {
         if (!Channel<Parent>::_local_recvr) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
         }
-        Channel<Parent>::_local_recvr->set_dependency(dependency);
+        return Channel<Parent>::_local_recvr->get_local_channel_dependency(
+                Channel<Parent>::_parent->sender_id());
     }
 
 private:
@@ -570,7 +560,7 @@ private:
 
     pipeline::ExchangeSinkBuffer<Parent>* _buffer = nullptr;
     bool _eos_send = false;
-    std::unique_ptr<pipeline::SelfDeleteClosure<PTransmitDataResult>> _closure = nullptr;
+    std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> _send_callback = nullptr;
     std::unique_ptr<PBlock> _pblock;
 };
 

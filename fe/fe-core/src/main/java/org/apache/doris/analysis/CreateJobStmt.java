@@ -23,14 +23,15 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecuteType;
+import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.base.TimerDefinition;
+import org.apache.doris.job.common.IntervalUnit;
+import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.scheduler.common.IntervalUnit;
-import org.apache.doris.scheduler.constants.JobCategory;
-import org.apache.doris.scheduler.constants.JobStatus;
-import org.apache.doris.scheduler.constants.JobType;
-import org.apache.doris.scheduler.executor.SqlJobExecutor;
-import org.apache.doris.scheduler.job.Job;
 
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
@@ -61,12 +62,11 @@ import java.util.HashSet;
 @Slf4j
 public class CreateJobStmt extends DdlStmt {
 
+    @Getter
+    private StatementBase doStmt;
 
     @Getter
-    private StatementBase stmt;
-
-    @Getter
-    private Job job;
+    private AbstractJob<?> jobInstance;
 
     private final LabelName labelName;
 
@@ -81,6 +81,7 @@ public class CreateJobStmt extends DdlStmt {
     private final String endsTimeStamp;
 
     private final String comment;
+    private JobExecuteType executeType;
 
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
 
@@ -88,9 +89,9 @@ public class CreateJobStmt extends DdlStmt {
             = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
             .add(UpdateStmt.class).build();
 
-    private static HashSet<String> supportStmtClassNamesCache = new HashSet<>(16);
+    private static final HashSet<String> supportStmtClassNamesCache = new HashSet<>(16);
 
-    public CreateJobStmt(LabelName labelName, String jobTypeName, String onceJobStartTimestamp,
+    public CreateJobStmt(LabelName labelName, JobExecuteType executeType, String onceJobStartTimestamp,
                          Long interval, String intervalTimeUnit,
                          String startsTimeStamp, String endsTimeStamp, String comment, StatementBase doStmt) {
         this.labelName = labelName;
@@ -100,10 +101,78 @@ public class CreateJobStmt extends DdlStmt {
         this.startsTimeStamp = startsTimeStamp;
         this.endsTimeStamp = endsTimeStamp;
         this.comment = comment;
-        this.stmt = doStmt;
-        this.job = new Job();
-        JobType jobType = JobType.valueOf(jobTypeName.toUpperCase());
-        job.setJobType(jobType);
+        this.doStmt = doStmt;
+        this.executeType = executeType;
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
+        checkAuth();
+        labelName.analyze(analyzer);
+        String dbName = labelName.getDbName();
+        Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        analyzerSqlStmt();
+        // check its insert stmt,currently only support insert stmt
+        //todo used InsertIntoCommand if job is InsertJob
+        InsertJob job = new InsertJob();
+        JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
+        jobExecutionConfiguration.setExecuteType(executeType);
+        job.setCreateTimeMs(System.currentTimeMillis());
+        TimerDefinition timerDefinition = new TimerDefinition();
+
+        if (null != onceJobStartTimestamp) {
+            timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(onceJobStartTimestamp));
+        }
+        if (null != interval) {
+            timerDefinition.setInterval(interval);
+        }
+        if (null != intervalTimeUnit) {
+            timerDefinition.setIntervalUnit(IntervalUnit.valueOf(intervalTimeUnit.toUpperCase()));
+        }
+        if (null != startsTimeStamp) {
+            timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(startsTimeStamp));
+        }
+        if (null != endsTimeStamp) {
+            timerDefinition.setEndTimeMs(TimeUtils.timeStringToLong(endsTimeStamp));
+        }
+        jobExecutionConfiguration.setTimerDefinition(timerDefinition);
+        job.setJobConfig(jobExecutionConfiguration);
+
+        job.setComment(comment);
+        job.setCurrentDbName(labelName.getDbName());
+        job.setJobName(labelName.getLabelName());
+        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
+        job.setJobStatus(JobStatus.RUNNING);
+        job.checkJobParams();
+        String originStmt = getOrigStmt().originStmt;
+        String executeSql = parseExecuteSql(originStmt);
+        job.setExecuteSql(executeSql);
+        jobInstance = job;
+    }
+
+    protected static void checkAuth() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+    }
+
+    private void checkStmtSupport() throws AnalysisException {
+        if (supportStmtClassNamesCache.contains(doStmt.getClass().getSimpleName())) {
+            return;
+        }
+        for (Class<? extends DdlStmt> clazz : supportStmtSuperClass) {
+            if (clazz.isAssignableFrom(doStmt.getClass())) {
+                supportStmtClassNamesCache.add(doStmt.getClass().getSimpleName());
+                return;
+            }
+        }
+        throw new AnalysisException("Not support this stmt type");
+    }
+
+    private void analyzerSqlStmt() throws UserException {
+        checkStmtSupport();
+        doStmt.analyze(analyzer);
     }
 
     private String parseExecuteSql(String sql) throws AnalysisException {
@@ -114,112 +183,5 @@ public class CreateJobStmt extends DdlStmt {
             throw new AnalysisException("execute sql has invalid format");
         }
         return executeSql;
-    }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        checkAuth();
-        labelName.analyze(analyzer);
-        String dbName = labelName.getDbName();
-        Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-        job.setDbName(labelName.getDbName());
-        job.setJobName(labelName.getLabelName());
-        if (StringUtils.isNotBlank(onceJobStartTimestamp)) {
-            analyzerOnceTimeJob();
-        } else {
-            analyzerCycleJob();
-        }
-        if (ConnectContext.get() != null) {
-            timezone = ConnectContext.get().getSessionVariable().getTimeZone();
-        }
-        timezone = TimeUtils.checkTimeZoneValidAndStandardize(timezone);
-        job.setTimezone(timezone);
-        job.setComment(comment);
-        //todo support user define
-        job.setUser(ConnectContext.get().getQualifiedUser());
-        job.setJobStatus(JobStatus.RUNNING);
-        job.setJobCategory(JobCategory.SQL);
-        analyzerSqlStmt();
-    }
-
-    protected static void checkAuth() throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-    }
-
-    private void checkStmtSupport() throws AnalysisException {
-        if (supportStmtClassNamesCache.contains(stmt.getClass().getSimpleName())) {
-            return;
-        }
-        for (Class<? extends DdlStmt> clazz : supportStmtSuperClass) {
-            if (clazz.isAssignableFrom(stmt.getClass())) {
-                supportStmtClassNamesCache.add(stmt.getClass().getSimpleName());
-                return;
-            }
-        }
-        throw new AnalysisException("Not support this stmt type");
-    }
-
-    private void analyzerSqlStmt() throws UserException {
-        checkStmtSupport();
-        stmt.analyze(analyzer);
-        String originStmt = getOrigStmt().originStmt;
-        String executeSql = parseExecuteSql(originStmt);
-        SqlJobExecutor sqlJobExecutor = new SqlJobExecutor(executeSql);
-        job.setExecutor(sqlJobExecutor);
-    }
-
-
-    private void analyzerCycleJob() throws UserException {
-        if (null == interval) {
-            throw new AnalysisException("interval is null");
-        }
-        if (interval <= 0) {
-            throw new AnalysisException("interval must be greater than 0");
-        }
-
-        if (StringUtils.isBlank(intervalTimeUnit)) {
-            throw new AnalysisException("intervalTimeUnit is null");
-        }
-        try {
-            IntervalUnit intervalUnit = IntervalUnit.valueOf(intervalTimeUnit.toUpperCase());
-            job.setIntervalUnit(intervalUnit);
-            long intervalTimeMs = intervalUnit.getParameterValue(interval);
-            job.setIntervalMs(intervalTimeMs);
-            job.setOriginInterval(interval);
-        } catch (IllegalArgumentException e) {
-            throw new AnalysisException("interval time unit is not valid, we only support second,minute,hour,day,week");
-        }
-        if (StringUtils.isNotBlank(startsTimeStamp)) {
-            long startsTimeMillis = TimeUtils.timeStringToLong(startsTimeStamp);
-            if (startsTimeMillis < System.currentTimeMillis()) {
-                throw new AnalysisException("starts time must be greater than current time");
-            }
-            job.setStartTimeMs(startsTimeMillis);
-        }
-        if (StringUtils.isNotBlank(endsTimeStamp)) {
-            long endTimeMillis = TimeUtils.timeStringToLong(endsTimeStamp);
-            if (endTimeMillis < System.currentTimeMillis()) {
-                throw new AnalysisException("ends time must be greater than current time");
-            }
-            job.setEndTimeMs(endTimeMillis);
-        }
-        if (job.getStartTimeMs() > 0 && job.getEndTimeMs() > 0
-                && (job.getEndTimeMs() - job.getStartTimeMs() < job.getIntervalMs())) {
-            throw new AnalysisException("ends time must be greater than start time and interval time");
-        }
-    }
-
-
-    private void analyzerOnceTimeJob() throws UserException {
-        job.setIntervalMs(0L);
-
-        long executeAtTimeMillis = TimeUtils.timeStringToLong(onceJobStartTimestamp);
-        if (executeAtTimeMillis < System.currentTimeMillis()) {
-            throw new AnalysisException("job time stamp must be greater than current time");
-        }
-        job.setStartTimeMs(executeAtTimeMillis);
     }
 }

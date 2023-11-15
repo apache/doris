@@ -481,6 +481,10 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
     }
 }
 
+double ColumnArray::get_ratio_of_default_rows(double sample_ratio) const {
+    return get_ratio_of_default_rows_impl<ColumnArray>(sample_ratio);
+}
+
 ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
     if (typeid_cast<const ColumnUInt8*>(data.get()))
         return filter_number<UInt8>(filt, result_size_hint);
@@ -829,42 +833,35 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
     return replicate_generic(replicate_offsets);
 }
 
-void ColumnArray::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+void ColumnArray::replicate(const uint32_t* indices, size_t target_size, IColumn& column) const {
     if (target_size == 0) {
         return;
     }
-    auto total_size = get_offsets().size();
-    // |---------------------|-------------------------|-------------------------|
-    // [0, begin)             [begin, begin + count_sz)  [begin + count_sz, size())
-    //  do not need to copy    copy counts[n] times       do not need to copy
-    IColumn::Offsets replicate_offsets(total_size, 0);
-    // copy original data at offset n counts[n] times
-    auto begin = 0, end = 0;
-    while (begin < target_size) {
-        while (end < target_size && indexs[begin] == indexs[end]) {
-            end++;
+
+    auto& dst_col = assert_cast<ColumnArray&>(column);
+    auto& dst_data_col = dst_col.get_data();
+    auto& dst_offsets = dst_col.get_offsets();
+    dst_offsets.reserve(target_size);
+
+    PODArray<uint32> data_indices_to_replicate;
+
+    for (size_t i = 0; i < target_size; ++i) {
+        const auto index = indices[i];
+        const auto start = offset_at(index);
+        const auto length = size_at(index);
+        dst_offsets.push_back(dst_offsets.back() + length);
+        if (UNLIKELY(length == 0)) {
+            continue;
         }
-        long index = indexs[begin];
-        replicate_offsets[index] = end - begin;
-        begin = end;
+
+        data_indices_to_replicate.reserve(data_indices_to_replicate.size() + length);
+        for (size_t j = start; j != start + length; ++j) {
+            data_indices_to_replicate.push_back(j);
+        }
     }
 
-    // ignored
-    for (size_t i = 1; i < total_size; ++i) {
-        replicate_offsets[i] += replicate_offsets[i - 1];
-    }
-
-    auto rep_res = replicate(replicate_offsets);
-    if (!rep_res) {
-        LOG(WARNING) << "ColumnArray replicate failed, replicate_offsets count="
-                     << replicate_offsets.size() << ", max=" << replicate_offsets.back();
-        return;
-    }
-    auto& rep_res_arr = typeid_cast<const ColumnArray&>(*rep_res);
-
-    ColumnArray& res_arr = typeid_cast<ColumnArray&>(column);
-    res_arr.data = rep_res_arr.get_data_ptr();
-    res_arr.offsets = rep_res_arr.get_offsets_ptr();
+    get_data().replicate(data_indices_to_replicate.data(), data_indices_to_replicate.size(),
+                         dst_data_col);
 }
 
 template <typename T>

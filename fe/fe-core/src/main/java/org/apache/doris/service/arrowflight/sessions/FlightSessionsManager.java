@@ -49,8 +49,8 @@ public interface FlightSessionsManager {
      */
     ConnectContext createConnectContext(String peerIdentity);
 
-    public static ConnectContext buildConnectContext(String peerIdentity, UserIdentity userIdentity, String remoteIP) {
-        ConnectContext connectContext = new ConnectContext(peerIdentity);
+    static ConnectContext buildConnectContext(String peerIdentity, UserIdentity userIdentity, String remoteIP) {
+        ConnectContext connectContext = new FlightSqlConnectContext(peerIdentity);
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setStartTime();
         connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);

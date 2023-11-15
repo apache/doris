@@ -34,9 +34,16 @@ class ClusterOptions {
 
     int feNum = 1
     int beNum = 3
-    int beDiskNum = 1
     List<String> feConfigs = []
     List<String> beConfigs = []
+
+    // each be disks, a disks format is: disk_type=disk_num[,disk_capacity]
+    // here disk_type=HDD or SSD,  disk capacity is in gb unit.
+    // for example: beDisks = ["HDD=1", "SSD=2,10", "SSD=10,3"] means:
+    // each be has 1 HDD disks without capacity limit, 2 SSD disks with 10GB capacity limit,
+    // and 10 SSD disks with 3GB capacity limit
+    // if not specific, docker will let each be contains 1 HDD disk.
+    List<String> beDisks = null
 
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
@@ -149,19 +156,15 @@ class SuiteCluster {
 
     final String name
     final Config config
-    private boolean inited
+    private boolean running
 
     SuiteCluster(String name, Config config) {
         this.name = name
         this.config = config
-        this.inited = false
+        this.running = false
     }
 
     void init(ClusterOptions options) {
-        if (inited) {
-            return
-        }
-
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
@@ -184,7 +187,12 @@ class SuiteCluster {
             sb.append('--be-config ')
             options.beConfigs.forEach(item -> sb.append(' ' + item + ' '))
         }
-        sb.append('--be-disk-num ' + options.beDiskNum + ' ')
+        if (options.beDisks != null) {
+            sb.append('--be-disks ' + options.beDisks.join(' ') + ' ')
+        }
+        if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
+            sb.append('--coverage-dir ' + config.dockerCoverageOutputDir)
+        }
         sb.append('--wait-timeout 180')
 
         runCmd(sb.toString(), -1)
@@ -192,7 +200,7 @@ class SuiteCluster {
         // wait be report disk
         Thread.sleep(5000)
 
-        inited = true
+        running = true
     }
 
     void injectDebugPoints(NodeType type, Map<String, Map<String, String>> injectPoints) {
@@ -317,12 +325,19 @@ class SuiteCluster {
     }
 
     void destroy(boolean clean) throws Exception {
-        def cmd = 'down ' + name
-        if (clean) {
-            cmd += ' --clean'
+        try {
+            def cmd = 'down ' + name
+            if (clean) {
+                cmd += ' --clean'
+            }
+            runCmd(cmd)
+        } finally {
+            running = false
         }
-        runCmd(cmd)
-        inited = false
+    }
+
+    boolean isRunning() {
+        return running
     }
 
     // if not specific fe indices, then start all frontends
@@ -421,7 +436,7 @@ class SuiteCluster {
     }
 
     private void waitHbChanged() {
-        Thread.sleep(6000)
+        Thread.sleep(7000)
     }
 
     private void runFrontendsCmd(String op, int... indices) {

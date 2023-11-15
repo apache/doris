@@ -29,12 +29,12 @@
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "runtime/descriptors.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
 
 namespace arrow {
 class RecordBatch;
+class Schema;
 } // namespace arrow
 
 namespace doris {
@@ -66,8 +66,9 @@ public:
     // fetch data result to Arrow Flight Server
     Status fetch_arrow_data(const TUniqueId& finst_id, std::shared_ptr<arrow::RecordBatch>* result);
 
-    void register_row_descriptor(const TUniqueId& query_id, const RowDescriptor& row_desc);
-    RowDescriptor find_row_descriptor(const TUniqueId& query_id);
+    void register_arrow_schema(const TUniqueId& query_id,
+                               const std::shared_ptr<arrow::Schema>& arrow_schema);
+    std::shared_ptr<arrow::Schema> find_arrow_schema(const TUniqueId& query_id);
 
     // cancel
     Status cancel(const TUniqueId& fragment_id);
@@ -78,7 +79,7 @@ public:
 private:
     using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>>;
     using TimeoutMap = std::map<time_t, std::vector<TUniqueId>>;
-    using RowDescriptorMap = std::unordered_map<TUniqueId, RowDescriptor>;
+    using ArrowSchemaMap = std::unordered_map<TUniqueId, std::shared_ptr<arrow::Schema>>;
 
     std::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
 
@@ -90,10 +91,10 @@ private:
     std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
-    // lock for descriptor map
-    std::shared_mutex _row_descriptor_map_lock;
+    // lock for arrow schema map
+    std::shared_mutex _arrow_schema_map_lock;
     // for arrow flight
-    RowDescriptorMap _row_descriptor_map;
+    ArrowSchemaMap _arrow_schema_map;
 
     // lock for timeout map
     std::mutex _timeout_lock;

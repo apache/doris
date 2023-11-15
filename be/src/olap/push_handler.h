@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
@@ -83,6 +84,7 @@ private:
 
     int64_t _write_bytes = 0;
     int64_t _write_rows = 0;
+    PendingRowsetGuard _pending_rs_guard;
     DISALLOW_COPY_AND_ASSIGN(PushHandler);
 };
 

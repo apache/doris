@@ -1591,39 +1591,6 @@ build_nlohmann_json() {
     "${BUILD_SYSTEM}" install
 }
 
-# opentelemetry
-build_opentelemetry() {
-    check_if_source_exist "${OPENTELEMETRY_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
-
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
-        -DBUILD_TESTING=OFF \
-        -DWITH_OTLP_GRPC=ON \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DWITH_OTLP_HTTP=ON \
-        -DWITH_ABSEIL=ON \
-        -DWITH_FUNC_TESTS=OFF \
-        -DWITH_ZIPKIN=ON \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-        -DWITH_EXAMPLES=OFF ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-    strip_lib libopentelemetry_exporter_zipkin_trace.a
-    strip_lib libopentelemetry_trace.a
-    strip_lib libopentelemetry_proto.a
-    strip_lib libopentelemetry_resources.a
-    strip_lib libopentelemetry_exporter_ostream_span.a
-    strip_lib libopentelemetry_http_client_curl.a
-    strip_lib libopentelemetry_exporter_otlp_http_client.a
-}
-
 # sse2neon
 build_sse2neon() {
     check_if_source_exist "${SSE2NEON_SOURCE}"
@@ -1779,7 +1746,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         benchmark
         simdjson
         nlohmann_json
-        opentelemetry
         libbacktrace
         sse2neon
         xxhash

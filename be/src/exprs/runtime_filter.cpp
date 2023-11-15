@@ -1185,17 +1185,17 @@ bool IRuntimeFilter::await() {
     return true;
 }
 
+// NOTE: Wait infinitely will not make scan task wait really forever.
+// Because BlockTaskSchedule will make it run when query is timedout.
+bool IRuntimeFilter::wait_infinitely() const {
+    // bitmap filter is precise filter and only filter once, so it must be applied.
+    return _wait_infinitely ||
+           (_wrapper != nullptr && _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER);
+}
+
 bool IRuntimeFilter::is_ready_or_timeout() {
     DCHECK(is_consumer());
     auto cur_state = _rf_state_atomic.load(std::memory_order_acquire);
-    auto execution_timeout = _state == nullptr ? _query_ctx->execution_timeout() * 1000
-                                               : _state->execution_timeout() * 1000;
-    auto runtime_filter_wait_time_ms = _state == nullptr ? _query_ctx->runtime_filter_wait_time_ms()
-                                                         : _state->runtime_filter_wait_time_ms();
-    // bitmap filter is precise filter and only filter once, so it must be applied.
-    int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
-                                    ? execution_timeout
-                                    : runtime_filter_wait_time_ms;
     int64_t ms_since_registration = MonotonicMillis() - registration_time_;
     if (!_enable_pipeline_exec) {
         _rf_state = RuntimeFilterState::TIME_OUT;
@@ -1212,7 +1212,7 @@ bool IRuntimeFilter::is_ready_or_timeout() {
         if (is_ready()) {
             return true;
         }
-        bool timeout = wait_times_ms <= ms_since_registration;
+        bool timeout = wait_infinitely() ? false : _rf_wait_time_ms <= ms_since_registration;
         auto expected = RuntimeFilterState::NOT_READY;
         if (timeout) {
             if (!_rf_state_atomic.compare_exchange_strong(expected, RuntimeFilterState::TIME_OUT,

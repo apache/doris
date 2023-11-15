@@ -35,7 +35,6 @@
 #include <type_traits>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/large_int_value.h"
@@ -93,7 +92,7 @@ public:
     template <typename T>
     static T get_scale_multiplier(int scale) {
         static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
-                              std::is_same_v<T, __int128> || std::is_same_v<T, Int256>,
+                              std::is_same_v<T, __int128> || std::is_same_v<T, wide::Int256>,
                       "You can only instantiate as int32_t, int64_t, __int128.");
         if constexpr (std::is_same_v<T, int32_t>) {
             return common::exp10_i32(scale);
@@ -101,7 +100,7 @@ public:
             return common::exp10_i64(scale);
         } else if constexpr (std::is_same_v<T, __int128>) {
             return common::exp10_i128(scale);
-        } else if constexpr (std::is_same_v<T, Int256>) {
+        } else if constexpr (std::is_same_v<T, wide::Int256>) {
             return common::exp10_i256(scale);
         }
     }
@@ -580,6 +579,10 @@ inline int StringParser::StringParseTraits<wide::Int256>::max_ascii_len() {
 template <PrimitiveType P, typename T>
 T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
                                   ParseResult* result) {
+    static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
+                          std::is_same_v<T, __int128> || std::is_same_v<T, wide::Int256>,
+                  "Cast string to decimal only support target type int32_t, int64_t, __int128 or "
+                  "wide::Int256.");
     // Special cases:
     //   1) '' == Fail, an empty string fails to parse.
     //   2) '   #   ' == #, leading and trailing white space is ignored.
@@ -794,17 +797,14 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     } else if (UNLIKELY(scale > type_scale)) {
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;
-        if (shift > 0) {
-            T divisor = get_scale_multiplier<T>(shift);
-            if (LIKELY(divisor > 0)) {
-                T remainder = value % divisor;
-                value /= divisor;
-                if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
-                    value += 1;
-                }
-            } else {
-                DCHECK(divisor == -1 || divisor == 0); // //DCHECK_EQ doesn't work with __int128.
-                value = 0;
+        T divisor = get_scale_multiplier<T>(shift);
+        if (UNLIKELY(divisor == std::numeric_limits<T>::max())) {
+            value = 0;
+        } else {
+            T remainder = value % divisor;
+            value /= divisor;
+            if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
+                value += 1;
             }
         }
         DCHECK(value >= 0); // //DCHECK_GE doesn't work with __int128.

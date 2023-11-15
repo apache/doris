@@ -40,12 +40,19 @@ namespace doris::vectorized {
   * Examples: there is no least common supertype for Array(UInt8), Int8.
   */
 
+enum class LeastSupertypeOnError {
+    Throw,
+    String,
+    Jsonb,
+    Null,
+};
+
 using TypeIndexSet = phmap::flat_hash_set<TypeIndex>;
 
-void get_least_supertype(const DataTypes& types, DataTypePtr* type,
-                         bool compatible_with_string = false);
+template <LeastSupertypeOnError on_error = LeastSupertypeOnError::Throw>
+void get_least_supertype(const DataTypes& types, DataTypePtr* type);
 
-void get_least_supertype(const TypeIndexSet& types, DataTypePtr* type,
-                         bool compatible_with_string = false);
+template <LeastSupertypeOnError on_error = LeastSupertypeOnError::Throw>
+void get_least_supertype(const TypeIndexSet& types, DataTypePtr* type);
 
 } // namespace doris::vectorized

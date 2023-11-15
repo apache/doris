@@ -19,7 +19,6 @@
 
 #include <gen_cpp/DataSinks_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <time.h>
 
 #include <new>
@@ -30,7 +29,6 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {

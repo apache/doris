@@ -45,7 +45,9 @@ public:
         {
             std::lock_guard<std::mutex> l(_lock);
             if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
-                return Status::InternalError("id already exist");
+                std::stringstream ss;
+                ss << "id: " << id << " already exist";
+                return Status::InternalError(ss.str());
             }
             _stream_map.emplace(id, stream);
         }
@@ -61,6 +63,7 @@ public:
                 return iter->second;
             }
         }
+        VLOG_NOTICE << "stream load pipe does not exist: " << id;
         return nullptr;
     }
 

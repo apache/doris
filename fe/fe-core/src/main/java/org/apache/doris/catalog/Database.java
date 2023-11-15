@@ -274,24 +274,23 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public long getUsedDataQuotaWithLock() {
         long usedDataQuota = 0;
         readLock();
-        try {
-            for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
+        List<Table> tables = new ArrayList<>(this.idToTable.values());
+        readUnlock();
 
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    usedDataQuota = usedDataQuota + olapTable.getDataSize();
-                } finally {
-                    olapTable.readUnlock();
-                }
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
             }
-            return usedDataQuota;
-        } finally {
-            readUnlock();
+
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.readLock();
+            try {
+                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+            } finally {
+                olapTable.readUnlock();
+            }
         }
+        return usedDataQuota;
     }
 
     public long getReplicaCountWithLock() {

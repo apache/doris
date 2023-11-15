@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
+import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
@@ -296,23 +297,26 @@ public class DiskRebalancer extends Rebalancer {
         Replica replica = invertedIndex.getReplica(tabletCtx.getTabletId(), tabletCtx.getTempSrcBackendId());
         // check src replica still there
         if (replica == null || replica.getPathHash() != tabletCtx.getTempSrcPathHash()) {
-            throw new SchedException(Status.UNRECOVERABLE, "src replica may be rebalanced");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "src replica may be rebalanced");
         }
         // ignore empty replicas as they do not make disk more balance
         if (replica.getDataSize() == 0) {
-            throw new SchedException(Status.UNRECOVERABLE, "size of src replica is zero");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "size of src replica is zero");
         }
         Database db = Env.getCurrentInternalCatalog().getDbOrException(tabletCtx.getDbId(),
-                s -> new SchedException(Status.UNRECOVERABLE, "db " + tabletCtx.getDbId() + " does not exist"));
+                s -> new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                        "db " + tabletCtx.getDbId() + " does not exist"));
         OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(),
-                s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletCtx.getTblId() + " does not exist"));
+                s -> new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                        "tbl " + tabletCtx.getTblId() + " does not exist"));
         DataProperty dataProperty = tbl.getPartitionInfo().getDataProperty(tabletCtx.getPartitionId());
         if (dataProperty == null) {
             throw new SchedException(Status.UNRECOVERABLE, "data property is null");
         }
         String storagePolicy = dataProperty.getStoragePolicy();
         if (!Strings.isNullOrEmpty(storagePolicy)) {
-            throw new SchedException(Status.UNRECOVERABLE, "disk balance not support for cooldown storage");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                    "disk balance not support for cooldown storage");
         }
 
         // check src slot
@@ -323,7 +327,7 @@ public class DiskRebalancer extends Rebalancer {
         }
         long pathHash = slot.takeBalanceSlot(replica.getPathHash());
         if (pathHash == -1) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to take src slot");
         }
         // after take src slot, we can set src replica now
         tabletCtx.setSrc(replica);
@@ -343,7 +347,7 @@ public class DiskRebalancer extends Rebalancer {
         if (pathHigh.contains(replica.getPathHash())) {
             pathLow.addAll(pathMid);
         } else if (!pathMid.contains(replica.getPathHash())) {
-            throw new SchedException(Status.UNRECOVERABLE, "src path is low load");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "src path is low load");
         }
         // check if this migration task can make the be's disks more balance.
         List<RootPathLoadStatistic> availPaths = Lists.newArrayList();
@@ -380,7 +384,7 @@ public class DiskRebalancer extends Rebalancer {
         }
 
         if (!setDest) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find low load path");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to find low load path");
         }
     }
 }

@@ -30,7 +30,6 @@
 #include <type_traits>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "vec/columns/column.h"
@@ -93,8 +92,6 @@ public:
     }
 
     MutableColumnPtr clone_resized(size_t size) const override;
-
-    bool can_be_inside_nullable() const override { return true; }
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;

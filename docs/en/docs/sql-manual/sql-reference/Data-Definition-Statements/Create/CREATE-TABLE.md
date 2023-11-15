@@ -315,6 +315,10 @@ Set table properties. The following attributes are currently supported:
 
     Set the copy distribution according to Tag. This attribute can completely cover the function of the `replication_num` attribute.
 
+* `min_load_replica_num`
+
+    The minimum required successful replica num for loading data. The default value is `-1`. If set less than or equal to 0, loading data requires a majority replicas to succeed.
+
 * `is_being_synced`  
 
     Used to identify whether this table is copied by CCR and is being synchronized by syncer. The default is `false`.  

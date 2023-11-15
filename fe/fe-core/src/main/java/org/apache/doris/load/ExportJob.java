@@ -227,7 +227,6 @@ public class ExportJob implements Writable {
     public void generateOutfileStatement() throws UserException {
         exportTable.readLock();
         try {
-            // generateQueryStmtOld
             generateQueryStmt();
         } finally {
             exportTable.readUnlock();

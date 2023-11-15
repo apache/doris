@@ -215,12 +215,12 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 10. 简单模式，导入json数据
     
     表结构：
-
+     ```
      `category` varchar(512) NULL COMMENT "",
      `author` varchar(512) NULL COMMENT "",
      `title` varchar(512) NULL COMMENT "",
      `price` double NULL COMMENT ""
-
+    ```
     json数据格式：
     ```
     {"category":"C++","author":"avc","title":"C++ primer","price":895}

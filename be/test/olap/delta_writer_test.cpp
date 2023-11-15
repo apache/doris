@@ -93,8 +93,8 @@ static void set_up() {
 static void tear_down() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(nullptr);
-    exec_env->set_storage_engine(nullptr);
     k_engine.reset();
+    exec_env->set_storage_engine(nullptr);
     EXPECT_EQ(system("rm -rf ./data_test"), 0);
     static_cast<void>(io::global_local_filesystem()->delete_directory(
             std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX));

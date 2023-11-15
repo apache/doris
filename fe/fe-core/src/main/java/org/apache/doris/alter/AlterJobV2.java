@@ -89,6 +89,11 @@ public abstract class AlterJobV2 implements Writable {
     @SerializedName(value = "rawSql")
     protected String rawSql;
 
+    // The job will wait all transactions before this txn id finished, then send the schema_change/rollup tasks.
+    @SerializedName(value = "watershedTxnId")
+    protected long watershedTxnId = -1;
+
+
     public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
                       long timeoutMs) {
         this.rawSql = rawSql;
@@ -133,6 +138,10 @@ public abstract class AlterJobV2 implements Writable {
 
     public String getTableName() {
         return tableName;
+    }
+
+    public long getWatershedTxnId() {
+        return watershedTxnId;
     }
 
     public boolean isTimeout() {

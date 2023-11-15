@@ -65,6 +65,8 @@ public:
     Status get_kafka_latest_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
                                                    std::vector<PIntegerPair>* partition_offsets);
 
+    Status offer_task(std::shared_ptr<StreamLoadContext> ctx);
+
 private:
     // execute the task
     void exec_task(std::shared_ptr<StreamLoadContext> ctx, DataConsumerPool* pool,

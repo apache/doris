@@ -130,8 +130,9 @@ public:
     static constexpr size_t READ_SLICE_SIZE = 8 * 1024 * 1024;      // 8MB
     static constexpr size_t BOX_SIZE = 1 * 1024 * 1024;             // 1MB
     static constexpr size_t SMALL_IO = 2 * 1024 * 1024;             // 2MB
+    static constexpr size_t HDFS_MIN_IO_SIZE = 4 * 1024;            // 4KB
+    static constexpr size_t OSS_MIN_IO_SIZE = 512 * 1024;           // 512KB
     static constexpr size_t NUM_BOX = TOTAL_BUFFER_SIZE / BOX_SIZE; // 128
-    static constexpr size_t MIN_READ_SIZE = 4096;                   // 4KB
 
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
                          const std::vector<PrefetchRange>& random_access_ranges)
@@ -141,6 +142,11 @@ public:
         _range_cached_data.resize(random_access_ranges.size());
         _size = _reader->size();
         _remaining = TOTAL_BUFFER_SIZE;
+        _is_oss = typeid_cast<io::S3FileReader*>(_reader.get()) != nullptr;
+        _max_amplified_ratio = config::max_amplified_read_ratio;
+        // Equivalent min size of each IO that can reach the maximum storage speed limit:
+        // 512KB for oss, 4KB for hdfs
+        _equivalent_io_size = _is_oss ? OSS_MIN_IO_SIZE : HDFS_MIN_IO_SIZE;
         if (_profile != nullptr) {
             const char* random_profile = "MergedSmallIO";
             ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
@@ -237,6 +243,9 @@ private:
     int16 _last_box_ref = -1;
     uint32 _last_box_usage = 0;
     std::vector<int16> _box_ref;
+    bool _is_oss;
+    double _max_amplified_ratio;
+    size_t _equivalent_io_size;
 
     Statistics _statistics;
 };

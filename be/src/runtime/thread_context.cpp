@@ -23,22 +23,15 @@
 namespace doris {
 class MemTracker;
 
-DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, _ptr);
-
-ThreadContextPtr::ThreadContextPtr() {
-    INIT_STATIC_THREAD_LOCAL(ThreadContext, _ptr);
-    init = true;
-}
-
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                        const TUniqueId& task_id, const TUniqueId& fragment_instance_id) {
-    SwitchBthreadLocal::switch_to_bthread_local();
+    ThreadLocalHandle::create_thread_local_if_not_exits();
     signal::set_signal_task_id(task_id);
     thread_context()->attach_task(task_id, fragment_instance_id, mem_tracker);
 }
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
-    SwitchBthreadLocal::switch_to_bthread_local();
+    ThreadLocalHandle::create_thread_local_if_not_exits();
     signal::set_signal_task_id(runtime_state->query_id());
     thread_context()->attach_task(runtime_state->query_id(), runtime_state->fragment_instance_id(),
                                   runtime_state->query_mem_tracker());
@@ -46,11 +39,11 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
 
 AttachTask::~AttachTask() {
     thread_context()->detach_task();
-    SwitchBthreadLocal::switch_back_pthread_local();
+    ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
-    SwitchBthreadLocal::switch_to_bthread_local();
+    ThreadLocalHandle::create_thread_local_if_not_exits();
     if (mem_tracker) {
         _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
     }
@@ -59,7 +52,7 @@ AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(
         const std::shared_ptr<MemTracker>& mem_tracker)
         : _mem_tracker(mem_tracker) {
-    SwitchBthreadLocal::switch_to_bthread_local();
+    ThreadLocalHandle::create_thread_local_if_not_exits();
     if (_mem_tracker) {
         _need_pop =
                 thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
@@ -70,7 +63,22 @@ AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
     if (_need_pop) {
         thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
     }
-    SwitchBthreadLocal::switch_back_pthread_local();
+    ThreadLocalHandle::del_thread_local_if_count_is_zero();
+}
+
+AddThreadMemTrackerConsumerByHook::AddThreadMemTrackerConsumerByHook(
+        const std::shared_ptr<MemTracker>& mem_tracker)
+        : _mem_tracker(mem_tracker) {
+    ThreadLocalHandle::create_thread_local_if_not_exits();
+    DCHECK(mem_tracker != nullptr);
+    use_mem_hook = true;
+    thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
+}
+
+AddThreadMemTrackerConsumerByHook::~AddThreadMemTrackerConsumerByHook() {
+    thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
+    use_mem_hook = false;
+    ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
 
 } // namespace doris

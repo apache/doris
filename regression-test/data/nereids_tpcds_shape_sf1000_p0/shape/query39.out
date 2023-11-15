@@ -24,9 +24,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[item]
 --PhysicalResultSink
-----PhysicalQuickSort
+----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk))otherCondition=()
 --------------PhysicalDistribute
@@ -63,9 +63,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[item]
 --PhysicalResultSink
-----PhysicalQuickSort
+----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk))otherCondition=()
 --------------PhysicalDistribute

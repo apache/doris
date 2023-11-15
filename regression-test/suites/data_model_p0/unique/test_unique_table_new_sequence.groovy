@@ -122,5 +122,43 @@ suite("test_unique_table_new_sequence") {
     qt_desc "desc ${tableName}"
 
     sql "DROP TABLE ${tableName}"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+      `k1` int NULL,
+      `v1` tinyint NULL,
+      `v2` int,
+      `v3` int,
+      `v4` int
+    ) ENGINE=OLAP
+    UNIQUE KEY(k1)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "function_column.sequence_col" = "v4",
+    "replication_allocation" = "tag.location.default: 1",
+    "light_schema_change" = "true"
+    );
+    """
+
+    sql "begin;"
+    sql "insert into ${tableName} (k1, v1, v2, v3, v4) values (1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3);"
+    sql "commit;"
+
+    qt_1 "select * from ${tableName} order by k1;"
+
+    sql "begin;"
+    sql "insert into ${tableName} (k1, v1, v2, v3, v4) values (2,20,20,20,20);"
+    sql "commit;"
+
+    qt_2 "select * from ${tableName} order by k1;"
+
+    sql "begin;"
+    sql "insert into ${tableName} (k1, v1, v2, v3, v4) values (3,30,30,30,1);"
+    sql "commit;"
+
+    qt_3 "select * from ${tableName} order by k1"
+
+    sql "DROP TABLE ${tableName}"
 }
 

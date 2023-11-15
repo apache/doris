@@ -85,8 +85,11 @@ public abstract class SubqueryExpr extends Expression implements LeafExpression 
     }
 
     @Override
-    protected String getExpressionName() {
-        return "subquery";
+    public String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of("subquery");
+        }
+        return this.exprName.get();
     }
 
     @Override

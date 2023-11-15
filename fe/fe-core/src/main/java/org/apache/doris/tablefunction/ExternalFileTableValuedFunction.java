@@ -33,7 +33,6 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -311,13 +310,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (!csvSchema.isEmpty()) {
             return csvSchema;
         }
-        if (FeConstants.runningUnitTest) {
-            Object mockedUtObj = FeConstants.unitTestConstant;
-            if (mockedUtObj instanceof List) {
-                return ((List<Column>) mockedUtObj);
-            }
-            return new ArrayList<>();
-        }
+        // if (FeConstants.runningUnitTest) {
+        //     Object mockedUtObj = FeConstants.unitTestConstant;
+        //     if (mockedUtObj instanceof List) {
+        //         return ((List<Column>) mockedUtObj);
+        //     }
+        //     return new ArrayList<>();
+        // }
         if (this.columns != null) {
             return columns;
         }

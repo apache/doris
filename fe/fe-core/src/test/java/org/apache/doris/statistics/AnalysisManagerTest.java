@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -340,13 +341,47 @@ public class AnalysisManagerTest {
         };
         OlapTable olapTable = new OlapTable();
         TableStatsMeta stats1 = new TableStatsMeta(0, 50, new AnalysisInfoBuilder().setColName("col1").build());
-        stats1.updatedRows.addAndGet(30);
+        stats1.updatedRows.addAndGet(50);
 
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
         TableStatsMeta stats2 = new TableStatsMeta(0, 190, new AnalysisInfoBuilder().setColName("col1").build());
         stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
 
+    }
+
+    @Test
+    public void testRecordLimit1() {
+        Config.analyze_record_limit = 2;
+        AnalysisManager analysisManager = new AnalysisManager();
+        analysisManager.replayCreateAnalysisJob(new AnalysisInfoBuilder().setJobId(1).build());
+        analysisManager.replayCreateAnalysisJob(new AnalysisInfoBuilder().setJobId(2).build());
+        analysisManager.replayCreateAnalysisJob(new AnalysisInfoBuilder().setJobId(3).build());
+        Assertions.assertEquals(2, analysisManager.analysisJobInfoMap.size());
+        Assertions.assertTrue(analysisManager.analysisJobInfoMap.containsKey(2L));
+        Assertions.assertTrue(analysisManager.analysisJobInfoMap.containsKey(3L));
+    }
+
+    @Test
+    public void testRecordLimit2() {
+        Config.analyze_record_limit = 2;
+        AnalysisManager analysisManager = new AnalysisManager();
+        analysisManager.replayCreateAnalysisTask(new AnalysisInfoBuilder().setTaskId(1).build());
+        analysisManager.replayCreateAnalysisTask(new AnalysisInfoBuilder().setTaskId(2).build());
+        analysisManager.replayCreateAnalysisTask(new AnalysisInfoBuilder().setTaskId(3).build());
+        Assertions.assertEquals(2, analysisManager.analysisTaskInfoMap.size());
+        Assertions.assertTrue(analysisManager.analysisTaskInfoMap.containsKey(2L));
+        Assertions.assertTrue(analysisManager.analysisTaskInfoMap.containsKey(3L));
+    }
+
+    @Test
+    public void testRecordLimit3() {
+        Config.analyze_record_limit = 2;
+        AnalysisManager analysisManager = new AnalysisManager();
+        analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(1).build());
+        analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(2).build());
+        analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(3).build());
+        Assertions.assertEquals(2, analysisManager.autoJobs.size());
     }
 
 }

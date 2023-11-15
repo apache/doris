@@ -11,8 +11,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------PhysicalProject
 ------------PhysicalOlapScan[web_sales]
 --PhysicalResultSink
-----PhysicalTopN
-------PhysicalTopN
+----PhysicalTopN[MERGE_SORT]
+------PhysicalTopN[LOCAL_SORT]
 --------hashAgg[DISTINCT_GLOBAL]
 ----------PhysicalDistribute
 ------------hashAgg[DISTINCT_LOCAL]

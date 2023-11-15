@@ -72,7 +72,6 @@
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -480,6 +479,8 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+
     // init exec env
     auto exec_env(doris::ExecEnv::GetInstance());
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, broken_paths);
@@ -487,8 +488,6 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "failed to init doris storage engine, res=" << status;
         exit(-1);
     }
-
-    doris::telemetry::init_tracer();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);
@@ -583,6 +582,7 @@ int main(int argc, char** argv) {
     brpc_service.reset(nullptr);
     LOG(INFO) << "Brpc service stopped";
     exec_env->destroy();
+    doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
     LOG(INFO) << "Doris main exited.";
     return 0;
 }

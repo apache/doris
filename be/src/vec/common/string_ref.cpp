@@ -20,7 +20,6 @@
 
 #include "string_ref.h"
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 
 namespace doris {

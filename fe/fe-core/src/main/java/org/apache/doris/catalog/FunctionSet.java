@@ -29,6 +29,7 @@ import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -387,17 +388,19 @@ public class FunctionSet<T> {
             }
             Type[] args = specializedFunction.getArgs();
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
+            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
             for (int i = 0; i < args.length; i++) {
                 if (args[i].hasTemplateType()) {
                     hasTemplateType = true;
-                    args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false);
+                    args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false,
+                            enableDecimal256);
                 }
             }
             if (specializedFunction.getReturnType().hasTemplateType()) {
                 hasTemplateType = true;
                 specializedFunction.setReturnType(
                         specializedFunction.getReturnType().specializeTemplateType(
-                        requestFunction.getReturnType(), specializedTypeMap, true));
+                        requestFunction.getReturnType(), specializedTypeMap, true, enableDecimal256));
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("specializedFunction signature: {}, return type: {}",
@@ -1319,13 +1322,13 @@ public class FunctionSet<T> {
 
         //vec percentile and percentile_approx
         addBuiltin(AggregateFunction.createBuiltin("percentile",
-                Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
-                "",
-                "",
-                "",
-                "",
-                "",
-                false, true, false, true));
+                        Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        false, true, false, true));
 
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,

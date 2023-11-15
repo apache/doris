@@ -27,21 +27,22 @@ jobs:
       - name: Checkout ${{ github.ref }} ( ${{ github.sha }} )
         if: ${{ github.event_name != 'pull_request_target' }}
         uses: actions/checkout@v3
-        with:
-          submodules: recursive
 
       - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
         if: ${{ github.event_name == 'pull_request_target' }}
         uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          submodules: recursive
 
-      - name: Patch
+      - name: Checkout action-sh-checker
         run: |
-          pushd .github/actions/action-sh-checker >/dev/null
+          rm -rf ./.github/actions/action-sh-checker
+          git clone https://github.com/luizm/action-sh-checker .github/actions/action-sh-checker
+
+          pushd .github/actions/action-sh-checker &>/dev/null
+          git checkout 76ab0b22e1f194e4a582edc7969df6485c4e9246
           sed -i 's/\[ "$GITHUB_EVENT_NAME" == "pull_request" \]/\[\[ "$GITHUB_EVENT_NAME" == "pull_request" || "$GITHUB_EVENT_NAME" == "pull_request_target" \]\]/' entrypoint.sh
-          popd >/dev/null
+          popd &>/dev/null
 
       - name: Run ShellCheck
         uses: ./.github/actions/action-sh-checker
@@ -63,7 +64,15 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          submodules: recursive
+
+      - name: Checkout paths-filter
+        run: |
+          rm -rf ./.github/actions/paths-filter
+          git clone https://github.com/dorny/paths-filter .github/actions/paths-filter
+
+          pushd .github/actions/paths-filter &>/dev/null
+          git checkout 4512585405083f25c027a35db413c2b3b9006d50
+          popd &>/dev/null
 
       - name: Paths Filter
         uses: ./.github/actions/paths-filter
@@ -117,13 +126,21 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          submodules: recursive
 
       - name: Download
         uses: actions/download-artifact@v3
         with:
           name: compile_commands
           path: ./be/build_Release
+
+      - name: Checkout clang-tidy review
+        run: |
+          rm -rf ./.github/actions/clang-tidy-review
+          git clone https://github.com/ZedThree/clang-tidy-review .github/actions/clang-tidy-review
+
+          pushd .github/actions/clang-tidy-review &>/dev/null
+          git checkout 2c55ef8cfc9acb3715d433e58aea086dcec9b206
+          popd &>/dev/null
 
       - name: Run clang-tidy review
         uses: ./.github/actions/clang-tidy-review

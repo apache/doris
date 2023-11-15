@@ -25,7 +25,6 @@
 #include <memory>
 #include <sstream>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"

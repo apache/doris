@@ -51,6 +51,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.tablefunction.KafkaTableValuedFunction;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -61,6 +62,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
+import org.apache.doris.thrift.TKafkaTvfTask;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -83,6 +85,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 
@@ -272,7 +275,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
         }
         this.inputSplitsNum = inputSplits.size();
-        if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
+        if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)
+                && !(getLocationType() == TFileType.FILE_KAFKA)) {
             return;
         }
         TFileFormatType fileFormatType = getFileFormatType();
@@ -302,6 +306,31 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
                 scanRangeLocations.add(curLocations);
+                return;
+            } else if (getLocationType() == TFileType.FILE_KAFKA) {
+                params.setFileType(TFileType.FILE_KAFKA);
+                FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
+                KafkaTableValuedFunction tableValuedFunction = (KafkaTableValuedFunction) table.getTvf();
+                params.setCompressType(tableValuedFunction.getTFileCompressType());
+
+                Map<Long, TKafkaTvfTask> kafkaTvfTaskMap = tableValuedFunction.getKafkaTvfTaskMap();
+                for (Entry<Long, TKafkaTvfTask> entry : kafkaTvfTaskMap.entrySet()) {
+                    TScanRangeLocations curLocations = newLocations();
+                    TFileRangeDesc rangeDesc = new TFileRangeDesc();
+                    rangeDesc.setLoadId(ConnectContext.get().queryId());
+                    rangeDesc.setSize(-1);
+                    rangeDesc.setFileSize(-1);
+                    curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+                    curLocations.getScanRange().getExtScanRange().getFileScanRange().setParams(params);
+
+                    TScanRangeLocation location = new TScanRangeLocation();
+                    long backendId = entry.getKey();
+                    Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+                    location.setBackendId(backendId);
+                    location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+                    curLocations.addToLocations(location);
+                    scanRangeLocations.add(curLocations);
+                }
                 return;
             }
         }

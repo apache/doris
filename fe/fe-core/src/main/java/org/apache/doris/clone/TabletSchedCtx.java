@@ -324,6 +324,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.lastVisitedTime = lastVisitedTime;
     }
 
+    public long getLastVisitedTime() {
+        return lastVisitedTime;
+    }
+
     public void setFinishedTime(long finishedTime) {
         this.finishedTime = finishedTime;
     }
@@ -422,6 +426,18 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public void setErrMsg(String errMsg) {
         this.errMsg = errMsg;
+    }
+
+    public String getErrMsg() {
+        return errMsg;
+    }
+
+    public SubCode getSchedFailedCode() {
+        return schedFailedCode;
+    }
+
+    public void setSchedFailedCode(SubCode code) {
+        schedFailedCode = code;
     }
 
     public CloneTask getCloneTask() {
@@ -613,7 +629,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         if (candidates.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find source replica");
+            throw new SchedException(Status.UNRECOVERABLE, "unable to find copy source replica");
         }
 
         // choose a replica which slot is available from candidates.
@@ -637,7 +653,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             return;
         }
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                "unable to find source slot");
+                "waiting for source replica's slot");
     }
 
     /*
@@ -718,7 +734,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
         if (candidates.isEmpty()) {
             if (furtherRepairs.isEmpty()) {
-                throw new SchedException(Status.UNRECOVERABLE, "unable to choose dest replica");
+                throw new SchedException(Status.UNRECOVERABLE, "unable to choose copy dest replica");
             }
 
             boolean allCatchup = true;
@@ -741,7 +757,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (slot == null || !slot.hasAvailableSlot(replica.getPathHash())) {
                 if (!replica.needFurtherRepair()) {
                     throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                            "replica " + replica + " has not slot");
+                            "dest replica " + replica + " has no slot");
                 }
 
                 continue;
@@ -1063,20 +1079,23 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
         // 1. check the tablet status first
         Database db = Env.getCurrentInternalCatalog().getDbOrException(dbId,
-                s -> new SchedException(Status.UNRECOVERABLE, "db " + dbId + " does not exist"));
+                s -> new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                        "db " + dbId + " does not exist"));
         OlapTable olapTable = (OlapTable) db.getTableOrException(tblId,
-                s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletId + " does not exist"));
+                s -> new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                        "tbl " + tabletId + " does not exist"));
         olapTable.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table "
                 + olapTable.getName() + " does not exist"));
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "partition does not exist");
+                throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                        "partition does not exist");
             }
 
             MaterializedIndex index = partition.getIndex(indexId);
             if (index == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "index does not exist");
+                throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "index does not exist");
             }
 
             if (schemaHash != olapTable.getSchemaHashByIndexId(indexId)) {
@@ -1116,7 +1135,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // check if replica exist
             Replica replica = tablet.getReplicaByBackendId(destBackendId);
             if (replica == null) {
-                throw new SchedException(Status.UNRECOVERABLE,
+                throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
                         "replica does not exist. backend id: " + destBackendId);
             }
 

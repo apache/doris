@@ -228,6 +228,18 @@ public:
     UIntGauge* heavy_work_max_threads;
     UIntGauge* light_work_max_threads;
 
+    UIntGauge* flush_thread_pool_queue_size;
+    UIntGauge* flush_thread_pool_thread_num;
+
+    UIntGauge* local_scan_thread_pool_queue_size;
+    UIntGauge* local_scan_thread_pool_thread_num;
+    UIntGauge* remote_scan_thread_pool_queue_size;
+    UIntGauge* remote_scan_thread_pool_thread_num;
+    UIntGauge* limited_scan_thread_pool_queue_size;
+    UIntGauge* limited_scan_thread_pool_thread_num;
+    UIntGauge* group_local_scan_thread_pool_queue_size;
+    UIntGauge* group_local_scan_thread_pool_thread_num;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;

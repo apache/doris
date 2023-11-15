@@ -63,8 +63,8 @@ void set_up() {
 }
 
 void tear_down() {
-    ExecEnv::GetInstance()->set_storage_engine(nullptr);
     k_engine.reset();
+    ExecEnv::GetInstance()->set_storage_engine(nullptr);
     system("rm -rf ./flush_test");
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
