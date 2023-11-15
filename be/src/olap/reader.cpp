@@ -489,6 +489,11 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         }
     }
 
+    // Only key column bloom filter will push down to storage engine
+    for (const auto& filter : read_params.bloom_filters) {
+        _col_predicates.emplace_back(_parse_to_predicate(filter));
+    }
+
     for (const auto& filter : read_params.bitmap_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
     }
@@ -560,6 +565,17 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
                 read_params.runtime_state->get_query_ctx()->get_runtime_predicate();
         runtime_predicate.set_tablet_schema(_tablet_schema);
     }
+}
+
+ColumnPredicate* TabletReader::_parse_to_predicate(
+        const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter) {
+    int32_t index = _tablet_schema->field_index(bloom_filter.first);
+    if (index < 0) {
+        return nullptr;
+    }
+    const TabletColumn& column = _tablet_schema->column(index);
+    return create_column_predicate(index, bloom_filter.second, column.type(),
+                                   _reader_context.runtime_state->be_exec_version(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(

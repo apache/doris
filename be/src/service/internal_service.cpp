@@ -1377,6 +1377,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         RowsetId remote_rowset_id = rowset_meta->rowset_id();
         // change rowset id because it maybe same as other local rowset
         RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
+        auto pending_rs_guard =
+                StorageEngine::instance()->pending_local_rowsets().add(new_rowset_id);
         rowset_meta->set_rowset_id(new_rowset_id);
         rowset_meta->set_tablet_uid(tablet->tablet_uid());
         VLOG_CRITICAL << "succeed to init rowset meta for slave replica. rowset_id="
@@ -1476,7 +1478,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
                 rowset_meta->tablet_id(), tablet->tablet_uid(), rowset_meta->load_id(), rowset,
-                false);
+                std::move(pending_rs_guard), false);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
@@ -1516,37 +1518,35 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
         return;
     }
 
-    PTabletWriteSlaveDoneRequest request;
-    request.set_txn_id(txn_id);
-    request.set_tablet_id(tablet_id);
-    request.set_node_id(node_id);
-    request.set_is_succeed(is_succeed);
-    RefCountClosure<PTabletWriteSlaveDoneResult>* closure =
-            new RefCountClosure<PTabletWriteSlaveDoneResult>();
-    closure->ref();
-    closure->ref();
-    closure->cntl.set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
-    closure->cntl.ignore_eovercrowded();
-    stub->response_slave_tablet_pull_rowset(&closure->cntl, &request, &closure->result, closure);
+    auto request = std::make_shared<PTabletWriteSlaveDoneRequest>();
+    request->set_txn_id(txn_id);
+    request->set_tablet_id(tablet_id);
+    request->set_node_id(node_id);
+    request->set_is_succeed(is_succeed);
+    auto pull_rowset_callback = DummyBrpcCallback<PTabletWriteSlaveDoneResult>::create_shared();
+    auto closure = AutoReleaseClosure<
+            PTabletWriteSlaveDoneRequest,
+            DummyBrpcCallback<PTabletWriteSlaveDoneResult>>::create_unique(request,
+                                                                           pull_rowset_callback);
+    closure->cntl_->set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
+    closure->cntl_->ignore_eovercrowded();
+    stub->response_slave_tablet_pull_rowset(closure->cntl_.get(), closure->request_.get(),
+                                            closure->response_.get(), closure.get());
+    closure.release();
 
-    closure->join();
-    if (closure->cntl.Failed()) {
+    pull_rowset_callback->join();
+    if (pull_rowset_callback->cntl_->Failed()) {
         if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(stub, remote_host,
                                                                              brpc_port)) {
             ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    closure->cntl.remote_side());
+                    closure->cntl_->remote_side());
         }
         LOG(WARNING) << "failed to response result of slave replica to master replica, error="
-                     << berror(closure->cntl.ErrorCode())
-                     << ", error_text=" << closure->cntl.ErrorText()
+                     << berror(pull_rowset_callback->cntl_->ErrorCode())
+                     << ", error_text=" << pull_rowset_callback->cntl_->ErrorText()
                      << ", master host: " << remote_host << ", tablet_id=" << tablet_id
                      << ", txn_id=" << txn_id;
     }
-
-    if (closure->unref()) {
-        delete closure;
-    }
-    closure = nullptr;
     VLOG_CRITICAL << "succeed to response the result of slave replica pull rowset to master "
                      "replica. master host: "
                   << remote_host << ". is_succeed=" << is_succeed << ", tablet_id=" << tablet_id

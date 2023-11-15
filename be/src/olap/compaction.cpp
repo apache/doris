@@ -332,9 +332,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     RowsetWriterContext ctx;
     RETURN_IF_ERROR(construct_input_rowset_readers());
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx, vertical_compaction));
-    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
-        Tablet::add_pending_remote_rowset(_output_rs_writer->rowset_id().to_string());
-    }
 
     // 2. write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
@@ -644,10 +641,9 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
         DCHECK(resource.fs->type() != io::FileSystemType::LOCAL);
         ctx.fs = std::move(resource.fs);
     }
-    if (is_vertical) {
-        return _tablet->create_vertical_rowset_writer(ctx, &_output_rs_writer);
-    }
-    return _tablet->create_rowset_writer(ctx, &_output_rs_writer);
+    _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, is_vertical));
+    _pending_rs_guard = StorageEngine::instance()->add_pending_rowset(ctx);
+    return Status::OK();
 }
 
 Status Compaction::construct_input_rowset_readers() {
@@ -806,7 +802,6 @@ bool Compaction::_check_if_includes_input_rowsets(
 void Compaction::gc_output_rowset() {
     if (_state != CompactionState::SUCCESS && _output_rowset != nullptr) {
         if (!_output_rowset->is_local()) {
-            Tablet::erase_pending_remote_rowset(_output_rowset->rowset_id().to_string());
             _tablet->record_unused_remote_rowset(_output_rowset->rowset_id(),
                                                  _output_rowset->rowset_meta()->resource_id(),
                                                  _output_rowset->num_segments());

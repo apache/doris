@@ -333,13 +333,14 @@ public class AnalysisManager implements Writable {
         boolean isSync = stmt.isSync();
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
-        constructJob(jobInfo, analysisTaskInfos.values());
         if (!jobInfo.partitionOnly && stmt.isAllColumns()
                 && StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)) {
             createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
         }
+        constructJob(jobInfo, analysisTaskInfos.values());
         if (isSync) {
             syncExecute(analysisTaskInfos.values());
+            jobInfo.state = AnalysisState.FINISHED;
             updateTableStats(jobInfo);
             return null;
         }
@@ -593,8 +594,9 @@ public class AnalysisManager implements Writable {
     public void updateTableStats(AnalysisInfo jobInfo) {
         TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId,
                 jobInfo.dbId, jobInfo.tblId);
-        // External Table update table stats after table level task finished.
-        if (tbl instanceof ExternalTable) {
+        // External Table only update table stats when all tasks finished.
+        // Because it needs to get the row count from the result of row count task.
+        if (tbl instanceof ExternalTable && !jobInfo.state.equals(AnalysisState.FINISHED)) {
             return;
         }
         TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());

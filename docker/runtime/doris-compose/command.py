@@ -196,6 +196,10 @@ class UpCommand(Command):
                            help="Recreate containers even if their configuration" \
                                 "and image haven't changed. ")
 
+        parser.add_argument("--coverage-dir",
+                            default="",
+                            help="code coverage output directory")
+
     def run(self, args):
         if not args.NAME:
             raise Exception("Need specific not empty cluster name")
@@ -218,7 +222,7 @@ class UpCommand(Command):
                     utils.render_yellow("Ignore --be-id for new cluster"))
             cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE,
                                           args.fe_config, args.be_config,
-                                          args.be_disks)
+                                          args.be_disks, args.coverage_dir)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
             if not args.add_fe_num:
@@ -264,6 +268,16 @@ class UpCommand(Command):
 
         utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
                                           options, related_nodes)
+
+        master_fe_ip_file = cluster.get_path() + "/status/master_fe_ip"
+        master_fe_ip = ""
+        if os.path.exists(master_fe_ip_file):
+            master_fe_ip = open(master_fe_ip_file, "r").read().strip()
+        else:
+            master_fe_ip = cluster.get_node(CLUSTER.Node.TYPE_FE, 1).get_ip()
+        LOG.info("Master fe query address: " + utils.render_green(
+            "{}:{}".format(master_fe_ip, CLUSTER.FE_QUERY_PORT)) + "\n")
+
         if not args.start:
             LOG.info(
                 utils.render_green(
@@ -301,7 +315,6 @@ class UpCommand(Command):
                     "Up cluster {} succ, related node num {}".format(
                         args.NAME, related_node_num)))
 
-        db_mgr = database.get_db_mgr(args.NAME, False)
         return {
             "fe": {
                 "add_list": add_fe_ids,

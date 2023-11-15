@@ -106,7 +106,7 @@ DECLARE_Int32(brpc_num_threads);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
-// this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
+// This is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
@@ -369,7 +369,7 @@ DECLARE_Int32(index_page_cache_percentage);
 // TODO delete it. Divided into Data page, Index page, pk index page
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
-DECLARE_Bool(disable_storage_row_cache);
+DECLARE_mBool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
@@ -403,6 +403,9 @@ DECLARE_mInt32(vertical_compaction_num_columns_per_group);
 DECLARE_Int32(vertical_compaction_max_row_source_memory_mb);
 // In vertical compaction, max dest segment file size
 DECLARE_mInt64(vertical_compaction_max_segment_size);
+
+// If enabled, segments will be flushed column by column
+DECLARE_mBool(enable_vertical_segment_writer);
 
 // In ordered data compaction, min segment size for input rowset
 DECLARE_mInt32(ordered_data_compaction_min_segment_size);
@@ -690,8 +693,6 @@ DECLARE_Bool(path_gc_check);
 DECLARE_mInt32(path_gc_check_interval_second);
 DECLARE_mInt32(path_gc_check_step);
 DECLARE_mInt32(path_gc_check_step_interval_ms);
-DECLARE_mInt32(path_scan_interval_second);
-DECLARE_mInt32(path_scan_step_interval_ms);
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -1145,6 +1146,7 @@ DECLARE_String(group_commit_replay_wal_dir);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
 DECLARE_Int32(group_commit_sync_wal_batch);
+DECLARE_Bool(wait_internal_group_commit_finish);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);

@@ -58,10 +58,11 @@ Status IndexBuilder::update_inverted_index_info() {
               << ", is_drop_op=" << _is_drop_op;
     // index ids that will not be linked
     std::set<int32_t> without_index_uids;
-    for (auto i = 0; i < _input_rowsets.size(); ++i) {
-        auto input_rowset = _input_rowsets[i];
+    _output_rowsets.reserve(_input_rowsets.size());
+    _pending_rs_guards.reserve(_input_rowsets.size());
+    for (auto&& input_rowset : _input_rowsets) {
         TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
-        auto input_rs_tablet_schema = input_rowset->tablet_schema();
+        const auto& input_rs_tablet_schema = input_rowset->tablet_schema();
         output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
         if (_is_drop_op) {
             // base on input rowset's tablet_schema to build
@@ -97,7 +98,6 @@ Status IndexBuilder::update_inverted_index_info() {
         RETURN_IF_ERROR(input_rowset->create_reader(&input_rs_reader));
 
         // construct output rowset writer
-        std::unique_ptr<RowsetWriter> output_rs_writer;
         RowsetWriterContext context;
         context.version = input_rs_reader->version();
         context.rowset_state = VISIBLE;
@@ -105,10 +105,8 @@ Status IndexBuilder::update_inverted_index_info() {
         context.tablet_schema = output_rs_tablet_schema;
         context.newest_write_timestamp = input_rs_reader->newest_write_timestamp();
         context.fs = input_rs_reader->rowset()->rowset_meta()->fs();
-        Status status = _tablet->create_rowset_writer(context, &output_rs_writer);
-        if (!status.ok()) {
-            return Status::Error<ErrorCode::ROWSET_BUILDER_INIT>(status.to_string());
-        }
+        auto output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
+        _pending_rs_guards.push_back(StorageEngine::instance()->add_pending_rowset(context));
 
         // if without_index_uids is not empty, copy _alter_index_ids to it
         // else just use _alter_index_ids to avoid copy
@@ -479,12 +477,13 @@ Status IndexBuilder::do_build_inverted_index() {
 }
 
 Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
-    for (auto rowset_ptr : _output_rowsets) {
-        auto rowset_id = rowset_ptr->rowset_id();
-        if (StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
-            DCHECK(false) << "output rowset: " << rowset_id.to_string() << " in unused rowsets";
+    DCHECK(std::ranges::all_of(_output_rowsets.begin(), _output_rowsets.end(), [](auto&& rs) {
+        if (StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rs->rowset_id())) {
+            LOG(ERROR) << "output rowset: " << rs->rowset_id() << " in unused rowsets";
+            return false;
         }
-    }
+        return true;
+    }));
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
@@ -523,9 +522,8 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
 }
 
 void IndexBuilder::gc_output_rowset() {
-    for (auto output_rowset : _output_rowsets) {
+    for (auto&& output_rowset : _output_rowsets) {
         if (!output_rowset->is_local()) {
-            Tablet::erase_pending_remote_rowset(output_rowset->rowset_id().to_string());
             _tablet->record_unused_remote_rowset(output_rowset->rowset_id(),
                                                  output_rowset->rowset_meta()->resource_id(),
                                                  output_rowset->num_segments());

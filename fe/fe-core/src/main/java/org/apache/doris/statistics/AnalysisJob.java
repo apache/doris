@@ -76,6 +76,16 @@ public class AnalysisJob {
         queryingTask.remove(task);
         buf.addAll(statsData);
         queryFinished.add(task);
+        markOneTaskDone();
+    }
+
+    public synchronized void rowCountDone(BaseAnalysisTask task) {
+        queryingTask.remove(task);
+        queryFinished.add(task);
+        markOneTaskDone();
+    }
+
+    protected void markOneTaskDone() {
         queryFinishedTaskCount += 1;
         if (queryFinishedTaskCount == totalTaskCount) {
             writeBuf();
@@ -183,6 +193,9 @@ public class AnalysisJob {
     protected void syncLoadStats() {
         long tblId = jobInfo.tblId;
         for (BaseAnalysisTask task : queryFinished) {
+            if (task.info.externalTableLevelTask) {
+                continue;
+            }
             String colName = task.col.getName();
             if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
                 analysisManager.removeColStatsStatus(tblId, colName);

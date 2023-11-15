@@ -293,26 +293,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 // use totalInstanceNumber to the power of 2 as the default factor value
                 buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
             }
-            // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
-            // will refine this in next generation cost model.
-            if (!context.isStatsReliable()) {
-                // forbid broadcast join when stats is unknown
-                return CostV1.of(context.getSessionVariable(), rightRowCount * buildSideFactor + 1 / leftRowCount,
-                        rightRowCount,
-                        0
-                );
-            }
             return CostV1.of(context.getSessionVariable(),
                     leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
                     rightRowCount,
                     0
             );
-        }
-        if (!context.isStatsReliable()) {
-            return CostV1.of(context.getSessionVariable(),
-                    rightRowCount + 1 / leftRowCount,
-                    rightRowCount,
-                    0);
         }
         return CostV1.of(context.getSessionVariable(), leftRowCount + rightRowCount + outputRowCount,
                 rightRowCount,
@@ -328,12 +313,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
-        if (!context.isStatsReliable()) {
-            return CostV1.of(context.getSessionVariable(),
-                    rightStatistics.getRowCount() + 1 / leftStatistics.getRowCount(),
-                    rightStatistics.getRowCount(),
-                    0);
-        }
         return CostV1.of(context.getSessionVariable(),
                 leftStatistics.getRowCount() * rightStatistics.getRowCount(),
                 rightStatistics.getRowCount(),

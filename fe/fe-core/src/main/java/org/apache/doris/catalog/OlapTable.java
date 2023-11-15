@@ -788,6 +788,7 @@ public class OlapTable extends Table {
         defaultDistributionInfo.markAutoBucket();
     }
 
+    @Override
     public Set<String> getDistributionColumnNames() {
         Set<String> distributionColumnNames = Sets.newHashSet();
         if (defaultDistributionInfo instanceof RandomDistributionInfo) {
@@ -2370,5 +2371,18 @@ public class OlapTable extends Table {
                 LOG.info(e);
             }
         }
+    }
+
+    @Override
+    public boolean isDistributionColumn(String columnName) {
+        Set<String> distributeColumns = getDistributionColumnNames()
+                .stream().map(String::toLowerCase).collect(Collectors.toSet());
+        return distributeColumns.contains(columnName.toLowerCase());
+    }
+
+    @Override
+    public boolean isPartitionColumn(String columnName) {
+        return getPartitionInfo().getPartitionColumns().stream()
+            .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
     }
 }
