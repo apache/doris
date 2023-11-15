@@ -81,7 +81,7 @@ DEFINE_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-DEFINE_String(mem_limit, "80%");
+DEFINE_String(mem_limit, "90%");
 
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
@@ -350,6 +350,9 @@ DEFINE_mInt32(vertical_compaction_num_columns_per_group, "5");
 DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "200");
 // In vertical compaction, max dest segment file size
 DEFINE_mInt64(vertical_compaction_max_segment_size, "268435456");
+
+// If enabled, segments will be flushed column by column
+DEFINE_mBool(enable_vertical_segment_writer, "true");
 
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
