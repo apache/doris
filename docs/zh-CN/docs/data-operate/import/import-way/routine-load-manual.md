@@ -475,7 +475,7 @@ FROM KAFKA
    ```
 
 **注意：**
-- 若要使 Doris 访问开启kerberos认证方式的Kafka集群，需要在 Doris 集群所有运行节点上部署 Kerberos 客户端 kinit，并配置 krb5.conf，填写KDC 服务信息等。
+- 若要使 Doris 访问开启kerberos认证方式的Kafka集群，需要在 Doris 集群所有运行节点上部署 Kerberos 客户端 kinit，kinit默认访问的krb5.conf文件在/etc/krb5.conf处，需要将自己的认证文件拷贝到该目录，并填写KDC 服务信息等。
 - 配置 property.sasl.kerberos.keytab 的值需要指定 keytab 本地文件的绝对路径，并允许 Doris 进程访问该本地文件。
 
 </version>
