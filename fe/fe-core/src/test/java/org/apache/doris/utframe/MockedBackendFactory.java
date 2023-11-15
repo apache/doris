@@ -74,7 +74,6 @@ import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
@@ -83,7 +82,6 @@ import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 
 /*
@@ -257,20 +255,26 @@ public class MockedBackendFactory {
 
                 private void handleStorageMediumMigrate(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
                     TStorageMediumMigrateReq req = request.getStorageMediumMigrateReq();
-
                     long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
-                    DiskInfo diskInfo = getDisk(req.data_dir);
-                    if (diskInfo != null) {
-                        diskInfo.setDataUsedCapacityB(Math.min(diskInfo.getTotalCapacityB(),
-                                diskInfo.getDataUsedCapacityB() + dataSize));
-                        diskInfo.setAvailableCapacityB(Math.max(0L,
-                                diskInfo.getAvailableCapacityB() - dataSize));
-                        diskInfo.setState(DiskState.ONLINE);
+
+                    long srcDataPath = CatalogTestUtil.getReplicaPathHash(req.tablet_id, backendInFe.getId());
+                    DiskInfo srcDiskInfo = getDisk(srcDataPath);
+                    if (srcDiskInfo != null) {
+                        srcDiskInfo.setDataUsedCapacityB(Math.min(srcDiskInfo.getTotalCapacityB(),
+                                srcDiskInfo.getDataUsedCapacityB() - dataSize));
+                        srcDiskInfo.setAvailableCapacityB(Math.max(0L,
+                                srcDiskInfo.getAvailableCapacityB() + dataSize));
+                        srcDiskInfo.setState(DiskState.ONLINE);
                     }
-                    Map<String, DiskInfo> newDiskInfos = Maps.newHashMap();
-                    newDiskInfos.putAll(backendInFe.getDisks());
-                    newDiskInfos.put(req.data_dir, diskInfo);
-                    backendInFe.setDisks(ImmutableMap.copyOf(newDiskInfos));
+
+                    DiskInfo destDiskInfo = getDisk(req.data_dir);
+                    if (destDiskInfo != null) {
+                        destDiskInfo.setDataUsedCapacityB(Math.min(destDiskInfo.getTotalCapacityB(),
+                                destDiskInfo.getDataUsedCapacityB() + dataSize));
+                        destDiskInfo.setAvailableCapacityB(Math.max(0L,
+                                destDiskInfo.getAvailableCapacityB() - dataSize));
+                        destDiskInfo.setState(DiskState.ONLINE);
+                    }
                 }
 
                 private DiskInfo getDisk(String dataDir) {
