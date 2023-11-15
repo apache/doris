@@ -83,21 +83,21 @@ public class ShowTableStatsStmt extends ShowStmt {
         }
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
-            ErrorReport.reportAnalysisException("Catalog: {} not exists", tableName.getCtl());
+            ErrorReport.reportAnalysisException(String.format("Catalog: %s not exists", tableName.getCtl()));
         }
         DatabaseIf<TableIf> db = catalog.getDb(tableName.getDb()).orElse(null);
         if (db == null) {
-            ErrorReport.reportAnalysisException("DB: {} not exists", tableName.getDb());
+            ErrorReport.reportAnalysisException(String.format("DB: %s not exists", tableName.getDb()));
         }
         table = db.getTable(tableName.getTbl()).orElse(null);
         if (table == null) {
-            ErrorReport.reportAnalysisException("Table: {} not exists", tableName.getTbl());
+            ErrorReport.reportAnalysisException(String.format("Table: %s not exists", tableName.getTbl()));
         }
         if (partitionNames != null) {
             String partitionName = partitionNames.getPartitionNames().get(0);
             Partition partition = table.getPartition(partitionName);
             if (partition == null) {
-                ErrorReport.reportAnalysisException("Partition: {} not exists", partitionName);
+                ErrorReport.reportAnalysisException(String.format("Partition: %s not exists", partitionName));
             }
         }
         if (!Env.getCurrentEnv().getAccessManager()
