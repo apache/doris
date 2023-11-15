@@ -416,8 +416,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     });
     DBUG_EXECUTE_IF("TxnManager.publish_txn.wait_before_save_rs_meta", {
         if (auto wait = dp->param<int>("duration", 0); wait > 0) {
-            LOG_WARNING("TxnManager.publish_txn.wait_before_save_rs_meta")
-                    .tag("wait ms", wait);
+            LOG_WARNING("TxnManager.publish_txn.wait_before_save_rs_meta").tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
@@ -437,8 +436,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     });
     DBUG_EXECUTE_IF("TxnManager.publish_txn.wait_after_save_rs_meta", {
         if (auto wait = dp->param<int>("duration", 0); wait > 0) {
-            LOG_WARNING("TxnManager.publish_txn.wait_after_save_rs_meta")
-                    .tag("wait ms", wait);
+            LOG_WARNING("TxnManager.publish_txn.wait_after_save_rs_meta").tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });

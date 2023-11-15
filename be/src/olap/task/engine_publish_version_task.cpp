@@ -100,8 +100,7 @@ Status EnginePublishVersionTask::finish() {
     });
     DBUG_EXECUTE_IF("EnginePublishVersionTask.finish.wait", {
         if (auto wait = dp->param<int>("duration", 0); wait > 0) {
-            LOG_WARNING("EnginePublishVersionTask.finish.wait wait")
-                    .tag("wait ms", wait);
+            LOG_WARNING("EnginePublishVersionTask.finish.wait wait").tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
