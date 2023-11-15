@@ -23,13 +23,11 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
-import org.apache.doris.job.extensions.insert.InsertJob;
-import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.job.task.Task;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
@@ -135,16 +133,8 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     protected abstract void checkJobParamsInternal();
 
     public static AbstractJob readFields(DataInput in) throws IOException {
-        // todo use RuntimeTypeAdapterFactory of Gson to do the serde
-        JobType jobType = JobType.valueOf(Text.readString(in));
-        switch (jobType) {
-            case INSERT:
-                return InsertJob.readFields(in);
-            case MTMV:
-                return MTMVJob.readFields(in);
-            default:
-                throw new IllegalArgumentException("unknown job type");
-        }
+        String jsonJob = Text.readString(in);
+        return GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
     }
 
     @Override
