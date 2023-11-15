@@ -20,19 +20,20 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
 
 public interface MTMVHookService {
-    void createMTMV(MTMV materializedView) throws DdlException;
+    void createMTMV(MTMV materializedView) throws DdlException, JobException;
 
-    void dropMTMV(MTMV materializedView) throws DdlException;
+    void dropMTMV(MTMV materializedView) throws DdlException, JobException;
 
     void registerMTMV(MTMV materializedView);
 
     void deregisterMTMV(MTMV materializedView);
 
-    void alterMTMV(MTMV materializedView, AlterMTMV alterMTMV) throws DdlException;
+    void alterMTMV(MTMV materializedView, AlterMTMV alterMTMV) throws DdlException, JobException;
 
-    void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException;
+    void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException;
 }

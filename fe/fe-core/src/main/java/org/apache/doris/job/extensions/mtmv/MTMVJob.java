@@ -55,6 +55,12 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     @SerializedName(value = "mi")
     private long mtmvId;
 
+    public MTMVJob(String dbName, long mtmvId) {
+        this.dbName = dbName;
+        this.mtmvId = mtmvId;
+        super.setCreateTimeMs(System.currentTimeMillis());
+    }
+
     @Override
     protected void checkJobParamsInternal() {
 
