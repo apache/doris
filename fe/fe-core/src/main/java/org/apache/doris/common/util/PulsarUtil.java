@@ -134,7 +134,7 @@ public class PulsarUtil {
             // send request
             InternalService.PPulsarProxyResult result = sendProxyRequest(pProxyRequest);
 
-            return result.pulsarBacklogBatchResult.results;
+            return result.getPulsarBacklogBatchResult().getResultsList();
         }
 
         private InternalService.PPulsarProxyResult sendProxyRequest(
