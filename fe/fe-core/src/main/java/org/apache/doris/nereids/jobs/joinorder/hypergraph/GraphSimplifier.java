@@ -19,6 +19,8 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.stats.JoinEstimation;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -84,9 +86,10 @@ public class GraphSimplifier {
             BestSimplification bestSimplification = new BestSimplification();
             simplifications.add(bestSimplification);
         }
-        for (Node node : graph.getNodes()) {
-            cacheStats.put(node.getNodeMap(), node.getGroup().getStatistics());
-            cacheCost.put(node.getNodeMap(), node.getRowCount());
+        for (AbstractNode node : graph.getNodes()) {
+            DPhyperNode dPhyperNode = (DPhyperNode) node;
+            cacheStats.put(node.getNodeMap(), dPhyperNode.getGroup().getStatistics());
+            cacheCost.put(node.getNodeMap(), dPhyperNode.getRowCount());
         }
         validEdges = graph.getEdges().stream()
                 .filter(e -> {

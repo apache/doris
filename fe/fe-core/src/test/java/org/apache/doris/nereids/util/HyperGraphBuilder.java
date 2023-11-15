@@ -20,7 +20,6 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -315,28 +314,20 @@ public class HyperGraphBuilder {
     private HyperGraph buildHyperGraph(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
-        JoinOrderJob joinOrderJob = new JoinOrderJob(cascadesContext.getMemo().getRoot(),
-                cascadesContext.getCurrentJobContext());
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         injectRowcount(cascadesContext.getMemo().getRoot());
-        HyperGraph hyperGraph = new HyperGraph();
-        joinOrderJob.buildGraph(cascadesContext.getMemo().getRoot(), hyperGraph);
-        return hyperGraph;
+        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
     }
 
     public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
-        JoinOrderJob joinOrderJob = new JoinOrderJob(cascadesContext.getMemo().getRoot(),
-                cascadesContext.getCurrentJobContext());
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        HyperGraph hyperGraph = new HyperGraph();
-        joinOrderJob.buildGraph(cascadesContext.getMemo().getRoot(), hyperGraph);
-        return hyperGraph;
+        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
     }
 
     private void injectRowcount(Group group) {
-        if (!group.isValidJoinGroup()) {
+        if (!HyperGraph.isValidJoin(group.getLogicalExpression().getPlan())) {
             LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();
             Statistics stats = injectRowcount(scanPlan);
             group.setStatistics(stats);

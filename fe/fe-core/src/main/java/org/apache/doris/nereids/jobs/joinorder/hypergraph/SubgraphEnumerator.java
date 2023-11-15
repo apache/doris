@@ -19,6 +19,8 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmapSubsetIterator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.AbstractReceiver;
 import org.apache.doris.qe.ConnectContext;
 
@@ -68,16 +70,17 @@ public class SubgraphEnumerator {
             traceBuilder.append("Query Graph Graphviz: ").append(hyperGraph.toDottyHyperGraph()).append("\n");
         }
         receiver.reset();
-        List<Node> nodes = hyperGraph.getNodes();
+        List<AbstractNode> nodes = hyperGraph.getNodes();
         // Init all nodes in Receiver
-        for (Node node : nodes) {
-            receiver.addGroup(node.getNodeMap(), node.getGroup());
+        for (AbstractNode node : nodes) {
+            DPhyperNode dPhyperNode = (DPhyperNode) node;
+            receiver.addGroup(node.getNodeMap(), dPhyperNode.getGroup());
         }
         int size = nodes.size();
 
         // Init edgeCalculator
         edgeCalculator = new EdgeCalculator(hyperGraph.getEdges());
-        for (Node node : nodes) {
+        for (AbstractNode node : nodes) {
             edgeCalculator.initSubgraph(node.getNodeMap());
         }
 

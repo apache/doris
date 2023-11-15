@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -61,9 +62,9 @@ class GraphSimplifierTest {
                 .join(project3, JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(alias2.toSlot(), alias3.toSlot())), new ArrayList<>())
                 .build();
         HyperGraph hyperGraph = HyperGraphBuilder.buildHyperGraphFromPlan(join);
-        for (Node node : hyperGraph.getNodes()) {
-            node.getGroup().setStatistics(new Statistics(1, new HashMap<>()));
-        }
+        hyperGraph.getNodes().forEach(
+                n -> ((DPhyperNode) n).getGroup().setStatistics(new Statistics(1, new HashMap<>()))
+        );
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         while (graphSimplifier.applySimplificationStep()) {
         }
