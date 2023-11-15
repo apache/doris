@@ -60,9 +60,7 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_DATEV2);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::DATEV2;
-    }
+
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
     }
@@ -117,9 +115,7 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_DATETIMEV2);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::DATETIMEV2;
-    }
+
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     }

@@ -55,9 +55,6 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(INVALID_TYPE);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::INVALID_TYPE;
-    }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;

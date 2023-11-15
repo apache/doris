@@ -199,8 +199,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         TabletColumn child;
         get_column_by_type(assert_cast<const DataTypeArray*>(data_type.get())->get_nested_type(),
                            "", child, {});
-        column.set_length(TabletColumn::get_field_length_by_type(
-                data_type->get_type_as_tprimitive_type(), 0));
+        column.set_length(TabletColumn::get_field_length_by_type(TPrimitiveType::ARRAY, 0));
         column.add_sub_column(child);
         column.set_default_value("[]");
         return;
