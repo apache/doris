@@ -153,6 +153,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     auto& table_sink = _t_sink.olap_table_sink;
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
+    signal::set_signal_task_id(_load_id);
     _txn_id = table_sink.txn_id;
     _num_replicas = table_sink.num_replicas;
     _tuple_desc_id = table_sink.tuple_id;
@@ -240,7 +241,6 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-    signal::set_signal_task_id(_load_id);
 
     _build_tablet_node_mapping();
     RETURN_IF_ERROR(_open_streams(_backend_id));
