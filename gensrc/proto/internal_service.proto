@@ -402,6 +402,53 @@ message PProxyResult {
 	optional PKafkaPartitionOffsets partition_offsets = 3;
 };
 
+message PPulsarLoadInfo {
+  required string service_url = 1;
+  required string topic = 2;
+  required string subscription = 3;
+  repeated PStringPair properties = 4;
+};
+
+message PPulsarMetaProxyRequest {
+  optional PPulsarLoadInfo pulsar_info = 1;
+};
+
+message PPulsarBacklogProxyRequest {
+  optional PPulsarLoadInfo pulsar_info = 1;
+  repeated string partitions = 2;
+};
+
+message PPulsarBacklogBatchProxyRequest {
+  repeated PPulsarBacklogProxyRequest requests = 1;
+};
+
+message PPulsarProxyRequest {
+  optional PPulsarMetaProxyRequest pulsar_meta_request = 1;
+  optional PPulsarBacklogProxyRequest pulsar_backlog_request = 101;
+  optional PPulsarBacklogBatchProxyRequest pulsar_backlog_batch_request = 102;
+  optional int64 timeout = 103;
+};
+
+message PPulsarMetaProxyResult {
+  repeated string partitions = 1;
+};
+
+message PPulsarBacklogProxyResult {
+  repeated string partitions = 1;
+  repeated int64 backlog_nums = 2;
+}
+
+message PPulsarBacklogBatchProxyResult {
+  repeated PPulsarBacklogProxyResult results = 1;
+}
+
+message PPulsarProxyResult {
+  required PStatus status = 1;
+  optional PPulsarMetaProxyResult pulsar_meta_result = 2;
+  optional PPulsarBacklogProxyResult pulsar_backlog_result = 101;
+  optional PPulsarBacklogBatchProxyResult pulsar_backlog_batch_result = 102;
+};
+
 message PDataColumn {
     optional string value = 1;
 }
@@ -827,5 +874,6 @@ service PBackendService {
     rpc glob(PGlobRequest) returns (PGlobResponse);
     rpc group_commit_insert(PGroupCommitInsertRequest) returns (PGroupCommitInsertResponse);
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
+    rpc get_pulsar_info(PPulsarProxyRequest) returns (PPulsarProxyResult);
 };
 

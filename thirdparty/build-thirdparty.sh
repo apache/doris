@@ -899,6 +899,20 @@ build_librdkafka() {
     strip_lib librdkafka++.a
 }
 
+# pulsar
+build_pulsar() {
+    check_if_source_exist $PULSAR_SOURCE
+
+    cd $TP_SOURCE_DIR/$PULSAR_SOURCE
+
+    $CMAKE_CMD -DCMAKE_LIBRARY_PATH=$TP_INSTALL_DIR/lib -DCMAKE_INCLUDE_PATH=$TP_INSTALL_DIR/include \
+        -DPROTOC_PATH=$TP_INSTALL_DIR/bin/protoc -DBUILD_TESTS=OFF -DBUILD_PYTHON_WRAPPER=OFF -DBUILD_DYNAMIC_LIB=OFF .
+    ${BUILD_SYSTEM} -j$PARALLEL
+
+    cp lib/libpulsar.a $TP_INSTALL_DIR/lib/
+    cp -r include/pulsar $TP_INSTALL_DIR/include/
+}
+
 # libunixodbc
 build_libunixodbc() {
     check_if_source_exist "${ODBC_SOURCE}"
@@ -1754,6 +1768,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         krb5 # before cyrus_sasl
         cyrus_sasl
         librdkafka
+        pulsar
         flatbuffers
         orc
         cares
