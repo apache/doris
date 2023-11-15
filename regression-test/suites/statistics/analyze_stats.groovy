@@ -1140,6 +1140,40 @@ PARTITION `p599` VALUES IN (599)
     afterDropped = sql """SHOW TABLE STATS test_meta_management"""
     assert check_column(afterDropped, "[col1, col2, col3]")
 
+    sql """ DROP TABLE IF EXISTS test_updated_rows """
+    sql """
+        CREATE TABLE test_updated_rows (
+            `col1` varchar(16) NOT NULL,
+            `col2` int(11) NOT NULL,
+            `col3` int(11) NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`col1`)
+        DISTRIBUTED BY HASH(`col1`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false"
+        );
+    """
+
+    sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
+    sql """ INSERT INTO test_updated_rows VALUES('1',1,1); """
+    def cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+    assertEquals(Integer.valueOf(cnt1[0][0]), 1)
+    sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
+    cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+    assertEquals(Integer.valueOf(cnt1[0][0]), 0)
+    sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
+    sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
+    sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
+    def cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+    assertEquals(Integer.valueOf(cnt2[0][0]), 7)
+    sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
+    cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+    assertEquals(Integer.valueOf(cnt2[0][0]), 0)
+
     // test analyze specific column
     sql """CREATE TABLE test_analyze_specific_column (col1 varchar(11451) not null, col2 int not null, col3 int not null)
     DUPLICATE KEY(col1)
