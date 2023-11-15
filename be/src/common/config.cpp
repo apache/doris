@@ -604,6 +604,12 @@ DEFINE_Bool(enable_metric_calculator, "true");
 // max consumer num in one data consumer group, for routine load
 DEFINE_mInt32(max_consumer_num_per_group, "3");
 
+// Max pulsar consumer num in one data consumer group, for routine load.
+DEFINE_mInt32(max_pulsar_consumer_num_per_group, "10");
+
+// pulsar request timeout
+DEFINE_Int32(routine_load_pulsar_timeout_second, "10");
+
 // the size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 DEFINE_Int32(routine_load_thread_pool_size, "10");

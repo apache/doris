@@ -173,6 +173,93 @@ Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(
     return st;
 }
 
+Status RoutineLoadTaskExecutor::get_pulsar_partition_meta(const PPulsarMetaProxyRequest& request,
+                                                          std::vector<std::string>* partitions) {
+    DCHECK(request.has_pulsar_info());
+
+    // This context is meaningless, just for unifing the interface
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    ctx->load_type = TLoadType::ROUTINE_LOAD;
+    ctx->load_src_type = TLoadSourceType::PULSAR;
+    ctx->label = "NaN";
+
+    // convert PPulsarInfo to TPulsarLoadInfo
+    TPulsarLoadInfo t_info;
+    t_info.service_url = request.pulsar_info().service_url();
+    t_info.topic = request.pulsar_info().topic();
+    t_info.subscription = request.pulsar_info().subscription();
+    std::map<std::string, std::string> properties;
+    for (int i = 0; i < request.pulsar_info().properties_size(); ++i) {
+        const PStringPair& pair = request.pulsar_info().properties(i);
+        properties.emplace(pair.key(), pair.val());
+    }
+    t_info.__set_properties(properties);
+
+    ctx->pulsar_info = std::make_unique<PulsarLoadInfo>(t_info);
+    ctx->need_rollback = false;
+
+    std::shared_ptr<DataConsumer> consumer;
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
+
+    Status st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->get_topic_partition(partitions);
+    if (st.ok()) {
+        _data_consumer_pool.return_consumer(consumer);
+    }
+    return st;
+}
+
+Status RoutineLoadTaskExecutor::get_pulsar_partition_backlog(const PPulsarBacklogProxyRequest& request,
+                                                             std::vector<int64_t>* backlog_num) {
+    DCHECK(request.has_pulsar_info());
+
+    // This context is meaningless, just for unifing the interface
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    ctx->load_type = TLoadType::ROUTINE_LOAD;
+    ctx->load_src_type = TLoadSourceType::PULSAR;
+    ctx->label = "NaN";
+
+    // convert PPulsarInfo to TPulsarLoadInfo
+    TPulsarLoadInfo t_info;
+    t_info.service_url = request.pulsar_info().service_url();
+    t_info.topic = request.pulsar_info().topic();
+    t_info.subscription = request.pulsar_info().subscription();
+    std::map<std::string, std::string> properties;
+    for (int i = 0; i < request.pulsar_info().properties_size(); ++i) {
+        const PStringPair& pair = request.pulsar_info().properties(i);
+        properties.emplace(pair.key(), pair.val());
+    }
+    t_info.__set_properties(properties);
+
+    ctx->pulsar_info = std::make_unique<PulsarLoadInfo>(t_info);
+    ctx->need_rollback = false;
+
+    // convert pb repeated value to vector
+    std::vector<std::string> partitions;
+    partitions.reserve(request.partitions().size());
+    for (auto p : request.partitions()) {
+        partitions.push_back(p);
+    }
+
+    backlog_num->reserve(partitions.size());
+
+    Status st;
+    std::shared_ptr<DataConsumer> consumer;
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
+    for (auto p : partitions) {
+        int64_t backlog = 0;
+        RETURN_IF_ERROR(std::static_pointer_cast<PulsarDataConsumer>(consumer)->assign_partition(p, ctx));
+        st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->get_partition_backlog(&backlog);
+        std::static_pointer_cast<PulsarDataConsumer>(consumer).reset();
+        backlog_num->push_back(backlog);
+    }
+
+    if (st.ok()) {
+        _data_consumer_pool.return_consumer(consumer);
+    }
+
+    return Status::OK();
+}
+
 Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     std::unique_lock<std::mutex> l(_lock);
     if (_task_map.find(task.id) != _task_map.end()) {
@@ -241,6 +328,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     case TLoadSourceType::KAFKA:
         ctx->kafka_info.reset(new KafkaLoadInfo(task.kafka_load_info));
         break;
+    case TLoadSourceType::PULSAR:
+        ctx->pulsar_info = std::make_unique<PulsarLoadInfo>(task.pulsar_load_info);
+        break;
     default:
         LOG(WARNING) << "unknown load source type: " << task.type;
         return Status::InternalError("unknown load source type");
@@ -303,6 +393,16 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         }
         Status st = std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)
                             ->assign_topic_partitions(ctx);
+        if (!st.ok()) {
+            err_handler(ctx, st, st.to_string());
+            cb(ctx);
+            return;
+        }
+        break;
+    }
+    case TLoadSourceType::PULSAR: {
+        pipe = std::make_shared<io::PulsarConsumerPipe>();
+        Status st = std::static_pointer_cast<PulsarDataConsumerGroup>(consumer_grp)->assign_topic_partitions(ctx);
         if (!st.ok()) {
             err_handler(ctx, st, st.to_string());
             cb(ctx);
@@ -405,6 +505,40 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
             std::for_each(topic_partitions.begin(), topic_partitions.end(),
                           [](RdKafka::TopicPartition* tp1) { delete tp1; });
         }};
+        break;
+    }
+    case TLoadSourceType::PULSAR: {
+        for (auto& kv : ctx->pulsar_info->ack_offset) {
+            Status st;
+            // get consumer
+            std::shared_ptr<DataConsumer> consumer;
+            st = _data_consumer_pool.get_consumer(ctx, &consumer);
+            if (!st.ok()) {
+                // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << st;
+                break;
+            }
+
+            // assign partition for consumer
+            st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->assign_partition(kv.first, ctx);
+            if (!st.ok()) {
+                // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << st;
+            }
+
+            // do ack
+            st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->acknowledge_cumulative(kv.second);
+            if (!st.ok()) {
+                // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << st;
+            }
+
+            // return consumer
+            _data_consumer_pool.return_consumer(consumer);
+        }
         break;
     }
     default:

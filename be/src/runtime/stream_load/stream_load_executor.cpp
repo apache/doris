@@ -114,6 +114,9 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             case TLoadSourceType::KAFKA:
                 ctx->kafka_info->reset_offset();
                 break;
+            case TLoadSourceType::PULSAR:
+                ctx->pulsar_info->clear_backlog();
+                break;
             default:
                 break;
             }
@@ -422,6 +425,20 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
 
         rl_attach.kafkaRLTaskProgress = kafka_progress;
         rl_attach.__isset.kafkaRLTaskProgress = true;
+        if (!ctx->error_url.empty()) {
+            rl_attach.__set_errorLogUrl(ctx->error_url);
+        }
+        return true;
+    }
+    case TLoadSourceType::PULSAR: {
+        TRLTaskTxnCommitAttachment& rl_attach = attach->rlTaskTxnCommitAttachment;
+        rl_attach.loadSourceType = TLoadSourceType::PULSAR;
+
+        TPulsarRLTaskProgress pulsar_progress;
+        pulsar_progress.partitionBacklogNum = ctx->pulsar_info->partition_backlog;
+
+        rl_attach.pulsarRLTaskProgress = pulsar_progress;
+        rl_attach.__isset.pulsarRLTaskProgress = true;
         if (!ctx->error_url.empty()) {
             rl_attach.__set_errorLogUrl(ctx->error_url);
         }

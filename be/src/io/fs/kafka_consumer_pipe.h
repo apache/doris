@@ -18,6 +18,7 @@
 #pragma once
 
 #include "io/fs/stream_load_pipe.h"
+#include "pulsar/Client.h"
 
 namespace doris {
 namespace io {
@@ -43,5 +44,8 @@ public:
         return append_and_flush(data, size);
     }
 };
+
+using PulsarConsumerPipe = KafkaConsumerPipe;
+
 } // namespace io
 } // end namespace doris

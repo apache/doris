@@ -40,6 +40,7 @@
 #include "util/byte_buffer.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "pulsar/Client.h"
 
 namespace doris {
 namespace io {
@@ -87,6 +88,41 @@ public:
     std::map<std::string, std::string> properties;
 };
 
+// pulsar related info
+class PulsarLoadInfo {
+public:
+    explicit PulsarLoadInfo(const TPulsarLoadInfo& t_info)
+            : service_url(t_info.service_url),
+              topic(t_info.topic),
+              subscription(t_info.subscription),
+              partitions(t_info.partitions),
+              properties(t_info.properties) {
+        if (t_info.__isset.initial_positions) {
+            initial_positions = t_info.initial_positions;
+        }
+    }
+
+    void clear_backlog() {
+        // clear the backlog
+        partition_backlog.clear();
+    }
+
+public:
+    std::string service_url;
+    std::string topic;
+    std::string subscription;
+    std::vector<std::string> partitions;
+    std::map<std::string, int64_t> initial_positions;
+
+    // partition -> acknowledge offset, inclusive.
+    std::map<std::string, pulsar::MessageId> ack_offset;
+    // partition -> backlog num, inclusive.
+    std::map<std::string, int64_t> partition_backlog;
+
+    // custom kafka property key -> value
+    std::map<std::string, std::string> properties;
+};
+
 class MessageBodySink;
 
 class StreamLoadContext {
@@ -122,7 +158,7 @@ public:
     static const int default_txn_id = -1;
     // load type, eg: ROUTINE LOAD/MANUAL LOAD
     TLoadType::type load_type;
-    // load data source: eg: KAFKA/RAW
+    // load data source: eg: KAFKA/PULSAR/RAW
     TLoadSourceType::type load_src_type;
 
     // the job this stream load task belongs to,
@@ -213,6 +249,7 @@ public:
     std::string existing_job_status = "";
 
     std::unique_ptr<KafkaLoadInfo> kafka_info;
+    std::unique_ptr<PulsarLoadInfo> pulsar_info;
 
     // consumer_id is used for data consumer cache key.
     // to identified a specified data consumer.
