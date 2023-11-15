@@ -2629,39 +2629,41 @@ public class Env {
         };
     }
 
-    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+    public void addFrontend(FrontendNodeType role, List<HostInfo> hosts) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
         try {
-            Frontend fe = checkFeExist(host, editLogPort);
-            if (fe != null) {
-                throw new DdlException("frontend already exists " + fe);
+            for (HostInfo host : hosts) {
+                Frontend fe = checkFeExist(host.getHost(), host.getPort());
+                if (fe != null) {
+                    throw new DdlException("frontend already exists " + fe);
+                }
+                if (Config.enable_fqdn_mode && StringUtils.isEmpty(host.getHost())) {
+                    throw new DdlException("frontend's hostName should not be empty while enable_fqdn_mode is true");
+                }
+                String nodeName = genFeNodeName(host.getHost(), host.getPort(), false /* new name style */);
+
+                if (removedFrontends.contains(nodeName)) {
+                    throw new DdlException("frontend name already exists " + nodeName + ". Try again");
+                }
+
+                BDBHA bdbha = (BDBHA) haProtocol;
+                bdbha.removeConflictNodeIfExist(host.getHost(), host.getPort());
+                int targetFollowerCount = getFollowerCount() + 1;
+                if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
+                    helperNodes.add(new HostInfo(host.getHost(), host.getPort()));
+                    bdbha.addUnReadyElectableNode(nodeName, targetFollowerCount);
+                }
+
+                // Only add frontend after removing the conflict nodes, to ensure the exception safety.
+                fe = new Frontend(role, nodeName, host.getHost(), host.getPort());
+                frontends.put(nodeName, fe);
+
+                LOG.info("add frontend: {}", fe);
+
+                editLog.logAddFrontend(fe);
             }
-            if (Config.enable_fqdn_mode && StringUtils.isEmpty(host)) {
-                throw new DdlException("frontend's hostName should not be empty while enable_fqdn_mode is true");
-            }
-            String nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
-
-            if (removedFrontends.contains(nodeName)) {
-                throw new DdlException("frontend name already exists " + nodeName + ". Try again");
-            }
-
-            BDBHA bdbha = (BDBHA) haProtocol;
-            bdbha.removeConflictNodeIfExist(host, editLogPort);
-            int targetFollowerCount = getFollowerCount() + 1;
-            if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
-                helperNodes.add(new HostInfo(host, editLogPort));
-                bdbha.addUnReadyElectableNode(nodeName, targetFollowerCount);
-            }
-
-            // Only add frontend after removing the conflict nodes, to ensure the exception safety.
-            fe = new Frontend(role, nodeName, host, editLogPort);
-            frontends.put(nodeName, fe);
-
-            LOG.info("add frontend: {}", fe);
-
-            editLog.logAddFrontend(fe);
         } finally {
             unlock();
         }
@@ -2702,43 +2704,76 @@ public class Env {
         }
     }
 
-    public void dropFrontend(FrontendNodeType role, String host, int port) throws DdlException {
-        if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
-                && selfNode.getHost().equals(host)) {
-            throw new DdlException("can not drop current master node.");
+    public void dropFrontend(FrontendNodeType role, List<HostInfo> hostInfos) throws DdlException {
+
+        for (HostInfo hostInfo : hostInfos) {
+            String host = hostInfo.getHost();
+            int port = hostInfo.getPort();
+            if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
+                    && selfNode.getHost().equals(host)) {
+                throw new DdlException("can not drop current master node.");
+            }
+            if (!tryLock(false)) {
+                throw new DdlException("Failed to acquire catalog lock. Try again");
+            }
+            try {
+                Frontend fe = checkFeExist(host, port);
+                if (fe == null) {
+                    throw new DdlException("frontend does not exist[" + NetUtils
+                            .getHostPortInAccessibleFormat(host, port) + "]");
+                }
+                if (fe.getRole() != role) {
+                    throw new DdlException(role.toString() + " does not exist[" + NetUtils
+                            .getHostPortInAccessibleFormat(host, port) + "]");
+                }
+
+                int targetFollowerCount = getFollowerCount() - 1;
+                if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
+                    haProtocol.removeElectableNode(fe.getNodeName());
+                    removeHelperNode(host, port);
+                    BDBHA ha = (BDBHA) haProtocol;
+                    ha.removeUnReadyElectableNode(fe.getNodeName(), targetFollowerCount);
+                }
+
+                LOG.info("remove frontend: {}", fe);
+
+                // Only remove frontend after removing the electable node success, to ensure the
+                // exception safety.
+                frontends.remove(fe.getNodeName());
+                removedFrontends.add(fe.getNodeName());
+                editLog.logRemoveFrontend(fe);
+
+            } finally {
+                unlock();
+            }
         }
-        if (!tryLock(false)) {
-            throw new DdlException("Failed to acquire catalog lock. Try again");
-        }
-        try {
-            Frontend fe = checkFeExist(host, port);
-            if (fe == null) {
-                throw new DdlException("frontend does not exist[" + NetUtils
-                        .getHostPortInAccessibleFormat(host, port) + "]");
+    }
+
+    public void dropFrontendByNames(FrontendNodeType role, List<String> names) throws DdlException {
+        for (String name : names) {
+            if (!tryLock(false)) {
+                throw new DdlException("Failed to acquire catalog lock. Try again");
             }
-            if (fe.getRole() != role) {
-                throw new DdlException(role.toString() + " does not exist[" + NetUtils
-                        .getHostPortInAccessibleFormat(host, port) + "]");
+            try {
+                Frontend fe = getFeByName(name);
+                if (fe == null) {
+                    throw new DdlException("frontend does not exist[" + name + "]");
+                }
+                if (fe.getRole() != role) {
+                    throw new DdlException(role.toString() + " does not exist[" + name + "]");
+                }
+                frontends.remove(fe.getNodeName());
+                removedFrontends.add(fe.getNodeName());
+                if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
+                    haProtocol.removeElectableNode(fe.getNodeName());
+                    removeHelperNode(fe.getHost(), fe.getEditLogPort());
+                    BDBHA ha = (BDBHA) haProtocol;
+                    ha.removeUnReadyElectableNode(fe.getNodeName(), getFollowerCount());
+                }
+                editLog.logRemoveFrontend(fe);
+            } finally {
+                unlock();
             }
-
-            int targetFollowerCount = getFollowerCount() - 1;
-            if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
-                haProtocol.removeElectableNode(fe.getNodeName());
-                removeHelperNode(host, port);
-                BDBHA ha = (BDBHA) haProtocol;
-                ha.removeUnReadyElectableNode(fe.getNodeName(), targetFollowerCount);
-            }
-
-            LOG.info("remove frontend: {}", fe);
-
-            // Only remove frontend after removing the electable node success, to ensure the
-            // exception safety.
-            frontends.remove(fe.getNodeName());
-            removedFrontends.add(fe.getNodeName());
-
-            editLog.logRemoveFrontend(fe);
-        } finally {
-            unlock();
         }
     }
 
