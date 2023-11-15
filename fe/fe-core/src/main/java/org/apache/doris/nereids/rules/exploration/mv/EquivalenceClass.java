@@ -56,11 +56,11 @@ public class EquivalenceClass {
                 equivalenceSlotMap.put(newRef, slot0Sets);
             }
         } else if (slot0Sets != null) {
-            // p1 present, we need to merge into it
+            // slot0Sets present, we need to merge into it
             slot0Sets.add(slot1);
             equivalenceSlotMap.put(slot1, slot0Sets);
         } else if (slot1Sets != null) {
-            // p2 present, we need to merge into it
+            // slot1Sets present, we need to merge into it
             slot1Sets.add(slot0);
             equivalenceSlotMap.put(slot0, slot1Sets);
         } else {
