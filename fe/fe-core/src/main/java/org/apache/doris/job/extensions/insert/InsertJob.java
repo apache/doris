@@ -40,7 +40,7 @@ import java.util.List;
 @Data
 public class InsertJob extends AbstractJob<InsertTask> {
 
-    @SerializedName(value = "labelPrefix")
+    @SerializedName(value = "lp")
     String labelPrefix;
 
     InsertIntoTableCommand command;
