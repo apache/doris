@@ -436,11 +436,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 #endif
     }
 
-    std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
-            std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
-
     // start to consume, this may block a while
-    HANDLE_ERROR(consumer_grp->start_all(ctx, kafka_pipe), "consuming failed");
+    HANDLE_ERROR(consumer_grp->start_all(ctx), "consuming failed");
 
     if (ctx->is_multi_table) {
         // plan the rest of unplanned data
