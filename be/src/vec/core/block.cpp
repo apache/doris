@@ -21,6 +21,7 @@
 #include "vec/core/block.h"
 
 #include <assert.h>
+#include <bits/ranges_base.h>
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <snappy.h>
@@ -965,6 +966,22 @@ void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length)
         auto& dst = _columns[i];
         auto& src = *block_data[i].column.get();
         dst->insert_range_from(src, row_begin, length);
+    }
+}
+
+void MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
+    DCHECK_LE(columns(), block->columns());
+    const auto& block_data = block->get_columns_with_type_and_name();
+    const size_t length = std::ranges::distance(rows);
+    for (size_t i = 0; i < _columns.size(); ++i) {
+        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+        auto& dst = _columns[i];
+        const auto& src = *block_data[i].column.get();
+        dst->reserve(dst->size() + length);
+        for (size_t row : rows) {
+            // we can introduce a new function like `insert_assume_reserved` for IColumn.
+            dst->insert_from(src, row);
+        }
     }
 }
 

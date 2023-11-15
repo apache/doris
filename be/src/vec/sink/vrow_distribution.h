@@ -121,7 +121,7 @@ public:
     bool need_deal_batching() const { return _deal_batched && _batching_rows > 0; }
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();
-    void clear_batchings();
+    void clear_batching_stats();
 
 private:
     std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();

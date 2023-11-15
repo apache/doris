@@ -1309,10 +1309,18 @@ void VTabletWriter::_cancel_all_channel(Status status) {
 Status VTabletWriter::_send_new_partition_batch() {
     if (_row_distribution.need_deal_batching()) { // maybe try_close more than 1 time
         RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
-        Block tmp_block = _row_distribution._batching_block->to_block(); // for lval ref
+
+        Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
+
         // these order is only.
-        _row_distribution.clear_batchings();
+        //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
+        //  2. deal batched block
+        //  3. now reuse the column of lval block. cuz append_block doesn't real adjust it. it generate a new block from that.
+        _row_distribution.clear_batching_stats();
         RETURN_IF_ERROR(this->append_block(tmp_block));
+        _row_distribution._batching_block->set_mutable_columns(
+                tmp_block.mutate_columns()); // Recovery back
+        _row_distribution._batching_block->clear_column_data();
         _row_distribution._deal_batched = false;
     }
     return Status::OK();

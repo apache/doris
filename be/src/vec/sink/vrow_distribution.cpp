@@ -42,8 +42,8 @@ Status VRowDistribution::_save_missing_values(vectorized::ColumnPtr col,
                                               vectorized::DataTypePtr value_type, Block* block,
                                               std::vector<int64_t> filter) {
     // de-duplication for new partitions but save all rows.
+    _batching_block->add_rows(block, filter);
     for (auto row : filter) {
-        _batching_block->add_row(block, row);
         auto val_str = value_type->to_string(*col, row);
         if (!_deduper.contains(val_str)) {
             _deduper.emplace(val_str);
@@ -61,10 +61,9 @@ Status VRowDistribution::_save_missing_values(vectorized::ColumnPtr col,
     return Status::OK();
 }
 
-void VRowDistribution::clear_batchings() {
+void VRowDistribution::clear_batching_stats() {
     _partitions_need_create.clear();
     _deduper.clear();
-    _batching_block->reset_column_data(); // the columns was moved. add them again
     _batching_rows = 0;
     _batching_bytes = 0;
 }
