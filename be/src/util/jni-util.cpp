@@ -49,17 +49,31 @@ const std::string GetDorisJNIDefaultClasspath() {
     DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
 
     std::ostringstream out;
-    std::string path(doris_home);
-    path += "/lib";
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(path)) {
-        if (entry.path().extension() != ".jar") {
-            continue;
+
+    auto addJarsFromPath = [&](const std::string& base_path) {
+        if (!std::filesystem::exists(base_path)) {
+            return;
         }
-        if (out.str().empty()) {
-            out << entry.path().string();
-        } else {
-            out << ":" << entry.path().string();
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(base_path)) {
+            if (entry.path().extension() == ".jar") {
+                if (!out.str().empty()) {
+                    out << ":";
+                }
+                out << entry.path().string();
+            }
         }
+    };
+
+    addJarsFromPath(std::string(doris_home) + "/lib");
+    addJarsFromPath(std::string(doris_home) + "/custom_lib");
+
+    // Check and add HADOOP_CONF_DIR if it's set
+    const auto* hadoop_conf_dir = getenv("HADOOP_CONF_DIR");
+    if (hadoop_conf_dir && *hadoop_conf_dir) {
+        if (!out.str().empty()) {
+            out << ":";
+        }
+        out << hadoop_conf_dir;
     }
 
     DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
@@ -80,15 +94,17 @@ const std::string GetDorisJNIClasspathOption() {
     DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
 
     // CLASSPATH
-    static const std::string classpath =
-            fmt::format("{}/conf:{}", doris_home, GetDorisJNIDefaultClasspath());
+    const std::string original_classpath = getenv("CLASSPATH") ? getenv("CLASSPATH") : "";
+    static const std::string classpath = fmt::format(
+            "{}/conf:{}:{}", doris_home, GetDorisJNIDefaultClasspath(), original_classpath);
     setenv("CLASSPATH", classpath.c_str(), 0);
 
     // LIBHDFS_OPTS
-    setenv("LIBHDFS_OPTS",
-           fmt::format("-Djava.library.path={}/lib/hadoop_hdfs/native", getenv("DORIS_HOME"))
-                   .c_str(),
-           0);
+    const std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
+    std::string libhdfs_opts = fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native",
+                                           java_opts, getenv("DORIS_HOME"));
+
+    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 0);
 }
 
 // Only used on non-x86 platform
