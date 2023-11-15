@@ -1313,9 +1313,7 @@ suite("test_stream_load", "p0") {
     streamLoad {
         table "${tableName17}"
         set 'column_separator', '|'
-        set 'trim_double_quotes' +
-                '' +
-                '', 'true'
+        set 'trim_double_quotes', 'true'
         file 'trim_double_quotes.csv'
 
         check { result, exception, startTime, endTime ->
@@ -1351,5 +1349,75 @@ suite("test_stream_load", "p0") {
     sql "sync"
     order_qt_trim_double_quotes_false "SELECT * FROM ${tableName17} order by k1"
 
+
+
+    // test send_batch_parallelism
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', 'a'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi", json.Message)
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '21474836471'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism out of range, stoi", json.Message)
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '-1'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '1'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
 }
 
