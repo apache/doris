@@ -79,7 +79,7 @@ public class PulsarDataSourceProperties extends AbstractDataSourceProperties {
     private Map<String, String> customPulsarProperties = Maps.newHashMap();
 
     private static final ImmutableSet<String> CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET =
-        new ImmutableSet.Builder<String>().add(PulsarConfiguration.PULSAR_SERVICE_URL_PROPERTY.getName())
+            new ImmutableSet.Builder<String>().add(PulsarConfiguration.PULSAR_SERVICE_URL_PROPERTY.getName())
             .add(PulsarConfiguration.PULSAR_TOPIC_PROPERTY.getName())
             .add(PulsarConfiguration.PULSAR_SUBSCRIPTION_PROPERTY.getName())
             .add(PulsarConfiguration.PULSAR_PARTITIONS_PROPERTY.getName())
@@ -108,8 +108,8 @@ public class PulsarDataSourceProperties extends AbstractDataSourceProperties {
     @Override
     public void convertAndCheckDataSourceProperties() throws UserException {
         Optional<String> optional = originalDataSourceProperties.keySet().stream()
-            .filter(entity -> !CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET.contains(entity))
-            .filter(entity -> !entity.startsWith("property.")).findFirst();
+                .filter(entity -> !CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET.contains(entity))
+                .filter(entity -> !entity.startsWith("property.")).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid pulsar custom property");
         }
@@ -150,15 +150,15 @@ public class PulsarDataSourceProperties extends AbstractDataSourceProperties {
 
         // check partitions
         String pulsarPartitionsString = originalDataSourceProperties.get(
-            PulsarConfiguration.PULSAR_PARTITIONS_PROPERTY.getName());
+                PulsarConfiguration.PULSAR_PARTITIONS_PROPERTY.getName());
         if (pulsarPartitionsString != null) {
             analyzePulsarPartitionProperty(pulsarPartitionsString, customPulsarProperties, pulsarPartitions,
-                pulsarPartitionInitialPositions);
+                    pulsarPartitionInitialPositions);
         }
 
         // check positions
         String pulsarPositionString = originalDataSourceProperties.get(
-            PulsarConfiguration.PULSAR_INITIAL_POSITIONS_PROPERTY.getName());
+                PulsarConfiguration.PULSAR_INITIAL_POSITIONS_PROPERTY.getName());
         if (pulsarPositionString != null) {
             analyzePulsarPositionProperty(pulsarPositionString, pulsarPartitions, pulsarPartitionInitialPositions);
         }
@@ -168,7 +168,7 @@ public class PulsarDataSourceProperties extends AbstractDataSourceProperties {
                                                       Map<String, String> customPulsarProperties,
                                                       List<String> pulsarPartitions,
                                                       List<Pair<String, Long>> pulsarPartitionInitialPositions)
-        throws AnalysisException {
+            throws AnalysisException {
         pulsarPartitionsString = pulsarPartitionsString.replaceAll(" ", "");
         if (pulsarPartitionsString.isEmpty()) {
             throw new AnalysisException(PulsarConfiguration.PULSAR_PARTITIONS_PROPERTY
@@ -183,16 +183,16 @@ public class PulsarDataSourceProperties extends AbstractDataSourceProperties {
         // get default initial positions if set
         if (customPulsarProperties.containsKey(PulsarConfiguration.PULSAR_DEFAULT_INITIAL_POSITION.getName())) {
             Long pulsarDefaultInitialPosition = getPulsarPosition(customPulsarProperties.get(
-                PulsarConfiguration.PULSAR_DEFAULT_INITIAL_POSITION.getName()));
+                    PulsarConfiguration.PULSAR_DEFAULT_INITIAL_POSITION.getName()));
             pulsarPartitions.stream().forEach(
-                entry -> pulsarPartitionInitialPositions.add(Pair.of(entry, pulsarDefaultInitialPosition)));
+                    entry -> pulsarPartitionInitialPositions.add(Pair.of(entry, pulsarDefaultInitialPosition)));
         }
     }
 
     public static void analyzePulsarPositionProperty(String pulsarPositionsString,
                                                      List<String> pulsarPartitions,
                                                      List<Pair<String, Long>> pulsarPartitionInitialPositions)
-        throws AnalysisException {
+            throws AnalysisException {
         pulsarPositionsString = pulsarPositionsString.replaceAll(" ", "");
         if (pulsarPositionsString.isEmpty()) {
             throw new AnalysisException(PulsarConfiguration.PULSAR_INITIAL_POSITIONS_PROPERTY.getName()
@@ -210,7 +210,7 @@ public class PulsarDataSourceProperties extends AbstractDataSourceProperties {
         } else {
             for (int i = 0; i < pulsarPositionsStringList.length; i++) {
                 pulsarPartitionInitialPositions.add(Pair.of(pulsarPartitions.get(i),
-                    getPulsarPosition(pulsarPositionsStringList[i])));
+                        getPulsarPosition(pulsarPositionsStringList[i])));
             }
         }
     }
@@ -233,7 +233,7 @@ public class PulsarDataSourceProperties extends AbstractDataSourceProperties {
 
     public static void analyzePulsarCustomProperties(Map<String, String> dataSourceProperties,
                                                      Map<String, String> customPulsarProperties)
-        throws AnalysisException {
+            throws AnalysisException {
         for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
             if (dataSourceProperty.getKey().startsWith("property.")) {
                 String propertyKey = dataSourceProperty.getKey();

@@ -211,8 +211,8 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
                         }
                     }
                     PulsarTaskInfo pulsarTaskInfo = new PulsarTaskInfo(UUID.randomUUID(), id,
-                        clusterName, partitions,
-                        initialPositions, maxBatchIntervalS * 2 * 1000, isMultiTable());
+                            clusterName, partitions,
+                            initialPositions, maxBatchIntervalS * 2 * 1000, isMultiTable());
                     LOG.debug("pulsar routine load task created: " + pulsarTaskInfo);
                     routineLoadTaskInfoList.add(pulsarTaskInfo);
                     result.add(pulsarTaskInfo);
@@ -240,7 +240,7 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
 
         LOG.debug("current concurrent task number is min"
                 + "(partition num: {}, desire task concurrent num: {}, config: {})",
-            partitionNum, desireTaskConcurrentNum, Config.max_routine_load_task_concurrent_num);
+                partitionNum, desireTaskConcurrentNum, Config.max_routine_load_task_concurrent_num);
         currentTaskConcurrentNum = Math.min(partitionNum, Math.min(desireTaskConcurrentNum,
             Config.max_routine_load_task_concurrent_num));
         return currentTaskConcurrentNum;
@@ -260,7 +260,7 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
         // have no load data" and abort transaction.
         // In this situation, we also need update commit info.
         if (txnStatusChangeReason != null
-            && txnStatusChangeReason == TransactionState.TxnStatusChangeReason.NO_PARTITIONS) {
+                && txnStatusChangeReason == TransactionState.TxnStatusChangeReason.NO_PARTITIONS) {
             // Because the max_filter_ratio of routine load task is always 1.
             // Therefore, under normal circumstances,
             // routine load task will not return the error "too many filtered rows".
@@ -268,7 +268,7 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
             // In this case, the status of the transaction is ABORTED,
             // but we still need to update the position to skip these error lines.
             Preconditions.checkState(txnState.getTransactionStatus() == TransactionStatus.ABORTED,
-                txnState.getTransactionStatus());
+                    txnState.getTransactionStatus());
             return true;
         }
 
@@ -276,8 +276,8 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
         // and it is caused by other errors. In this case, we should not update the position.
         LOG.debug("no need to update the progress of pulsar routine load. txn status: {}, "
                 + "txnStatusChangeReason: {}, task: {}, job: {}",
-            txnState.getTransactionStatus(), txnStatusChangeReason,
-            DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()), id);
+                txnState.getTransactionStatus(), txnStatusChangeReason,
+                DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()), id);
         return false;
     }
 
@@ -298,8 +298,8 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
         PulsarTaskInfo oldPulsarTaskInfo = (PulsarTaskInfo) routineLoadTaskInfo;
         // add new task
         PulsarTaskInfo pulsarTaskInfo = new PulsarTaskInfo(oldPulsarTaskInfo,
-            ((PulsarProgress) progress).getPartitionToInitialPosition(oldPulsarTaskInfo.getPartitions()),
-            isMultiTable());
+                ((PulsarProgress) progress).getPartitionToInitialPosition(oldPulsarTaskInfo.getPartitions()),
+                isMultiTable());
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
@@ -333,12 +333,12 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
                 } catch (Exception e) {
                     String msg = "Job failed to fetch all current partition with error [" + e.getMessage() + "]";
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                        .add("error_msg", msg)
-                        .build(), e);
+                            .add("error_msg", msg)
+                            .build(), e);
                     if (this.state == JobState.NEED_SCHEDULE) {
                         unprotectUpdateState(JobState.PAUSED,
                             new ErrorReason(InternalErrorCode.PARTITIONS_ERR, msg),
-                            false /* not replay */);
+                                false /* not replay */);
                     }
                     return false;
                 }
@@ -358,9 +358,9 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
             boolean autoSchedule = ScheduleRule.isNeedAutoSchedule(this);
             if (autoSchedule) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, name)
-                    .add("current_state", this.state)
-                    .add("msg", "should be rescheduled")
-                    .build());
+                        .add("current_state", this.state)
+                        .add("msg", "should be rescheduled")
+                        .build());
             }
             return autoSchedule;
         } else {
@@ -372,9 +372,9 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
         currentPulsarPartitions = newCurrentPartitions;
         if (LOG.isDebugEnabled()) {
             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                .add("current_pulsar_partitions", Joiner.on(",").join(currentPulsarPartitions))
-                .add("msg", "current pulsar partitions has been change")
-                .build());
+                    .add("current_pulsar_partitions", Joiner.on(",").join(currentPulsarPartitions))
+                    .add("msg", "current pulsar partitions has been change")
+                    .build());
         }
     }
 
@@ -453,7 +453,7 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
         super.setOptional(stmt);
         PulsarDataSourceProperties pulsarDataSourceProperties
-            = (PulsarDataSourceProperties) stmt.getDataSourceProperties();
+                = (PulsarDataSourceProperties) stmt.getDataSourceProperties();
         if (CollectionUtils.isNotEmpty(pulsarDataSourceProperties.getPulsarPartitions())) {
             setCustomPulsarPartitions(pulsarDataSourceProperties.getPulsarPartitions());
         }
@@ -570,7 +570,7 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                jobProperties, dataSourceProperties);
+                    jobProperties, dataSourceProperties);
             Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
@@ -581,7 +581,7 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
             modifyPropertiesInternal(log.getJobProperties(),
-                (PulsarDataSourceProperties) log.getDataSourceProperties());
+                    (PulsarDataSourceProperties) log.getDataSourceProperties());
         } catch (DdlException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);
@@ -607,7 +607,7 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
                 List<Pair<String, Long>> initialPositions = new ArrayList<>();
                 // defaultInitialPosition can only update currentPulsarPartitions
                 currentPulsarPartitions.forEach(
-                    entry -> initialPositions.add(Pair.of(entry, this.defaultInitialPosition)));
+                        entry -> initialPositions.add(Pair.of(entry, this.defaultInitialPosition)));
                 ((PulsarProgress) progress).modifyInitialPositions(initialPositions);
             }
         }
@@ -633,7 +633,7 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
             }
         }
         LOG.info("modify the data source properties of pulsar routine load job: {}, datasource properties: {}",
-            this.id, dataSourceProperties);
+                this.id, dataSourceProperties);
     }
 
     // check if given partitions has more data to consume.
@@ -642,13 +642,13 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
         if (!initialPositions.isEmpty()) {
             LOG.debug("Got initialPositions, we need to execute even there's no backlogs. "
                     + "partitions to be consumed: {}, initialPositions: {}, task {}, job {}",
-                partitions, initialPositions, taskId, id);
+                    partitions, initialPositions, taskId, id);
             return true;
         }
 
         try {
             Map<String, Long> backlogNums = PulsarUtil.getBacklogNums(getServiceUrl(), getTopic(), getSubscription(),
-                ImmutableMap.copyOf(getConvertedCustomProperties()), partitions);
+                    ImmutableMap.copyOf(getConvertedCustomProperties()), partitions);
             for (String partition : partitions) {
                 Long backlogNum = backlogNums.get(partition);
                 if (backlogNum != null && backlogNum > 0) {
@@ -662,7 +662,7 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
 
         LOG.debug("no more data to consume. partitions to be consumed: {}, "
                 + "initialPositions: {}, task {}, job {}",
-            partitions, initialPositions, taskId, id);
+                partitions, initialPositions, taskId, id);
         return false;
     }
 

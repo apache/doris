@@ -103,7 +103,7 @@ public class PulsarProgress extends RoutineLoadProgress {
         if (defaultInitialPosition != null) {
             currentPartitions.stream()
                 .filter(entry -> !partitionToInitialPosition.containsKey(entry))
-                .forEach(entry -> partitionToInitialPosition.put(entry, defaultInitialPosition));
+                    .forEach(entry -> partitionToInitialPosition.put(entry, defaultInitialPosition));
         }
     }
 
@@ -145,7 +145,7 @@ public class PulsarProgress extends RoutineLoadProgress {
             partitionToInitialPosition.remove(partition);
         }
         LOG.debug("update pulsar progress: {}, task: {}, job: {}",
-            newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());
+                newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());
     }
 
     @Override

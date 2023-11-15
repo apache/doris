@@ -55,7 +55,7 @@ public class PulsarTaskInfo extends RoutineLoadTaskInfo {
 
     public PulsarTaskInfo(PulsarTaskInfo pulsarTaskInfo, Map<String, Long> initialPositions, boolean isMultiTable) {
         super(UUID.randomUUID(), pulsarTaskInfo.getJobId(), pulsarTaskInfo.getClusterName(),
-            pulsarTaskInfo.getTimeoutMs(), pulsarTaskInfo.getBeId(), isMultiTable);
+                pulsarTaskInfo.getTimeoutMs(), pulsarTaskInfo.getBeId(), isMultiTable);
         this.partitions = pulsarTaskInfo.getPartitions();
         this.initialPositions.putAll(initialPositions);
     }
@@ -86,7 +86,7 @@ public class PulsarTaskInfo extends RoutineLoadTaskInfo {
         }
         // label = job_name+job_id+task_id+txn_id
         String label = Joiner.on("-").join(routineLoadJob.getName(),
-            routineLoadJob.getId(), DebugUtil.printId(id), txnId);
+                routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setTbl(tbl.getName());
         tRoutineLoadTask.setLabel(label);
         tRoutineLoadTask.setAuthCode(routineLoadJob.getAuthCode());

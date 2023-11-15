@@ -57,7 +57,7 @@ public class PulsarUtil {
     }
 
     public static List<InternalService.PPulsarBacklogProxyResult> getBatchBacklogNums(
-        List<InternalService.PPulsarBacklogProxyRequest> requests) throws UserException {
+            List<InternalService.PPulsarBacklogProxyRequest> requests) throws UserException {
         return PROXY_API.getBatchBacklogNums(requests);
     }
 
@@ -65,10 +65,10 @@ public class PulsarUtil {
                                                                      String topic, String subscription,
                                                                      ImmutableMap<String, String> properties) {
         InternalService.PPulsarLoadInfo pulsarLoadInfo = InternalService.PPulsarLoadInfo.newBuilder()
-            .setServiceUrl(serviceUrl)
-            .setTopic(topic)
-            .setSubscription(subscription)
-            .addAllProperties(
+                .setServiceUrl(serviceUrl)
+                .setTopic(topic)
+                .setSubscription(subscription)
+                .addAllProperties(
                 properties.entrySet().stream().map(
                     e -> InternalService.PStringPair.newBuilder()
                         .setKey(e.getKey())
@@ -82,13 +82,13 @@ public class PulsarUtil {
     static class ProxyAPI {
         public List<String> getAllPulsarPartitions(String serviceUrl, String topic, String subscription,
                                                    ImmutableMap<String, String> convertedCustomProperties)
-            throws UserException {
+                throws UserException {
             // create request
             InternalService.PPulsarMetaProxyRequest metaRequest = InternalService.PPulsarMetaProxyRequest.newBuilder()
-                .setPulsarInfo(genPPulsarLoadInfo(serviceUrl, topic, subscription, convertedCustomProperties))
-                .build();
+                    .setPulsarInfo(genPPulsarLoadInfo(serviceUrl, topic, subscription, convertedCustomProperties))
+                    .build();
             InternalService.PPulsarProxyRequest request = InternalService.PPulsarProxyRequest.newBuilder()
-                .setPulsarMetaRequest(metaRequest).build();
+                    .setPulsarMetaRequest(metaRequest).build();
 
             InternalService.PPulsarProxyResult result = sendProxyRequest(request);
             return result.getPulsarMetaResult().getPartitionsList();
@@ -96,16 +96,16 @@ public class PulsarUtil {
 
         public Map<String, Long> getBacklogNums(String serviceUrl, String topic, String subscription,
                                                 ImmutableMap<String, String> properties, List<String> partitions)
-            throws UserException {
+                throws UserException {
             // create request
             InternalService.PPulsarBacklogProxyRequest.Builder backlogRequest =
-                InternalService.PPulsarBacklogProxyRequest.newBuilder()
+                    InternalService.PPulsarBacklogProxyRequest.newBuilder()
                     .setPulsarInfo(genPPulsarLoadInfo(serviceUrl, topic, subscription, properties));
             for (String partition : partitions) {
                 backlogRequest.addPartitions(partition);
             }
             InternalService.PPulsarProxyRequest request = InternalService.PPulsarProxyRequest.newBuilder()
-                .setPulsarBacklogRequest(backlogRequest).build();
+                    .setPulsarBacklogRequest(backlogRequest).build();
 
             // send request
             InternalService.PPulsarProxyResult result = sendProxyRequest(request);
@@ -120,16 +120,16 @@ public class PulsarUtil {
         }
 
         public List<InternalService.PPulsarBacklogProxyResult> getBatchBacklogNums(
-            List<InternalService.PPulsarBacklogProxyRequest> requests)
-            throws UserException {
+                List<InternalService.PPulsarBacklogProxyRequest> requests)
+                throws UserException {
             // create request
             InternalService.PPulsarBacklogBatchProxyRequest pPulsarBacklogBatchProxyRequest =
-                InternalService.PPulsarBacklogBatchProxyRequest.newBuilder();
+                    InternalService.PPulsarBacklogBatchProxyRequest.newBuilder();
             for (InternalService.PPulsarBacklogProxyRequest request : requests) {
                 pPulsarBacklogBatchProxyRequest.addRequests(request);
             }
             InternalService.PPulsarProxyRequest pProxyRequest = InternalService.PPulsarProxyRequest.newBuilder()
-                .setPulsarBacklogBatchRequest(pPulsarBacklogBatchProxyRequest).build();
+                    .setPulsarBacklogBatchRequest(pPulsarBacklogBatchProxyRequest).build();
 
             // send request
             PPulsarProxyResult result = sendProxyRequest(pProxyRequest);
@@ -138,7 +138,7 @@ public class PulsarUtil {
         }
 
         private InternalService.PPulsarProxyResult sendProxyRequest(
-            InternalService.PPulsarProxyRequest request) throws UserException {
+                InternalService.PPulsarProxyRequest request) throws UserException {
             TNetworkAddress address = new TNetworkAddress();
             try {
                 // TODO: need to refactor after be split into cn + dn
@@ -155,12 +155,12 @@ public class PulsarUtil {
 
                 // get info
                 Future<InternalService.PPulsarProxyResult> future =
-                    BackendServiceProxy.getInstance().getPulsarInfo(address, request);
+                        BackendServiceProxy.getInstance().getPulsarInfo(address, request);
                 InternalService.PPulsarProxyResult result = future.get(10, TimeUnit.SECONDS);
                 TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
                 if (code != TStatusCode.OK) {
                     LOG.warn("failed to send proxy request to "
-                        + address + " err " + result.getStatus().getErrorMsgsList());
+                            + address + " err " + result.getStatus().getErrorMsgsList());
                     throw new UserException(
                         "failed to send proxy request to " + address
                             + " err " + result.getStatus().getErrorMsgsList());
