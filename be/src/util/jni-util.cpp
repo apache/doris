@@ -69,7 +69,7 @@ const std::string GetDorisJNIDefaultClasspath() {
 
     // Check and add HADOOP_CONF_DIR if it's set
     const auto* hadoop_conf_dir = getenv("HADOOP_CONF_DIR");
-    if (hadoop_conf_dir && *hadoop_conf_dir) {
+    if (hadoop_conf_dir != nullptr && strlen(hadoop_conf_dir) > 0) {
         if (!out.str().empty()) {
             out << ":";
         }
