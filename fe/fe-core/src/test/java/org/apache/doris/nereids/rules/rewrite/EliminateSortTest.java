@@ -61,12 +61,12 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
 
         PlanChecker.from(connectContext)
                 .analyze("select count(*) from "
-                        + "(select * from student order by id limit 1) a join student on true")
+                        + "(select * from student order by id limit 1) t1 left join student t2 on t1.id = t2.id")
                 .rewrite()
                 .matches(logicalTopN());
         PlanChecker.from(connectContext)
                 .analyze("select count(*) from "
-                        + "(select * from student order by id) a join student on true limit 1")
+                        + "(select * from student order by id) t1 left join student t2 on t1.id = t2.id limit 1")
                 .rewrite()
                 .nonMatch(logicalTopN());
     }
