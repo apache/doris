@@ -27,7 +27,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -186,14 +185,10 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
-        // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN?stop=true
-        if (DebugPointUtil.isEnable("FE.STOP_ALTER_JOB_RUN")) {
-            DebugPoint debugPoint = DebugPointUtil.getDebugPoint("FE.STOP_ALTER_JOB_RUN");
-            Boolean stop = debugPoint.param("stop", false);
-            if (stop) {
-                LOG.info("debug point FE.STOP_ALTER_JOB_RUN, schema change schedule stopped");
-                return;
-            }
+        // /api/debug_point/add/FE.ALTER_JOB_V2_RUN?stop=true
+        if (DebugPointUtil.isEnable("FE.ALTER_JOB_V2_RUN")) {
+            LOG.info("debug point FE.ALTER_JOB_V2_RUN, schema change schedule stopped");
+            return;
         }
 
         try {
