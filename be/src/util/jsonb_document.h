@@ -334,7 +334,6 @@ private:
 };
 
 struct leg_info {
-    ~leg_info() { delete[] leg_ptr; }
     ///path leg ptr
     char* leg_ptr = nullptr;
 
