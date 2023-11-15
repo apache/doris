@@ -46,6 +46,8 @@ public abstract class RoutineLoadProgress implements Writable {
         LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
         if (type == LoadDataSourceType.KAFKA) {
             progress = new KafkaProgress();
+        } else if (type == LoadDataSourceType.PULSAR) {
+            progress = new PulsarProgress();
         } else {
             throw new IOException("Unknown load data source type: " + type.name());
         }

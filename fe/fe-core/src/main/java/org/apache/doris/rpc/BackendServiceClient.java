@@ -135,6 +135,10 @@ public class BackendServiceClient {
         return stub.getInfo(request);
     }
 
+    public Future<InternalService.PPulsarProxyResult> getPulsarInfo(InternalService.PPulsarProxyRequest request) {
+        return stub.getPulsarInfo(request);
+    }
+
     public Future<InternalService.PSendDataResult> sendData(InternalService.PSendDataRequest request) {
         return stub.sendData(request);
     }

@@ -18,5 +18,6 @@
 package org.apache.doris.load.routineload;
 
 public enum LoadDataSourceType {
-    KAFKA
+    KAFKA,
+    PULSAR
 }

@@ -357,6 +357,17 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PPulsarProxyResult> getPulsarInfo(
+            TNetworkAddress address, InternalService.PPulsarProxyRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getPulsarInfo(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to get info, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PSendDataResult> sendData(
             TNetworkAddress address, Types.PUniqueId fragmentInstanceId,
             Types.PUniqueId loadId, List<InternalService.PDataRow> data)

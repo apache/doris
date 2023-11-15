@@ -18,6 +18,7 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.load.routineload.pulsar.PulsarDataSourceProperties;
 
 import java.util.Map;
 
@@ -37,6 +38,8 @@ public class RoutineLoadDataSourcePropertyFactory {
                                                                 boolean multiLoad) {
         if (type.equalsIgnoreCase(LoadDataSourceType.KAFKA.name())) {
             return new KafkaDataSourceProperties(parameters, multiLoad);
+        } else if (type.equalsIgnoreCase(LoadDataSourceType.PULSAR.name())) {
+            return new PulsarDataSourceProperties(parameters, multiLoad);
         }
         throw new IllegalArgumentException("Unknown routine load data source type: " + type);
     }
@@ -44,6 +47,8 @@ public class RoutineLoadDataSourcePropertyFactory {
     public static AbstractDataSourceProperties createDataSource(String type, Map<String, String> parameters) {
         if (type.equalsIgnoreCase(LoadDataSourceType.KAFKA.name())) {
             return new KafkaDataSourceProperties(parameters);
+        } else if (type.equalsIgnoreCase(LoadDataSourceType.PULSAR.name())) {
+            return new PulsarDataSourceProperties(parameters);
         }
         throw new IllegalArgumentException("Unknown routine load data source type: " + type);
     }

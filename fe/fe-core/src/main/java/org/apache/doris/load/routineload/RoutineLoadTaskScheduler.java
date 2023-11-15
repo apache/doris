@@ -212,6 +212,10 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 LOG.debug("send kafka routine load task {} with partition offset: {}, job: {}",
                         tRoutineLoadTask.label, tRoutineLoadTask.kafka_load_info.partition_begin_offset,
                         tRoutineLoadTask.getJobId());
+            } else if (tRoutineLoadTask.isSetPulsarLoadInfo()) {
+                LOG.debug("send pulsar routine load task {} with partitions: {}, job: {}",
+                        tRoutineLoadTask.label, tRoutineLoadTask.pulsar_load_info.partitions,
+                        tRoutineLoadTask.getJobId());
             }
         } catch (LoadException e) {
             // submit task failed (such as TOO_MANY_TASKS error), but txn has already begun.

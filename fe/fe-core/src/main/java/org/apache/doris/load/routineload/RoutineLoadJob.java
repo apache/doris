@@ -1649,7 +1649,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
         if (type == LoadDataSourceType.KAFKA) {
             job = new KafkaRoutineLoadJob();
-        } else {
+        } else if (type == LoadDataSourceType.PULSAR) {
+            job = new PulsarRoutineLoadJob();
+        }  else {
             throw new IOException("Unknown load data source type: " + type.name());
         }
 
@@ -1728,6 +1730,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         switch (dataSourceType) {
             case KAFKA: {
                 progress = new KafkaProgress();
+                progress.readFields(in);
+                break;
+            }
+            case PULSAR: {
+                progress = new PulsarProgress();
                 progress.readFields(in);
                 break;
             }
