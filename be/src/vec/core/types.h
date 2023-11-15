@@ -226,6 +226,26 @@ struct TypeName<QuantileState> {
     static const char* get() { return "QuantileState"; }
 };
 
+template <>
+struct TypeName<DecimalV2Value> {
+    static const char* get() { return "decimalv2"; }
+};
+
+template <>
+struct TypeName<VecDateTimeValue> {
+    static const char* get() { return "Datetime"; }
+};
+
+template <>
+struct TypeName<DateV2Value<DateV2ValueType>> {
+    static const char* get() { return "DateV2"; }
+};
+
+template <>
+struct TypeName<DateV2Value<DateTimeV2ValueType>> {
+    static const char* get() { return "DatetimeV2"; }
+};
+
 template <typename T>
 struct TypeId;
 template <>

@@ -32,7 +32,7 @@ namespace doris {
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
-    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
             : ColumnPredicate(column_id, opposite),
               _cached_code(_InvalidateCodeValue),
@@ -67,7 +67,9 @@ public:
 
         roaring::Roaring roaring;
         bool exact_match = false;
-        Status status = iterator->seek_dictionary(&_value, &exact_match);
+
+        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
+        Status status = iterator->seek_dictionary(&value, &exact_match);
         rowid_t seeked_ordinal = iterator->current_ordinal();
 
         return _bitmap_compare(status, exact_match, ordinal_limit, seeked_ordinal, iterator,
@@ -107,7 +109,9 @@ public:
         }
 
         roaring::Roaring roaring;
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &_value, query_type,
+
+        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
                                                            num_rows, &roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
@@ -150,17 +154,13 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-    using WarpperFieldType = std::conditional_t<Type == TYPE_DATE, uint24_t, T>;
-
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null()) {
             return true;
         }
 
-        T tmp_min_value {};
-        T tmp_max_value {};
-        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
-        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
             return _operator(tmp_min_value <= _value && tmp_max_value >= _value, true);
@@ -183,10 +183,8 @@ public:
                 << " Type: " << Type << " sizeof(T): " << sizeof(T)
                 << " statistic.first->size(): " << statistic.first->size();
 
-        T tmp_min_value {};
-        T tmp_max_value {};
-        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
-        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::LT) {
             return _value > tmp_max_value;
@@ -206,10 +204,8 @@ public:
             return false;
         }
 
-        T tmp_min_value {};
-        T tmp_max_value {};
-        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
-        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
             return tmp_min_value == _value && tmp_max_value == _value;
@@ -232,8 +228,17 @@ public:
             if constexpr (std::is_same_v<T, StringRef>) {
                 return bf->test_bytes(_value.data, _value.size);
             } else {
-                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                      sizeof(WarpperFieldType));
+                // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
+                // Datev1/DatetimeV1 using VecDatetimeValue in bloom filter, NO need to convert.
+                if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
+                    decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
+                            sizeof(decimal12_t));
+                } else {
+                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                          sizeof(T));
+                }
             }
         } else {
             LOG(FATAL) << "Bloom filter is not supported by predicate type.";

@@ -58,13 +58,13 @@ public:
             // no non-null values
             return false;
         } else {
-            max_value = *reinterpret_cast<const CppType*>(statistic.second->cell_ptr());
+            max_value = get_zone_map_value<T, CppType>(statistic.second->cell_ptr());
         }
 
-        CppType min_value =
-                statistic.first->is_null() /* contains null values */
-                        ? 0
-                        : *reinterpret_cast<const CppType*>(statistic.first->cell_ptr());
+        CppType min_value = statistic.first->is_null() /* contains null values */
+                                    ? 0
+                                    : get_zone_map_value<T, CppType>(statistic.first->cell_ptr());
+        ;
         return _specific_filter->contains_any(min_value, max_value);
     }
 

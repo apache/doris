@@ -197,10 +197,10 @@ public:
 
     void insert_date_column(const char* data_ptr, size_t num) {
         data.reserve(data.size() + num);
-        size_t input_value_size = sizeof(uint24_t);
+        constexpr size_t input_value_size = sizeof(uint24_t);
 
         for (int i = 0; i < num; i++) {
-            uint64_t val = 0;
+            uint24_t val = 0;
             memcpy((char*)(&val), data_ptr, input_value_size);
             data_ptr += input_value_size;
 
