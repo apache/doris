@@ -66,10 +66,6 @@ namespace vectorized {
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
         : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
     DCHECK(t_sink.__isset.olap_table_sink);
-    //auto& table_sink = t_sink.olap_table_sink;
-    //_db_id = table_sink.db_id;
-    //_table_id = table_sink.table_id;
-    //_txn_id = table_sink.txn_id;
 }
 
 VTabletWriterV2::~VTabletWriterV2() = default;
