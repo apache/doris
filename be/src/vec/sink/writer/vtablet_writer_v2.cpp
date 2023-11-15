@@ -18,15 +18,12 @@
 #include "vec/sink/writer/vtablet_writer_v2.h"
 
 #include <brpc/uri.h>
-#include <bthread/bthread.h>
-#include <fmt/format.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
-#include <algorithm>
 #include <execution>
 #include <mutex>
 #include <ranges>
@@ -34,7 +31,6 @@
 #include <unordered_map>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -47,12 +43,10 @@
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
-#include "util/network_util.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_stub.h"
 #include "vec/sink/load_stream_stub_pool.h"
