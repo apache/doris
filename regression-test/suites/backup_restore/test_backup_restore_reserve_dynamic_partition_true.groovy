@@ -98,6 +98,10 @@ suite("test_backup_restore_dynamic_partition_reserve_true", "backup_restore") {
         )
     """
     
+    def restore_properties = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
+
+    assertTrue(restore_properties.indexOf("\"dynamic_partition.enable\" = \"true\"") != -1)
+
     while (!syncer.checkAllRestoreFinish(dbName)) {
         Thread.sleep(3000)
     }
