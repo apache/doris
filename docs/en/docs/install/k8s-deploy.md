@@ -24,8 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-Doris-Operator is a software extension to Kubernetes and follow Kubernetes principles that make use of custom resources to manage Doris and their components, It allows users to deploy and manage Doris on the Kubernetes in accordance with resource definitions. Doris-Operator can manage all deployment forms of Doris, and realize intelligent and parallel management of Doris in large-scale forms.  
-
+Doris-Operators are software extensions to Kubernetes that make use of custom resource to manage Doris and it components. It provides [DorisCluster](https://github.com/selectdb/doris-operator/blob/master/config/crd/bases/doris.selectdb.com_dorisclusters.yaml) a Kubernetes [CustomResourceDefinition](https://kubernetes.io/docs/reference/kubernetes-api/extend-resources/custom-resource-definition-v1/) for user to custom resource.
 ## Deploy Doris on Kubernetes
 
 ### Start Kubernetes
