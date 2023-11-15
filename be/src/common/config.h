@@ -404,6 +404,9 @@ DECLARE_Int32(vertical_compaction_max_row_source_memory_mb);
 // In vertical compaction, max dest segment file size
 DECLARE_mInt64(vertical_compaction_max_segment_size);
 
+// If enabled, segments will be flushed column by column
+DECLARE_mBool(enable_vertical_segment_writer);
+
 // In ordered data compaction, min segment size for input rowset
 DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 
