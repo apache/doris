@@ -387,6 +387,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         size_t delta_pos = block_pos - row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
         std::string key = _full_encode_keys(key_columns, delta_pos);
+        _maybe_invalid_row_cache(key);
         if (have_input_seq_column) {
             _encode_seq_column(seq_column, delta_pos, &key);
         }
@@ -396,7 +397,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         if (!_tablet_schema->has_sequence_col() || have_input_seq_column) {
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
         }
-        _maybe_invalid_row_cache(key);
 
         // mark key with delete sign as deleted.
         bool have_delete_sign =

@@ -829,7 +829,7 @@ In order to avoid occupying too much memory, the maximum data size of rows that 
 
 #### `cache_last_version_interval_second`
 
-Default：900
+Default：30
 
 IsMutable：true
 

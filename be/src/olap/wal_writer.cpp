@@ -76,7 +76,8 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
         offset += CHECKSUM_SIZE;
     }
     DCHECK(offset == total_size);
-    _disk_bytes += total_size;
+    _disk_bytes.store(_disk_bytes.fetch_add(total_size, std::memory_order_relaxed),
+                      std::memory_order_relaxed);
     _all_wal_disk_bytes->store(
             _all_wal_disk_bytes->fetch_add(total_size, std::memory_order_relaxed),
             std::memory_order_relaxed);

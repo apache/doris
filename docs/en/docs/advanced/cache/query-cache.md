@@ -111,11 +111,11 @@ cache_result_max_data_size=31457280
 
 3. cache_last_version_interval_second
 
-The minimum time interval between the latest version of the cached query partition and the current version. Only the query results of partitions that are larger than this interval and have not been updated will be cached. The default is 900, in seconds.
+The minimum time interval between the latest version of the cached query partition and the current version. Only the query results of partitions that are larger than this interval and have not been updated will be cached. The default is 30, in seconds.
 
 ```text
 vim fe/conf/fe.conf
-cache_last_version_interval_second=900
+cache_last_version_interval_second=30
 ```
 
 4. query_cache_max_size_mb and query_cache_elasticity_size
@@ -141,6 +141,7 @@ cache_max_partition_count=1024
 
 ## Unfinished business
 
+- SQL contains functions that generate random values, such as random(). Using QueryCache will cause the query results to lose their randomness, and the same results will be obtained every time they are executed.
 - Can T+1 data also be cached using Partition? Currently it is not supported.
 - Similar SQL, 2 indicators were queried before, and now 3 indicators are queried. Can the cache of 2 indicators be used? Not currently supported
 - Partition by date, but the data needs to be summarized by week dimension. Can PartitionCache be used? Not currently supported
