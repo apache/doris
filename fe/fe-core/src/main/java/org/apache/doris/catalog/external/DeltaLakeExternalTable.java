@@ -31,9 +31,7 @@ import com.google.common.collect.Lists;
 import io.delta.standalone.DeltaLog;
 import io.delta.standalone.actions.Metadata;
 import io.delta.standalone.types.DataType;
-import io.delta.standalone.types.StructField;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,17 +73,17 @@ public class DeltaLakeExternalTable extends HMSExternalTable {
     @Override
     public List<Column> initSchema() {
         makeSureInitialized();
-        List<Column> columns;
-        List<FieldSchema> schema = ((DeltaLakeExternalCatalog) catalog).getClient().getSchema(dbName, name);
-        io.delta.standalone.types.StructType deltaSchema = getDeltaTableSchema(this);
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
-        for (StructField field : deltaSchema.getFields()) {
-            String columnName = field.getName();
-            tmpSchema.add(new Column(columnName, fromDeltaTypeToDorisType(field.getDataType()),
-                    true, null, true, null, "", true, null, -1, null));
-        }
-        columns = tmpSchema;
-        initPartitionColumns(columns);
+        List<Column> columns = Lists.newArrayList();
+        // List<FieldSchema> schema = ((DeltaLakeExternalCatalog) catalog).getClient().getSchema(dbName, name);
+        // io.delta.standalone.types.StructType deltaSchema = getDeltaTableSchema(this);
+        // List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
+        // for (StructField field : deltaSchema.getFields()) {
+        //     String columnName = field.getName();
+        //     tmpSchema.add(new Column(columnName, fromDeltaTypeToDorisType(field.getDataType()),
+        //             true, null, true, null, "", true, null, -1, null));
+        // }
+        // columns = tmpSchema;
+        // initPartitionColumns(columns);
         return columns;
     }
 

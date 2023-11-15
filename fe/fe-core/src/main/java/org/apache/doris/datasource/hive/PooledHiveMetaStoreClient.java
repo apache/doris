@@ -18,22 +18,26 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
+import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.client.JdbcHiveClient;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
+import com.alibaba.google.common.collect.Maps;
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
@@ -52,6 +56,7 @@ import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
+import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.hadoop.hive.metastore.txn.TxnUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -77,16 +82,34 @@ public class PooledHiveMetaStoreClient {
     private Queue<CachedClient> clientPool = new LinkedList<>();
     private final int poolSize;
     private final HiveConf hiveConf;
+    private JdbcHiveClient jdbcHiveClient = null;
 
-    public PooledHiveMetaStoreClient(HiveConf hiveConf, int pooSize) {
+    public PooledHiveMetaStoreClient(HiveConf hiveConf, JdbcClientConfig jdbcConfig, int pooSize) {
         Preconditions.checkArgument(pooSize > 0, pooSize);
-        hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+        hiveConf.set(MetastoreConf.ConfVars.CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
         this.hiveConf = hiveConf;
         this.poolSize = pooSize;
+        if (jdbcConfig != null) {
+            this.jdbcHiveClient = (JdbcHiveClient) JdbcClient.createJdbcClient(jdbcConfig);
+        }
+    }
+
+    public void close() {
+        if (jdbcHiveClient != null) {
+            try {
+                jdbcHiveClient.close();
+            } catch (Throwable t) {
+                LOG.warn("failed to close jdbc hive client", t);
+            }
+        }
     }
 
     public List<String> getAllDatabases() {
+        if (this.jdbcHiveClient != null) {
+            return jdbcHiveClient.getDatabaseNameList();
+        }
+
         try (CachedClient client = getClient()) {
             try {
                 return client.client.getAllDatabases();
@@ -100,6 +123,10 @@ public class PooledHiveMetaStoreClient {
     }
 
     public List<String> getAllTables(String dbName) {
+        if (this.jdbcHiveClient != null) {
+            return jdbcHiveClient.getTablesNameList(dbName);
+        }
+
         try (CachedClient client = getClient()) {
             try {
                 return client.client.getAllTables(dbName);
@@ -113,6 +140,10 @@ public class PooledHiveMetaStoreClient {
     }
 
     public boolean tableExists(String dbName, String tblName) {
+        if (jdbcHiveClient != null) {
+            return jdbcHiveClient.isTableExist(dbName, tblName);
+        }
+
         try (CachedClient client = getClient()) {
             try {
                 return client.client.tableExists(dbName, tblName);
@@ -126,6 +157,10 @@ public class PooledHiveMetaStoreClient {
     }
 
     public List<String> listPartitionNames(String dbName, String tblName) {
+        if (jdbcHiveClient != null) {
+            return jdbcHiveClient.getPartitionNameList(dbName, tblName);
+        }
+
         try (CachedClient client = getClient()) {
             try {
                 return client.client.listPartitionNames(dbName, tblName, MAX_LIST_PARTITION_NUM);
@@ -139,6 +174,10 @@ public class PooledHiveMetaStoreClient {
     }
 
     public Partition getPartition(String dbName, String tblName, List<String> partitionValues) {
+        if (jdbcHiveClient != null) {
+            return jdbcHiveClient.getPartition(dbName, tblName, partitionValues);
+        }
+
         try (CachedClient client = getClient()) {
             try {
                 return client.client.getPartition(dbName, tblName, partitionValues);
@@ -153,6 +192,10 @@ public class PooledHiveMetaStoreClient {
     }
 
     public List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames) {
+        if (jdbcHiveClient != null) {
+            return jdbcHiveClient.getPartitions(dbName, tblName, partitionNames);
+        }
+
         try (CachedClient client = getClient()) {
             try {
                 return client.client.getPartitionsByNames(dbName, tblName, partitionNames);
@@ -162,21 +205,7 @@ public class PooledHiveMetaStoreClient {
             }
         } catch (Exception e) {
             throw new HMSClientException("failed to get partition for table %s in db %s with value %s", e, tblName,
-                dbName, partitionNames);
-        }
-    }
-
-    public List<Partition> getPartitionsByFilter(String dbName, String tblName, String filter) {
-        try (CachedClient client = getClient()) {
-            try {
-                return client.client.listPartitionsByFilter(dbName, tblName, filter, MAX_LIST_PARTITION_NUM);
-            } catch (Exception e) {
-                client.setThrowable(e);
-                throw e;
-            }
-        } catch (Exception e) {
-            throw new HMSClientException("failed to get partition by filter for table %s in db %s", e, tblName,
-                    dbName);
+                    dbName, partitionNames);
         }
     }
 
@@ -193,20 +222,37 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
-    public List<FieldSchema> getSchema(String dbName, String tblName) {
+    public List<Column> getSchema(String dbName, String tblName) {
+        if (jdbcHiveClient != null) {
+            return jdbcHiveClient.getColumnsFromJdbc(dbName, tblName);
+        }
+
+        List<Column> columns;
         try (CachedClient client = getClient()) {
+            List<FieldSchema> fieldSchemas;
             try {
-                return client.client.getSchema(dbName, tblName);
+                fieldSchemas = client.client.getSchema(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
             }
+
+            columns = Lists.newArrayListWithCapacity(fieldSchemas.size());
+            for (FieldSchema field : fieldSchemas) {
+                columns.add(new Column(field.getName(),
+                        HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                        true, field.getComment(), true, -1));
+            }
         } catch (Exception e) {
             throw new HMSClientException("failed to get schema for table %s in db %s", e, tblName, dbName);
         }
+        return columns;
     }
 
     public List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName, List<String> columns) {
+        if (jdbcHiveClient != null) {
+            return Lists.newArrayList();
+        }
         try (CachedClient client = getClient()) {
             try {
                 return client.client.getTableColumnStatistics(dbName, tblName, columns);
@@ -221,6 +267,9 @@ public class PooledHiveMetaStoreClient {
 
     public Map<String, List<ColumnStatisticsObj>> getPartitionColumnStatistics(
             String dbName, String tblName, List<String> partNames, List<String> columns) {
+        if (jdbcHiveClient != null) {
+            return Maps.newHashMap();
+        }
         try (CachedClient client = getClient()) {
             try {
                 return client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);

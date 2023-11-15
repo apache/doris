@@ -31,6 +31,7 @@ public class JdbcClientConfig {
     private String isLowerCaseTableNames;
     private Map<String, Boolean> includeDatabaseMap;
     private Map<String, Boolean> excludeDatabaseMap;
+    private boolean useInternalClassLoader = false;
 
     public String getCatalog() {
         return catalog;
@@ -119,6 +120,15 @@ public class JdbcClientConfig {
 
     public JdbcClientConfig setExcludeDatabaseMap(Map<String, Boolean> excludeDatabaseMap) {
         this.excludeDatabaseMap = excludeDatabaseMap;
+        return this;
+    }
+
+    public boolean isUseInternalClassLoader() {
+        return useInternalClassLoader;
+    }
+
+    public JdbcClientConfig setUseInternalClassLoader(boolean useInternalClassLoader) {
+        this.useInternalClassLoader = useInternalClassLoader;
         return this;
     }
 }

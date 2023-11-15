@@ -51,7 +51,6 @@ import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
-import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.iceberg.Schema;
@@ -390,17 +389,6 @@ public class HMSExternalTable extends ExternalTable {
         return client.getTableColumnStatistics(dbName, name, columns);
     }
 
-    public Map<String, List<ColumnStatisticsObj>> getHivePartitionColumnStats(
-            List<String> partNames, List<String> columns) {
-        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
-        return client.getPartitionColumnStatistics(dbName, name, partNames, columns);
-    }
-
-    public Partition getPartition(List<String> partitionValues) {
-        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
-        return client.getPartition(dbName, name, partitionValues);
-    }
-
     @Override
     public Set<String> getPartitionNames() {
         makeSureInitialized();
@@ -411,12 +399,10 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public List<Column> initSchemaAndUpdateTime() {
-        org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
-                .getTable(dbName, name);
         // try to use transient_lastDdlTime from hms client
-        schemaUpdateTime = MapUtils.isNotEmpty(table.getParameters())
-                && table.getParameters().containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)
-                ? Long.parseLong(table.getParameters().get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000
+        schemaUpdateTime = MapUtils.isNotEmpty(remoteTable.getParameters())
+                && remoteTable.getParameters().containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)
+                ? Long.parseLong(remoteTable.getParameters().get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000
                 // use current timestamp if lastDdlTime does not exist (hive views don't have this prop)
                 : System.currentTimeMillis();
         return initSchema();
@@ -427,27 +413,32 @@ public class HMSExternalTable extends ExternalTable {
     public List<Column> initSchema() {
         makeSureInitialized();
         List<Column> columns;
-        List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
-        if (dlaType.equals(DLAType.ICEBERG)) {
-            columns = getIcebergSchema(schema);
-        } else if (dlaType.equals(DLAType.HUDI)) {
-            columns = getHudiSchema(schema);
+        if (dlaType.equals(DLAType.HUDI)) {
+            columns = getHudiSchema();
         } else {
-            List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
-            for (FieldSchema field : schema) {
-                tmpSchema.add(new Column(field.getName(),
-                        HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                        true, field.getComment(), true, -1));
+            columns = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
+            if (dlaType.equals(DLAType.ICEBERG)) {
+                // set column id
+                Table icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+                        .getIcebergTable(this);
+                Schema schema = icebergTable.schema();
+                for (Column column : columns) {
+                    column.setUniqueId(schema.caseInsensitiveFindField(column.getName()).fieldId());
+                }
             }
-            columns = tmpSchema;
         }
         initPartitionColumns(columns);
         return columns;
     }
 
-    public List<Column> getHudiSchema(List<FieldSchema> hmsSchema) {
+    /**
+     * Hudi table schema is got it from hudi directly
+     *
+     * @return
+     */
+    private List<Column> getHudiSchema() {
         org.apache.avro.Schema hudiSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hudiSchema.getFields().size());
         for (org.apache.avro.Schema.Field hudiField : hudiSchema.getFields()) {
             String columnName = hudiField.name().toLowerCase(Locale.ROOT);
             tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiField.schema()),
@@ -477,20 +468,6 @@ public class HMSExternalTable extends ExternalTable {
             LOG.warn("Fail to get row count for table {}", name, e);
         }
         return 1;
-    }
-
-    private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
-        Table icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this);
-        Schema schema = icebergTable.schema();
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
-        for (FieldSchema field : hmsSchema) {
-            tmpSchema.add(new Column(field.getName(),
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
-                            IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
-                    true, null, true, false, null, field.getComment(), true, null,
-                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null));
-        }
-        return tmpSchema;
     }
 
     protected void initPartitionColumns(List<Column> schema) {

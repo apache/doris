@@ -117,11 +117,13 @@ public class TaskDisruptor implements Closeable {
             log.info("tryPublish failed, disruptor is closed, jobId: {}", jobId);
             return;
         }
+        /*
         try {
             disruptor.publishEvent(TRANSLATOR, jobId, taskId, taskType);
         } catch (Exception e) {
             log.error("tryPublish failed, jobId: {}", jobId, e);
         }
+        */
     }
 
     /**
@@ -135,11 +137,13 @@ public class TaskDisruptor implements Closeable {
             log.info("tryPublish failed, disruptor is closed, taskId: {}", taskId);
             return;
         }
+        /*
         try {
             disruptor.publishEvent(TRANSLATOR, taskId, 0L, TaskType.TRANSIENT_TASK);
         } catch (Exception e) {
             log.error("tryPublish failed, taskId: {}", taskId, e);
         }
+        */
     }
 
 

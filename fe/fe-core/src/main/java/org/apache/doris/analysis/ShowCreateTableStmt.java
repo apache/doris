@@ -69,7 +69,6 @@ public class ShowCreateTableStmt extends ShowStmt {
         this.needBriefDdl = needBriefDdl;
     }
 
-
     public String getCtl() {
         return tbl.getCtl();
     }

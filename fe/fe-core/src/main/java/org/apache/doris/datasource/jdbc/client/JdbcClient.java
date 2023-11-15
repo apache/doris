@@ -92,6 +92,8 @@ public abstract class JdbcClient {
             case JdbcResource.TRINO:
             case JdbcResource.PRESTO:
                 return new JdbcTrinoClient(jdbcClientConfig);
+            case JdbcResource.HIVE:
+                return new JdbcHiveClient(jdbcClientConfig);
             default:
                 throw new IllegalArgumentException("Unsupported DB type: " + dbType);
         }
@@ -108,29 +110,32 @@ public abstract class JdbcClient {
                 Optional.ofNullable(jdbcClientConfig.getExcludeDatabaseMap()).orElse(Collections.emptyMap());
         String jdbcUrl = jdbcClientConfig.getJdbcUrl();
         this.dbType = parseDbType(jdbcUrl);
-        initializeDataSource(jdbcClientConfig.getPassword(), jdbcUrl, jdbcClientConfig.getDriverUrl(),
-                jdbcClientConfig.getDriverClass());
+        initializeDataSource(jdbcClientConfig);
     }
 
     // Initialize DruidDataSource
-    private void initializeDataSource(String password, String jdbcUrl, String driverUrl, String driverClass) {
-        ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
+    private void initializeDataSource(JdbcClientConfig clientConfig) {
+        ClassLoader oldClassLoader = null;
         try {
-            // TODO(ftw): The problem here is that the jar package is handled by FE
-            //  and URLClassLoader may load the jar package directly into memory
-            URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
-            // set parent ClassLoader to null, we can achieve class loading isolation.
-            ClassLoader parent = getClass().getClassLoader();
-            ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
-            LOG.debug("parent ClassLoader: {}, old ClassLoader: {}, class Loader: {}.",
-                    parent, oldClassLoader, classLoader);
-            Thread.currentThread().setContextClassLoader(classLoader);
+            if (!clientConfig.isUseInternalClassLoader()) {
+                oldClassLoader = Thread.currentThread().getContextClassLoader();
+                // TODO(ftw): The problem here is that the jar package is handled by FE
+                //  and URLClassLoader may load the jar package directly into memory
+                URL[] urls = {new URL(JdbcResource.getFullDriverUrl(clientConfig.getDriverUrl()))};
+                // set parent ClassLoader to null, we can achieve class loading isolation.
+                ClassLoader parent = getClass().getClassLoader();
+                ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
+                LOG.debug("parent ClassLoader: {}, old ClassLoader: {}, class Loader: {}.",
+                        parent, oldClassLoader, classLoader);
+                Thread.currentThread().setContextClassLoader(classLoader);
+            }
+
             dataSource = new DruidDataSource();
             dataSource.setDriverClassLoader(classLoader);
-            dataSource.setDriverClassName(driverClass);
-            dataSource.setUrl(jdbcUrl);
+            dataSource.setDriverClassName(clientConfig.getDriverClass());
+            dataSource.setUrl(clientConfig.getJdbcUrl());
             dataSource.setUsername(jdbcUser);
-            dataSource.setPassword(password);
+            dataSource.setPassword(clientConfig.getPassword());
             dataSource.setMinIdle(1);
             dataSource.setInitialSize(1);
             dataSource.setMaxActive(100);
@@ -143,9 +148,12 @@ public abstract class JdbcClient {
             // it may cause the thrift rpc timeout.
             dataSource.setMaxWait(5000);
         } catch (MalformedURLException e) {
-            throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
+            throw new JdbcClientException("MalformedURLException to load class about " + clientConfig.getDriverUrl(),
+                    e);
         } finally {
-            Thread.currentThread().setContextClassLoader(oldClassLoader);
+            if (oldClassLoader != null) {
+                Thread.currentThread().setContextClassLoader(oldClassLoader);
+            }
         }
     }
 

@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
@@ -64,6 +65,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // broker name for file split and query scan.
     public static final String BIND_BROKER_NAME = "broker.name";
     private static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
+    private static final String PROP_HIVE_JDBC_URL = "hive.jdbc.url";
+    private static final String PROP_HIVE_JDBC_USERNAME = "hive.jdbc.username";
+    private static final String PROP_HIVE_JDBC_PASSWORD = "hive.jdbc.password";
 
     // -1 means file cache no ttl set
     public static final int FILE_META_CACHE_NO_TTL = -1;
@@ -176,8 +180,33 @@ public class HMSExternalCatalog extends ExternalCatalog {
             }
         }
 
-        client = new PooledHiveMetaStoreClient(hiveConf,
-                    Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size));
+        JdbcClientConfig jdbcClientConfig = null;
+        String jdbcUrl = catalogProperty.getOrDefault(PROP_HIVE_JDBC_URL, "");
+        if (!Strings.isNullOrEmpty(jdbcUrl)) {
+            jdbcClientConfig = new JdbcClientConfig()
+                    .setCatalog(name)
+                    .setUser(catalogProperty.getOrDefault(PROP_HIVE_JDBC_USERNAME, "hadoop"))
+                    .setPassword(catalogProperty.getOrDefault(PROP_HIVE_JDBC_PASSWORD, ""))
+                    .setJdbcUrl(jdbcUrl)
+                    .setDriverClass("org.apache.hive.jdbc.HiveDriver")
+                    .setOnlySpecifiedDatabase("false")
+                    .setIsLowerCaseTableNames("false")
+                    .setIncludeDatabaseMap(getIncludeDatabaseMap())
+                    .setExcludeDatabaseMap(getExcludeDatabaseMap())
+                    .setUseInternalClassLoader(true);
+        }
+
+        client = new PooledHiveMetaStoreClient(hiveConf, jdbcClientConfig,
+                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size));
+    }
+
+    @Override
+    public void setUninitialized(boolean invalidCache) {
+        super.setUninitialized(invalidCache);
+        if (client != null) {
+            client.close();
+            client = null;
+        }
     }
 
     @Override
