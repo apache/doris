@@ -48,7 +48,7 @@ Status VRowDistribution::_save_missing_values(vectorized::ColumnPtr col,
         if (!_deduper.contains(val_str)) {
             _deduper.emplace(val_str);
             TStringLiteral node;
-            node.value = val_str;
+            node.value = std::move(val_str);
             _partitions_need_create.emplace_back(std::vector {node}); // only 1 partition column now
         }
     }

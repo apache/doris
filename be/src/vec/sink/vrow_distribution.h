@@ -54,7 +54,6 @@ public:
 
 // void* for caller
 using CreatePartitionCallback = Status (*)(void*, TCreatePartitionResult*);
-using AddBlockCallback = Status (*)(void*);
 
 class VRowDistribution {
 public:
@@ -153,7 +152,6 @@ private:
     void _reset_row_part_tablet_ids(std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                     int64_t rows);
 
-private:
     RuntimeState* _state = nullptr;
     int _batch_size = 0;
 
@@ -161,7 +159,7 @@ private:
     std::vector<std::vector<TStringLiteral>>
             _partitions_need_create; // support only one partition column now
     std::unique_ptr<MutableBlock> _batching_block;
-    bool _deal_batched = false; // the last block.
+    bool _deal_batched = false; // If true, send batched block before any block's append.
     size_t _batching_rows = 0, _batching_bytes = 0;
     std::set<std::string> _deduper;
 
