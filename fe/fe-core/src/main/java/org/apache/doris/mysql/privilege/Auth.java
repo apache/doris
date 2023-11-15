@@ -453,7 +453,7 @@ public class Auth implements Writable {
 
             // create user
             try {
-                //we should not throw AnalysisException at here,so transfer it
+                // we should not throw AnalysisException at here,so transfer it
                 userManager.createUser(userIdent, password, null, false);
             } catch (PatternMatcherException e) {
                 throw new DdlException("create user failed,", e);

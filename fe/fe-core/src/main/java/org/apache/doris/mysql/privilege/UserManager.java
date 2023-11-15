@@ -183,6 +183,12 @@ public class UserManager implements Writable {
             throws PatternMatcherException {
         if (userIdentityExist(userIdent, true)) {
             User userByUserIdentity = getUserByUserIdentity(userIdent);
+            if (!userByUserIdentity.isSetByDomainResolver() && setByResolver) {
+                // If the user is NOT created by domain resolver,
+                // and the current operation is done by DomainResolver,
+                // we should not override it, just return
+                return userByUserIdentity;
+            }
             userByUserIdentity.setPassword(pwd);
             userByUserIdentity.setSetByDomainResolver(setByResolver);
             return userByUserIdentity;
