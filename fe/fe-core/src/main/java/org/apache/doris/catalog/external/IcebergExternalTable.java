@@ -34,7 +34,9 @@ import com.google.common.collect.Lists;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
 
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,6 +45,8 @@ public class IcebergExternalTable extends ExternalTable {
     // https://iceberg.apache.org/spec/#schemas-and-data-types
     // All time and timestamp values are stored with microsecond precision
     public static final int ICEBERG_DATETIME_SCALE_MS = 6;
+    public static final String HLL_COLUMNS_IN_ICEBERG = "hll_columns_in_doris";
+    public static final String BITMAP_COLUMN_IN_ICEBERG = "btmap_columns_in_doris";
 
     public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
@@ -63,14 +67,15 @@ public class IcebergExternalTable extends ExternalTable {
     public List<Column> initSchema() {
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
             Schema schema = ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name).schema();
+            HashSet<?> hllColumns = getHllColumnsWithCustomProperties();
+            HashSet<?> bitmapColumns = getBitmapColumnsWithCustomProperties();
             List<Types.NestedField> columns = schema.columns();
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
             for (Types.NestedField field : columns) {
-                String fullFieldName = dbName + "." + name + "." + field.name();
                 Type columnType = Type.UNSUPPORTED;
-                if (((IcebergExternalCatalog) catalog).getHllColumns().contains(fullFieldName)) {
+                if (hllColumns.contains(field.name())) {
                     columnType = ScalarType.createHllType();
-                } else if (((IcebergExternalCatalog) catalog).getBitmapColumns().contains(fullFieldName)) {
+                } else if (bitmapColumns.contains(field.name())) {
                     columnType = ScalarType.BITMAP;
                 } else {
                     columnType = icebergTypeToDorisType(field.type());
@@ -81,6 +86,24 @@ public class IcebergExternalTable extends ExternalTable {
             }
             return tmpSchema;
         });
+    }
+
+    private HashSet<?> getHllColumnsWithCustomProperties() {
+        String hllColumns = ((IcebergExternalCatalog) catalog).getIcebergTable(dbName,
+                name).properties().get(HLL_COLUMNS_IN_ICEBERG);
+        if (hllColumns != null) {
+            return new HashSet<>(Arrays.asList(hllColumns.split(",")));
+        }
+        return new HashSet<>();
+    }
+
+    private HashSet<?> getBitmapColumnsWithCustomProperties() {
+        String bitmapColumns = ((IcebergExternalCatalog) catalog).getIcebergTable(dbName,
+                name).properties().get(BITMAP_COLUMN_IN_ICEBERG);
+        if (bitmapColumns != null) {
+            return new HashSet<>(Arrays.asList(bitmapColumns.split(",")));
+        }
+        return new HashSet<>();
     }
 
     private Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {

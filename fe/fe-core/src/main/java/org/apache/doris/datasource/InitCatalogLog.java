@@ -66,12 +66,6 @@ public class InitCatalogLog implements Writable {
     @SerializedName(value = "type")
     private Type type;
 
-    @SerializedName(value = "hllColumns")
-    private String hllColumns;
-
-    @SerializedName(value = "bitmapColumns")
-    private String bitmapColumns;
-
     @SerializedName(value = "lastUpdateTime")
     private long lastUpdateTime;
 
