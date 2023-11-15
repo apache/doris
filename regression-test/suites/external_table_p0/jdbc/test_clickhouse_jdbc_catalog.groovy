@@ -91,6 +91,8 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
             contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts" WHERE ("ts" <= toUnixTimestamp(FROM_UNIXTIME(ts, '%Y-%m-%d')))"""
         }
 
+        order_qt_dt_with_tz """ select * from dt_with_tz order by id; """
+
         sql """ drop catalog if exists ${catalog_name} """
     }
 }

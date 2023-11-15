@@ -560,7 +560,8 @@ public class JdbcExecutor {
                 }
                 if (OffsetDateTime.class.equals(clz)) {
                     return createConverter(
-                            input -> ((Timestamp) input).toLocalDateTime(), LocalDateTime.class);
+                            input -> ((OffsetDateTime) input).toLocalDateTime(),
+                            LocalDateTime.class);
                 }
                 if (oracle.sql.TIMESTAMP.class.equals(clz)) {
                     return createConverter(
