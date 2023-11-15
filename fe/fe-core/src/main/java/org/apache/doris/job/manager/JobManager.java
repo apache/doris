@@ -53,7 +53,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
 
     public void registerJob(T job) throws JobException {
         job.checkJobParams();
-        checkJobNameExist(job.getJobName(), job.getJobType(), job.getCurrentDbName());
+        checkJobNameExist(job.getJobName(), job.getJobType());
         if (jobMap.get(job.getJobId()) != null) {
             throw new JobException("job id exist,jobId:" + job.getJobId());
         }
@@ -65,9 +65,8 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
     }
 
 
-    private void checkJobNameExist(String jobName, JobType type, String currentDbName) throws JobException {
-        if (jobMap.values().stream().anyMatch(a -> a.getJobName().equals(jobName) && a.getJobType().equals(type)
-                && (null == a.getCurrentDbName() || a.getCurrentDbName().equals(currentDbName)))) {
+    private void checkJobNameExist(String jobName, JobType type) throws JobException {
+        if (jobMap.values().stream().anyMatch(a -> a.getJobName().equals(jobName) && a.getJobType().equals(type))) {
             throw new JobException("job name exist,jobName:" + jobName);
         }
     }
@@ -75,15 +74,14 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
     public void unregisterJob(Long jobId) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).setJobStatus(JobStatus.STOPPED);
-        jobMap.get(jobId).cancel();
+        jobMap.get(jobId).cancelAllTasks();
         //Env.getCurrentEnv().getEditLog().logDeleteJob(jobMap.get(jobId));
         jobMap.remove(jobId);
     }
 
-    public void unregisterJob(String currentDbName, String jobName) throws JobException {
+    public void unregisterJob(String jobName, JobType jobType) throws JobException {
         for (T a : jobMap.values()) {
-            if (a.getJobName().equals(jobName) && (null != a.getCurrentDbName()
-                    && a.getCurrentDbName().equals(currentDbName)) && a.getJobType().equals(JobType.INSERT)) {
+            if (a.getJobName().equals(jobName) && a.getJobType().equals(jobType)) {
                 try {
                     unregisterJob(a.getJobId());
                 } catch (JobException e) {
@@ -100,10 +98,9 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         //Env.getCurrentEnv().getEditLog().logUpdateJob(jobMap.get(jobId));
     }
 
-    public void alterJobStatus(String currentDbName, String jobName, JobStatus jobStatus) throws JobException {
+    public void alterJobStatus(String jobName, JobStatus jobStatus, JobType jobType) throws JobException {
         for (T a : jobMap.values()) {
-            if (a.getJobName().equals(jobName) && (null != a.getCurrentDbName()
-                    && a.getCurrentDbName().equals(currentDbName)) && JobType.INSERT.equals(a.getJobType())) {
+            if (a.getJobName().equals(jobName) && jobType.equals(a.getJobType())) {
                 try {
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {

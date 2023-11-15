@@ -104,8 +104,12 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         if (!job.getJobConfig().checkIsTimerJob()) {
             //manual job will not scheduler
             if (JobExecuteType.MANUAL.equals(job.getJobConfig().getExecuteType())) {
+                if (job.getJobConfig().isImmediate()) {
+                    schedulerInstantJob(job, TaskType.MANUAL);
+                }
                 return;
             }
+
             //todo skip streaming job,improve in the future
             if (JobExecuteType.INSTANT.equals(job.getJobConfig().getExecuteType())) {
                 schedulerInstantJob(job, TaskType.SCHEDULED);

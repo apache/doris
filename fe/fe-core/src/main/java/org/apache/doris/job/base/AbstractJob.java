@@ -108,7 +108,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         if (null == jobConfig) {
             throw new IllegalArgumentException("jobConfig cannot be null");
         }
-        jobConfig.checkParams(createTimeMs);
+        jobConfig.checkParams();
         checkJobParamsInternal();
     }
 

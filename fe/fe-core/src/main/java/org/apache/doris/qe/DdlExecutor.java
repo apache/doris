@@ -122,6 +122,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.common.JobType;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
@@ -187,13 +188,13 @@ public class DdlExecutor {
             env.getJobManager().registerJob(((CreateJobStmt) ddlStmt).getJobInstance());
         } else if (ddlStmt instanceof StopJobStmt) {
             StopJobStmt stmt = (StopJobStmt) ddlStmt;
-            env.getJobManager().unregisterJob(stmt.getDbFullName(), stmt.getName());
+            env.getJobManager().unregisterJob(stmt.getName(), JobType.INSERT);
         } else if (ddlStmt instanceof PauseJobStmt) {
             PauseJobStmt stmt = (PauseJobStmt) ddlStmt;
-            env.getJobManager().alterJobStatus(stmt.getDbFullName(), stmt.getName(), JobStatus.PAUSED);
+            env.getJobManager().alterJobStatus(stmt.getName(), JobStatus.PAUSED, JobType.INSERT);
         } else if (ddlStmt instanceof ResumeJobStmt) {
             ResumeJobStmt stmt = (ResumeJobStmt) ddlStmt;
-            env.getJobManager().alterJobStatus(stmt.getDbFullName(), stmt.getName(), JobStatus.RUNNING);
+            env.getJobManager().alterJobStatus(stmt.getName(), JobStatus.RUNNING, JobType.INSERT);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
             env.getAuth().createUser(stmt);

@@ -38,15 +38,18 @@ public class JobExecutionConfiguration {
     @SerializedName(value = "ec")
     private JobExecuteType executeType;
 
+    @Getter
+    @Setter
+    private boolean immediate = false;
+
     /**
      * Maximum number of concurrent tasks, <= 0 means no limit
      * if the number of tasks exceeds the limit, the task will be delayed execution
      * todo: implement this later, we need to consider concurrency strategies
      */
-    @SerializedName(value = "maxConcurrentTaskNum")
     private Integer maxConcurrentTaskNum;
 
-    public void checkParams(Long createTimeMs) {
+    public void checkParams() {
         if (executeType == null) {
             throw new IllegalArgumentException("executeType cannot be null");
         }
@@ -55,7 +58,7 @@ public class JobExecutionConfiguration {
             return;
         }
 
-        checkTimerDefinition(createTimeMs);
+        checkTimerDefinition(immediate);
 
         if (executeType == JobExecuteType.ONE_TIME) {
             validateStartTimeMs();
@@ -77,12 +80,12 @@ public class JobExecutionConfiguration {
         }
     }
 
-    private void checkTimerDefinition(long createTimeMs) {
+    private void checkTimerDefinition(boolean immediate) {
         if (timerDefinition == null) {
             throw new IllegalArgumentException(
                     "timerDefinition cannot be null when executeType is not instant or manual");
         }
-        timerDefinition.checkParams(createTimeMs);
+        timerDefinition.checkParams(immediate);
     }
 
     private void validateStartTimeMs() {
