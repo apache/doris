@@ -17,15 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.*;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -49,9 +41,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
-import org.apache.doris.planner.GroupCommitPlanner;
-import org.apache.doris.planner.OlapTableSink;
-import org.apache.doris.planner.UnionNode;
+import org.apache.doris.planner.*;
+import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.qe.ConnectContext;
@@ -59,6 +50,7 @@ import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.tablefunction.GroupCommitTableValuedFunction;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -100,6 +92,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private NereidsPlanner planner;
     private boolean isTxnBegin = false;
     private Transaction txn;
+//    private boolean isGroupCommitTvf = false;
+//    private boolean isGroupCommitStreamLoadSql = false;
 
     /**
      * constructor
@@ -173,12 +167,24 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             return physicalOlapTableSink;
         }
 
+
+
+//        PlanFragment planFragment = planner.getFragments().get(0);
+//        // TODO 这里需要更优化的实现
+//        OlapTableSink sink = (OlapTableSink) planner.getFragments().get(0).getSink();
+//        if (isGroupCommitTvf) {
+//            sink = new GroupCommitOlapTableSink(targetTable, planner.getDescTable().createTupleDescriptor(),
+//                targetTable.getPartitionIds(), ctx.getSessionVariable().isEnableSingleReplicaInsert());
+//        } else if (isGroupCommitStreamLoadSql) {
+//            sink = new GroupCommitBlockSink(targetTable, planner.getDescTable().createTupleDescriptor(),
+//                targetTable.getPartitionIds(), ctx.getSessionVariable().isEnableSingleReplicaInsert());
+//        }
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
-        if (ctx.getSessionVariable().enableInsertGroupCommit) {
+        if (ctx.getSessionVariable().enableInsertGroupCommit && ctx.isGroupCommitStreamLoadSql() == false) {
             // group commit
             if (analyzeGroupCommit(sink, physicalOlapTableSink)) {
                 handleGroupCommit(ctx, sink, physicalOlapTableSink);
-                return;
+                return null;
             }
         }
         Preconditions.checkArgument(!isTxnBegin, "an insert command cannot create more than one txn");
@@ -215,6 +221,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         PhysicalOlapTableSink<?> physicalOlapTableSink = initPlan(ctx, executor);
+        if (ctx.getSessionVariable().enableInsertGroupCommit && null == physicalOlapTableSink) {
+            return;
+        }
         LOG.info("Nereids start to execute the insert command, query id: {}, txn id: {}",
                 ctx.queryId(), txn.getTxnId());
 
@@ -442,6 +451,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             && physicalOlapTableSink.getPartitionIds().isEmpty();
     }
 
+    private void checkInnerGroupCommit() {
+        if (planner.getScanNodes().size() == 1 && planner.getScanNodes().get(0) instanceof TVFScanNode) {
+            TVFScanNode tvfScanNode = (TVFScanNode) planner.getScanNodes().get(0);
+            if (tvfScanNode.getTableValuedFunction() instanceof GroupCommitTableValuedFunction) {
+//                isGroupCommitTvf = true;
+                ConnectContext.get().setGroupCommitTvf(true);
+            }
+        }
+    }
+
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         return this.logicalQuery;
@@ -451,4 +470,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitInsertIntoTableCommand(this, context);
     }
+
+//    public void setGroupCommitStreamLoadSql(boolean groupCommitStreamLoadSql) {
+//        isGroupCommitStreamLoadSql = groupCommitStreamLoadSql;
+//    }
 }

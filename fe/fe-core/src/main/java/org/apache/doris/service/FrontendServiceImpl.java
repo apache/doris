@@ -2112,7 +2112,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             ctx.setExecutor(executor);
-            executor.getStreamLoadPlan(ctx.queryId());
+            executor.generateStreamLoadPlan(ctx.queryId());
 
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
@@ -2168,7 +2168,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getParams().setTableName(ctx.getTxnEntry().getTable().getName());
             result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
             result.getParams().setImportLabel(ctx.getTxnEntry().getLabel());
-            result.getParams().getParams().setGroupCommit(ctx.isGroupCommitTvf());
+            result.getParams().getParams().setGroupCommit(true);
             result.setDbId(ctx.getTxnEntry().getDb().getId());
             result.setTableId(ctx.getTxnEntry().getTable().getId());
             result.setBaseSchemaVersion(((OlapTable) ctx.getTxnEntry().getTable()).getBaseSchemaVersion());

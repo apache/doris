@@ -137,38 +137,8 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.AggregationNode;
-import org.apache.doris.planner.AnalyticEvalNode;
-import org.apache.doris.planner.AssertNumRowsNode;
-import org.apache.doris.planner.CTEScanNode;
-import org.apache.doris.planner.DataPartition;
-import org.apache.doris.planner.DataStreamSink;
-import org.apache.doris.planner.EmptySetNode;
-import org.apache.doris.planner.EsScanNode;
-import org.apache.doris.planner.ExceptNode;
-import org.apache.doris.planner.ExchangeNode;
-import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.*;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
-import org.apache.doris.planner.IntersectNode;
-import org.apache.doris.planner.JoinNodeBase;
-import org.apache.doris.planner.MultiCastDataSink;
-import org.apache.doris.planner.MultiCastPlanFragment;
-import org.apache.doris.planner.NestedLoopJoinNode;
-import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.planner.OlapTableSink;
-import org.apache.doris.planner.PartitionSortNode;
-import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.PlanNode;
-import org.apache.doris.planner.RepeatNode;
-import org.apache.doris.planner.ResultFileSink;
-import org.apache.doris.planner.ResultSink;
-import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.SchemaScanNode;
-import org.apache.doris.planner.SelectNode;
-import org.apache.doris.planner.SetOperationNode;
-import org.apache.doris.planner.SortNode;
-import org.apache.doris.planner.TableFunctionNode;
-import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.MaxComputeScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
@@ -417,12 +387,27 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             slotDesc.setIsNullable(column.isAllowNull());
             slotDesc.setAutoInc(column.isAutoInc());
         }
-        OlapTableSink sink = new OlapTableSink(
+        OlapTableSink sink;
+        if (context.getConnectContext().isGroupCommitStreamLoadSql()) {
+            sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(),
+                olapTuple,
+                olapTableSink.getTargetTable().getPartitionIds(),
+                context.getSessionVariable().isEnableSingleReplicaInsert());
+        }
+//        else if (context.getConnectContext().isGroupCommitTvf()) {
+        else if(!context.getConnectContext().isGroupCommitStreamLoadSql()) {
+            sink = new GroupCommitOlapTableSink(olapTableSink.getTargetTable(),
+                olapTuple,
+                olapTableSink.getTargetTable().getPartitionIds(),
+                context.getSessionVariable().isEnableSingleReplicaInsert());
+        } else {
+            sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
                 olapTuple,
                 olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
-        );
+            );
+        }
         sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
         rootFragment.setSink(sink);
 

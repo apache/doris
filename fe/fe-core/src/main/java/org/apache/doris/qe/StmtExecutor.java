@@ -132,6 +132,7 @@ import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.external.FileScanNode;
 import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
@@ -2715,6 +2716,14 @@ public class StmtExecutor {
         context.getState().setNereids(true);
         InsertIntoTableCommand insert = (InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         try {
+            if (context.getSessionVariable().enableInsertGroupCommit) {
+                // TODO 这里要判断 label 是否存在
+//                if (insert) {
+//                    throw new AnalysisException("label and group_commit can't be set at the same time");
+//                }
+//                insert.setGroupCommitStreamLoadSql(true);
+                context.setGroupCommitStreamLoadSql(true);
+            }
             insert.initPlan(context, this);
             context.getExecutor().setPlanner(insert.getPlanner());
             if (context.getTxnEntry() == null) {
@@ -2726,7 +2735,7 @@ public class StmtExecutor {
             }
             // Determine if it can be converted to TVFScanNode
             PlanNode planRoot = planner.getFragments().get(0).getPlanRoot();
-            Preconditions.checkState(planRoot instanceof TVFScanNode,
+            Preconditions.checkState(planRoot instanceof FileScanNode,
                     "Nereids' planNode cannot be converted to " + planRoot.getClass().getName());
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
@@ -2768,9 +2777,10 @@ public class StmtExecutor {
         analyze(context.getSessionVariable().toThrift());
     }
 
-    public void getStreamLoadPlan(TUniqueId queryId) throws Exception {
+    public void generateStreamLoadPlan(TUniqueId queryId) throws Exception {
         try {
             generateStreamLoadNereidsPlan(queryId);
+//            generateStreamLoadLegacyPlan(queryId);
         } catch (NereidsException | ParseException e) {
             if (context.getMinidump() != null) {
                 MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
