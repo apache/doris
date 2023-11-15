@@ -35,13 +35,13 @@
 #include <queue>
 #include <shared_mutex>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -141,31 +141,6 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         DeletePredicatePB del_pred;
         TabletSchema tablet_schema;
         tablet_schema.copy_from(*tablet->tablet_schema());
-        for (const auto& delete_cond : request.delete_conditions) {
-            if (!delete_cond.__isset.column_unique_id) {
-                LOG(WARNING) << "column=" << delete_cond.column_name
-                             << " in predicate does not have uid, table id="
-                             << tablet_schema.table_id();
-                // TODO(tsy): make it fail here after FE forbidding hard-link-schema-change
-                continue;
-            }
-            if (tablet_schema.field_index(delete_cond.column_unique_id) == -1) {
-                const auto& err_msg =
-                        fmt::format("column id={} does not exists, table id={}",
-                                    delete_cond.column_unique_id, tablet_schema.table_id());
-                return Status::Aborted(err_msg);
-            }
-            if (!iequal(tablet_schema.column_by_uid(delete_cond.column_unique_id).name(),
-                        delete_cond.column_name)) {
-                const auto& err_msg = fmt::format(
-                        "colum name={} does not belongs to column uid={}, which column name={}, "
-                        "delete_cond.column_name ={}",
-                        delete_cond.column_name, delete_cond.column_unique_id,
-                        tablet_schema.column_by_uid(delete_cond.column_unique_id).name(),
-                        delete_cond.column_name);
-                return Status::Aborted(err_msg);
-            }
-        }
         if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
             tablet_schema.clear_columns();
             for (const auto& column_desc : request.columns_desc) {
@@ -220,8 +195,10 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         rowset_to_add->rowset_meta()->set_delete_predicate(std::move(del_preds.front()));
         del_preds.pop();
     }
+    // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
     Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
-            request.partition_id, *tablet, request.transaction_id, load_id, rowset_to_add, false);
+            request.partition_id, *tablet, request.transaction_id, load_id, rowset_to_add,
+            std::move(_pending_rs_guard), false);
     if (!commit_status.ok() && !commit_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         res = std::move(commit_status);
     }
@@ -245,7 +222,6 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         // although the spark load output files are fully sorted,
         // but it depends on thirparty implementation, so we conservatively
         // set this value to OVERLAP_UNKNOWN
-        std::unique_ptr<RowsetWriter> rowset_writer;
         RowsetWriterContext context;
         context.txn_id = _request.transaction_id;
         context.load_id = load_id;
@@ -253,12 +229,9 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema;
         context.newest_write_timestamp = UnixSeconds();
-        res = cur_tablet->create_rowset_writer(context, &rowset_writer);
-        if (!res.ok()) {
-            LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->tablet_id()
-                         << ", txn_id=" << _request.transaction_id << ", res=" << res;
-            break;
-        }
+        auto rowset_writer = DORIS_TRY(cur_tablet->create_rowset_writer(context, false));
+        _pending_rs_guard =
+                StorageEngine::instance()->pending_local_rowsets().add(context.rowset_id);
 
         // 2. Init PushBrokerReader to read broker file if exist,
         //    in case of empty push this will be skipped.

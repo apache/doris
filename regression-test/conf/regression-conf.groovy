@@ -67,6 +67,7 @@ suites = {
 
 // docker image
 image = ""
+dockerCoverageOutputDir = "" // if not empty, will save docker coverage output files
 dockerEndDeleteFiles = false
 dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
 // do run docker test because pipeline not support build image now
@@ -85,7 +86,7 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = "segcompaction_p2"
+excludeDirectories = "segcompaction_p2,workload_manager_p1"
 
 customConf1 = "test_custom_conf_value"
 
@@ -169,13 +170,20 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
+enableObjStorageTest=false
 enableMaxComputeTest=false
 aliYunAk="***********"
+dlfUid="***********"
 aliYunSk="***********"
+hwYunAk="***********"
+hwYunSk="***********"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
+
+// iceberg rest catalog config
+iceberg_rest_uri_port=18181
 
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.

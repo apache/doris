@@ -138,6 +138,7 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     case TPrimitiveType::DECIMAL32:
     case TPrimitiveType::DECIMAL64:
     case TPrimitiveType::DECIMAL128I:
+    case TPrimitiveType::DECIMAL256:
     case TPrimitiveType::DECIMALV2: {
         return "decimal";
     }
@@ -208,7 +209,8 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     }
     case TPrimitiveType::DECIMAL32:
     case TPrimitiveType::DECIMAL64:
-    case TPrimitiveType::DECIMAL128I: {
+    case TPrimitiveType::DECIMAL128I:
+    case TPrimitiveType::DECIMAL256: {
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(
                 debug_string_buffer, "decimalv3({}, {})",

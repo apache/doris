@@ -29,7 +29,6 @@
 #include <typeinfo>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -127,9 +126,6 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
-    _span = state->get_tracer()->StartSpan(get_name());
-    OpentelemetryScope scope {_span};
-
     _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
     _rows_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsReturned", TUnit::UNIT, 1);
@@ -187,25 +183,31 @@ Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     return Status::OK();
 }
 
+Status ExecNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
+    DCHECK(statistics != nullptr);
+    for (auto child_node : _children) {
+        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics, sender_id));
+    }
+    return Status::OK();
+}
+
 void ExecNode::release_resource(doris::RuntimeState* state) {
     if (!_is_resource_released) {
         if (_rows_returned_counter != nullptr) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        runtime_profile()->add_to_span(_span);
         _is_resource_released = true;
     }
 }
 
 Status ExecNode::close(RuntimeState* state) {
     if (_is_closed) {
-        LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id())
+        LOG(INFO) << "query= " << print_id(state->query_id())
+                  << " fragment_instance_id=" << print_id(state->fragment_instance_id())
                   << " already closed";
         return Status::OK();
     }
-    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << ", "
-              << " id=" << _id << " type=" << print_plan_node_type(_type) << " closed";
     _is_closed = true;
 
     Status result;
@@ -219,6 +221,9 @@ Status ExecNode::close(RuntimeState* state) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     release_resource(state);
+    LOG(INFO) << "query= " << print_id(state->query_id())
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", id=" << _id << " type=" << print_plan_node_type(_type) << " closed";
     return result;
 }
 

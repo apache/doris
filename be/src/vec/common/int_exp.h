@@ -24,6 +24,8 @@
 #include <limits>
 #include <utility>
 
+#include "vec/core/wide_integer.h"
+
 namespace exp_details {
 
 // compile-time exp(v, n) by linear recursion
@@ -51,31 +53,203 @@ constexpr T get_exp(std::size_t x) {
 
 } // namespace exp_details
 
-/// On overflow, the function returns unspecified value.
-
-inline uint64_t int_exp2(int x) {
-    return 1ULL << x;
-}
-
 inline uint64_t int_exp10(int x) {
-    if (x < 0) return 0;
-    if (x > 19) return std::numeric_limits<uint64_t>::max();
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 19) {
+        return std::numeric_limits<uint64_t>::max();
+    }
 
     return exp_details::get_exp<uint64_t, 10, 20>(x);
 }
 
 namespace common {
 
-inline constexpr std::int32_t exp10_i32(int x) {
-    return exp_details::get_exp<std::int32_t, 10, 10>(x);
+constexpr inline int exp10_i32(int x) {
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 9) {
+        return std::numeric_limits<int>::max();
+    }
+
+    constexpr int values[] = {1,      10,      100,      1000,      10000,
+                              100000, 1000000, 10000000, 100000000, 1000000000};
+    return values[x];
 }
 
-inline constexpr std::int64_t exp10_i64(int x) {
-    return exp_details::get_exp<std::int64_t, 10, 19>(x);
+constexpr inline int64_t exp10_i64(int x) {
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 18) {
+        return std::numeric_limits<int64_t>::max();
+    }
+
+    constexpr int64_t values[] = {1LL,
+                                  10LL,
+                                  100LL,
+                                  1000LL,
+                                  10000LL,
+                                  100000LL,
+                                  1000000LL,
+                                  10000000LL,
+                                  100000000LL,
+                                  1000000000LL,
+                                  10000000000LL,
+                                  100000000000LL,
+                                  1000000000000LL,
+                                  10000000000000LL,
+                                  100000000000000LL,
+                                  1000000000000000LL,
+                                  10000000000000000LL,
+                                  100000000000000000LL,
+                                  1000000000000000000LL};
+    return values[x];
 }
 
-inline constexpr __int128 exp10_i128(int x) {
-    return exp_details::get_exp<__int128, 10, 39>(x);
+constexpr inline __int128 exp10_i128(int x) {
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 38) {
+        return std::numeric_limits<__int128>::max();
+    }
+
+    constexpr __int128 values[] = {
+            static_cast<__int128>(1LL),
+            static_cast<__int128>(10LL),
+            static_cast<__int128>(100LL),
+            static_cast<__int128>(1000LL),
+            static_cast<__int128>(10000LL),
+            static_cast<__int128>(100000LL),
+            static_cast<__int128>(1000000LL),
+            static_cast<__int128>(10000000LL),
+            static_cast<__int128>(100000000LL),
+            static_cast<__int128>(1000000000LL),
+            static_cast<__int128>(10000000000LL),
+            static_cast<__int128>(100000000000LL),
+            static_cast<__int128>(1000000000000LL),
+            static_cast<__int128>(10000000000000LL),
+            static_cast<__int128>(100000000000000LL),
+            static_cast<__int128>(1000000000000000LL),
+            static_cast<__int128>(10000000000000000LL),
+            static_cast<__int128>(100000000000000000LL),
+            static_cast<__int128>(1000000000000000000LL),
+            static_cast<__int128>(1000000000000000000LL) * 10LL,
+            static_cast<__int128>(1000000000000000000LL) * 100LL,
+            static_cast<__int128>(1000000000000000000LL) * 1000LL,
+            static_cast<__int128>(1000000000000000000LL) * 10000LL,
+            static_cast<__int128>(1000000000000000000LL) * 100000LL,
+            static_cast<__int128>(1000000000000000000LL) * 1000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 10000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 100000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 1000000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 10000000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 1000000000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 10000000000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 1000000000000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 10000000000000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000000LL,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000000LL * 10LL,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000000LL * 100LL,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000000LL * 1000LL};
+    return values[x];
+}
+
+inline wide::Int256 exp10_i256(int x) {
+    if (x < 0) {
+        return 0;
+    }
+    if (x > 76) {
+        return std::numeric_limits<wide::Int256>::max();
+    }
+
+    static constexpr wide::Int256 i10e18 {1000000000000000000ll};
+    static const wide::Int256 values[] = {
+            static_cast<wide::Int256>(1ll),
+            static_cast<wide::Int256>(10ll),
+            static_cast<wide::Int256>(100ll),
+            static_cast<wide::Int256>(1000ll),
+            static_cast<wide::Int256>(10000ll),
+            static_cast<wide::Int256>(100000ll),
+            static_cast<wide::Int256>(1000000ll),
+            static_cast<wide::Int256>(10000000ll),
+            static_cast<wide::Int256>(100000000ll),
+            static_cast<wide::Int256>(1000000000ll),
+            static_cast<wide::Int256>(10000000000ll),
+            static_cast<wide::Int256>(100000000000ll),
+            static_cast<wide::Int256>(1000000000000ll),
+            static_cast<wide::Int256>(10000000000000ll),
+            static_cast<wide::Int256>(100000000000000ll),
+            static_cast<wide::Int256>(1000000000000000ll),
+            static_cast<wide::Int256>(10000000000000000ll),
+            static_cast<wide::Int256>(100000000000000000ll),
+            i10e18,
+            i10e18 * 10ll,
+            i10e18 * 100ll,
+            i10e18 * 1000ll,
+            i10e18 * 10000ll,
+            i10e18 * 100000ll,
+            i10e18 * 1000000ll,
+            i10e18 * 10000000ll,
+            i10e18 * 100000000ll,
+            i10e18 * 1000000000ll,
+            i10e18 * 10000000000ll,
+            i10e18 * 100000000000ll,
+            i10e18 * 1000000000000ll,
+            i10e18 * 10000000000000ll,
+            i10e18 * 100000000000000ll,
+            i10e18 * 1000000000000000ll,
+            i10e18 * 10000000000000000ll,
+            i10e18 * 100000000000000000ll,
+            i10e18 * 100000000000000000ll * 10ll,
+            i10e18 * 100000000000000000ll * 100ll,
+            i10e18 * 100000000000000000ll * 1000ll,
+            i10e18 * 100000000000000000ll * 10000ll,
+            i10e18 * 100000000000000000ll * 100000ll,
+            i10e18 * 100000000000000000ll * 1000000ll,
+            i10e18 * 100000000000000000ll * 10000000ll,
+            i10e18 * 100000000000000000ll * 100000000ll,
+            i10e18 * 100000000000000000ll * 1000000000ll,
+            i10e18 * 100000000000000000ll * 10000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000ll,
+            i10e18 * 100000000000000000ll * 1000000000000ll,
+            i10e18 * 100000000000000000ll * 10000000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000ll,
+            i10e18 * 100000000000000000ll * 1000000000000000ll,
+            i10e18 * 100000000000000000ll * 10000000000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 10ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 1000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 10000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 1000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 10000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 1000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 10000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 1000000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 10000000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 1000000000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 10000000000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000000000ll * 10ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000000000ll * 100ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000000000ll * 1000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000000000ll * 10000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000000000ll * 100000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000000000ll * 1000000ll,
+            i10e18 * 100000000000000000ll * 100000000000000000ll * 100000000000000000ll *
+                    10000000ll,
+    };
+    return values[x];
 }
 
 } // namespace common

@@ -146,6 +146,8 @@ public:
 
     TUniqueId query_id() const { return _query_ctx->query_id(); }
 
+    int fragment_id() const { return _fragment_id; }
+
     bool is_timeout(const VecDateTimeValue& now) const;
 
     bool is_canceled() { return _runtime_state->is_cancelled(); }
@@ -238,9 +240,9 @@ private:
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
 
-    OpentelemetrySpan _span;
-
     bool _group_commit = false;
+
+    DescriptorTbl* _desc_tbl;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 

@@ -47,6 +47,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/inverted_index_compaction.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
@@ -248,8 +249,7 @@ void Compaction::build_basic_info() {
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
-    _cur_tablet_schema =
-            _tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
+    _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
 }
 
 bool Compaction::handle_ordered_data_compaction() {
@@ -317,6 +317,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                   << ", disk=" << _tablet->data_dir()->path()
                   << ", segments=" << _input_num_segments << ", input_row_num=" << _input_row_num
                   << ", output_row_num=" << _output_rowset->num_rows()
+                  << ", input_rowset_size=" << _input_rowsets_size
+                  << ", output_rowset_size=" << _output_rowset->data_disk_size()
                   << ". elapsed time=" << watch.get_elapse_second()
                   << "s. cumulative_compaction_policy="
                   << (cumu_policy == nullptr ? "quick" : cumu_policy->name());
@@ -330,9 +332,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     RowsetWriterContext ctx;
     RETURN_IF_ERROR(construct_input_rowset_readers());
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx, vertical_compaction));
-    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
-        Tablet::add_pending_remote_rowset(_output_rs_writer->rowset_id().to_string());
-    }
 
     // 2. write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
@@ -473,6 +472,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                       << ". tablet=" << _tablet->tablet_id()
                       << ", input row number=" << _input_row_num
                       << ", output row number=" << _output_rowset->num_rows()
+                      << ", input_rowset_size=" << _input_rowsets_size
+                      << ", output_rowset_size=" << _output_rowset->data_disk_size()
                       << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         } else {
             LOG(INFO) << "skip doing index compaction due to no output segments"
@@ -514,6 +515,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << _input_num_segments
+              << ", input_rowset_size=" << _input_rowsets_size
+              << ", output_rowset_size=" << _output_rowset->data_disk_size()
               << ", input_row_num=" << _input_row_num
               << ", output_row_num=" << _output_rowset->num_rows()
               << ", filtered_row_num=" << stats.filtered_rows
@@ -544,6 +547,8 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                             BetaRowsetSharedPtr rowset =
                                     std::static_pointer_cast<BetaRowset>(src_rs);
                             if (rowset == nullptr) {
+                                LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                             << "] rowset is null, will skip index compaction";
                                 return false;
                             }
                             auto fs = rowset->rowset_meta()->fs();
@@ -551,6 +556,9 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                             auto index_meta =
                                     rowset->tablet_schema()->get_inverted_index(unique_id);
                             if (index_meta == nullptr) {
+                                LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                             << "] index_unique_id[" << unique_id
+                                             << "] index meta is null, will skip index compaction";
                                 return false;
                             }
                             for (auto i = 0; i < rowset->num_segments(); i++) {
@@ -565,8 +573,46 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                     return false;
                                 }
                                 if (!exists) {
-                                    LOG(WARNING) << inverted_index_src_file_path
+                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << inverted_index_src_file_path
                                                  << " is not exists, will skip index compaction";
+                                    return false;
+                                }
+
+                                // check idx file size
+                                int64_t file_size = 0;
+                                if (fs->file_size(inverted_index_src_file_path, &file_size) !=
+                                    Status::OK()) {
+                                    LOG(ERROR) << inverted_index_src_file_path
+                                               << " fs->file_size error";
+                                    return false;
+                                }
+                                if (file_size == 0) {
+                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << inverted_index_src_file_path
+                                                 << " is empty file, will skip index compaction";
+                                    return false;
+                                }
+
+                                // check index meta
+                                std::filesystem::path p(inverted_index_src_file_path);
+                                std::string dir_str = p.parent_path().string();
+                                std::string file_str = p.filename().string();
+                                lucene::store::Directory* dir =
+                                        DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
+                                auto reader = new DorisCompoundReader(dir, file_str.c_str());
+                                std::vector<std::string> files;
+                                reader->list(&files);
+
+                                // why is 3?
+                                // bkd index will write at least 3 files
+                                if (files.size() < 3) {
+                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << inverted_index_src_file_path
+                                                 << " is corrupted, will skip index compaction";
                                     return false;
                                 }
                             }
@@ -595,10 +641,9 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
         DCHECK(resource.fs->type() != io::FileSystemType::LOCAL);
         ctx.fs = std::move(resource.fs);
     }
-    if (is_vertical) {
-        return _tablet->create_vertical_rowset_writer(ctx, &_output_rs_writer);
-    }
-    return _tablet->create_rowset_writer(ctx, &_output_rs_writer);
+    _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, is_vertical));
+    _pending_rs_guard = StorageEngine::instance()->add_pending_rowset(ctx);
+    return Status::OK();
 }
 
 Status Compaction::construct_input_rowset_readers() {
@@ -669,24 +714,24 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                     // Therefore, we need to check if every committed rowset has calculated delete bitmap for
                     // all compaction input rowsets.
                     continue;
-                } else {
-                    DeleteBitmap txn_output_delete_bitmap(_tablet->tablet_id());
-                    _tablet->calc_compaction_output_rowset_delete_bitmap(
-                            _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
-                            &location_map, *it.delete_bitmap.get(), &txn_output_delete_bitmap);
-                    if (config::enable_merge_on_write_correctness_check) {
-                        RowsetIdUnorderedSet rowsetids;
-                        rowsetids.insert(_output_rowset->rowset_id());
-                        _tablet->add_sentinel_mark_to_delete_bitmap(&txn_output_delete_bitmap,
-                                                                    rowsetids);
-                    }
-                    it.delete_bitmap->merge(txn_output_delete_bitmap);
-                    // Step3: write back updated delete bitmap and tablet info.
-                    it.rowset_ids.insert(_output_rowset->rowset_id());
-                    StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
-                            it.partition_id, it.transaction_id, _tablet->tablet_id(),
-                            _tablet->tablet_uid(), true, it.delete_bitmap, it.rowset_ids, nullptr);
                 }
+                DeleteBitmap txn_output_delete_bitmap(_tablet->tablet_id());
+                _tablet->calc_compaction_output_rowset_delete_bitmap(
+                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
+                        &location_map, *it.delete_bitmap.get(), &txn_output_delete_bitmap);
+                if (config::enable_merge_on_write_correctness_check) {
+                    RowsetIdUnorderedSet rowsetids;
+                    rowsetids.insert(_output_rowset->rowset_id());
+                    _tablet->add_sentinel_mark_to_delete_bitmap(&txn_output_delete_bitmap,
+                                                                rowsetids);
+                }
+                it.delete_bitmap->merge(txn_output_delete_bitmap);
+                // Step3: write back updated delete bitmap and tablet info.
+                it.rowset_ids.insert(_output_rowset->rowset_id());
+                StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
+                        it.partition_id, it.transaction_id, _tablet->tablet_id(),
+                        _tablet->tablet_uid(), true, it.delete_bitmap, it.rowset_ids,
+                        it.partial_update_info);
             }
 
             // Convert the delete bitmap of the input rowsets to output rowset for
@@ -757,7 +802,6 @@ bool Compaction::_check_if_includes_input_rowsets(
 void Compaction::gc_output_rowset() {
     if (_state != CompactionState::SUCCESS && _output_rowset != nullptr) {
         if (!_output_rowset->is_local()) {
-            Tablet::erase_pending_remote_rowset(_output_rowset->rowset_id().to_string());
             _tablet->record_unused_remote_rowset(_output_rowset->rowset_id(),
                                                  _output_rowset->rowset_meta()->resource_id(),
                                                  _output_rowset->num_segments());

@@ -210,6 +210,8 @@ private:
             *dst = _apply_internal<Decimal128, OP>(src_column, src_offsets, cmp);  \
         } else if (which.is_decimal128i()) {                                       \
             *dst = _apply_internal<Decimal128I, OP>(src_column, src_offsets, cmp); \
+        } else if (which.is_decimal256()) {                                        \
+            *dst = _apply_internal<Decimal256, OP>(src_column, src_offsets, cmp);  \
         } else {                                                                   \
             LOG(FATAL) << "unsupported type " << nested_type->get_name();          \
         }                                                                          \

@@ -91,17 +91,10 @@ private:
 class UnionSourceOperatorX final : public OperatorX<UnionSourceLocalState> {
 public:
     using Base = OperatorX<UnionSourceLocalState>;
-    UnionSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : Base(pool, tnode, descs), _child_size(tnode.num_children) {};
+    UnionSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                         const DescriptorTbl& descs)
+            : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {};
     ~UnionSourceOperatorX() override = default;
-    Dependency* wait_for_dependency(RuntimeState* state) override {
-        if (_child_size == 0) {
-            return nullptr;
-        }
-        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._dependency->read_blocked_by();
-    }
-
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
 
@@ -140,14 +133,14 @@ public:
 
 private:
     bool _has_data(RuntimeState* state) {
+        auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
         if (_child_size == 0) {
-            return false;
+            return local_state._need_read_for_const_expr;
         }
-        auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
         return local_state._shared_state->data_queue.remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {
-        auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
+        auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
         return state->per_fragment_instance_idx() == 0 &&
                local_state._const_expr_list_idx < local_state._const_expr_lists.size();
     }

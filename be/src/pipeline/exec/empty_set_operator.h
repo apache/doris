@@ -54,8 +54,9 @@ public:
 
 class EmptySetSourceOperatorX final : public OperatorX<EmptySetLocalState> {
 public:
-    EmptySetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : OperatorX<EmptySetLocalState>(pool, tnode, descs) {}
+    EmptySetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                            const DescriptorTbl& descs)
+            : OperatorX<EmptySetLocalState>(pool, tnode, operator_id, descs) {}
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

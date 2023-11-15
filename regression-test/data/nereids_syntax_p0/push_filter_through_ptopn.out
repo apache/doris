@@ -8,7 +8,7 @@ PhysicalResultSink
 --PhysicalDistribute
 ----filter((rn <= 2))
 ------PhysicalWindow
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalPartitionTopN
 ------------PhysicalProject
 --------------filter((T.a = 1))
@@ -24,7 +24,7 @@ PhysicalResultSink
 ----PhysicalProject
 ------filter((rn <= 2))
 --------PhysicalWindow
-----------PhysicalQuickSort
+----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalPartitionTopN
 --------------filter((T.a = 1))
 ----------------PhysicalOlapScan[push_filter_through_ptopn_tbl]
@@ -34,7 +34,7 @@ PhysicalResultSink
 --PhysicalDistribute
 ----filter((T.b = 2) and (rn <= 2))
 ------PhysicalWindow
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalPartitionTopN
 ------------PhysicalOlapScan[push_filter_through_ptopn_tbl]
 

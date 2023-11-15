@@ -866,7 +866,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                             globalColocateStatistic.getBucketTotalReplicaDataSize(groupId, bucketIndex);
 
                     resultPaths.clear();
-                    BalanceStatus st = beStat.isFit(bucketDataSize, null, resultPaths, true);
+                    BalanceStatus st = beStat.isFit(bucketDataSize, null, resultPaths, false);
                     if (!st.ok()) {
                         LOG.debug("backend {} is unable to fit in group {}, tablet order idx {}, data size {}",
                                 destBeId, groupId, bucketIndex, bucketDataSize);

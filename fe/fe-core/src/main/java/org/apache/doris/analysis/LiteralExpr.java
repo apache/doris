@@ -36,6 +36,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Optional;
 
 public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
     private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
@@ -75,6 +76,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 literalExpr = new DecimalLiteral(value);
                 break;
             case CHAR:
@@ -92,6 +94,12 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATEV2:
             case DATETIMEV2:
                 literalExpr = new DateLiteral(value, type);
+                break;
+            case IPV4:
+                literalExpr = new IPv4Literal(value);
+                break;
+            case IPV6:
+                literalExpr = new IPv6Literal(value);
                 break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
@@ -358,8 +366,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     }
 
     @Override
-    protected String getExprName() {
-        return "literal";
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of("literal");
+        }
+        return this.exprName.get();
     }
 
     // Port from mysql get_param_length

@@ -196,6 +196,8 @@ protected:
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
 
+    int64_t _num_byte_read = 0;
+
     // num of rows return from scanner, after filter block
     int64_t _num_rows_return = 0;
 

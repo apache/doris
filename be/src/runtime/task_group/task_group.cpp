@@ -84,7 +84,7 @@ uint64_t TaskGroupEntity<QueueType>::cpu_share() const {
 
 template <typename QueueType>
 uint64_t TaskGroupEntity<QueueType>::task_group_id() const {
-    return _is_empty_group_entity ? -1 : _tg->id();
+    return _tg->id();
 }
 
 template <typename QueueType>
@@ -99,21 +99,6 @@ template <typename QueueType>
 std::string TaskGroupEntity<QueueType>::debug_string() const {
     return fmt::format("TGE[id = {}, name = {}-{}, cpu_share = {}, task size: {}, v_time:{} ns]",
                        _tg->id(), _tg->name(), _type, cpu_share(), task_size(), _vruntime_ns);
-}
-
-template <typename QueueType>
-void TaskGroupEntity<QueueType>::set_empty_group_entity(bool is_empty_group_entity) {
-    _is_empty_group_entity = is_empty_group_entity;
-}
-
-template <typename QueueType>
-bool TaskGroupEntity<QueueType>::is_empty_group_entity() {
-    return _is_empty_group_entity;
-}
-
-template <typename QueueType>
-void TaskGroupEntity<QueueType>::update_empty_cpu_share(uint64_t empty_cpu_share) {
-    _cpu_share = empty_cpu_share;
 }
 
 template class TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
