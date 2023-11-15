@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -32,7 +33,7 @@ import java.util.Optional;
 /**
  * Used for unit test only.
  */
-public class FakePlan implements Plan {
+public class FakePlan implements Plan, BlockFD {
     private MutableState mutableState = new MultiMutableState();
 
     @Override
@@ -77,7 +78,7 @@ public class FakePlan implements Plan {
 
     @Override
     public LogicalProperties getLogicalProperties() {
-        return new LogicalProperties(ArrayList::new);
+        return new LogicalProperties(ArrayList::new, FunctionalDependencies::new);
     }
 
     @Override

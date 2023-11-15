@@ -15,10 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.analyzer;
+package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.nereids.trees.plans.BlockFD;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
-/** Use to marking unbound plan and unbound expression. */
-public interface Unbound extends BlockFD {
+/**
+ * Propage fd
+ */
+public interface PropagateFD extends LogicalPlan {
+    @Override
+    default FunctionalDependencies computeFD() {
+        FunctionalDependencies fd = new FunctionalDependencies();
+        children().stream()
+                .map(p -> p.getLogicalProperties().getFunctionalDependencies())
+                .forEach(fd::addFunctionalDependencies);
+        return fd;
+    }
 }

@@ -20,6 +20,8 @@ package org.apache.doris.nereids.postprocess;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.processor.post.PushdownFilterThroughProject;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.processor.post.PushDownFilterThroughProject;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -51,7 +53,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-public class PushDownFilterThroughProjectTest {
+public class PushdownFilterThroughProjectTest {
     /**
      * filter(y=0)
      *    |

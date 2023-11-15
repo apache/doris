@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFD;
 
 import com.google.common.collect.ImmutableList;
 
@@ -32,7 +33,8 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** abstract logical sink */
-public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements PropagateFD {
 
     protected final List<NamedExpression> outputExprs;
 

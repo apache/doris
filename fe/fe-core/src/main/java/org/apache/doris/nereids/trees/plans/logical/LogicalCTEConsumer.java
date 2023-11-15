@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFD;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -40,7 +41,7 @@ import java.util.Optional;
 /**
  * LogicalCTEConsumer
  */
-public class LogicalCTEConsumer extends LogicalRelation {
+public class LogicalCTEConsumer extends LogicalRelation implements PropagateFD {
 
     private final String name;
     private final CTEId cteId;

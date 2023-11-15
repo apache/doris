@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
@@ -50,4 +51,12 @@ public interface LogicalPlan extends Plan {
         return (LogicalPlan) withChildren(ImmutableList.copyOf(children()));
     }
 
+    /**
+     * Compute FunctionalDependencies for different plan
+     * Note: Unless you really know what you're doing, please use the following interface.
+     *   - BlockFD: clean the fd
+     *   - PropagateFD: propagate the fd
+     *
+     */
+    FunctionalDependencies computeFD();
 }

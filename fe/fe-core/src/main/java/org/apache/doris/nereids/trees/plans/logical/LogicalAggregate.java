@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -281,5 +282,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             List<NamedExpression> normalizedOutput, Plan normalizedChild) {
         return new LogicalAggregate<>(normalizedGroupBy, normalizedOutput, true, ordinalIsResolved, generated,
                 hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), normalizedChild);
+    }
+
+    @Override
+    public FunctionalDependencies computeFD() {
+        return null;
     }
 }
