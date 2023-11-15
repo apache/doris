@@ -180,6 +180,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
+import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
@@ -427,7 +428,7 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowJobStmt) {
             handleShowJob();
         } else if (stmt instanceof ShowJobTaskStmt) {
-            //handleShowJobTask();
+            handleShowJobTask();
         } else if (stmt instanceof ShowConvertLSCStmt) {
             handleShowConvertLSC();
         } else {
@@ -1416,28 +1417,26 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
     }
 
-    /*private void handleShowJobTask() {
+    private void handleShowJobTask() {
         ShowJobTaskStmt showJobTaskStmt = (ShowJobTaskStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        List<Job> jobs = Env.getCurrentEnv().getJobRegister()
-                .getJobs(showJobTaskStmt.getDbFullName(), showJobTaskStmt.getName(), showJobTaskStmt.getJobCategory(),
-                        null);
+        List<org.apache.doris.job.base.AbstractJob> jobs = Env.getCurrentEnv().getJobManager()
+                .queryJobs(showJobTaskStmt.getJobType(), showJobTaskStmt.getName());
         if (CollectionUtils.isEmpty(jobs)) {
             resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
             return;
         }
-        Job job = jobs.get(0);
-        long jobId = job.getJobId();
-        List<JobTask> jobTasks = Env.getCurrentEnv().getJobTaskManager().getJobTasks(jobId);
+        org.apache.doris.job.base.AbstractJob job = jobs.get(0);
+        List<AbstractTask> jobTasks = job.queryTasks();
         if (CollectionUtils.isEmpty(jobTasks)) {
-            resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
+            resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
             return;
         }
-        for (JobTask jobTask : jobTasks) {
-            rows.add(jobTask.getShowInfo(job.getJobName()));
+        for (AbstractTask jobTask : jobTasks) {
+            rows.add(jobTask.getShowInfo());
         }
-        resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
-    }*/
+        resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
+    }
 
     private void handleShowJob() throws AnalysisException {
         ShowJobStmt showJobStmt = (ShowJobStmt) stmt;

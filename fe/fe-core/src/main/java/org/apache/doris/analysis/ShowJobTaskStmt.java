@@ -50,7 +50,6 @@ public class ShowJobTaskStmt extends ShowStmt {
                     .add("ExecuteSql")
                     .add("Result")
                     .add("ErrorMsg")
-                    .add("TaskType")
                     .build();
 
     @Getter
