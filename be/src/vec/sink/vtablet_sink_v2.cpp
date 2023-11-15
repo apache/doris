@@ -65,7 +65,7 @@ class TExpr;
 namespace vectorized {
 
 VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& texprs, bool group_commit)
+                                   const std::vector<TExpr>& texprs, bool group_commit)
         : AsyncWriterSink<VTabletWriterV2, VOLAP_TABLE_SINK_V2>(row_desc, texprs),
           _pool(pool),
           _group_commit(group_commit) {}
