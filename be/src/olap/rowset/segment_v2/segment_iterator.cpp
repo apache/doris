@@ -490,9 +490,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             and_predicate.add_column_predicate(single_predicate);
 
             RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
-            RETURN_IF_ERROR(_column_iterators[_schema->column_id(runtime_predicate->column_id())]
-                                    ->get_row_ranges_by_zone_map(&and_predicate, nullptr,
-                                                                 &column_rp_row_ranges));
+            RETURN_IF_ERROR(
+                    _column_iterators[runtime_predicate->column_id()]->get_row_ranges_by_zone_map(
+                            &and_predicate, nullptr, &column_rp_row_ranges));
 
             // intersect different columns's row ranges to get final row ranges by zone map
             RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
