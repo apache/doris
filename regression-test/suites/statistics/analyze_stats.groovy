@@ -1158,6 +1158,7 @@ PARTITION `p599` VALUES IN (599)
         );
     """
 
+    sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     sql """ INSERT INTO test_updated_rows VALUES('1',1,1); """
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     def cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
