@@ -17,47 +17,26 @@
 
 #include "vec/sink/vtablet_sink_v2.h"
 
-#include <brpc/uri.h>
-#include <bthread/bthread.h>
-#include <fmt/format.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Descriptors_types.h>
-#include <gen_cpp/Metrics_types.h>
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/internal_service.pb.h>
 
-#include <algorithm>
-#include <execution>
-#include <mutex>
 #include <ranges>
-#include <string>
 #include <unordered_map>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/logging.h"
 #include "common/object_pool.h"
-#include "common/signal_handler.h"
 #include "common/status.h"
-#include "exec/tablet_info.h"
 #include "olap/delta_writer_v2.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
-#include "util/threadpool.h"
 #include "util/thrift_util.h"
-#include "util/uid_util.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_stub.h"
 #include "vec/sink/load_stream_stub_pool.h"
-#include "vec/sink/vtablet_block_convertor.h"
-#include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 class TExpr;

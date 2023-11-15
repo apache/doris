@@ -26,45 +26,20 @@
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
-#include <functional>
-#include <initializer_list>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <ostream>
-#include <queue>
-#include <set>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
 #include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
-#include "exec/tablet_info.h"
-#include "gutil/ref_counted.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/thread_context.h"
 #include "runtime/types.h"
-#include "util/countdown_latch.h"
-#include "util/runtime_profile.h"
-#include "util/stopwatch.hpp"
-#include "vec/columns/column.h"
-#include "vec/common/allocator.h"
-#include "vec/common/hash_table/phmap_fwd_decl.h"
-#include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/async_writer_sink.h"
-#include "vec/sink/vrow_distribution.h"
 #include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris {
