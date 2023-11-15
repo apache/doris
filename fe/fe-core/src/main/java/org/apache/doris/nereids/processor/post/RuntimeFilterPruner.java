@@ -52,9 +52,11 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
 
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
-        plan.child(0).accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(plan.child(0))) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(plan);
+        if (!plan.children().isEmpty()) {
+            plan.child(0).accept(this, context);
+            if (context.getRuntimeFilterContext().isEffectiveSrcNode(plan.child(0))) {
+                context.getRuntimeFilterContext().addEffectiveSrcNode(plan);
+            }
         }
         return plan;
     }
