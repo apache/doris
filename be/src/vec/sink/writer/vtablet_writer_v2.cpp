@@ -267,7 +267,7 @@ Status VTabletWriterV2::_open_streams(int64_t src_id) {
 
 Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id,
                                                  ::doris::stream_load::LoadStreams& streams) {
-    auto node_info = _nodes_info->find_node(dst_id);
+    const auto* node_info = _nodes_info->find_node(dst_id);
     if (node_info == nullptr) {
         return Status::InternalError("Unknown node {} in tablet location", dst_id);
     }
