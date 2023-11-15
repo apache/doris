@@ -43,6 +43,7 @@ Option 2: Use one of the following methods to create an EKS cluster:
 
 **Hosted GKE**    
 Complete all the [prerequisites](https://cloud.google.com/kubernetes-engine/docs/deploy-app-cluster#before-you-begin) when [Create a GKE cluster](https://cloud.google.com/kubernetes-engine/docs/deploy-app-cluster#create_cluster).  
+
 **Create as Kubernetes recommend**    
 Kubernetes official documents recommends some ways to set up Kubernetes, as [minikube](https://minikube.sigs.k8s.io/docs/start/),[kOps](https://kubernetes.io/zh-cn/docs/setup/production-environment/tools/kops/).
 
@@ -69,7 +70,7 @@ Expected result, the Pod `STATUS` is `Running` and all containers in Pod are all
 
 ### Start Doris on Kubernetes
 **1. Initialize Doris Cluster**    
-User can directly deploy doris by [example](https://github.com/selectdb/doris-operator/tree/master/doc/examples) provided by doris-operator. Below is the commands:    
+User can directly deploy doris by [example](https://github.com/selectdb/doris-operator/tree/master/doc/examples) provided by Doris-Operator. Below is the commands:    
 ```shell
 kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml  
 ```
@@ -88,7 +89,7 @@ kubectl get pods
 ```
 All Pods created by DorisCluster resource should be in `Running` STATUS, and each pod's containers should be `RREADY`.
 ### Use Doris Cluster
-On kubernetes Doris-Operator provide `Service` a resource build-in kubernetes for access to Doris.
+On kubernetes Doris-Operator provide `Service` a resource build in kubernetes for access to Doris.  
 The command `kubectl -n {namespace} get svc -l "app.doris.ownerreference/name={dorisCluster.Name}"` used to get `service` created by Doris-Operator. `dorisCluster.Nmae` is the name of DorisCluster resource deployed by step 1.
 ```shell
 kubectl -n default get svc -l "app.doris.ownerreference/name=doriscluster-sample"
@@ -98,8 +99,8 @@ doriscluster-sample-fe-service    ClusterIP   10.152.183.37    a7509284bf3784983
 doriscluster-sample-be-internal   ClusterIP   None             <none>                                                9050/TCP                              29m
 doriscluster-sample-be-service    ClusterIP   10.152.183.141   <none>                                                9060/TCP,8040/TCP,9050/TCP,8060/TCP   29m
 ```
-Use SQL Client for Access
-Service created by Doris-Operator have two types, suffix is `-internal` or `-service`. Service have the `-internal` suffix for communicating in doris components, Service have `-service` suffix for user to access.
+Use SQL Client for Access  
+Service created by Doris-Operator have two types, suffix is `-internal` or `-service`. Service have the `-internal` suffix for communicating in doris components, Service have `-service` suffix for user to access.  
 **In Kubernetes**  
 In kubernetes, Using `CLUSTER-IP`  is recommended. For example, the fe service's `CLUSTER-IP`  is `10.152.183.37` that displayed by above command. Using below command to access fe service.
 ```shell
