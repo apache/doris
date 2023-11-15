@@ -196,7 +196,25 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ## 列类型映射
 
-和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
+| Iceberg Type | Doris Type | Comment |
+|---|---|---|
+| boolean| boolean | |
+| tinyint|tinyint | |
+| smallint| smallint| |
+| int| int | |
+| bigint| bigint | |
+| date| date| |
+| timestamp| datetime| |
+| float| float| |
+| double| double| |
+| char| char | |
+| varchar| varchar| |
+| decimal| decimal | |
+| `array<type>` | `array<type>`| 支持嵌套，如 `array<map<string, int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 支持嵌套，如 `map<string, array<int>>` |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 支持嵌套，如 `struct<col1: array<int>, col2: map<int, date>>` |
+| binary | TEXT/HLL | Iceberg 中的binary类型默认是TEXT类型,可以使用Iceberg的表属性"hll_columns_in_doris"="col1,col2"来指定该binary类型在Doris为HLL |
+| binary | TEXT/BITMAP | Iceberg 中的binary类型默认是TEXT类型，可以使用Iceberg的表属性"btmap_columns_in_doris"="col1,col2"来指定该binary类型在Doris为BITMAP |
 
 ## Time Travel
 

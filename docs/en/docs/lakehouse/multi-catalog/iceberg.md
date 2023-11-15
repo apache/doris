@@ -196,7 +196,25 @@ The data is stored on Huawei Cloud OBS:
 
 ## Column type mapping
 
-Consistent with Hive Catalog, please refer to the **column type mapping** section in [Hive Catalog](./hive.md).
+| Iceberg Type | Doris Type | Comment |
+|---|---|---|
+| boolean| boolean | |
+| tinyint|tinyint | |
+| smallint| smallint| |
+| int| int | |
+| bigint| bigint | |
+| date| date| |
+| timestamp| datetime| |
+| float| float| |
+| double| double| |
+| char| char | |
+| varchar| varchar| |
+| decimal| decimal | |
+| `array<type>` | `array<type>`| support nested type, for example `array<array<int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | support nested type, for example `map<string, array<int>>` |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | support nested type, for example `struct<col1: array<int>, col2: map<int, date>>` |
+| binary | TEXT/HLL | binary type in Iceberg will map to TEXT by default. if HLL is expected, please use iceberg table property "hll_columns_in_doris"="col1,cols2" |
+| binary | TEXT/BITMAP | binary type in Iceberg will map to TEXT by default. if BITMAP is expected, please use iceberg table property "btmap_columns_in_doris"="col1,cols2" |
 
 ## Time Travel
 
