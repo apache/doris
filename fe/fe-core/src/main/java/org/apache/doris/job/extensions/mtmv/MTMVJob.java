@@ -35,6 +35,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -42,6 +44,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MTMVJob extends AbstractJob<MTMVTask> {
+    private static final Logger LOG = LogManager.getLogger(MTMVJob.class);
     private static final ShowResultSetMetaData JOB_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("JobId", ScalarType.createVarchar(20)))
@@ -112,7 +115,14 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public List<MTMVTask> queryTasks() {
-        return getMTMV().getJobInfo().getHistoryTasks();
+        MTMV mtmv = null;
+        try {
+            mtmv = getMTMV();
+        } catch (DdlException | MetaNotFoundException e) {
+            LOG.warn("get mtmv failed", e);
+            return Lists.newArrayList();
+        }
+        return mtmv.getJobInfo().getHistoryTasks();
     }
 
     @Override
@@ -128,16 +138,10 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
         return data;
     }
 
-    private MTMV getMTMV() {
-        try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-            return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
-        } catch (MetaNotFoundException | DdlException e) {
-            e.printStackTrace();
-            return null;
-        }
+    private MTMV getMTMV() throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
-
 
     @Override
     public void write(DataOutput out) throws IOException {

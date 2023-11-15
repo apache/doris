@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVCacheManager;
@@ -39,11 +40,14 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.UUID;
 
 public class MTMVTask extends AbstractTask {
+    private static final Logger LOG = LogManager.getLogger(MTMVJob.class);
     public static final Long MAX_HISTORY_TASKS_NUM = 100L;
 
     @SerializedName(value = "dn")
@@ -62,7 +66,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
-    public void run() {
+    public void run() throws JobException {
         ConnectContext ctx = createContext();
         TUniqueId queryId = generateQueryId();
 
@@ -71,30 +75,31 @@ public class MTMVTask extends AbstractTask {
         try {
             executor.execute(queryId);
         } catch (Exception e) {
-            e.printStackTrace();
+            LOG.warn(e);
+            throw new JobException(e);
         }
     }
 
     @Override
-    public void onFail() {
+    public void onFail() throws JobException {
         super.onFail();
         addTaskResult();
     }
 
     @Override
-    public void onSuccess() {
+    public void onSuccess() throws JobException {
         super.onSuccess();
         addTaskResult();
     }
 
     @Override
-    public void cancel() {
+    public void cancel() throws JobException {
         super.cancel();
         addTaskResult();
     }
 
     @Override
-    public void before() {
+    public void before() throws JobException {
         super.before();
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
@@ -103,7 +108,8 @@ public class MTMVTask extends AbstractTask {
             MTMVStatus status = new MTMVStatus(MTMVRefreshState.REFRESHING);
             Env.getCurrentEnv().alterMTMVStatus(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), status);
         } catch (UserException e) {
-            e.printStackTrace();
+            LOG.warn(e);
+            throw new JobException(e);
         }
     }
 
@@ -153,13 +159,14 @@ public class MTMVTask extends AbstractTask {
         return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
     }
 
-    private void addTaskResult() {
+    private void addTaskResult() throws JobException {
         try {
             Env.getCurrentEnv()
                     .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this,
                             cache);
         } catch (UserException e) {
-            e.printStackTrace();
+            LOG.warn(e);
+            throw new JobException(e);
         }
     }
 }

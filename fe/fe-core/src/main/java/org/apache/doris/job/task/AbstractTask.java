@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
+import org.apache.doris.job.exception.JobException;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
@@ -57,7 +58,7 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void onFail() {
+    public void onFail() throws JobException {
         status = TaskStatus.FAILD;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
@@ -78,7 +79,7 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void onSuccess() {
+    public void onSuccess() throws JobException {
         status = TaskStatus.SUCCESS;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
@@ -93,17 +94,17 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void cancel() {
+    public void cancel() throws JobException {
         status = TaskStatus.CANCEL;
     }
 
     @Override
-    public void before() {
+    public void before() throws JobException {
         status = TaskStatus.RUNNING;
         setStartTimeMs(System.currentTimeMillis());
     }
 
-    public void runTask() {
+    public void runTask() throws JobException {
         try {
             before();
             run();
