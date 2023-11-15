@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
@@ -46,11 +47,22 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("JobId", ScalarType.createVarchar(20)))
                     .addColumn(new Column("JobName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ExecuteType", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("RecurringStrategy", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("JobStatus", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("CreateTime", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(20)))
                     .build();
     private static final ShowResultSetMetaData TASK_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("JobId", ScalarType.createVarchar(20)))
                     .addColumn(new Column("TaskId", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Status", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("CreateTimeMs", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("StartTimeMs", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("FinishTimeMs", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Duration", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ExecuteSql", ScalarType.createVarchar(20)))
                     .build();
 
     @SerializedName(value = "dn")
@@ -107,8 +119,13 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     @Override
     public List<String> getShowInfo() {
         List<String> data = Lists.newArrayList();
-        data.add(super.getJobId() + "");
+        data.add(String.valueOf(super.getJobId()));
         data.add(super.getJobName());
+        data.add(super.getJobConfig().getExecuteType().name());
+        data.add(super.getJobConfig().convertRecurringStrategyToString());
+        data.add(super.getJobStatus().name());
+        data.add(TimeUtils.longToTimeString(super.getCreateTimeMs()));
+        data.add(super.getComment());
         return data;
     }
 
