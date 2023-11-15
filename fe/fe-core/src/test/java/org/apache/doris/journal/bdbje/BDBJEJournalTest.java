@@ -46,6 +46,7 @@ import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use uppercase
@@ -55,8 +56,19 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
     @BeforeAll
     public static void setUp() throws Exception {
         String dorisHome = System.getenv("DORIS_HOME");
+        if (Strings.isNullOrEmpty(dorisHome)) {
+            dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
+        }
+        Path mockDir = Paths.get(dorisHome, "fe", "mocked");
+        if (!Files.exists(mockDir)) {
+            try {
+                Files.createDirectories(mockDir);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
         Preconditions.checkArgument(!Strings.isNullOrEmpty(dorisHome));
-        tmpDir = Files.createTempDirectory(Paths.get(dorisHome, "fe", "mocked"), "BDBJEJournalTest").toFile();
+        tmpDir = Files.createTempDirectory(mockDir, "BDBJEJournalTest").toFile();
         LOG.debug("tmpDir path {}", tmpDir.getAbsolutePath());
         return;
     }
