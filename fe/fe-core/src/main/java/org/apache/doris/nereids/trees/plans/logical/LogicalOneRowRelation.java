@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -125,5 +126,15 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     @Override
     public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withProjects(prunedOutputs);
+    }
+
+    @Override
+    public FunctionalDependencies computeFD(List<Slot> outputs) {
+        FunctionalDependencies fd = new FunctionalDependencies();
+        outputs.forEach(s -> {
+            fd.addUniformSlot(s);
+            fd.addUniqueSlot(s);
+        });
+        return fd;
     }
 }

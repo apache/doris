@@ -60,9 +60,6 @@ public class LogicalProperties {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );
-        this.fdSupplier = Suppliers.memoize(
-                Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
-        );
         this.outputExprIdsSupplier = Suppliers.memoize(
                 () -> this.outputSupplier.get().stream().map(NamedExpression::getExprId).map(Id.class::cast)
                         .collect(ImmutableList.toImmutableList())
@@ -77,6 +74,9 @@ public class LogicalProperties {
                 () -> this.outputSupplier.get().stream()
                         .map(NamedExpression::getExprId)
                         .collect(ImmutableSet.toImmutableSet())
+        );
+        this.fdSupplier = Suppliers.memoize(
+                Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
         );
     }
 

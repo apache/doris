@@ -33,6 +33,7 @@ public abstract class NamedExpression extends Expression {
     }
 
     public Slot toSlot() throws UnboundException {
+
         throw new UnboundException("toSlot");
     }
 

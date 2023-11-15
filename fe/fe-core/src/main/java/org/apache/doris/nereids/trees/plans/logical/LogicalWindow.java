@@ -258,7 +258,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public FunctionalDependencies computeFD() {
+    public FunctionalDependencies computeFD(List<Slot> outputs) {
         FunctionalDependencies functionalDependencies = new FunctionalDependencies(
                 child(0).getLogicalProperties().getFunctionalDependencies());
         for (NamedExpression namedExpression : windowExpressions) {

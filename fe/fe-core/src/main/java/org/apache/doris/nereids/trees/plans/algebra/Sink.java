@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.nereids.trees.plans.BlockFD;
-
 /**
  * traits for all sink
  */
-public interface Sink extends BlockFD {
+public interface Sink {
 }

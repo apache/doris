@@ -18,14 +18,22 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import java.util.List;
 
 /**
  * Propage fd
  */
 public interface PropagateFD extends LogicalPlan {
     @Override
-    default FunctionalDependencies computeFD() {
+    default FunctionalDependencies computeFD(List<Slot> outputs) {
+        if (children().size() == 1) {
+            // Note when changing function dependencies, we always clone it.
+            // So it's safe to return a reference
+            return child(0).getLogicalProperties().getFunctionalDependencies();
+        }
         FunctionalDependencies fd = new FunctionalDependencies();
         children().stream()
                 .map(p -> p.getLogicalProperties().getFunctionalDependencies())

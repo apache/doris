@@ -140,7 +140,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public FunctionalDependencies computeFD() {
+    public FunctionalDependencies computeFD(List<Slot> outputs) {
         FunctionalDependencies fd = new FunctionalDependencies(
                 child().getLogicalProperties().getFunctionalDependencies());
         for (Expression conjuct : conjuncts) {

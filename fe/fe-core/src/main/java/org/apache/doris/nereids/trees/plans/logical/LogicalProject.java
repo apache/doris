@@ -38,6 +38,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.json.JSONObject;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -204,10 +205,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
-    public FunctionalDependencies computeFD() {
+    public FunctionalDependencies computeFD(List<Slot> outputs) {
         FunctionalDependencies fd = new FunctionalDependencies(
                 child().getLogicalProperties().getFunctionalDependencies());
-        fd.pruneSlots(this.getOutputSet());
+        fd.pruneSlots(new HashSet<>(outputs));
         for (NamedExpression proj : projects) {
             if (proj instanceof Alias && proj.child(0).isConstant()) {
                 fd.addUniformSlot(proj.toSlot());

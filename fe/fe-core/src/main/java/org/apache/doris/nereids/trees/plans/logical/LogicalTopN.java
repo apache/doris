@@ -32,6 +32,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -151,11 +152,11 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     @Override
-    public FunctionalDependencies computeFD() {
+    public FunctionalDependencies computeFD(List<Slot> outputs) {
         FunctionalDependencies functionalDependencies = new FunctionalDependencies(
                 child(0).getLogicalProperties().getFunctionalDependencies());
         if (getLimit() == 1) {
-            functionalDependencies.addUniformSlot(this.getOutputSet());
+            functionalDependencies.addUniformSlot(new HashSet<>(outputs));
         }
         return functionalDependencies;
     }

@@ -18,14 +18,17 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import java.util.List;
 
 /**
  * Block fd
  */
 public interface BlockFD extends LogicalPlan {
     @Override
-    default FunctionalDependencies computeFD() {
+    default FunctionalDependencies computeFD(List<Slot> outputs) {
         return new FunctionalDependencies();
     }
 }

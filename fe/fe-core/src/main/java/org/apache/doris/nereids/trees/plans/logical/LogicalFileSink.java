@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.BlockFD;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -36,7 +37,8 @@ import java.util.Optional;
 /**
  * logicalFileSink for select into outfile
  */
-public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> implements Sink {
+public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
+        implements Sink, BlockFD {
 
     private final String filePath;
     private final String format;

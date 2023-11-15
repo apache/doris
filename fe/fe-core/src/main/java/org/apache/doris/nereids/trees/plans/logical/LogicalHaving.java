@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -112,6 +114,23 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         }
         LogicalHaving other = (LogicalHaving) object;
         return conjuncts.equals(other.conjuncts);
+    }
+
+    @Override
+    public FunctionalDependencies computeFD(List<Slot> outputs) {
+        FunctionalDependencies fd = new FunctionalDependencies(
+                child().getLogicalProperties().getFunctionalDependencies());
+        for (Expression conjuct : conjuncts) {
+            if (conjuct instanceof EqualTo) {
+                EqualTo equalTo = (EqualTo) conjuct;
+                // TODO: process more expression
+                if (equalTo.left() instanceof Slot && equalTo.right().isConstant()) {
+                    //Equal expr reject Null values in filter. Therefore, we can safely add them in fd
+                    fd.addUniformSlot((Slot) equalTo.left());
+                }
+            }
+        }
+        return fd;
     }
 
     @Override

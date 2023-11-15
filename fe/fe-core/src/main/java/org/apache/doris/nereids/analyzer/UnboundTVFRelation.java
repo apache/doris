@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.BlockFD;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -38,7 +39,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** UnboundTVFRelation */
-public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, Unbound {
+public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, Unbound, BlockFD {
 
     private final String functionName;
     private final Properties properties;

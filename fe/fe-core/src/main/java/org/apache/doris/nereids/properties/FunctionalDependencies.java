@@ -40,11 +40,17 @@ public class FunctionalDependencies {
     }
 
     public void addUniformSlot(Slot slot) {
-        uniformSet.add(slot);
+        if (!slot.nullable()) {
+            uniformSet.add(slot);
+        }
     }
 
     public void addUniformSlot(Set<Slot> slotSet) {
-        uniformSet.addAll(slotSet);
+        slotSet.forEach(this::addUniformSlot);
+    }
+
+    public Set<Slot> getUniformSet() {
+        return uniformSet;
     }
 
     public void pruneSlots(Set<Slot> outputSlots) {
@@ -56,7 +62,16 @@ public class FunctionalDependencies {
         uniqueSet.add(slot);
     }
 
+    /**
+     * add a unique slot
+     */
     public void addUniqueSlot(ImmutableSet<Slot> slotSet) {
+        if (slotSet.isEmpty()) {
+            return;
+        }
+        if (slotSet.size() == 1) {
+            uniqueSet.add(slotSet.iterator().next());
+        }
         uniqueSet.add(slotSet);
     }
 
@@ -120,11 +135,15 @@ public class FunctionalDependencies {
         }
 
         public void add(Slot slot) {
-            slots.add(slot);
+            if (!slot.nullable()) {
+                slots.add(slot);
+            }
         }
 
         public void add(ImmutableSet<Slot> slotSet) {
-            slotSets.add(slotSet);
+            if (slotSet.stream().noneMatch(Slot::nullable)) {
+                slotSets.add(slotSet);
+            }
         }
 
         public void add(NestedSet nestedSet) {

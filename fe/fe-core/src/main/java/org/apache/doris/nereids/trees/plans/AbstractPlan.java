@@ -168,13 +168,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public LogicalProperties computeLogicalProperties() {
         boolean hasUnboundChild = children.stream()
                 .anyMatch(child -> !child.bound());
-        FunctionalDependencies fd = this instanceof LogicalPlan
-                ? ((LogicalPlan) this).computeFD()
-                : new FunctionalDependencies();
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {
-            return new LogicalProperties(this::computeOutput, () -> fd);
+            Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
+            Supplier<FunctionalDependencies> fdSupplier = () -> this instanceof LogicalPlan
+                    ? ((LogicalPlan) this).computeFD(outputSupplier.get())
+                    : new FunctionalDependencies();
+            return new LogicalProperties(outputSupplier, fdSupplier);
         }
     }
 

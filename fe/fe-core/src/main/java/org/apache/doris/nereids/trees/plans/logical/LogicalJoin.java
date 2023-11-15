@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -42,12 +45,14 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.json.JSONObject;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * Logical join plan.
@@ -355,6 +360,80 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin<Plan, Plan> withOtherJoinConjuncts(List<Expression> otherJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
                 markJoinSlotReference, children);
+    }
+
+    private @Nullable Pair<Set<Slot>, Set<Slot>> extractHashKeys() {
+        Set<Slot> leftKeys = new HashSet<>();
+        Set<Slot> rightKeys = new HashSet<>();
+        for (Expression expression : hashJoinConjuncts) {
+            if (!(expression instanceof EqualTo
+                    && ((EqualTo) expression).left() instanceof Slot
+                    && ((EqualTo) expression).right() instanceof Slot)) {
+                return null;
+            }
+            Slot leftKey = (Slot) ((EqualTo) expression).left();
+            Slot rightKey = (Slot) ((EqualTo) expression).right();
+            if (left().getOutputSet().contains(leftKey)) {
+                leftKeys.add(leftKey);
+                rightKeys.add(rightKey);
+            } else {
+                leftKeys.add(rightKey);
+                rightKeys.add(leftKey);
+            }
+        }
+        return Pair.of(leftKeys, rightKeys);
+    }
+
+    @Override
+    public FunctionalDependencies computeFD(List<Slot> outputs) {
+        if (joinType.isNullAwareLeftAntiJoin() || joinType.isFullOuterJoin()) {
+            return new FunctionalDependencies();
+        }
+        if (joinType.isRemainLeftJoin()) {
+            return left().getLogicalProperties().getFunctionalDependencies();
+        }
+        if (joinType.isRemainRightJoin()) {
+            return right().getLogicalProperties().getFunctionalDependencies();
+        }
+
+        if (!otherJoinConjuncts.isEmpty()) {
+            return new FunctionalDependencies();
+        }
+
+        Pair<Set<Slot>, Set<Slot>> keys = extractHashKeys();
+        if (keys == null) {
+            return new FunctionalDependencies();
+        }
+
+        boolean isLeftUnique = left().getLogicalProperties()
+                .getFunctionalDependencies().isUnique(keys.first);
+        boolean isRightUnique = left().getLogicalProperties()
+                .getFunctionalDependencies().isUnique(keys.first);
+        FunctionalDependencies fd = new FunctionalDependencies();
+        if (joinType.isInnerJoin()) {
+            if (isLeftUnique && isRightUnique) {
+                fd.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
+                fd.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
+            } else {
+                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+                fd.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+            }
+        }
+        if (joinType.isLeftOuterJoin()) {
+            if (isRightUnique) {
+                fd = left().getLogicalProperties().getFunctionalDependencies();
+            } else {
+                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+            }
+        }
+        if (joinType.isRightOuterJoin()) {
+            if (isLeftUnique) {
+                fd = left().getLogicalProperties().getFunctionalDependencies();
+            } else {
+                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+            }
+        }
+        return fd;
     }
 
     @Override

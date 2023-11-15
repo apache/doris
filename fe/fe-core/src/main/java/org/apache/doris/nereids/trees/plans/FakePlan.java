@@ -33,7 +33,7 @@ import java.util.Optional;
 /**
  * Used for unit test only.
  */
-public class FakePlan implements Plan, BlockFD {
+public class FakePlan implements Plan {
     private MutableState mutableState = new MultiMutableState();
 
     @Override

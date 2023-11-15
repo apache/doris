@@ -118,10 +118,10 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     @Override
-    public FunctionalDependencies computeFD() {
+    public FunctionalDependencies computeFD(List<Slot> outputs) {
         FunctionalDependencies fd = new FunctionalDependencies();
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
-            ImmutableSet<Slot> slotSet = getOutput().stream()
+            ImmutableSet<Slot> slotSet = computeOutput().stream()
                     .filter(SlotReference.class::isInstance)
                     .filter(s -> !s.nullable())
                     .filter(s -> ((SlotReference) s).getColumn().isPresent()

@@ -20,10 +20,18 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -32,7 +40,9 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -284,8 +294,67 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), normalizedChild);
     }
 
+    private void updateByAggregateFunctionn(NamedExpression namedExpression, FunctionalDependencies fd) {
+        if (namedExpression instanceof Slot) {
+            fd.addUniqueSlot(namedExpression.toSlot());
+            return;
+        }
+
+        if (!(namedExpression instanceof Alias && namedExpression.child(0) instanceof AggregateFunction)) {
+            return;
+        }
+
+        AggregateFunction agg = (AggregateFunction) namedExpression.child(0);
+        if (agg instanceof Count || agg instanceof Ndv) {
+            fd.addUniformSlot(namedExpression.toSlot());
+            return;
+        }
+
+        if (agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min) {
+            if (agg.child(0) instanceof Slot
+                    && child().getLogicalProperties().getFunctionalDependencies().isUnique((Slot) agg.child(0))) {
+                fd.addUniqueSlot((Slot) agg.child(0));
+            }
+        }
+    }
+
     @Override
-    public FunctionalDependencies computeFD() {
-        return null;
+    public FunctionalDependencies computeFD(List<Slot> outputs) {
+        FunctionalDependencies fd = new FunctionalDependencies();
+        if (sourceRepeat.isPresent()) {
+            return fd;
+        }
+
+        if (groupByExpressions.isEmpty()) {
+            outputs.forEach(s -> {
+                fd.addUniformSlot(s);
+                fd.addUniqueSlot(s);
+            });
+            return fd;
+        }
+
+        if (!(groupByExpressions.stream().allMatch(Slot.class::isInstance))) {
+            fd.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+            return fd;
+        }
+
+        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
+                .map(s -> (Slot) s)
+                .collect(ImmutableSet.toImmutableSet());
+        if (child().getLogicalProperties().getFunctionalDependencies().isUniform(groupByKeys)) {
+            fd.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+            return fd;
+        }
+
+        if (child().getLogicalProperties().getFunctionalDependencies().isUnique(groupByKeys)) {
+            for (NamedExpression namedExpression : getOutputExpressions()) {
+                updateByAggregateFunctionn(namedExpression, fd);
+            }
+            return fd;
+        }
+        if (groupByKeys.containsAll(new HashSet<>(outputs))) {
+            fd.addUniqueSlot(groupByKeys);
+        }
+        return fd;
     }
 }

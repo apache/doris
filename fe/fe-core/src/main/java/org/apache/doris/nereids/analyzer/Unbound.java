@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.plans.BlockFD;
-
 /** Use to marking unbound plan and unbound expression. */
-public interface Unbound extends BlockFD {
+public interface Unbound {
 }
