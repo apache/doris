@@ -87,6 +87,7 @@ public:
             }
         } else {
             while (!(_shutdown || !_queue.empty())) {
+                ++_get_waiting;
                 _get_cv.wait(unique_lock);
             }
             wait_successful = true;
