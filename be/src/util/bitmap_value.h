@@ -1259,10 +1259,9 @@ public:
     }
 
     static std::string empty_bitmap() {
-        static BitmapValue bitmap;
-        std::string buf;
-        buf.resize(bitmap.getSizeInBytes());
-        bitmap.write_to(buf.data());
+        std::string buf(sizeof(BitmapValue), 0);
+        BitmapValue* bitmap_value = reinterpret_cast<BitmapValue*>(buf.data());
+        bitmap_value->_type = EMPTY;
         return buf;
     }
 
