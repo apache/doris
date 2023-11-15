@@ -18,7 +18,10 @@
 package org.apache.doris.cluster;
 
 import org.apache.doris.analysis.AlterSystemStmt;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -161,13 +164,16 @@ public class DecommissionBackendTest extends TestWithFeService {
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
         Assertions.assertTrue(tabletNum > 0);
 
-        Backend srcBackend = null;
-        for (Backend backend : idToBackendRef.values()) {
-            if (!Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).isEmpty()) {
-                srcBackend = backend;
-                break;
-            }
-        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db2");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
+        Assertions.assertNotNull(tbl);
+        long backendId = tbl.getPartitions().iterator().next()
+                .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL).iterator().next()
+                .getTablets().iterator().next()
+                .getReplicas().iterator().next()
+                .getBackendId();
+
+        Backend srcBackend = infoService.getBackend(backendId);
         Assertions.assertNotNull(srcBackend);
 
         // 5. drop table tbl1
