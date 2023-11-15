@@ -62,6 +62,7 @@
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
+#include "pipeline/exec/olap_table_sink_v2_operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
@@ -269,8 +270,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node) {
-            return Status::InternalError(
-                    "Unsuported OLAP_TABLE_SINK with enable_memtable_on_sink_node ");
+            _sink.reset(new OlapTableSinkV2OperatorX(pool, next_operator_id(), row_desc,
+                                                     output_exprs, false));
         } else {
             _sink.reset(new OlapTableSinkOperatorX(pool, next_operator_id(), row_desc, output_exprs,
                                                    false));
