@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/sink/writer/vtablet_writer_v2.h"
+
 #include <brpc/uri.h>
 #include <bthread/bthread.h>
 #include <fmt/format.h>
@@ -56,10 +58,8 @@
 #include "vec/sink/load_stream_stub_pool.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
-#include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris {
-class TExpr;
 
 namespace vectorized {
 
