@@ -31,13 +31,14 @@ Doris-Operator is a software extension to Kubernetes and follow Kubernetes princ
 ### Start Kubernetes
 Having a Kubernetes environment is the premise to deploy Doris on Kubernetes. If you already have it, please ignore this step. 
 Hosted Kubernetes on cloud platform or set-up by yourself are all good choice.  
+
 **Hosted EKS**  
-Check that the following [command-line](https://docs.aws.amazon.com/eks/latest/userguide/getting-started.html) tools are installed in your environment:  
+1. Check that the following [command-line](https://docs.aws.amazon.com/eks/latest/userguide/getting-started.html) tools are installed in your environment:  
 - Install and configure AWS command-line tool AWS CLI.
 - Install EKS cluster command-line tool eksctl.
 - Install Kubernetes cluster command-line tool kubectl. 
 
-Use one of the following methods to create an EKS cluster:  
+2. Use one of the following methods to create an EKS cluster:  
 - [Use eksctl to quickly create an EKS cluster](https://docs.aws.amazon.com/eks/latest/userguide/getting-started-eksctl.html).
 - [Manually create an EKS cluster with the AWS console and AWS CLI](https://docs.aws.amazon.com/eks/latest/userguide/getting-started-console.html).
 
@@ -91,7 +92,7 @@ kubectl get pods
   doriscluster-sample-be-0   1/1     Running   0          19m
 ```
 All Pods created by DorisCluster resource should be in `Running` STATUS, and each pod's containers should be `RREADY`.
-### Use Doris Cluster
+### Use Doris Cluster  
 On kubernetes Doris-Operator provide `Service` a resource build in kubernetes for access to Doris.  
 
 The command `kubectl -n {namespace} get svc -l "app.doris.ownerreference/name={dorisCluster.Name}"` used to get `service` created by Doris-Operator. `dorisCluster.Nmae` is the name of DorisCluster resource deployed by step 1.
@@ -103,15 +104,16 @@ doriscluster-sample-fe-service    ClusterIP   10.152.183.37    a7509284bf3784983
 doriscluster-sample-be-internal   ClusterIP   None             <none>                                                9050/TCP                              29m
 doriscluster-sample-be-service    ClusterIP   10.152.183.141   <none>                                                9060/TCP,8040/TCP,9050/TCP,8060/TCP   29m
 ```
-Use SQL Client for Access  
+**Use SQL Client for Access**  
 Service created by Doris-Operator have two types, suffix is `-internal` or `-service`. Service have the `-internal` suffix for communicating in Doris components, Service have `-service` suffix for user to access.  
 
-**In Kubernetes**  
+- In Kubernetes  
 In kubernetes, Using `CLUSTER-IP`  is recommended. For example, the fe service's `CLUSTER-IP`  is `10.152.183.37` that displayed by above command. Using below command to access fe service.
-```shell
-mysql -h 10.152.183.37 -uroot -P9030
-```
-**Out Kubernetes**  
+    ```shell
+    mysql -h 10.152.183.37 -uroot -P9030
+    ```
+
+- Out Kubernetes  
 Using `EXTERNAL-IP` to access fe from Kubernetes external. In default, Doris-Operator not provided `EXTERNAL-IP` mode. If you want to use `EXTERNAL-IP`, should custom resource `Service` field, reference the doc [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) to deploy.
 
 ### Tip
