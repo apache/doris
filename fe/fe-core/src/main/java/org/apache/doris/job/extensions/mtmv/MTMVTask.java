@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVCacheManager;
@@ -111,6 +112,12 @@ public class MTMVTask extends AbstractTask {
         List<String> data = Lists.newArrayList();
         data.add(super.getJobId() + "");
         data.add(super.getTaskId() + "");
+        data.add(super.getStatus() + "");
+        data.add(TimeUtils.longToTimeString(super.getCreateTimeMs()));
+        data.add(TimeUtils.longToTimeString(super.getStartTimeMs()));
+        data.add(TimeUtils.longToTimeString(super.getFinishTimeMs()));
+        data.add(String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs()));
+        data.add(sql);
         return data;
     }
 

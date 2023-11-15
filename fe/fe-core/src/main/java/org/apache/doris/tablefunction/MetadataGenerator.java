@@ -29,7 +29,6 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryDetail;
@@ -509,12 +508,14 @@ public class MetadataGenerator {
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getName()));
-                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getRefreshInfo())));
-                trow.addToColumnValue(new TCell().setStringVal(mv.getQuerySql()));
-                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getStatus())));
-                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getEnvInfo())));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getJobInfo().getJobName()));
-                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getMvProperties())));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getStatus().getState().name()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getStatus().getSchemaChangeDetail()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getStatus().getRefreshState().name()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getRefreshInfo().toString()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getQuerySql()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getEnvInfo().toString()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
                 dataBatch.add(trow);
             }
         }

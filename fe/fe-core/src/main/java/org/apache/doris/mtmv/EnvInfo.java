@@ -40,4 +40,12 @@ public class EnvInfo {
     public String getDbName() {
         return dbName;
     }
+
+    @Override
+    public String toString() {
+        return "EnvInfo{" +
+                "ctlName='" + ctlName + '\''
+                + ", dbName='" + dbName + '\''
+                + '}';
+    }
 }
