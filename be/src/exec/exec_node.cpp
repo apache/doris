@@ -200,9 +200,6 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
                                                                    _vconjunct_ctx_ptr.get()));
     }
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
-        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
-    }
 
     // create the projections expr
     if (tnode.__isset.projections) {
@@ -233,9 +230,6 @@ Status ExecNode::prepare(RuntimeState* state) {
     // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
     // And _conjunct_ctxs is useless.
     // TODO: Should be removed when non-vec engine is removed.
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
-        RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
-    }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
     for (int i = 0; i < _children.size(); ++i) {
@@ -250,11 +244,7 @@ Status ExecNode::open(RuntimeState* state) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
-        return Expr::open(_conjunct_ctxs, state);
-    } else {
-        return Status::OK();
-    }
+    return Status::OK();
 }
 
 Status ExecNode::reset(RuntimeState* state) {
@@ -293,9 +283,6 @@ Status ExecNode::close(RuntimeState* state) {
 
     if (_vconjunct_ctx_ptr) {
         (*_vconjunct_ctx_ptr)->close(state);
-    }
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
-        Expr::close(_conjunct_ctxs, state);
     }
     vectorized::VExpr::close(_projections, state);
 
