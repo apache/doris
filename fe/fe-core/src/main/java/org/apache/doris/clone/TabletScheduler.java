@@ -1077,7 +1077,7 @@ public class TabletScheduler extends MasterDaemon {
 
         List<Replica> replicas = tabletCtx.getTablet().getReplicas();
         boolean otherCatchup = replicas.stream().anyMatch(
-                r -> r.getId() != replica.getId()
+                r -> r != replica
                 && (r.getVersion() > replica.getVersion()
                         || (r.getVersion() == replica.getVersion() && r.getLastFailedVersion() < 0)));
         if (!otherCatchup) {
