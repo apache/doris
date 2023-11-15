@@ -185,9 +185,9 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
-        // /api/debug_point/add/FE.ALTER_JOB_V2_RUN?stop=true
-        if (DebugPointUtil.isEnable("FE.ALTER_JOB_V2_RUN")) {
-            LOG.info("debug point FE.ALTER_JOB_V2_RUN, schema change schedule stopped");
+        // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN
+        if (DebugPointUtil.isEnable("FE.STOP_ALTER_JOB_RUN")) {
+            LOG.info("debug point FE.STOP_ALTER_JOB_RUN, schema change schedule stopped");
             return;
         }
 
