@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite("test_json_load", "p0") { 
 
     def backendId_to_backendIP = [:]
@@ -641,7 +639,7 @@ suite("test_json_load", "p0") {
         def hdfs_file_path = uploadToHdfs "load_p0/stream_load/simple_object_json.json"
         def format = "json" 
 
-        // case18: import json use pre-filter exprs
+        // case23: import json use pre-filter exprs
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
             
@@ -656,8 +654,25 @@ suite("test_json_load", "p0") {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
 
-        // case19: import json use pre-filter and where exprs
+        // case24: import json use pre-filter and where exprs
         try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            
+            create_test_table1.call(testTable)
+            
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs2.call(testTable, test_load_label, hdfs_file_path, format,
+                                brokerName, hdfsUser, hdfsPasswd)
+            
+            check_load_result.call(test_load_label, testTable)
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+        
+        // case25: import json with enable_simdjson_reader=false
+        try {
+            set_be_param.call("enable_simdjson_reader", "false")
+
             sql "DROP TABLE IF EXISTS ${testTable}"
             
             create_test_table1.call(testTable)
@@ -668,11 +683,12 @@ suite("test_json_load", "p0") {
             
             check_load_result.call(test_load_label, testTable)
         } finally {
+            set_be_param.call("enable_simdjson_reader", "true")
             try_sql("DROP TABLE IF EXISTS ${testTable}")
-        }
+        } 
     }
 
-    // case23: import with enable_simdjson_reader=false
+    // case26: import json with enable_simdjson_reader=false
     try {
         set_be_param.call("enable_simdjson_reader", "false")
 
@@ -680,13 +696,13 @@ suite("test_json_load", "p0") {
 
         create_test_table2.call(testTable)
 
-        load_json_data.call("${testTable}", "${testTable}_case23_1", 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+        load_json_data.call("${testTable}", "${testTable}_case26_1", 'true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                              '', '', '', 'multi_line_json.json')
         sql "sync"
-        qt_select23 "select * from ${testTable} order by id"
+        qt_select26 "select * from ${testTable} order by id"
 
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
         set_be_param.call("enable_simdjson_reader", "true")
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 }
