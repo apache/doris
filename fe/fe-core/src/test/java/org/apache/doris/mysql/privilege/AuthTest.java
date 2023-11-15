@@ -1470,6 +1470,38 @@ public class AuthTest {
             e.printStackTrace();
             Assert.fail();
         }
+
+        // test domain override
+        // 1. create a domain user
+        new Expectations() {
+            {
+                ctx.getCurrentUserIdentity();
+                minTimes = 1;
+                result = UserIdentity.ROOT;
+            }
+        };
+        UserIdentity domainUser = new UserIdentity("test_domain_user", "palo.domain1", true);
+        userDesc = new UserDesc(domainUser, "12345", true);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        // 2. create a normal user with same ip in domain
+        UserIdentity normalUser = new UserIdentity("test_domain_user", "10.1.1.1");
+        userDesc = new UserDesc(normalUser, "12345", true);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        // 3. run resolve
+        resolver.runAfterCatalogReady();
+        // 4. user grant to test that normal user is not overwrite by domain resolve
+        grantStmt = new GrantStmt(normalUser, null, new TablePattern("*", "*", "*"), privileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
     }
 
     @Test
