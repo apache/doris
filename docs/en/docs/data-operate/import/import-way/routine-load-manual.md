@@ -498,7 +498,7 @@ Accessing a Kerberos-certified Kafka cluster. The following configurations need 
    ```
 
 **Note:**
-- To enable Doris to access the Kafka cluster with Kerberos authentication enabled, you need to deploy the Kerberos client kinit on all running nodes of the Doris cluster, configure krb5.conf, and fill in KDC service information.
+- To enable Doris to access the Kafka cluster with Kerberos authentication enabled, you need to deploy the Kerberos client kinit on all running nodes of the Doris cluster, krb5.conf that kinit accesses is at /etc/krb5.conf, you need to copy your own authentication file to this directory, and fill in KDC service information.
 - Configure property.sasl.kerberos The value of keytab needs to specify the absolute path of the keytab local file and allow Doris processes to access the local file.
 
 </version>
