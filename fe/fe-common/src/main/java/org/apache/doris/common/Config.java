@@ -2310,7 +2310,7 @@ public class Config extends ConfigBase {
     })
     public static int restore_download_task_num_per_be = 3;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
+    @ConfField(mutable = true, description = {
             "是否在log中打印异常的stacktrace信息",
             "Whether to print the stacktrace information of the exception in the log"
     })
