@@ -174,10 +174,13 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
-        auto [new_probe_idx, new_build_idx, new_current_offset] =
-                hash_table_ctx.hash_table->template find_batch<JoinOpType, with_other_conjuncts>(
-                        hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index,
-                        build_index, probe_rows, _probe_indexs.data(), _build_indexs.data());
+        auto [new_probe_idx, new_build_idx,
+              new_current_offset] = hash_table_ctx.hash_table->template find_batch < JoinOpType,
+              with_other_conjuncts, is_mark_join,
+              need_null_map_for_probe &&
+                      ignore_null > (hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
+                                     probe_index, build_index, probe_rows, _probe_indexs.data(),
+                                     _build_indexs.data(), mark_column.get());
         probe_index = new_probe_idx;
         build_index = new_build_idx;
         current_offset = new_current_offset;
@@ -386,6 +389,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
             _tuple_is_null_left_flags->resize_fill(block_size, 1);
         }
         output_block->swap(mutable_block.to_block(0));
+        DCHECK(block_size <= _batch_size);
     }
     return Status::OK();
 }

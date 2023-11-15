@@ -25,9 +25,11 @@
 #include <span>
 
 #include "common/compiler_util.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
+
 /** NOTE HashMap could only be used for memmoveable (position independent) types.
   * Example: std::string is not position independent in libstdc++ with C++11 ABI or in libc++.
   * Also, key in hash table must be of type, that zero bytes is compared equals to zero key.
@@ -255,14 +257,21 @@ public:
         first[bucket_size] = 0; // index = bucket_num means null
     }
 
-    template <int JoinOpType, bool with_other_conjuncts>
+    template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join, bool need_judge_null>
     auto find_batch(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                     int probe_idx, uint32_t build_idx, int probe_rows,
-                    uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs) {
+                    uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs,
+                    doris::vectorized::ColumnFilterHelper* mark_column) {
+        if constexpr (is_mark_join) {
+            return _find_batch_mark<JoinOpType>(keys, bucket_nums, probe_idx, probe_rows,
+                                                probe_idxs, build_idxs, mark_column);
+        }
+
         if constexpr (with_other_conjuncts) {
             return _find_batch_conjunct<JoinOpType>(keys, bucket_nums, probe_idx, build_idx,
                                                     probe_rows, probe_idxs, build_idxs);
         }
+
         if constexpr (JoinOpType == doris::TJoinOp::INNER_JOIN ||
                       JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
                       JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
@@ -271,9 +280,10 @@ public:
                                                             probe_rows, probe_idxs, build_idxs);
         }
         if constexpr (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
-                      JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN) {
-            return _find_batch_left_semi_anti<JoinOpType>(keys, bucket_nums, probe_idx, probe_rows,
-                                                          probe_idxs);
+                      JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
+                      JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return _find_batch_left_semi_anti<JoinOpType, need_judge_null>(
+                    keys, bucket_nums, probe_idx, probe_rows, probe_idxs);
         }
         if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
                       JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
@@ -305,6 +315,38 @@ public:
     }
 
 private:
+    // only LEFT_ANTI_JOIN/LEFT_SEMI_JOIN/NULL_AWARE_LEFT_ANTI_JOIN/CROSS_JOIN support mark join
+    template <int JoinOpType>
+    auto _find_batch_mark(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
+                          int probe_idx, int probe_rows, uint32_t* __restrict probe_idxs,
+                          uint32_t* __restrict build_idxs,
+                          doris::vectorized::ColumnFilterHelper* mark_column) {
+        auto matched_cnt = 0;
+        const auto batch_size = max_batch_size;
+
+        while (probe_idx < probe_rows && matched_cnt < batch_size) {
+            auto build_idx = first[bucket_nums[probe_idx]];
+
+            while (build_idx && keys[probe_idx] != build_keys[build_idx]) {
+                build_idx = next[build_idx];
+            }
+
+            if (bucket_nums[probe_idx] == bucket_size) {
+                // mark result as null when probe row is null
+                mark_column->insert_null();
+            } else {
+                bool matched = JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0
+                                                                            : build_idx == 0;
+                mark_column->insert_value(matched);
+            }
+
+            probe_idxs[matched_cnt] = probe_idx++;
+            build_idxs[matched_cnt] = build_idx;
+            matched_cnt++;
+        }
+        return std::tuple {probe_idx, 0U, matched_cnt};
+    }
+
     auto _find_batch_right_semi_anti(const Key* __restrict keys,
                                      const uint32_t* __restrict bucket_nums, int probe_idx,
                                      int probe_rows) {
@@ -322,7 +364,7 @@ private:
         return std::tuple {probe_idx, 0U, 0};
     }
 
-    template <int JoinOpType>
+    template <int JoinOpType, bool need_judge_null>
     auto _find_batch_left_semi_anti(const Key* __restrict keys,
                                     const uint32_t* __restrict bucket_nums, int probe_idx,
                                     int probe_rows, uint32_t* __restrict probe_idxs) {
@@ -330,6 +372,13 @@ private:
         const auto batch_size = max_batch_size;
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
+            if constexpr (need_judge_null) {
+                if (bucket_nums[probe_idx] == bucket_size) {
+                    probe_idx++;
+                    continue;
+                }
+            }
+
             auto build_idx = first[bucket_nums[probe_idx]];
 
             while (build_idx && keys[probe_idx] != build_keys[build_idx]) {

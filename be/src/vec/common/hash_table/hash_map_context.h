@@ -349,6 +349,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
     void pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                      const ColumnRawPtrs& nullmap_columns, std::vector<T>& result) {
         size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
+        // set size to 0 at first, then use resize to call default constructor on index included from [0, row_numbers) to reset all memory
         result.clear();
         result.resize(row_numbers);
 

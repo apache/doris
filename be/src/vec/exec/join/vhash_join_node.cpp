@@ -477,7 +477,6 @@ Status HashJoinNode::_filter_data_and_build_output(RuntimeState* state,
     }
     {
         SCOPED_TIMER(_join_filter_timer);
-        temp_block->check_number_of_rows(output_rows);
         RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, temp_block, temp_block->columns()));
     }
 
