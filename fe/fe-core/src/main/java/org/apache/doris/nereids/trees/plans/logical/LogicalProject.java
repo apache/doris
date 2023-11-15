@@ -20,7 +20,9 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -199,5 +201,18 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         properties.put("IsDistinct", isDistinct);
         logicalProject.put("Properties", properties);
         return logicalProject;
+    }
+
+    @Override
+    public FunctionalDependencies computeFD() {
+        FunctionalDependencies fd = new FunctionalDependencies(
+                child().getLogicalProperties().getFunctionalDependencies());
+        fd.pruneSlots(this.getOutputSet());
+        for (NamedExpression proj : projects) {
+            if (proj instanceof Alias && proj.child(0).isConstant()) {
+                fd.addUniformSlot(proj.toSlot());
+            }
+        }
+        return fd;
     }
 }

@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.clone.TabletScheduler.Slot;
+import org.apache.doris.nereids.trees.expressions.Slot;
+
+import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Record functional dependencies
@@ -28,6 +31,13 @@ import java.util.Set;
 public class FunctionalDependencies {
     NestedSet uniqueSet = new NestedSet();
     Set<Slot> uniformSet = new HashSet<>();
+
+    public FunctionalDependencies() {}
+
+    public FunctionalDependencies(FunctionalDependencies other) {
+        this.uniformSet = new HashSet<>(other.uniformSet);
+        this.uniqueSet = new NestedSet(other.uniqueSet);
+    }
 
     public void addUniformSlot(Slot slot) {
         uniformSet.add(slot);
@@ -37,12 +47,17 @@ public class FunctionalDependencies {
         uniformSet.addAll(slotSet);
     }
 
+    public void pruneSlots(Set<Slot> outputSlots) {
+        uniformSet.removeAll(outputSlots);
+        uniqueSet.removeAll(outputSlots);
+    }
+
     public void addUniqueSlot(Slot slot) {
         uniqueSet.add(slot);
     }
 
-    public void addUniqueSlot(Set<Slot> slot) {
-        uniqueSet.add(slot);
+    public void addUniqueSlot(ImmutableSet<Slot> slotSet) {
+        uniqueSet.add(slotSet);
     }
 
     public boolean isUnique(Slot slot) {
@@ -50,6 +65,9 @@ public class FunctionalDependencies {
     }
 
     public boolean isUnique(Set<Slot> slotSet) {
+        if (slotSet.isEmpty()) {
+            return false;
+        }
         return uniqueSet.containsAnySub(slotSet);
     }
 
@@ -58,6 +76,9 @@ public class FunctionalDependencies {
     }
 
     public boolean isUniform(Set<Slot> slotSet) {
+        if (slotSet.isEmpty()) {
+            return false;
+        }
         return uniformSet.containsAll(slotSet);
     }
 
@@ -68,7 +89,14 @@ public class FunctionalDependencies {
 
     class NestedSet {
         Set<Slot> slots = new HashSet<>();
-        Set<Set<Slot>> slotSets = new HashSet<>();
+        Set<ImmutableSet<Slot>> slotSets = new HashSet<>();
+
+        NestedSet() {}
+
+        NestedSet(NestedSet o) {
+            this.slots = new HashSet<>(o.slots);
+            this.slotSets = new HashSet<>(o.slotSets);
+        }
 
         public boolean contains(Slot slot) {
             return slots.contains(slot);
@@ -83,11 +111,19 @@ public class FunctionalDependencies {
                     || slotSets.stream().anyMatch(slotSet::containsAll);
         }
 
+        public void removeAll(Set<Slot> slotSet) {
+            slots.removeAll(slotSet);
+            slotSets = slotSets.stream()
+                    .filter(set -> slotSet.stream().noneMatch(set::contains))
+                    .collect(Collectors.toSet());
+
+        }
+
         public void add(Slot slot) {
             slots.add(slot);
         }
 
-        public void add(Set<Slot> slotSet) {
+        public void add(ImmutableSet<Slot> slotSet) {
             slotSets.add(slotSet);
         }
 

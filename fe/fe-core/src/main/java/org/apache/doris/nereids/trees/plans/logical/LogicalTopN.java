@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -147,5 +148,15 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, children.get(0));
+    }
+
+    @Override
+    public FunctionalDependencies computeFD() {
+        FunctionalDependencies functionalDependencies = new FunctionalDependencies(
+                child(0).getLogicalProperties().getFunctionalDependencies());
+        if (getLimit() == 1) {
+            functionalDependencies.addUniformSlot(this.getOutputSet());
+        }
+        return functionalDependencies;
     }
 }

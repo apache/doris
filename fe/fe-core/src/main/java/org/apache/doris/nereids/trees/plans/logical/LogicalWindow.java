@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -40,6 +41,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * logical node to deal with window functions;
@@ -223,5 +226,44 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 partitionLimit, child(0)));
 
         return Optional.ofNullable(window);
+    }
+
+    private void updateByWindowExpr(NamedExpression namedExpression, FunctionalDependencies functionalDependencies) {
+        if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
+            return;
+        }
+        WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
+        List<Expression> partitionKeys = windowExpr.getPartitionKeys();
+
+        // window func should return unique results
+        if (!(windowExpr.getFunction() instanceof RowNumber
+                || windowExpr.getFunction() instanceof Rank)) {
+            return;
+        }
+
+        // Now we only support slot type keys
+        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
+            return;
+        }
+        Set<Slot> slotSet = partitionKeys.stream()
+                .map(s -> (Slot) s)
+                .collect(Collectors.toSet());
+        if (child(0).getLogicalProperties().getFunctionalDependencies().isUnique(slotSet)) {
+            functionalDependencies.addUniformSlot(namedExpression.toSlot());
+        }
+
+        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(slotSet)) {
+            functionalDependencies.addUniqueSlot(namedExpression.toSlot());
+        }
+    }
+
+    @Override
+    public FunctionalDependencies computeFD() {
+        FunctionalDependencies functionalDependencies = new FunctionalDependencies(
+                child(0).getLogicalProperties().getFunctionalDependencies());
+        for (NamedExpression namedExpression : windowExpressions) {
+            updateByWindowExpr(namedExpression, functionalDependencies);
+        }
+        return functionalDependencies;
     }
 }

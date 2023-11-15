@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -174,5 +175,15 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
                 "deferMaterializeSlotIds", deferMaterializeSlotIds,
                 "columnIdSlot", columnIdSlot
         );
+    }
+
+    @Override
+    public FunctionalDependencies computeFD() {
+        FunctionalDependencies functionalDependencies = new FunctionalDependencies(
+                child(0).getLogicalProperties().getFunctionalDependencies());
+        if (getLimit() == 1) {
+            functionalDependencies.addUniformSlot(this.getOutputSet());
+        }
+        return functionalDependencies;
     }
 }

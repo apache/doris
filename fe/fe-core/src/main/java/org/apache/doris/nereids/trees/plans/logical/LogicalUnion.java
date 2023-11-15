@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.BlockFD;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
@@ -38,7 +39,7 @@ import java.util.Optional;
 /**
  * Logical Union.
  */
-public class LogicalUnion extends LogicalSetOperation implements Union, OutputPrunable {
+public class LogicalUnion extends LogicalSetOperation implements Union, OutputPrunable, BlockFD {
 
     // in doris, we use union node to present one row relation
     private final List<List<NamedExpression>> constantExprsList;

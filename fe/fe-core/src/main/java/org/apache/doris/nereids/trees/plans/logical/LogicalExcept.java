@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFD;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -34,7 +35,7 @@ import java.util.Optional;
 /**
  * Logical Except.
  */
-public class LogicalExcept extends LogicalSetOperation {
+public class LogicalExcept extends LogicalSetOperation implements PropagateFD {
 
     public LogicalExcept(Qualifier qualifier, List<Plan> inputs) {
         super(PlanType.LOGICAL_EXCEPT, qualifier, inputs);

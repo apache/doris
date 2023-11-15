@@ -18,12 +18,13 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.plans.PropagateFD;
 
 import java.util.List;
 
 /**
  * Common interface for logical/physical sort.
  */
-public interface Sort {
+public interface Sort extends PropagateFD {
     List<OrderKey> getOrderKeys();
 }

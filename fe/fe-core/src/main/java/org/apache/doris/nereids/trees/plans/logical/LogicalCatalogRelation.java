@@ -19,10 +19,12 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -33,6 +35,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -112,5 +115,20 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             return StringUtils.join(qualifier, ".");
         }
         return Utils.qualifiedName(qualifier, table.getName());
+    }
+
+    @Override
+    public FunctionalDependencies computeFD() {
+        FunctionalDependencies fd = new FunctionalDependencies();
+        if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
+            ImmutableSet<Slot> slotSet = getOutput().stream()
+                    .filter(SlotReference.class::isInstance)
+                    .filter(s -> !s.nullable())
+                    .filter(s -> ((SlotReference) s).getColumn().isPresent()
+                            && ((SlotReference) s).getColumn().get().isKey())
+                    .collect(ImmutableSet.toImmutableSet());
+            fd.addUniqueSlot(slotSet);
+        }
+        return fd;
     }
 }
