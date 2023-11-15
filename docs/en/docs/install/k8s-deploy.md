@@ -29,7 +29,7 @@ Doris-Operator is a software extension to Kubernetes and follow Kubernetes princ
 ## Deploy Doris on Kubernetes
 
 ### Start Kubernetes
-Having a Kubernetes environment is the premise to deploy doris on Kubernetes. If you already have it, please ignore this step. 
+Having a Kubernetes environment is the premise to deploy Doris on Kubernetes. If you already have it, please ignore this step. 
 Hosted Kubernetes on cloud platform or set-up by yourself are all good choice.  
 **Hosted EKS**  
 Option 1: Check that the following [command-line](https://docs.aws.amazon.com/eks/latest/userguide/getting-started.html) tools are installed in your environment:  
@@ -49,6 +49,9 @@ Kubernetes official documents recommends some ways to set up Kubernetes, as [min
 
 ### Deploy Doris-Operator on Kubernetes
 **1. Apply the [custom resource definition(CRD)](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions)**  
+```shell
+kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/crd/bases/doris.selectdb.com_dorisclusters.yaml    
+```
 **2. Install Doris-Operator**  
    Option 1: Default Deployment Method
    ```shell
@@ -70,7 +73,7 @@ Expected result, the Pod `STATUS` is `Running` and all containers in Pod are all
 
 ### Start Doris on Kubernetes
 **1. Initialize Doris Cluster**    
-User can directly deploy doris by [example](https://github.com/selectdb/doris-operator/tree/master/doc/examples) provided by Doris-Operator. Below is the commands:    
+User can directly deploy Doris by [example](https://github.com/selectdb/doris-operator/tree/master/doc/examples) provided by Doris-Operator. Below is the commands:    
 ```shell
 kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml  
 ```
@@ -90,6 +93,7 @@ kubectl get pods
 All Pods created by DorisCluster resource should be in `Running` STATUS, and each pod's containers should be `RREADY`.
 ### Use Doris Cluster
 On kubernetes Doris-Operator provide `Service` a resource build in kubernetes for access to Doris.  
+
 The command `kubectl -n {namespace} get svc -l "app.doris.ownerreference/name={dorisCluster.Name}"` used to get `service` created by Doris-Operator. `dorisCluster.Nmae` is the name of DorisCluster resource deployed by step 1.
 ```shell
 kubectl -n default get svc -l "app.doris.ownerreference/name=doriscluster-sample"
@@ -100,7 +104,8 @@ doriscluster-sample-be-internal   ClusterIP   None             <none>           
 doriscluster-sample-be-service    ClusterIP   10.152.183.141   <none>                                                9060/TCP,8040/TCP,9050/TCP,8060/TCP   29m
 ```
 Use SQL Client for Access  
-Service created by Doris-Operator have two types, suffix is `-internal` or `-service`. Service have the `-internal` suffix for communicating in doris components, Service have `-service` suffix for user to access.  
+Service created by Doris-Operator have two types, suffix is `-internal` or `-service`. Service have the `-internal` suffix for communicating in Doris components, Service have `-service` suffix for user to access.  
+
 **In Kubernetes**  
 In kubernetes, Using `CLUSTER-IP`  is recommended. For example, the fe service's `CLUSTER-IP`  is `10.152.183.37` that displayed by above command. Using below command to access fe service.
 ```shell
