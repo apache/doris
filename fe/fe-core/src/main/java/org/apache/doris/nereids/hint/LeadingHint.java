@@ -395,6 +395,10 @@ public class LeadingHint extends Hint {
                             newStackTop.second.getOutput(), logicalPlan.getOutput(), conditions);
                     JoinType joinType = computeJoinType(getBitmap(newStackTop.second),
                             getBitmap(logicalPlan), conditions);
+                    if (joinType == null) {
+                        this.setStatus(HintStatus.SYNTAX_ERROR);
+                        this.setErrorMessage("JoinType can not be null");
+                    }
                     if (!this.isSuccess()) {
                         return null;
                     }

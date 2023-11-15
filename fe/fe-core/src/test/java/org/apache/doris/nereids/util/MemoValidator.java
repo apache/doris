@@ -25,6 +25,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Sets;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.IdentityHashMap;
@@ -52,7 +53,7 @@ public class MemoValidator {
 
         MemoValidator validator = validate(memo);
         if (initPlan != null) {
-            if (initPlan instanceof UnboundResultSink) {
+            if (initPlan instanceof UnboundResultSink || initPlan instanceof LogicalSelectHint) {
                 return validator;
             }
             Assertions.assertEquals(initPlan, memo.getRoot().getLogicalExpression().getPlan());

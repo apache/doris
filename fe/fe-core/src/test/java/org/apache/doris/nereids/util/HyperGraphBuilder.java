@@ -537,6 +537,8 @@ public class HyperGraphBuilder {
                             matchPair.stream().map(p -> Pair.of(p.second, p.first)).collect(Collectors.toList()));
                 case NULL_AWARE_LEFT_ANTI_JOIN:
                     return calLNAAJ(left, right, matchPair);
+                case CROSS_JOIN:
+                    return calFOJ(left, right, matchPair);
                 default:
                     assert false;
             }
