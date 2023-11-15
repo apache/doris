@@ -2045,11 +2045,17 @@ Only for Master FE: true
 
 The data size threshold used to judge whether replica is too large
 
-#### `schedule_slot_num_per_path`
+#### `schedule_slot_num_per_hdd_path`
 
-Default：2
+Default：4
 
-the default slot number per path in tablet scheduler , remove this config and dynamically adjust it by clone task statistic
+the default slot number per path in tablet scheduler for hdd , remove this config and dynamically adjust it by clone task statistic
+
+#### `schedule_slot_num_per_ssd_path`
+
+Default：8
+
+the default slot number per path in tablet scheduler for ssd , remove this config and dynamically adjust it by clone task statistic
 
 #### `tablet_repair_delay_factor_second`
 
