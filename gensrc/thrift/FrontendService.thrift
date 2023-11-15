@@ -653,6 +653,7 @@ struct TStreamLoadPutResult {
     4: optional i64 base_schema_version
     5: optional i64 db_id
     6: optional i64 table_id
+    7: optional bool wait_internal_group_commit_finish = false
 }
 
 struct TStreamLoadMultiTablePutResult {

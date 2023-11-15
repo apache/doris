@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
+#include <runtime/load_stream_writer.h>
 #include <stdint.h>
 
 #include <condition_variable>
@@ -25,8 +26,6 @@
 #include <mutex>
 #include <unordered_map>
 #include <utility>
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
-#include <runtime/load_stream_writer.h>
 
 #include "brpc/stream.h"
 #include "butil/iobuf.h"
@@ -131,6 +130,7 @@ private:
     void _report_result(StreamId stream, const Status& st,
                         const std::vector<int64_t>& success_tablet_ids,
                         const std::vector<int64_t>& failed_tablet_ids);
+    void _report_schema(StreamId stream, const PStreamHeader& hdr);
 
     // report failure for one message
     void _report_failure(StreamId stream, const Status& status, const PStreamHeader& header) {

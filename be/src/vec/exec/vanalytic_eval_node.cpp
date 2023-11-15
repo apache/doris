@@ -19,21 +19,18 @@
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"

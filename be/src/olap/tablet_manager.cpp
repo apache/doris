@@ -32,7 +32,6 @@
 #include <mutex>
 #include <ostream>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -499,10 +498,9 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             }
         }
 
-        TabletSharedPtr new_tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
+        TabletSharedPtr new_tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "CreateTabletFromMeta", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
-        DCHECK(new_tablet != nullptr);
         return new_tablet;
     }
     return nullptr;
@@ -646,7 +644,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool in
         }
         return nullptr;
     }
-
+#ifndef BE_TEST
     if (!tablet->is_used()) {
         LOG(WARNING) << "tablet cannot be used. tablet=" << tablet_id;
         if (err != nullptr) {
@@ -654,6 +652,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool in
         }
         return nullptr;
     }
+#endif
 
     return tablet;
 }
@@ -836,11 +835,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         tablet_meta->set_tablet_state(TABLET_RUNNING);
     }
 
-    TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
-    if (tablet == nullptr) {
-        return Status::Error<TABLE_CREATE_FROM_HEADER_ERROR>(
-                "fail to load tablet. tablet_id={}, schema_hash={}", tablet_id, schema_hash);
-    }
+    TabletSharedPtr tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
 
     // NOTE: method load_tablet_from_meta could be called by two cases as below
     // case 1: BE start;
@@ -859,7 +854,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         }
     }
 
-    if (tablet_meta->tablet_state() == TABLET_SHUTDOWN) {
+    if (tablet->tablet_meta()->tablet_state() == TABLET_SHUTDOWN) {
         {
             std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(_shutdown_tablets_lock);
             _shutdown_tablets.push_back(tablet);
@@ -1282,11 +1277,9 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
     VLOG_NOTICE << "creating tablet meta. next_unique_id=" << next_unique_id;
 
     // We generate a new tablet_uid for this new tablet.
-    uint64_t shard_id = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(store->get_shard(&shard_id), "fail to get root path shard");
-    Status res = TabletMeta::create(request, TabletUid::gen_uid(), shard_id, next_unique_id,
-                                    col_idx_to_unique_id, tablet_meta);
-    RETURN_IF_ERROR(res);
+    uint64_t shard_id = store->get_shard();
+    *tablet_meta = TabletMeta::create(request, TabletUid::gen_uid(), shard_id, next_unique_id,
+                                      col_idx_to_unique_id);
     if (request.__isset.storage_format) {
         if (request.storage_format == TStorageFormat::DEFAULT) {
             (*tablet_meta)
@@ -1300,7 +1293,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
                                                       request.storage_format);
         }
     }
-    return res;
+    return Status::OK();
 }
 
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id) {

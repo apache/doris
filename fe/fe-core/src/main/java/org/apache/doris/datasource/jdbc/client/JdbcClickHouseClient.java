@@ -43,11 +43,13 @@ public class JdbcClickHouseClient extends JdbcClient {
         String ckType = fieldSchema.getDataTypeName();
 
         if (ckType.startsWith("LowCardinality")) {
+            fieldSchema.setAllowNull(true);
             ckType = ckType.substring(15, ckType.length() - 1);
             if (ckType.startsWith("Nullable")) {
                 ckType = ckType.substring(9, ckType.length() - 1);
             }
         } else if (ckType.startsWith("Nullable")) {
+            fieldSchema.setAllowNull(true);
             ckType = ckType.substring(9, ckType.length() - 1);
         }
 
@@ -71,20 +73,14 @@ public class JdbcClickHouseClient extends JdbcClient {
             if (ckType.startsWith("DateTime(") || ckType.equals("DateTime")) {
                 return ScalarType.createDatetimeV2Type(0);
             } else {
-                int indexStart = ckType.indexOf('(');
-                int indexEnd = ckType.indexOf(')');
-                if (indexStart != -1 && indexEnd != -1) {
-                    String scaleStr = ckType.substring(indexStart + 1, indexEnd);
-                    int scale = Integer.parseInt(scaleStr);
-                    if (scale > JDBC_DATETIME_SCALE) {
-                        scale = JDBC_DATETIME_SCALE;
-                    }
-                    // return with the actual scale
-                    return ScalarType.createDatetimeV2Type(scale);
-                } else {
-                    // default precision if not specified
-                    return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+                // DateTime64 with millisecond precision
+                // Datetime64(6) / DateTime64(6, 'Asia/Shanghai')
+                String[] accuracy = ckType.substring(11, ckType.length() - 1).split(", ");
+                int precision = Integer.parseInt(accuracy[0]);
+                if (precision > 6) {
+                    precision = JDBC_DATETIME_SCALE;
                 }
+                return ScalarType.createDatetimeV2Type(precision);
             }
         }
 

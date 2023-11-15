@@ -274,33 +274,75 @@ public class TypeCoercionUtils {
      * return ture if datatype has character type in it, cannot use instance of CharacterType because of complex type.
      */
     public static boolean hasCharacterType(DataType dataType) {
+        return hasSpecifiedType(dataType, CharacterType.class);
+    }
+
+    public static boolean hasDecimalV2Type(DataType dataType) {
+        return hasSpecifiedType(dataType, DecimalV2Type.class);
+    }
+
+    public static boolean hasDecimalV3Type(DataType dataType) {
+        return hasSpecifiedType(dataType, DecimalV3Type.class);
+    }
+
+    public static boolean hasDateTimeV2Type(DataType dataType) {
+        return hasSpecifiedType(dataType, DateTimeV2Type.class);
+    }
+
+    private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
         if (dataType instanceof ArrayType) {
-            return hasCharacterType(((ArrayType) dataType).getItemType());
+            return hasSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType);
         } else if (dataType instanceof MapType) {
-            return hasCharacterType(((MapType) dataType).getKeyType())
-                    || hasCharacterType(((MapType) dataType).getValueType());
+            return hasSpecifiedType(((MapType) dataType).getKeyType(), specifiedType)
+                    || hasSpecifiedType(((MapType) dataType).getValueType(), specifiedType);
         } else if (dataType instanceof StructType) {
-            return ((StructType) dataType).getFields().stream().anyMatch(f -> hasCharacterType(f.getDataType()));
+            return ((StructType) dataType).getFields().stream()
+                    .anyMatch(f -> hasSpecifiedType(f.getDataType(), specifiedType));
         }
-        return dataType instanceof CharacterType;
+        return specifiedType.isAssignableFrom(dataType.getClass());
     }
 
     /**
      * replace all character types to string for correct type coercion
      */
     public static DataType replaceCharacterToString(DataType dataType) {
+        return replaceSpecifiedType(dataType, CharacterType.class, StringType.INSTANCE);
+    }
+
+    public static DataType replaceDecimalV2WithDefault(DataType dataType) {
+        return replaceSpecifiedType(dataType, DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
+    }
+
+    public static DataType replaceDecimalV3WithTarget(DataType dataType, DecimalV3Type target) {
+        return replaceSpecifiedType(dataType, DecimalV3Type.class, target);
+    }
+
+    public static DataType replaceDecimalV3WithWildcard(DataType dataType) {
+        return replaceSpecifiedType(dataType, DecimalV3Type.class, DecimalV3Type.WILDCARD);
+    }
+
+    public static DataType replaceDateTimeV2WithTarget(DataType dataType, DateTimeV2Type target) {
+        return replaceSpecifiedType(dataType, DateTimeV2Type.class, target);
+    }
+
+    public static DataType replaceDateTimeV2WithMax(DataType dataType) {
+        return replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.MAX);
+    }
+
+    private static DataType replaceSpecifiedType(DataType dataType,
+            Class<? extends DataType> specifiedType, DataType newType) {
         if (dataType instanceof ArrayType) {
-            return ArrayType.of(replaceCharacterToString(((ArrayType) dataType).getItemType()));
+            return ArrayType.of(replaceSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType, newType));
         } else if (dataType instanceof MapType) {
-            return MapType.of(replaceCharacterToString(((MapType) dataType).getKeyType()),
-                    replaceCharacterToString(((MapType) dataType).getValueType()));
+            return MapType.of(replaceSpecifiedType(((MapType) dataType).getKeyType(), specifiedType, newType),
+                    replaceSpecifiedType(((MapType) dataType).getValueType(), specifiedType, newType));
         } else if (dataType instanceof StructType) {
             List<StructField> newFields = ((StructType) dataType).getFields().stream()
-                    .map(f -> f.withDataType(replaceCharacterToString(f.getDataType())))
+                    .map(f -> f.withDataType(replaceSpecifiedType(f.getDataType(), specifiedType, newType)))
                     .collect(ImmutableList.toImmutableList());
             return new StructType(newFields);
-        } else if (dataType instanceof CharacterType) {
-            return StringType.INSTANCE;
+        } else if (specifiedType.isAssignableFrom(dataType.getClass())) {
+            return newType;
         } else {
             return dataType;
         }

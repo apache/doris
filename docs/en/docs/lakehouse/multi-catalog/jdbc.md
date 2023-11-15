@@ -663,6 +663,23 @@ DROP CATALOG <catalog_name>;
     SELECT * FROM <table_name>;
     ```
 
+## JDBC Drivers
+
+It is recommended to use the following versions of Driver to connect to the corresponding database. Other versions of the Driver have not been tested and may cause unexpected problems.
+
+|  Source | JDBC Driver Version |
+|:--------:|:--------:|
+| MySQL 5.x  | mysql-connector-java-5.1.47.jar |
+| MySQL 8.x  | mysql-connector-java-8.0.25.jar |
+| PostgreSQL | postgresql-42.5.1.jar |
+| Oracle   | ojdbc8.jar|
+| SQLServer | mssql-jdbc-11.2.3.jre8.jar |
+| Doris | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+| Clickhouse | clickhouse-jdbc-0.4.2-all.jar  |
+| SAP HAHA | ngdbc.jar |
+| Trino/Presto | trino-jdbc-389.jar / presto-jdbc-0.280.jar |
+| OceanBase | oceanbase-client-2.4.2.jar |
+
 ## FAQ
 
 1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase?

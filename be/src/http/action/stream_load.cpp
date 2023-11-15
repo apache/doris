@@ -188,8 +188,9 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
     ctx->label = req->header(HTTP_LABEL_KEY);
     Status st = Status::OK();
-    if (iequal(req->header(HTTP_GROUP_COMMIT), "true")) {
-        if (!ctx->label.empty()) {
+    if (iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
+        config::wait_internal_group_commit_finish) {
+        if (iequal(req->header(HTTP_GROUP_COMMIT), "true") && !ctx->label.empty()) {
             st = Status::InternalError("label and group_commit can't be set at the same time");
         }
         ctx->group_commit = true;
@@ -522,7 +523,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_send_batch_parallelism(
                     std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid send_batch_parallelism format, {}", e.what());
+            return Status::InvalidArgument("send_batch_parallelism must be an integer, {}",
+                                           e.what());
+        } catch (const std::out_of_range& e) {
+            return Status::InvalidArgument("send_batch_parallelism out of range, {}", e.what());
         }
     }
 
