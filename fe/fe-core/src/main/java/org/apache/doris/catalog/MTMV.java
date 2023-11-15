@@ -32,7 +32,6 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -143,30 +142,8 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public String toSql() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("CREATE MATERIALIZED VIEW ");
-        builder.append(name);
-        builder.append(" ");
-        builder.append(refreshInfo);
-        builder.append(" PROPERTIES ");
-        builder.append(mvProperties.toString().replace("{", "(").replace("}", ")"));
-        builder.append(" AS ");
-        builder.append(querySql);
-        builder.append("=======status======");
-        builder.append(status);
-        builder.append("=======jobInfo======");
-        builder.append(jobInfo);
-        builder.append("=======cache======");
-        builder.append(cache);
-        builder.append("======= isAvailableMTMV ======");
-        try {
-            builder.append(
-                    Env.getCurrentEnv().getMtmvService().getCacheManager().isAvailableMTMV(this, ConnectContext.get()));
-        } catch (Exception e) {
-            LOG.warn(e.getMessage());
-        }
-        return builder.toString();
+    public Map<String, String> getMvProperties() {
+        return mvProperties;
     }
 
     @Override

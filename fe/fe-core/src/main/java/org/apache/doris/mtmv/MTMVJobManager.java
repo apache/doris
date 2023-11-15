@@ -28,6 +28,7 @@ import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
@@ -100,7 +101,7 @@ public class MTMVJobManager implements MTMVHookService {
     @Override
     public void dropMTMV(MTMV mtmv) throws DdlException {
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(null, mtmv.getJobInfo().getJobName());
+                .queryJobs(JobType.MTMV, mtmv.getJobInfo().getJobName());
         if (!CollectionUtils.isEmpty(jobs)) {
             try {
                 Env.getCurrentEnv().getJobManager()
@@ -135,7 +136,7 @@ public class MTMVJobManager implements MTMVHookService {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getMvName().getDb());
         MTMV mtmv = (MTMV) db.getTableOrMetaException(info.getMvName().getTbl(), TableType.MATERIALIZED_VIEW);
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(null, mtmv.getJobInfo().getJobName());
+                .queryJobs(JobType.MTMV, mtmv.getJobInfo().getJobName());
         if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
             throw new DdlException("jobs not normal");
         }

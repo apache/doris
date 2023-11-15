@@ -509,9 +509,12 @@ public class MetadataGenerator {
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getName()));
+                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getRefreshInfo())));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getQuerySql()));
                 trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getStatus())));
-                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getJobInfo())));
-                trow.addToColumnValue(new TCell().setStringVal(mv.toSql()));
+                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getEnvInfo())));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getJobInfo().getJobName()));
+                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getMvProperties())));
                 dataBatch.add(trow);
             }
         }
