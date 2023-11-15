@@ -61,7 +61,7 @@ public class MTMVJobManager implements MTMVHookService {
             setManualJobConfig(jobExecutionConfiguration, mtmv);
         }
         job.setJobConfig(jobExecutionConfiguration);
-        job.checkJobParams();
+        //job.checkJobParams(); fixme twice check
         try {
             Env.getCurrentEnv().getJobManager().registerJob(job);
         } catch (JobException e) {

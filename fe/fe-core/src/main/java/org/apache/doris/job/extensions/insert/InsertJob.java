@@ -20,14 +20,17 @@ package org.apache.doris.job.extensions.insert;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -41,6 +44,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
     @SerializedName(value = "labelPrefix")
     String labelPrefix;
 
+    InsertIntoTableCommand command;
 
     @Override
     public List<InsertTask> createTasks(TaskType taskType) {
@@ -73,7 +77,12 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     protected void checkJobParamsInternal() {
-
+        if (command == null || StringUtils.isBlank(getExecuteSql())) {
+            throw new IllegalArgumentException("command or sql is null,must be set");
+        }
+        if (null != command && !getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+            throw new IllegalArgumentException("command must be null when executeType is not instant");
+        }
     }
 
     public static InsertJob readFields(DataInput in) throws IOException {

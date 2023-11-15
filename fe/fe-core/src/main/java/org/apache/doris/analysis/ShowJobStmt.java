@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.job.common.JobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -63,17 +64,17 @@ public class ShowJobStmt extends ShowStmt {
     @Getter
     private String dbFullName; // optional
 
-    private String jobCategoryName; // optional
+    @Getter
+    private JobType jobType; // optional
 
     @Getter
     private String name; // optional
     @Getter
     private String pattern; // optional
 
-    public ShowJobStmt(String category, LabelName labelName, String pattern) {
+    public ShowJobStmt(LabelName labelName, JobType jobType) {
         this.labelName = labelName;
-        this.pattern = pattern;
-        this.jobCategoryName = category;
+        this.jobType = jobType;
     }
 
     @Override

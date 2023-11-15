@@ -121,19 +121,20 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    public List<T> queryJobs(String currentDb, String jobName) {
+    public List<T> queryJobs(JobType jobType, String jobName) {
         //only query insert job,we just provide insert job
-        return jobMap.values().stream().filter(a -> checkItsMatch(currentDb, jobName, a))
+        return jobMap.values().stream().filter(a -> checkItsMatch(jobType, jobName, a))
                 .collect(Collectors.toList());
     }
 
-    private boolean checkItsMatch(String currentDb, String jobName, T job) {
-        if (StringUtils.isBlank(jobName)) {
-            return job.getJobType().equals(JobType.INSERT) && (null != job.getCurrentDbName()
-                    && job.getCurrentDbName().equals(currentDb));
+    private boolean checkItsMatch(JobType jobType, String jobName, T job) {
+        if (null == jobType) {
+            throw new IllegalArgumentException("jobType cannot be null");
         }
-        return job.getJobType().equals(JobType.INSERT) && (null != job.getCurrentDbName()
-                && job.getCurrentDbName().equals(currentDb)) && job.getJobName().equals(jobName);
+        if (StringUtils.isBlank(jobName)) {
+            return job.getJobType().equals(jobType);
+        }
+        return job.getJobType().equals(jobType) && job.getJobName().equals(jobName);
     }
 
     public List<? extends AbstractTask> queryTasks(Long jobId) throws JobException {

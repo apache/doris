@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.job.common.JobType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -61,8 +62,12 @@ public class ShowJobTaskStmt extends ShowStmt {
     @Getter
     private String name; // optional
 
-    public ShowJobTaskStmt(String category, LabelName labelName) {
+    @Getter
+    JobType jobType;
+
+    public ShowJobTaskStmt(LabelName labelName, JobType jobType) {
         this.labelName = labelName;
+        this.jobType = jobType;
     }
 
     @Override

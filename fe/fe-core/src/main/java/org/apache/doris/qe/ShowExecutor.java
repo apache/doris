@@ -1445,7 +1445,7 @@ public class ShowExecutor {
         // if job exists
         List<org.apache.doris.job.base.AbstractJob> jobList;
         jobList = Env.getCurrentEnv().getJobManager()
-                .queryJobs(showJobStmt.getDbFullName(), showJobStmt.getName());
+                .queryJobs(showJobStmt.getJobType(), showJobStmt.getName());
 
         if (jobList.isEmpty()) {
             resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
@@ -1455,9 +1455,9 @@ public class ShowExecutor {
         // check auth
 
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
-            rows.add(job.getCommonShowInfo());
+            rows.add(job.getShowInfo());
         }
-        resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
+        resultSet = new ShowResultSet(jobList.get(0).getJobMetaData(), rows);
     }
 
     private void handleShowRoutineLoad() throws AnalysisException {
