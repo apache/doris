@@ -159,7 +159,7 @@ public abstract class AlterJobV2 implements Writable {
 
     // /api/debug_point/add/{name}?value=100
     private void stateWait(final String name) {
-        long waitTimeMs = DebugPointUtil.isEnable(name) ? DebugPointUtil.getDebugParamOrDefault(name, 0) : 0;
+        long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);
         if (waitTimeMs > 0) {
             try {
                 LOG.info("debug point {} wait {} ms", name, waitTimeMs);
@@ -186,12 +186,12 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
-        // /api/debug_point/add/FE.ALTER_JOB_V2_RUN?stop=true
-        if (DebugPointUtil.isEnable("FE.ALTER_JOB_V2_RUN")) {
-            DebugPoint debugPoint = DebugPointUtil.getDebugPoint("FE.ALTER_JOB_V2_RUN");
+        // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN?stop=true
+        if (DebugPointUtil.isEnable("FE.STOP_ALTER_JOB_RUN")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint("FE.STOP_ALTER_JOB_RUN");
             Boolean stop = debugPoint.param("stop", false);
             if (stop) {
-                LOG.info("debug point FE.ALTER_JOB_V2_RUN, schema change schedule stopped");
+                LOG.info("debug point FE.STOP_ALTER_JOB_RUN, schema change schedule stopped");
                 return;
             }
         }
