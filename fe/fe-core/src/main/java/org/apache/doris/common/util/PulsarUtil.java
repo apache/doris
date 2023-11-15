@@ -123,7 +123,7 @@ public class PulsarUtil {
                 List<InternalService.PPulsarBacklogProxyRequest> requests)
                 throws UserException {
             // create request
-            InternalService.PPulsarBacklogBatchProxyRequest pPulsarBacklogBatchProxyRequest =
+            InternalService.PPulsarBacklogBatchProxyRequest.Builder pPulsarBacklogBatchProxyRequest =
                     InternalService.PPulsarBacklogBatchProxyRequest.newBuilder();
             for (InternalService.PPulsarBacklogProxyRequest request : requests) {
                 pPulsarBacklogBatchProxyRequest.addRequests(request);
