@@ -235,11 +235,6 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
             [task = std::move(async_write_task)]() { task(); });
 }
 
-TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                DataDir* data_dir) {
-    return std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
-}
-
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
                const std::string_view& cumulative_compaction_type)
         : BaseTablet(std::move(tablet_meta)),
@@ -879,9 +874,13 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
             // so to avoid print too many logs.
             if (version_path != nullptr) {
                 LOG(WARNING) << "tablet:" << tablet_id()
-                             << ", version already has been merged. spec_version: " << spec_version;
+                             << ", version already has been merged. spec_version: " << spec_version
+                             << ", max_version: " << max_version_unlocked();
             }
-            status = Status::Error<VERSION_ALREADY_MERGED>("missed_versions is empty");
+            status = Status::Error<VERSION_ALREADY_MERGED>(
+                    "missed_versions is empty, spec_version "
+                    "{}, max_version {}, tablet_id {}",
+                    spec_version.second, max_version_unlocked().second, tablet_id());
         } else {
             if (version_path != nullptr) {
                 LOG(WARNING) << "status:" << status << ", tablet:" << tablet_id()

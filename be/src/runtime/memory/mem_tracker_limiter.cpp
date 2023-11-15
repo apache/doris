@@ -136,7 +136,7 @@ void MemTrackerLimiter::refresh_global_counter() {
 
 void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots) {
     MemTrackerLimiter::refresh_global_counter();
-    int64_t process_mem_sum = 0;
+    int64_t all_tracker_mem_sum = 0;
     Snapshot snapshot;
     for (auto it : MemTrackerLimiter::TypeMemSum) {
         snapshot.type = type_string(it.first);
@@ -145,7 +145,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
         snapshot.cur_consumption = it.second->current_value();
         snapshot.peak_consumption = it.second->peak_value();
         (*snapshots).emplace_back(snapshot);
-        process_mem_sum += it.second->current_value();
+        all_tracker_mem_sum += it.second->current_value();
     }
 
     snapshot.type = "tc/jemalloc_free_memory";
@@ -154,13 +154,27 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.cur_consumption = MemInfo::allocator_cache_mem();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
-    process_mem_sum += MemInfo::allocator_cache_mem();
+    all_tracker_mem_sum += MemInfo::allocator_cache_mem();
 
-    snapshot.type = "process";
+    snapshot.type = "all_tracker_sum (is virtual memory)";
     snapshot.label = "";
     snapshot.limit = -1;
-    snapshot.cur_consumption = process_mem_sum;
+    snapshot.cur_consumption = all_tracker_mem_sum;
     snapshot.peak_consumption = -1;
+    (*snapshots).emplace_back(snapshot);
+
+    snapshot.type = "process resident memory (from /proc VmRSS VmHWM)";
+    snapshot.label = "";
+    snapshot.limit = -1;
+    snapshot.cur_consumption = PerfCounters::get_vm_rss();
+    snapshot.peak_consumption = PerfCounters::get_vm_hwm();
+    (*snapshots).emplace_back(snapshot);
+
+    snapshot.type = "process virtual memory (from /proc VmSize VmPeak)";
+    snapshot.label = "";
+    snapshot.limit = -1;
+    snapshot.cur_consumption = PerfCounters::get_vm_size();
+    snapshot.peak_consumption = PerfCounters::get_vm_peak();
     (*snapshots).emplace_back(snapshot);
 }
 
@@ -343,7 +357,9 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
         err_msg += fmt::format(
                 " exec node:<{}>, can `set exec_mem_limit=8G` to change limit, details see "
                 "be.INFO.",
-                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker());
+                doris::is_thread_context_init()
+                        ? doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker()
+                        : "");
     } else if (_type == Type::SCHEMA_CHANGE) {
         err_msg += fmt::format(
                 " can modify `memory_limitation_per_thread_for_schema_change_bytes` in be.conf to "

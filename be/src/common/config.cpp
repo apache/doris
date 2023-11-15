@@ -81,7 +81,7 @@ DEFINE_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-DEFINE_String(mem_limit, "80%");
+DEFINE_String(mem_limit, "90%");
 
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
@@ -319,7 +319,7 @@ DEFINE_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
-DEFINE_Bool(disable_storage_row_cache, "true");
+DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
 DEFINE_Bool(disable_pk_storage_page_cache, "false");
 
@@ -350,6 +350,9 @@ DEFINE_mInt32(vertical_compaction_num_columns_per_group, "5");
 DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "200");
 // In vertical compaction, max dest segment file size
 DEFINE_mInt64(vertical_compaction_max_segment_size, "268435456");
+
+// If enabled, segments will be flushed column by column
+DEFINE_mBool(enable_vertical_segment_writer, "true");
 
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
@@ -1074,6 +1077,7 @@ DEFINE_String(group_commit_replay_wal_dir, "./wal");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
 DEFINE_Int32(group_commit_sync_wal_batch, "10");
+DEFINE_Bool(wait_internal_group_commit_finish, "false");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");

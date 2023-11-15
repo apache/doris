@@ -387,6 +387,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         size_t delta_pos = block_pos - row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
         std::string key = _full_encode_keys(key_columns, delta_pos);
+        _maybe_invalid_row_cache(key);
         if (have_input_seq_column) {
             _encode_seq_column(seq_column, delta_pos, &key);
         }
@@ -396,7 +397,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         if (!_tablet_schema->has_sequence_col() || have_input_seq_column) {
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
         }
-        _maybe_invalid_row_cache(key);
 
         // mark key with delete sign as deleted.
         bool have_delete_sign =
@@ -696,6 +696,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             std::string last_key;
             for (size_t pos = 0; pos < num_rows; pos++) {
                 std::string key = _full_encode_keys(key_columns, pos);
+                _maybe_invalid_row_cache(key);
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);
                 }
@@ -703,7 +704,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                         << "found duplicate key or key is not sorted! current key: " << key
                         << ", last key" << last_key;
                 RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-                _maybe_invalid_row_cache(key);
                 last_key = std::move(key);
             }
         } else {
@@ -737,8 +737,7 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
 }
 
 std::string SegmentWriter::_full_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(_key_index_size.size() == _num_key_columns);
     assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
 
@@ -747,11 +746,7 @@ std::string SegmentWriter::_full_encode_keys(
     for (const auto& column : key_columns) {
         auto field = column->get_data_at(pos);
         if (UNLIKELY(!field)) {
-            if (null_first) {
-                encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
-            } else {
-                encoded_keys.push_back(KEY_NULL_LAST_MARKER);
-            }
+            encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
             ++cid;
             continue;
         }
@@ -779,8 +774,7 @@ void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor
 }
 
 std::string SegmentWriter::_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(key_columns.size() == _num_short_key_columns);
 
     std::string encoded_keys;
@@ -788,11 +782,7 @@ std::string SegmentWriter::_encode_keys(
     for (const auto& column : key_columns) {
         auto field = column->get_data_at(pos);
         if (UNLIKELY(!field)) {
-            if (null_first) {
-                encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
-            } else {
-                encoded_keys.push_back(KEY_NULL_LAST_MARKER);
-            }
+            encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
             ++cid;
             continue;
         }
@@ -810,7 +800,7 @@ Status SegmentWriter::append_row(const RowType& row) {
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
     std::string full_encoded_key;
-    encode_key<RowType, true, true>(&full_encoded_key, row, _num_key_columns);
+    encode_key<RowType, true>(&full_encoded_key, row, _num_key_columns);
     if (_tablet_schema->has_sequence_col()) {
         full_encoded_key.push_back(KEY_NORMAL_MARKER);
         auto cid = _tablet_schema->sequence_col_idx();

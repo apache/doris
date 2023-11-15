@@ -69,6 +69,4 @@ MySQL [(none)]> set [global] enable_sql_cache=true;
 
 3. 查询结果bytes 小于 fe.conf 中的 cache_result_max_data_size。
 
-## 相关参数
-
-具体参数介绍见 query-cache.md。
+具体参数介绍和未尽事项见 query-cache.md。

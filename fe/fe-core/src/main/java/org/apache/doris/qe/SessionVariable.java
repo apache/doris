@@ -167,6 +167,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_RF_DEFAULT = "use_rf_default";
     // Time in ms to wait until runtime filters are delivered.
     public static final String RUNTIME_FILTER_WAIT_TIME_MS = "runtime_filter_wait_time_ms";
+    public static final String runtime_filter_wait_infinitely = "runtime_filter_wait_infinitely";
+
     // Maximum number of bloom runtime filters allowed per query
     public static final String RUNTIME_FILTERS_MAX_NUM = "runtime_filters_max_num";
     // Runtime filter type used, For testing, Corresponds to TRuntimeFilterType
@@ -245,6 +247,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
 
+    public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
@@ -791,6 +794,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
     private int runtimeFilterWaitTimeMs = 1000;
 
+    @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, needForward = true)
+    private boolean runtimeFilterWaitInfinitely = false;
+
     @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM, needForward = true)
     private int runtimeFiltersMaxNum = 10;
 
@@ -908,6 +914,17 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
     private int nthOptimizedPlan = 1;
+
+    public boolean isEnableLeftZigZag() {
+        return enableLeftZigZag;
+    }
+
+    public void setEnableLeftZigZag(boolean enableLeftZigZag) {
+        this.enableLeftZigZag = enableLeftZigZag;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_LEFT_ZIG_ZAG)
+    private boolean enableLeftZigZag = false;
 
     /**
      * as the new optimizer is not mature yet, use this var
@@ -2474,6 +2491,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
+        tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
         if (cpuResourceLimit > 0) {
             TResourceLimit resourceLimit = new TResourceLimit();
@@ -2905,5 +2923,9 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
             throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
         }
+    }
+
+    public boolean isEnableInsertGroupCommit() {
+        return enableInsertGroupCommit || Config.wait_internal_group_commit_finish;
     }
 }

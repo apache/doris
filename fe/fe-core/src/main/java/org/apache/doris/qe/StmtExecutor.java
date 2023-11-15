@@ -126,13 +126,13 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
-import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
@@ -145,19 +145,16 @@ import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueOfferToken;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
-import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
-import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
@@ -1087,7 +1084,7 @@ public class StmtExecutor {
 
             analyzeVariablesInStmt();
         }
-        if (context.getSessionVariable().enableInsertGroupCommit && parsedStmt instanceof NativeInsertStmt) {
+        if (context.getSessionVariable().isEnableInsertGroupCommit() && parsedStmt instanceof NativeInsertStmt) {
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
             nativeInsertStmt.analyzeGroupCommit(new Analyzer(context.getEnv(), context));
         }
@@ -1707,6 +1704,18 @@ public class StmtExecutor {
         if (selectStmt.getValueList() != null) {
             Table tbl = txnEntry.getTable();
             int schemaSize = tbl.getBaseSchema(false).size();
+            if (parsedStmt instanceof NativeInsertStmt
+                    && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
+
+                if (((NativeInsertStmt) parsedStmt).getTargetColumnNames()
+                        .contains(Column.SEQUENCE_COL)) {
+                    schemaSize++;
+                }
+                if (((NativeInsertStmt) parsedStmt).getTargetColumnNames()
+                        .contains(Column.DELETE_SIGN)) {
+                    schemaSize++;
+                }
+            }
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
                 // the value columns are columns which are visible to user, so here we use
                 // getBaseSchema(), not getFullSchema()
@@ -1780,6 +1789,22 @@ public class StmtExecutor {
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId())
                 .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism);
+        if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
+            List<String> targetColumnNames = ((NativeInsertStmt) parsedStmt).getTargetColumnNames();
+            if (targetColumnNames.contains(Column.SEQUENCE_COL) || targetColumnNames.contains(Column.DELETE_SIGN)) {
+                if (targetColumnNames.contains(Column.SEQUENCE_COL)) {
+                    request.setSequenceCol(Column.SEQUENCE_COL);
+                }
+                StringBuilder allCols = new StringBuilder();
+                for (String col : ((NativeInsertStmt) parsedStmt).getTargetColumnNames()) {
+                    allCols.append(col);
+                    allCols.append(",");
+                }
+                allCols.deleteCharAt(allCols.length() - 1);
+                request.setColumns(String.valueOf(allCols));
+                request.setColumnSeparator(",");
+            }
+        }
 
         // execute begin txn
         InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
@@ -1816,6 +1841,7 @@ public class StmtExecutor {
         TransactionStatus txnStatus = TransactionStatus.ABORTED;
         String errMsg = "";
         TableType tblType = insertStmt.getTargetTable().getType();
+        boolean isGroupCommit = false;
         if (context.isTxnModel()) {
             if (insertStmt.getQueryStmt() instanceof SelectStmt) {
                 if (((SelectStmt) insertStmt.getQueryStmt()).getTableRefs().size() > 0) {
@@ -1827,20 +1853,11 @@ public class StmtExecutor {
             label = context.getTxnEntry().getLabel();
             txnId = context.getTxnEntry().getTxnConf().getTxnId();
         } else if (insertStmt instanceof NativeInsertStmt && ((NativeInsertStmt) insertStmt).isGroupCommit()) {
+            isGroupCommit = true;
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) insertStmt;
-            Backend backend = context.getInsertGroupCommit(insertStmt.getTargetTable().getId());
-            if (backend == null || !backend.isAlive()) {
-                List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-                if (allBackendIds.isEmpty()) {
-                    throw new DdlException("No alive backend");
-                }
-                Collections.shuffle(allBackendIds);
-                backend = Env.getCurrentSystemInfo().getBackend(allBackendIds.get(0));
-                context.setInsertGroupCommit(insertStmt.getTargetTable().getId(), backend);
-            }
             int maxRetry = 3;
             for (int i = 0; i < maxRetry; i++) {
-                nativeInsertStmt.planForGroupCommit(context.queryId);
+                GroupCommitPlanner groupCommitPlanner = nativeInsertStmt.planForGroupCommit(context.queryId);
                 // handle rows
                 List<InternalService.PDataRow> rows = new ArrayList<>();
                 SelectStmt selectStmt = (SelectStmt) insertStmt.getQueryStmt();
@@ -1861,23 +1878,15 @@ public class StmtExecutor {
                     InternalService.PDataRow data = getRowStringValue(exprList);
                     rows.add(data);
                 }
-                TUniqueId loadId = nativeInsertStmt.getLoadId();
-                PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
-                        .setDbId(insertStmt.getTargetTable().getDatabase().getId())
-                        .setTableId(insertStmt.getTargetTable().getId())
-                        .setBaseSchemaVersion(nativeInsertStmt.getBaseSchemaVersion())
-                        .setExecPlanFragmentRequest(nativeInsertStmt.getExecPlanFragmentRequest())
-                        .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
-                                .build()).addAllData(rows)
-                        .build();
-                Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
-                        .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
+                Future<PGroupCommitInsertResponse> future = groupCommitPlanner
+                        .executeGroupCommitInsert(context, rows);
                 PGroupCommitInsertResponse response = future.get();
                 TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
                 if (code == TStatusCode.DATA_QUALITY_ERROR) {
                     LOG.info("group commit insert failed. stmt: {}, backend id: {}, status: {}, "
                                     + "schema version: {}, retry: {}", insertStmt.getOrigStmt().originStmt,
-                            backend.getId(), response.getStatus(), nativeInsertStmt.getBaseSchemaVersion(), i);
+                            groupCommitPlanner.getBackend().getId(),
+                            response.getStatus(), nativeInsertStmt.getBaseSchemaVersion(), i);
                     if (i < maxRetry) {
                         List<TableIf> tables = Lists.newArrayList(insertStmt.getTargetTable());
                         MetaLockUtils.readLockTables(tables);
@@ -1890,12 +1899,12 @@ public class StmtExecutor {
                         }
                         continue;
                     } else {
-                        errMsg = "group commit insert failed. backend id: " + backend.getId() + ", status: "
-                                + response.getStatus();
+                        errMsg = "group commit insert failed. backend id: "
+                                + groupCommitPlanner.getBackend().getId() + ", status: " + response.getStatus();
                     }
                 } else if (code != TStatusCode.OK) {
-                    errMsg = "group commit insert failed. backend id: " + backend.getId() + ", status: "
-                            + response.getStatus();
+                    errMsg = "group commit insert failed. backend id: " + groupCommitPlanner.getBackend().getId()
+                            + ", status: " + response.getStatus();
                     ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
                 }
                 label = response.getLabel();
@@ -2033,6 +2042,9 @@ public class StmtExecutor {
         }
         if (!Strings.isNullOrEmpty(errMsg)) {
             sb.append(", 'err':'").append(errMsg).append("'");
+        }
+        if (isGroupCommit) {
+            sb.append(", 'query_id':'").append(DebugUtil.printId(context.queryId)).append("'");
         }
         sb.append("}");
 

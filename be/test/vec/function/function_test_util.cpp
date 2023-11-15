@@ -18,7 +18,6 @@
 #include "vec/function/function_test_util.h"
 
 #include <glog/logging.h>
-#include <opentelemetry/common/threadlocal.h>
 
 #include <iostream>
 

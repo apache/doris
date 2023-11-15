@@ -683,7 +683,7 @@ public class Coordinator implements CoordInterface {
             int backendIdx = 0;
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
-            Set<Long> backendsWithOlapTableSink = Sets.newHashSet();
+            Map<Long, Integer> numSinkOnBackend = Maps.newHashMap();
             beToExecStates.clear();
             // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
             // else use exec_plan_fragments directly.
@@ -753,7 +753,7 @@ public class Coordinator implements CoordInterface {
                     states.addState(execState);
                     if (tParam.getFragment().getOutputSink() != null
                             && tParam.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
-                        backendsWithOlapTableSink.add(execState.backend.getId());
+                        numSinkOnBackend.merge(execState.backend.getId(), 1, Integer::sum);
                     }
                     ++backendIdx;
                 }
@@ -765,7 +765,10 @@ public class Coordinator implements CoordInterface {
                     if (tParam.getFragment().getOutputSink() != null
                             && tParam.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
                         tParam.setLoadStreamPerNode(loadStreamPerNode);
-                        tParam.setTotalLoadStreams(backendsWithOlapTableSink.size() * loadStreamPerNode);
+                        tParam.setTotalLoadStreams(numSinkOnBackend.size() * loadStreamPerNode);
+                        tParam.setNumLocalSink(numSinkOnBackend.get(tParam.getBackendId()));
+                        LOG.info("num local sink for backend {} is {}", tParam.getBackendId(),
+                                numSinkOnBackend.get(tParam.getBackendId()));
                     }
                 }
                 profileFragmentId += 1;
@@ -844,7 +847,7 @@ public class Coordinator implements CoordInterface {
                     }
                 }
 
-                Set<Long> backendsWithOlapTableSink = Sets.newHashSet();
+                int numBackendsWithSink = 0;
                 // 3. group PipelineExecContext by BE.
                 // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
@@ -881,7 +884,7 @@ public class Coordinator implements CoordInterface {
                     if (entry.getValue().getFragment().getOutputSink() != null
                             && entry.getValue().getFragment().getOutputSink().getType()
                             == TDataSinkType.OLAP_TABLE_SINK) {
-                        backendsWithOlapTableSink.add(backendId);
+                        numBackendsWithSink++;
                     }
                     ++backendIdx;
                 }
@@ -894,7 +897,10 @@ public class Coordinator implements CoordInterface {
                             && entry.getValue().getFragment().getOutputSink().getType()
                             == TDataSinkType.OLAP_TABLE_SINK) {
                         entry.getValue().setLoadStreamPerNode(loadStreamPerNode);
-                        entry.getValue().setTotalLoadStreams(backendsWithOlapTableSink.size() * loadStreamPerNode);
+                        entry.getValue().setTotalLoadStreams(numBackendsWithSink * loadStreamPerNode);
+                        entry.getValue().setNumLocalSink(entry.getValue().getLocalParams().size());
+                        LOG.info("num local sink for backend {} is {}", entry.getValue().getBackendId(),
+                                entry.getValue().getNumLocalSink());
                     }
                 }
 

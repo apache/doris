@@ -147,6 +147,8 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
@@ -217,13 +219,8 @@ import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.scheduler.disruptor.TaskDisruptor;
-import org.apache.doris.scheduler.manager.JobTaskManager;
-import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
-import org.apache.doris.scheduler.registry.PersistentJobRegister;
-import org.apache.doris.scheduler.registry.TimerJobRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
@@ -349,13 +346,10 @@ public class Env {
     private CooldownConfHandler cooldownConfHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
-    private PersistentJobRegister persistentJobRegister;
     private ExportTaskRegister exportTaskRegister;
-    private TimerJobManager timerJobManager;
+    private JobManager<? extends AbstractJob> jobManager;
     private TransientTaskManager transientTaskManager;
-    private JobTaskManager jobTaskManager;
 
-    private TaskDisruptor taskDisruptor;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
     private Daemon feDiskUpdater;  // Update fe disk info
@@ -625,13 +619,8 @@ public class Env {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
-        this.jobTaskManager = new JobTaskManager();
-        this.timerJobManager = new TimerJobManager();
+        this.jobManager = new JobManager<>();
         this.transientTaskManager = new TransientTaskManager();
-        this.taskDisruptor = new TaskDisruptor(this.timerJobManager, this.transientTaskManager);
-        this.timerJobManager.setDisruptor(taskDisruptor);
-        this.transientTaskManager.setDisruptor(taskDisruptor);
-        this.persistentJobRegister = new TimerJobRegister(timerJobManager);
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
@@ -1527,8 +1516,7 @@ public class Env {
         publishVersionDaemon.start();
         // Start txn cleaner
         txnCleaner.start();
-        taskDisruptor.start();
-        timerJobManager.start();
+        jobManager.start();
         // Alter
         getAlterInstance().start();
         // Consistency checker
@@ -2008,26 +1996,14 @@ public class Env {
     }
 
     public long loadAsyncJobManager(DataInputStream in, long checksum) throws IOException {
-        timerJobManager.readFields(in);
+        jobManager.readFields(in);
         LOG.info("finished replay asyncJobMgr from image");
         return checksum;
     }
 
     public long saveAsyncJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        timerJobManager.write(out);
+        jobManager.write(out);
         LOG.info("finished save analysisMgr to image");
-        return checksum;
-    }
-
-    public long loadJobTaskManager(DataInputStream in, long checksum) throws IOException {
-        jobTaskManager.readFields(in);
-        LOG.info("finished replay jobTaskMgr from image");
-        return checksum;
-    }
-
-    public long saveJobTaskManager(CountingDataOutputStream out, long checksum) throws IOException {
-        jobTaskManager.write(out);
-        LOG.info("finished save jobTaskMgr to image");
         return checksum;
     }
 
@@ -3818,24 +3794,17 @@ public class Env {
         return this.syncJobManager;
     }
 
-    public PersistentJobRegister getJobRegister() {
-        return persistentJobRegister;
-    }
 
     public ExportTaskRegister getExportTaskRegister() {
         return exportTaskRegister;
     }
 
-    public TimerJobManager getAsyncJobManager() {
-        return timerJobManager;
+    public JobManager getJobManager() {
+        return jobManager;
     }
 
     public TransientTaskManager getTransientTaskManager() {
         return transientTaskManager;
-    }
-
-    public JobTaskManager getJobTaskManager() {
-        return jobTaskManager;
     }
 
     public SmallFileMgr getSmallFileMgr() {
