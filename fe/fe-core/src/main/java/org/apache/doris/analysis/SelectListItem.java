@@ -153,14 +153,6 @@ public class SelectListItem {
 
     public List<String> toSubColumnLabels() {
         Preconditions.checkState(!isStar());
-        // if (alias != null) {
-        //     return alias;
-        // }
-        // Abbreviate the toSql() for analytic exprs.
-        // if (expr instanceof AnalyticExpr) {
-        //     AnalyticExpr analyticExpr = (AnalyticExpr) expr;
-        //     return analyticExpr.getFnCall().toSql() + " OVER(...)";
-        // }
         return expr.toSubColumnLabel();
     }
 

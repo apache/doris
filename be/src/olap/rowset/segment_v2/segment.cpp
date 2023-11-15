@@ -330,11 +330,6 @@ Status Segment::_load_index_impl() {
     });
 }
 
-static vectorized::DataTypePtr get_data_type_from_column_meta(
-        const segment_v2::ColumnMetaPB& column) {
-    return vectorized::DataTypeFactory::instance().create_data_type(column);
-}
-
 vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignore_children) const {
     // Path has higher priority
     if (!field.path().empty()) {
@@ -359,11 +354,12 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     for (uint32_t ordinal = 0; ordinal < footer.columns().size(); ++ordinal) {
         auto& column_pb = footer.columns(ordinal);
         if (column_pb.has_column_path_info()) {
+            // column path
             vectorized::PathInData path;
             path.from_protobuf(column_pb.column_path_info());
             column_path_to_footer_ordinal.emplace(path, ordinal);
-        }
-        if (column_pb.unique_id() >= 0) {
+        } else {
+            // unique id
             column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
         }
     }
@@ -399,7 +395,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         _sub_column_tree.add(
                 iter->first,
                 SubcolumnReader {std::move(reader),
-                                 get_data_type_from_column_meta(footer.columns(iter->second))});
+                                 vectorized::DataTypeFactory::instance().create_data_type(
+                                         footer.columns(iter->second))});
     }
     return Status::OK();
 }
@@ -421,9 +418,9 @@ static Status new_default_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
-                                       std::unique_ptr<ColumnIterator>* iter,
-                                       StorageReadOptions* opt) {
+Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
+                                              std::unique_ptr<ColumnIterator>* iter,
+                                              StorageReadOptions* opt) {
     vectorized::PathInData root_path;
     if (tablet_column.path_info().empty()) {
         // Missing path info, but need read the whole variant column
@@ -506,7 +503,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     StorageReadOptions* opt) {
     // init column iterator by path info
     if (!tablet_column.path_info().empty() || tablet_column.is_variant_type()) {
-        return new_iterator_with_path(tablet_column, iter, opt);
+        return new_column_iterator_with_path(tablet_column, iter, opt);
     }
     // init default iterator
     if (_column_readers.count(tablet_column.unique_id()) < 1) {
@@ -685,12 +682,6 @@ bool Segment::same_with_storage_type(int32_t cid, const Schema& schema,
                                      bool ignore_children) const {
     auto file_column_type = get_data_type_of(*schema.column(cid), ignore_children);
     auto expected_type = Schema::get_data_type_ptr(*schema.column(cid));
-    // ignore struct and map now
-    auto type_without_nullable = vectorized::remove_nullable(expected_type);
-    if (vectorized::WhichDataType(type_without_nullable).is_struct() ||
-        vectorized::WhichDataType(type_without_nullable).is_map()) {
-        return true;
-    }
 #ifndef NDEBUG
     if (file_column_type && !file_column_type->equals(*expected_type)) {
         VLOG_DEBUG << fmt::format("Get column {}, file column type {}, exepected type {}",
@@ -698,7 +689,11 @@ bool Segment::same_with_storage_type(int32_t cid, const Schema& schema,
                                   expected_type->get_name());
     }
 #endif
-    return (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
+    bool same =
+            (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
+    // Currently only variant column can lead to not same
+    CHECK(same || schema.column(cid)->type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
+    return same;
 }
 
 } // namespace segment_v2

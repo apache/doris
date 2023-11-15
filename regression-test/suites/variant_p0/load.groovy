@@ -289,21 +289,21 @@ suite("regression_test_variant", "variant_type"){
         create_table.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
         // no sparse columns
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "1")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
         qt_sql_32_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // 0.95 default ratio    
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         qt_sql_33_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // always sparse column
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         sql "truncate table ${table_name}"
@@ -312,7 +312,7 @@ suite("regression_test_variant", "variant_type"){
 
         // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
          // unique table
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "github_events_unique"
         sql """DROP TABLE IF EXISTS ${table_name}"""
         table_name = "github_events"
@@ -363,13 +363,13 @@ suite("regression_test_variant", "variant_type"){
         // sql "select * from ${table_name}"
 
         // test all sparse columns
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
         table_name = "all_sparse_columns"
         create_table.call(table_name, "1")
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  ""}')""" 
         qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
 
         // test mow with delete
         table_name = "variant_mow" 
@@ -390,14 +390,14 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_38 "select * from ${table_name} order by k"
 
         // read text from sparse col
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_31 """select cast(v:xxxx as string) from sparse_columns where cast(v:xxxx as string) != 'null' limit 1;"""
         sql "truncate table sparse_columns"
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     } finally {
         // reset flags
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     }
 }

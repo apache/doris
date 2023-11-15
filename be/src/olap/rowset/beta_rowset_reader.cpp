@@ -138,6 +138,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // It is necessary to ensure that there is a schema version when using a cache
     // because the absence of a schema version can result in reading a stale version
     // of the schema after a schema change.
+    // For table contains variants, it's schema is unstable and variable so we could not use schema cache here
     if (_read_context->tablet_schema->schema_version() < 0 ||
         _read_context->tablet_schema->num_variant_columns() > 0 ||
         (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {

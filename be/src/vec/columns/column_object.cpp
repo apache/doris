@@ -436,7 +436,7 @@ ColumnPtr ColumnObject::index(const IColumn& indexes, size_t limit) const {
 }
 
 bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    if (num_rows < config::threshold_rows_to_estimate_sparse_column) {
+    if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
         return false;
     }
     std::vector<double> defaults_ratio;
@@ -445,7 +445,7 @@ bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
     }
     double default_ratio = std::accumulate(defaults_ratio.begin(), defaults_ratio.end(), 0.0) /
                            defaults_ratio.size();
-    return default_ratio >= config::ratio_of_defaults_as_sparse_column;
+    return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
 }
 
 void ColumnObject::Subcolumn::finalize() {

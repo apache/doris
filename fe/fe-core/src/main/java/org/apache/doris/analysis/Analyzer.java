@@ -765,18 +765,6 @@ public class Analyzer {
             slot.setIsNullable(col.isAllowNull());
             String key = tableRef.aliases[0] + "." + col.getName();
             slotRefMap.put(key, slot);
-
-            if (col.getType().isVariantType()) {
-                LOG.debug("add subColumnSlotRefMap, key {}, column {}", key, col.toThrift());
-                subColumnSlotRefMap.put(key, Maps.newTreeMap(
-                    new Comparator<List<String>>() {
-                        public int compare(List<String> lst1, List<String> lst2) {
-                            String str1 = String.join(".", lst1);
-                            String str2 = String.join(".", lst2);
-                            return str1.compareTo(str2);
-                        }
-                    }));
-            }
         }
         globalState.descTbl.computeStatAndMemLayout();
         tableRefMap.put(result.getId(), ref);

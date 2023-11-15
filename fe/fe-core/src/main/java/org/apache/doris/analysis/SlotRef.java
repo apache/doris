@@ -328,7 +328,6 @@ public class SlotRef extends Expr {
     }
 
     public List<String> toSubColumnLabel() {
-        // return tblName == null ? col : tblName.getTbl() + "." + col;
         return subColLables;
     }
 
@@ -396,7 +395,7 @@ public class SlotRef extends Expr {
             return false;
         }
         if (subColLables != null
-                && String.join(".", subColLables).equals(String.join(".", other.subColLables))) {
+                && subColLables.equals(other.subColLables)) {
             return false;
         }
         return true;

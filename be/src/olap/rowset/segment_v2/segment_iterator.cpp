@@ -2087,6 +2087,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto column_desc = _schema->column(cid);
             if (_is_pred_column[cid]) {
                 auto storage_column_type = _storage_name_and_type[cid].second;
+                // Char type is special , since char type's computational datatype is same with string,
+                // both are DataTypeString, but DataTypeString only return FieldType::OLAP_FIELD_TYPE_STRING
+                // in get_storage_field_type.
                 RETURN_IF_CATCH_EXCEPTION(
                         _current_return_columns[cid] = Schema::get_predicate_column_ptr(
                                 _is_char_type[cid] ? FieldType::OLAP_FIELD_TYPE_CHAR
@@ -2105,7 +2108,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // TODO: skip read the not effective delete column to speed up segment read.
                 _current_return_columns[cid] =
                         Schema::get_data_type_ptr(*column_desc)->create_column();
-                ;
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
         }

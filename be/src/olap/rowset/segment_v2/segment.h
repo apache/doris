@@ -94,9 +94,9 @@ public:
                                std::unique_ptr<ColumnIterator>* iter,
                                StorageReadOptions* opt = nullptr);
 
-    Status new_iterator_with_path(const TabletColumn& tablet_column,
-                                  std::unique_ptr<ColumnIterator>* iter,
-                                  StorageReadOptions* opt = nullptr);
+    Status new_column_iterator_with_path(const TabletColumn& tablet_column,
+                                         std::unique_ptr<ColumnIterator>* iter,
+                                         StorageReadOptions* opt = nullptr);
 
     Status new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter);
 
@@ -144,7 +144,8 @@ public:
 
     // Get the inner file column's data type
     // ignore_chidren set to false will treat field as variant
-    // when it contains children with field paths
+    // when it contains children with field paths.
+    // nullptr will returned if storage type does not contains such column
     std::shared_ptr<const vectorized::IDataType> get_data_type_of(const Field& filed,
                                                                   bool ignore_children) const;
 
@@ -167,8 +168,12 @@ public:
             // Predicate should nerver apply on variant type
             return false;
         }
-        return pred->can_do_apply_safely(storage_column_type->get_type_as_type_descriptor().type,
-                                         storage_column_type->is_nullable());
+        bool safe =
+                pred->can_do_apply_safely(storage_column_type->get_type_as_type_descriptor().type,
+                                          storage_column_type->is_nullable());
+        // Currently only variant column can lead to unsafe
+        CHECK(safe || col->type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
+        return safe;
     }
 
 private:

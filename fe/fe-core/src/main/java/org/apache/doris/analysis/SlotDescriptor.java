@@ -46,6 +46,9 @@ public class SlotDescriptor {
     private String label;
     // for variant column's sub column lables
     private List<String> subColLabels;
+    // materializedColumnnName is the target name of a slot
+    // it could be either column name or a composed name for a variant
+    // subcolumn like `a.b.c`
     private String materializedColumnnName;
 
     // Expr(s) materialized into this slot; multiple exprs for unions. Should be empty if
