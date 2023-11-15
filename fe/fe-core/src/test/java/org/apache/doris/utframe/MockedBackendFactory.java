@@ -18,17 +18,8 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.catalog.CatalogTestUtil;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
@@ -36,7 +27,6 @@ import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.proto.Types;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
-import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendService.Client;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TAgentPublishRequest;
@@ -84,6 +74,7 @@ import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
@@ -92,6 +83,7 @@ import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 
 /*
@@ -265,58 +257,24 @@ public class MockedBackendFactory {
 
                 private void handleStorageMediumMigrate(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
                     TStorageMediumMigrateReq req = request.getStorageMediumMigrateReq();
-                    long tabletId = req.getTabletId();
-                    String data_dir = req.data_dir;
-                    Env env = Env.getCurrentEnv();
-                    TabletInvertedIndex invertedIndex = env.getTabletInvertedIndex();
-                    TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                    if (tabletMeta == null) {
-                        return;
-                    }
-                    long dbId = tabletMeta.getDbId();
-                    long tableId = tabletMeta.getTableId();
-                    long partitionId = tabletMeta.getPartitionId();
-                    long indexId = tabletMeta.getIndexId();
-                    Database db = env.getInternalCatalog().getDbNullable(dbId);
-                    if (db == null) {
-                        return;
-                    }
-                    Table table = db.getTableNullable(tableId);
-                    if (table == null) {
-                        return;
-                    }
-                    if (table.getType() != TableType.OLAP) {
-                        return;
-                    }
-                    OlapTable olapTable = (OlapTable) table;
-                    olapTable.readLock();
-                    try {
-                        Partition partition = olapTable.getPartition(partitionId);
-                        if (partition == null) {
-                            return;
-                        }
-                        MaterializedIndex materializedIndex = partition.getIndex(indexId);
-                        if (materializedIndex == null) {
-                            return;
-                        }
-                        Tablet tablet = materializedIndex.getTablet(tabletId);
-                        if (tablet == null) {
-                            return;
-                        }
-                        tablet.getReplicas().forEach(replica -> {
-                            DiskInfo info = getDisk(data_dir);
-                            System.out.println("before="+replica.getPathHash());
-                            replica.setPathHash(info.getPathHash());
-                            System.out.println("after="+replica.getPathHash());
-                        });
-                    } finally {
-                        olapTable.readUnlock();
-                    }
 
+                    long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
+                    DiskInfo diskInfo = getDisk(req.data_dir);
+                    if (diskInfo != null) {
+                        diskInfo.setDataUsedCapacityB(Math.min(diskInfo.getTotalCapacityB(),
+                                diskInfo.getDataUsedCapacityB() + dataSize));
+                        diskInfo.setAvailableCapacityB(Math.max(0L,
+                                diskInfo.getAvailableCapacityB() - dataSize));
+                        diskInfo.setState(DiskState.ONLINE);
+                    }
+                    Map<String, DiskInfo> newDiskInfos = Maps.newHashMap();
+                    newDiskInfos.putAll(backendInFe.getDisks());
+                    newDiskInfos.put(req.data_dir, diskInfo);
+                    backendInFe.setDisks(ImmutableMap.copyOf(newDiskInfos));
                 }
 
-                private DiskInfo getDisk(String data_dir) {
-                    return backendInFe.getDisks().get(data_dir);
+                private DiskInfo getDisk(String dataDir) {
+                    return backendInFe.getDisks().get(dataDir);
                 }
 
                 private DiskInfo getDisk(long pathHash) {

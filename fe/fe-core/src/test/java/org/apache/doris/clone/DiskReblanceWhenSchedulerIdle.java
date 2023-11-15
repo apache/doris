@@ -17,33 +17,31 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Table;
+
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.TestWithFeService;
-import org.ehcache.xml.model.Disk;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
 
@@ -82,7 +80,7 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
                 diskInfo.setTotalCapacityB(totalCapacity);
                 diskInfo.setDataUsedCapacityB(1L << 30);
                 diskInfo.setAvailableCapacityB(9L << 30);
-                diskInfo.setPathHash((1000L * ( i + 1 )) + 10 * j);
+                diskInfo.setPathHash((1000L * (i + 1)) + 10 * j);
                 disks.put(diskInfo.getRootPath(), diskInfo);
             }
             backends.get(i).setDisks(ImmutableMap.copyOf(disks));
@@ -91,8 +89,8 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
 
         createDatabase("test");
         createTable("CREATE TABLE test.tbl1 (k INT) DISTRIBUTED BY HASH(k) "
-            + " BUCKETS 4 PROPERTIES ( \"replication_num\" = \"1\","
-            + " \"storage_medium\" = \"HDD\")");
+                + " BUCKETS 4 PROPERTIES ( \"replication_num\" = \"1\","
+                + " \"storage_medium\" = \"HDD\")");
 
         Assertions.assertEquals(2, invertedIndex.getTabletNumByBackendId(backends.get(0).getId()));
         Assertions.assertEquals(2, invertedIndex.getTabletNumByBackendId(backends.get(1).getId()));
@@ -103,22 +101,21 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
         Assertions.assertNotNull(tbl);
         Partition partition = tbl.getPartitions().iterator().next();
         List<Tablet> tablets = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL).iterator().next()
-            .getTablets();
+                .getTablets();
 
         DiskInfo diskInfo0 = be0.getDisks().values().asList().get(0);
         DiskInfo diskInfo1 = be0.getDisks().values().asList().get(1);
 
         tablets.forEach(tablet -> {
             Lists.newArrayList(tablet.getReplicas()).forEach(
-                replica -> {
+                    replica -> {
                     if (replica.getBackendId() == backends.get(1).getId()) {
-                        replica.updateStat(totalCapacity/4, 1);
+                        replica.updateStat(totalCapacity / 4, 1);
                         tablet.deleteReplica(replica);
                         replica.setBackendId(backends.get(0).getId());
                         replica.setPathHash(diskInfo0.getPathHash());
                         tablet.addReplica(replica);
-                    }
-                    else {
+                    } else {
                         replica.setPathHash(diskInfo0.getPathHash());
                     }
                 }
@@ -145,7 +142,6 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
         }));
 
 
-        System.out.println("test");
         Map<Long, Integer> expectTabletNums = Maps.newHashMap();
         expectTabletNums.put(diskInfo0.getPathHash(), 2);
         expectTabletNums.put(diskInfo1.getPathHash(), 2);
