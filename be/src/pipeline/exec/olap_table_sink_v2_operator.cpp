@@ -19,10 +19,6 @@
 
 #include "common/status.h"
 
-namespace doris {
-class DataSink;
-} // namespace doris
-
 namespace doris::pipeline {
 
 OperatorPtr OlapTableSinkV2OperatorBuilder::build_operator() {
