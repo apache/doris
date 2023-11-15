@@ -25,14 +25,17 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -78,7 +81,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public boolean isReadyForScheduling() {
-        return false;
+        return getRunningTasks().size() == 0;
     }
 
     @Override
@@ -122,6 +125,11 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public void write(DataOutput out) throws IOException {
+        Text.writeString(out, JobType.MTMV.name());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
 
+    public static MTMVJob readFields(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), MTMVJob.class);
     }
 }

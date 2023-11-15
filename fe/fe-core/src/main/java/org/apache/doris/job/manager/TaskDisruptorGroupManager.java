@@ -59,9 +59,13 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
             ? Config.job_dispatch_timer_job_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
     private static final int DISPATCH_INSERT_THREAD_NUM = Config.job_insert_task_consumer_thread_num > 0
-            ? Config.job_insert_task_consumer_thread_num : DEFAULT_RING_BUFFER_SIZE;
+            ? Config.job_insert_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
+
+    private static final int DISPATCH_MTMV_THREAD_NUM = Config.job_mtmv_task_consumer_thread_num > 0
+            ? Config.job_mtmv_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
     private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
+    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
 
 
     public void init() {
@@ -105,9 +109,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private void registerMTMVDisruptor() {
         EventFactory<ExecuteTaskEvent<MTMVTask>> mtmvEventFactory = ExecuteTaskEvent.factory();
         ThreadFactory mtmvTaskThreadFactory = new CustomThreadFactory("mtmv-task-execute");
-        //fixme @zddr use config to set thread num
-        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_INSERT_THREAD_NUM];
-        for (int i = 0; i < DISPATCH_INSERT_THREAD_NUM; i++) {
+        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_MTMV_THREAD_NUM];
+        for (int i = 0; i < DISPATCH_MTMV_THREAD_NUM; i++) {
             insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<MTMVTask>();
         }
         EventTranslatorVararg<ExecuteTaskEvent<MTMVTask>> eventTranslator =
@@ -115,7 +118,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                     event.setTask((MTMVTask) args[0]);
                     event.setJobConfig((JobExecutionConfiguration) args[1]);
                 };
-        TaskDisruptor mtmvDisruptor = new TaskDisruptor<>(mtmvEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
+        TaskDisruptor mtmvDisruptor = new TaskDisruptor<>(mtmvEventFactory, DISPATCH_MTMV_TASK_QUEUE_SIZE,
                 mtmvTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.MTMV, mtmvDisruptor);
     }

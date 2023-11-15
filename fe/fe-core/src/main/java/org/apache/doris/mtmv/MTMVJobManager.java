@@ -45,7 +45,7 @@ public class MTMVJobManager implements MTMVHookService {
     public static final String MTMV_JOB_PREFIX = "mtmv_";
 
     @Override
-    public void createMTMV(MTMV mtmv) throws JobException {
+    public void createMTMV(MTMV mtmv) throws DdlException {
         MTMVJob job = new MTMVJob(mtmv.getQualifiedDbName(), mtmv.getId());
         job.setJobId(Env.getCurrentEnv().getNextId());
         job.setJobName(mtmv.getJobInfo().getJobName());
@@ -55,42 +55,60 @@ public class MTMVJobManager implements MTMVHookService {
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
                 .equals(RefreshTrigger.SCHEDULE)) {
-            jobExecutionConfiguration.setExecuteType(JobExecuteType.RECURRING);
-            TimerDefinition timerDefinition = new TimerDefinition();
-            timerDefinition
-                    .setInterval(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getInterval());
-            timerDefinition
-                    .setIntervalUnit(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
-            if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
-                job.setImmediatelyStart(true);
-            } else if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.DEFERRED) && !StringUtils
-                    .isEmpty(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
-                timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(
-                        mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
-            }
-
-            jobExecutionConfiguration.setTimerDefinition(timerDefinition);
+            setScheduleJobConfig(jobExecutionConfiguration, mtmv);
         } else if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
                 .equals(RefreshTrigger.MANUAL)) {
-            jobExecutionConfiguration.setExecuteType(JobExecuteType.MANUAL);
-            if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
-                job.setImmediatelyStart(true);
-            } else {
-                job.setImmediatelyStart(false);
-            }
+            setManualJobConfig(jobExecutionConfiguration, mtmv);
         }
         job.setJobConfig(jobExecutionConfiguration);
         job.checkJobParams();
-        Env.getCurrentEnv().getJobManager().registerJob(job);
+        try {
+            Env.getCurrentEnv().getJobManager().registerJob(job);
+        } catch (JobException e) {
+            e.printStackTrace();
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    private void setManualJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
+        jobExecutionConfiguration.setExecuteType(JobExecuteType.MANUAL);
+        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+            jobExecutionConfiguration.setImmediate(true);
+        } else {
+            jobExecutionConfiguration.setImmediate(false);
+        }
+    }
+
+    private void setScheduleJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
+        jobExecutionConfiguration.setExecuteType(JobExecuteType.RECURRING);
+        TimerDefinition timerDefinition = new TimerDefinition();
+        timerDefinition
+                .setInterval(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getInterval());
+        timerDefinition
+                .setIntervalUnit(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
+        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+            jobExecutionConfiguration.setImmediate(true);
+        } else if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.DEFERRED) && !StringUtils
+                .isEmpty(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
+            timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(
+                    mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
+        }
+
+        jobExecutionConfiguration.setTimerDefinition(timerDefinition);
     }
 
     @Override
-    public void dropMTMV(MTMV mtmv) throws JobException {
+    public void dropMTMV(MTMV mtmv) throws DdlException {
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
                 .queryJobs(null, mtmv.getJobInfo().getJobName());
         if (!CollectionUtils.isEmpty(jobs)) {
-            Env.getCurrentEnv().getJobManager()
-                    .unregisterJob(jobs.get(0).getJobId());
+            try {
+                Env.getCurrentEnv().getJobManager()
+                        .unregisterJob(jobs.get(0).getJobId());
+            } catch (JobException e) {
+                e.printStackTrace();
+                throw new DdlException(e.getMessage());
+            }
         }
     }
 
@@ -105,7 +123,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws JobException {
+    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
         if (alterMTMV.isNeedRebuildJob()) {
             dropMTMV(mtmv);
             createMTMV(mtmv);
@@ -113,7 +131,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
+    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getMvName().getDb());
         MTMV mtmv = (MTMV) db.getTableOrMetaException(info.getMvName().getTbl(), TableType.MATERIALIZED_VIEW);
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
@@ -121,7 +139,12 @@ public class MTMVJobManager implements MTMVHookService {
         if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
             throw new DdlException("jobs not normal");
         }
-        Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId());
+        try {
+            Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId());
+        } catch (JobException e) {
+            e.printStackTrace();
+            throw new DdlException(e.getMessage());
+        }
     }
 
 }

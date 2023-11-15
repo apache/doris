@@ -79,6 +79,7 @@ import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonHMSExternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
@@ -223,7 +224,8 @@ public class GsonUtils {
                     .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
     private static RuntimeTypeAdapterFactory<AbstractJob> jobExecutorRuntimeTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(AbstractJob.class, "clazz")
-                    .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName());
+                    .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
+                    .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")

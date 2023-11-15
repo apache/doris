@@ -1590,6 +1590,16 @@ public class Config extends ConfigBase {
     @ConfField(description = {"用于执行 Insert 任务的线程数", "The number of threads used to consume insert tasks."})
     public static int job_insert_task_consumer_thread_num = 10;
 
+
+    /**
+     * The number of threads used to consume mtmv tasks.
+     * if you have a lot of mtmv jobs,and the average execution frequency is relatively high you need to increase
+     * this value
+     * The value should be greater than 0, if it is 0 or <=0, set it to 5
+     */
+    @ConfField(description = {"用于执行 Insert 任务的线程数", "The number of threads used to consume insert tasks."})
+    public static int job_mtmv_task_consumer_thread_num = 10;
+
     /*---------------------- JOB CONFIG END------------------------*/
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor
