@@ -17,6 +17,7 @@
 
 suite("test_distinct_agg") {
     sql 'drop table if exists test_distinct_agg_t'
+    sql 'drop table if exists multi_distinct_agg_tab'
 
     sql '''
         CREATE TABLE `test_distinct_agg_t` (
@@ -38,6 +39,25 @@ suite("test_distinct_agg") {
         INSERT INTO `test_distinct_agg_t` (`k1`, `k2`, `k3`, `k4`, `k5`, `k6`) VALUES
             (1, '1234', 'A0', 'C0', '1', '2023-01-10 23:00:00');
     '''
+
+    sql '''
+      CREATE TABLE `multi_distinct_agg_tab` (
+             `k1` bigint(20) NULL,
+             `k2` varchar(20) NULL,
+             `d1` DECIMAL(18, 0) NULL,
+             `d2` DECIMAL(38, 0) NULL
+         ) ENGINE=OLAP
+         DUPLICATE KEY(`k1`)
+         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+         PROPERTIES (
+             "replication_allocation" = "tag.location.default: 1"
+         );
+     '''
+
+    sql '''
+         INSERT INTO `multi_distinct_agg_tab` (`k1`,`k2`,`d1`,`d2`) VALUES
+             (1, 'abc', 123,356),(1, 'abc', 123,789);
+     '''
 
     test {
         sql '''
@@ -114,7 +134,22 @@ suite("test_distinct_agg") {
 
     qt_select1 '''select distinct date_tag from dim_v3 where date_tag='本日';'''
 
+    test {
+        sql '''
+             select count(distinct d1),count(distinct d2) from multi_distinct_agg_tab;
+         '''
+        result([[1L, 2L]])
+    }
+
+    test {
+        sql '''
+             select k1,k2,count(distinct d1),count(distinct d2) from multi_distinct_agg_tab group by k1,k2 order by k1,k2;
+         '''
+        result([[1L, 'abc', 1L, 2L]])
+    }
+
     sql 'drop view if exists dim_v2'
     sql 'drop view if exists dim_v3'
     sql 'drop table if exists test_distinct_agg_t'
+    sql 'drop table multi_distinct_agg_tab'
 }
