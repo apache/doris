@@ -36,12 +36,11 @@ DisjunctionQuery::~DisjunctionQuery() {
 
 void DisjunctionQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
     if (terms.size() < 1) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "ConjunctionQuery::add: terms.size() < 1");
+        _CLTHROWA(CL_ERR_IllegalArgument, "DisjunctionQuery::add: terms.size() < 1");
     }
 
     for (auto& term : terms) {
         std::wstring ws_term = StringUtil::string_to_wstring(term);
-        _wsterms.emplace_back(&ws_term);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
         TermDocs* term_doc = _reader->termDocs(t);

@@ -59,14 +59,26 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         int32_t length = _value.length();
         char* buffer = const_cast<char*>(_value.c_str());
         match_value.replace(buffer, length); //is it safe?
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                column_desc->name(), &match_value, inverted_index_query_type, num_rows, &roaring));
+        //TODO: need consider TYPE_CHAR/TYPE_VARCHAR
+        auto query_value =
+                std::make_unique<InvertedIndexPointQuery<TYPE_STRING, PredicateType::MATCH>>(
+                        column_desc->type_info());
+        RETURN_IF_ERROR(query_value->add_value(match_value, inverted_index_query_type));
+
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_desc->name(), query_value.get(),
+                                                           num_rows, &roaring));
     } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
                is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
         char buf[column_desc->get_sub_field(0)->type_info()->size()];
         RETURN_IF_ERROR(column_desc->get_sub_field(0)->from_string(buf, _value));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                column_desc->name(), buf, inverted_index_query_type, num_rows, &roaring, true));
+
+        std::unique_ptr<InvertedIndexQueryBase> query_value = nullptr;
+        RETURN_IF_ERROR(
+                InvertedIndexQueryBase::create_and_add_value_from_field_type<PredicateType::MATCH>(
+                        column_desc->get_sub_field(0)->type_info(), buf, inverted_index_query_type,
+                        query_value));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_desc->name(), query_value.get(),
+                                                           num_rows, &roaring, true));
     }
 
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL
