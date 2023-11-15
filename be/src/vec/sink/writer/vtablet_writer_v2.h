@@ -208,7 +208,6 @@ private:
     Status _close_status;
 
     VOlapTablePartitionParam* _vpartition = nullptr;
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open

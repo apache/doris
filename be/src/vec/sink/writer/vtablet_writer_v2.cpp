@@ -141,7 +141,7 @@ Status VTabletWriterV2::_init_row_distribution() {
     ctx.txn_id = _txn_id;
     ctx.pool = _pool;
     ctx.location = _location;
-    ctx.vec_output_expr_ctxs = &_output_vexpr_ctxs;
+    ctx.vec_output_expr_ctxs = &_vec_output_expr_ctxs;
     ctx.on_partitions_created = &vectorized::on_partitions_created;
     ctx.caller = (void*)this;
     ctx.schema = _schema;
