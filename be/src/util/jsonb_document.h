@@ -77,7 +77,6 @@
 #include <string>
 #include <type_traits>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 
 // #include "util/string_parser.hpp"
@@ -197,27 +196,33 @@ public:
 
 public:
     bool operator==(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator!=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator<=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator>=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator<(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator>(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
 private:

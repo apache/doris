@@ -16,7 +16,6 @@
 #include <string_view>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
@@ -320,7 +319,9 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::CANCELLED
         && code != ErrorCode::UNINITIALIZED
         && code != ErrorCode::PIP_WAIT_FOR_RF
-        && code != ErrorCode::PIP_WAIT_FOR_SC;
+        && code != ErrorCode::PIP_WAIT_FOR_SC
+        && code != ErrorCode::INVALID_ARGUMENT
+        && code != ErrorCode::DATA_QUALITY_ERR;
 }
 // clang-format on
 
@@ -501,6 +502,8 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
+    std::string msg() const { return _err_msg ? _err_msg->_msg : ""; }
+
 private:
     int _code;
     struct ErrMsg {
@@ -519,7 +522,7 @@ private:
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
-    ostr << (status._err_msg ? status._err_msg->_msg : "");
+    ostr << status.msg();
 #ifdef ENABLE_STACKTRACE
     if (status._err_msg && !status._err_msg->_stack.empty()) {
         ostr << '\n' << status._err_msg->_stack;
@@ -572,15 +575,6 @@ inline std::string Status::to_string() const {
         }                                                   \
     } while (false);
 
-#define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix)  \
-    do {                                                           \
-        Status _s = (stmt);                                        \
-        if (UNLIKELY(!_s.ok())) {                                  \
-            LOG(WARNING) << (warning_prefix) << ", error: " << _s; \
-            return ret_code;                                       \
-        }                                                          \
-    } while (false);
-
 #define RETURN_NOT_OK_STATUS_WITH_WARN(stmt, warning_prefix)       \
     do {                                                           \
         Status _s = (stmt);                                        \
@@ -593,6 +587,8 @@ inline std::string Status::to_string() const {
 template <typename T>
 using Result = expected<T, Status>;
 
+using ResultError = unexpected<Status>;
+
 #define RETURN_IF_ERROR_RESULT(stmt)                \
     do {                                            \
         Status _status_ = (stmt);                   \
@@ -601,17 +597,28 @@ using Result = expected<T, Status>;
         }                                           \
     } while (false)
 
-// clang-format off
-#define DORIS_TRY(stmt)                                              \
-    ({                                                               \
-        auto&& res = (stmt);                                         \
-        using T = std::decay_t<decltype(res)>;                       \
-        static_assert(tl::detail::is_expected<T>::value);            \
-        if (!res.has_value()) [[unlikely]] {                         \
-            return std::forward<T>(res).error();                     \
-        }                                                            \
-        std::forward<T>(res).value();                                \
+#define DORIS_TRY(stmt)                          \
+    ({                                           \
+        auto&& res = (stmt);                     \
+        using T = std::decay_t<decltype(res)>;   \
+        if (!res.has_value()) [[unlikely]] {     \
+            return std::forward<T>(res).error(); \
+        }                                        \
+        std::forward<T>(res).value();            \
     });
-// clang-format on
 
 } // namespace doris
+
+// specify formatter for Status
+template <>
+struct fmt::formatter<doris::Status> {
+    template <typename ParseContext>
+    constexpr auto parse(ParseContext& ctx) {
+        return ctx.begin();
+    }
+
+    template <typename FormatContext>
+    auto format(doris::Status const& status, FormatContext& ctx) {
+        return fmt::format_to(ctx.out(), "{}", status.to_string());
+    }
+};

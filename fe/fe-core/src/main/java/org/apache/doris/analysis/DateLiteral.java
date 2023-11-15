@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -716,7 +717,7 @@ public class DateLiteral extends LiteralExpr {
             long value = getYear() * 1000 + getMonth() * 100 + getDay();
             return new IntLiteral(value, Type.BIGINT);
         } else {
-            if (Type.isImplicitlyCastable(this.type, targetType, true)) {
+            if (Type.isImplicitlyCastable(this.type, targetType, true, SessionVariable.getEnableDecimal256())) {
                 return new CastExpr(targetType, this);
             }
         }
@@ -1276,9 +1277,20 @@ public class DateLiteral extends LiteralExpr {
                         break;
                     // Micro second
                     case 'f':
-                        tmp = vp + Math.min(6, vend - vp);
-                        intValue = strToLong(value.substring(vp, tmp));
-                        this.microsecond = (long) (intValue * Math.pow(10, 6 - Math.min(6, vend - vp)));
+                        // FIXME: fix same with BE
+                        tmp = vp;
+                        // when there's still something to the end, fix the scale of ms.
+                        while (tmp < vend && Character.isDigit(value.charAt(tmp))) {
+                            tmp += 1;
+                        }
+
+                        if (tmp - vp > 6) {
+                            int tmp2 = vp + 6;
+                            intValue = strToLong(value.substring(vp, tmp2));
+                        } else {
+                            intValue = strToLong(value.substring(vp, tmp));
+                        }
+                        this.microsecond = (long) (intValue * Math.pow(10, 6 - Math.min(6, tmp - vp)));
                         timePartUsed = true;
                         microSecondPartUsed = true;
                         vp = tmp;
@@ -1476,7 +1488,7 @@ public class DateLiteral extends LiteralExpr {
         //  we think it's stable enough
         if (datePartUsed) {
             if (microSecondPartUsed) {
-                this.type = Type.DATETIMEV2;
+                this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
             } else if (timePartUsed) {
                 this.type = ScalarType.getDefaultDateType(Type.DATETIME);
             } else {

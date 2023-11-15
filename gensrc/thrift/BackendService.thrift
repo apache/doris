@@ -136,6 +136,46 @@ struct TIngestBinlogRequest {
 
 struct TIngestBinlogResult {
     1: optional Status.TStatus status;
+    2: optional bool is_async;
+}
+
+struct TQueryIngestBinlogRequest {
+    1: optional i64 txn_id;
+    2: optional i64 partition_id;
+    3: optional i64 tablet_id;
+    4: optional Types.TUniqueId load_id;
+}
+
+enum TIngestBinlogStatus {
+    ANALYSIS_ERROR,
+    UNKNOWN,
+    NOT_FOUND,
+    OK,
+    FAILED,
+    DOING
+}
+
+struct TQueryIngestBinlogResult {
+    1: optional TIngestBinlogStatus status;
+    2: optional string err_msg;
+}
+
+enum TTopicInfoType {
+    WORKLOAD_GROUP
+}
+
+struct TopicInfo {
+    1: optional string topic_key
+    2: required TTopicInfoType topic_type
+    3: optional map<string, string> info_map
+}
+
+struct TPublishTopicRequest {
+    1: required list<TopicInfo> topic_list
+}
+
+struct TPublishTopicResult {
+    1: required Status.TStatus status
 }
 
 service BackendService {
@@ -193,4 +233,7 @@ service BackendService {
     TCheckStorageFormatResult check_storage_format();
 
     TIngestBinlogResult ingest_binlog(1: TIngestBinlogRequest ingest_binlog_request);
+    TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
+
+    TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 }

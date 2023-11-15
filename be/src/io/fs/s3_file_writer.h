@@ -64,7 +64,6 @@ private:
 
     std::string _bucket;
     std::string _key;
-    bool _closed = false;
     bool _aborted = false;
 
     std::shared_ptr<Aws::S3::S3Client> _client;

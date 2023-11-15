@@ -105,6 +105,32 @@ suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,exte
         // hive tables in rcbinary format are not supported
         //order_qt_37 """select * from ${catalog_name}.${ex_db_name}.rcbinary_all_types limit 1;"""
 
+        // orc_all_types_t predicate test
+        order_qt_41 """select * from ${catalog_name}.${ex_db_name}.orc_all_types_t where t_int = 3;"""
+
+        //test parquet  byte_array_decimal and rle_bool 
+        order_qt_parquet """ select count(*) from ${catalog_name}.${ex_db_name}.parquet_decimal_bool """
+        order_qt_parquet1 """ select * from ${catalog_name}.${ex_db_name}.parquet_decimal_bool 
+                where decimals is not null and  bool_rle is not null  order by decimals,bool_rle limit 7 """ 
+        order_qt_parquet2 """ select decimals from ${catalog_name}.${ex_db_name}.parquet_decimal_bool 
+                where decimals is not null and decimals > 1  order by decimals limit 7 """ 
+        order_qt_parquet3 """ select decimals from ${catalog_name}.${ex_db_name}.parquet_decimal_bool 
+                where decimals = 123.456  order by decimals limit 7 """ 
+        order_qt_parquet4 """ select decimals from ${catalog_name}.${ex_db_name}.parquet_decimal_bool 
+                where decimals != -7871.416 and decimals is not null order by decimals limit 7 """ 
+    
+        order_qt_parquet5 """ select decimals from ${catalog_name}.${ex_db_name}.parquet_decimal_bool 
+                where decimals is not null and decimals < 0  order by decimals limit 7 """ 
+        
+        order_qt_parquet7 """ select bool_rle from ${catalog_name}.${ex_db_name}.parquet_decimal_bool 
+                where bool_rle is not null and bool_rle = 1 limit 7 """ 
+        order_qt_parquet8 """ select bool_rle from ${catalog_name}.${ex_db_name}.parquet_decimal_bool 
+                where bool_rle is not null and bool_rle = 1 limit 7 """ 
+        order_qt_parquet9 """ select count(bool_rle) from ${catalog_name}.${ex_db_name}.parquet_decimal_bool; """ 
+        order_qt_parquet10 """ select count(decimals) from ${catalog_name}.${ex_db_name}.parquet_decimal_bool; """ 
+        order_qt_parquet11 """ select decimals from ${catalog_name}.${ex_db_name}.parquet_decimal_bool 
+                where decimals is not null and decimals > 1  order by decimals limit 7 """ 
+
         //sql """drop catalog if exists ${catalog_name} """
     }
 }

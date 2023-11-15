@@ -35,7 +35,7 @@ import java.util.List;
 public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected int backendNum() {
-        return 3;
+        return 4;
     }
 
     @Override
@@ -78,18 +78,18 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 5. execute decommission
         Backend srcBackend = null;
         for (Backend backend : idToBackendRef.values()) {
-            if (Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).size() > 0) {
+            if (!Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).isEmpty()) {
                 srcBackend = backend;
                 break;
             }
         }
 
-        Assertions.assertTrue(srcBackend != null);
+        Assertions.assertNotNull(srcBackend);
         String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
 
-        Assertions.assertEquals(true, srcBackend.isDecommissioned());
+        Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTimestamp < 90000
             && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
@@ -103,6 +103,34 @@ public class DecommissionBackendTest extends TestWithFeService {
                 Env.getCurrentInvertedIndex().getTabletMetaMap().size());
 
         // 6. add backend
+        String addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+
+    }
+
+    @Test
+    public void testDecommissionBackendById() throws Exception {
+
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        Backend srcBackend = idToBackendRef.values().asList().get(0);
+        Assertions.assertNotNull(srcBackend);
+        // decommission backend by id
+        String decommissionByIdStmtStr = "alter system decommission backend \"" + srcBackend.getId() + "\"";
+        AlterSystemStmt decommissionByIdStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionByIdStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionByIdStmt);
+
+        Assertions.assertTrue(srcBackend.isDecommissioned());
+        long startTimestamp = System.currentTimeMillis();
+        while (System.currentTimeMillis() - startTimestamp < 90000
+                && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            Thread.sleep(1000);
+        }
+
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+
+        // add backend
         String addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
         AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
@@ -132,12 +160,12 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         Backend srcBackend = null;
         for (Backend backend : idToBackendRef.values()) {
-            if (Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).size() > 0) {
+            if (!Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).isEmpty()) {
                 srcBackend = backend;
                 break;
             }
         }
-        Assertions.assertTrue(srcBackend != null);
+        Assertions.assertNotNull(srcBackend);
 
         // 5. drop table tbl1
         dropTable("db2.tbl1", false);
@@ -146,7 +174,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
-        Assertions.assertEquals(true, srcBackend.isDecommissioned());
+        Assertions.assertTrue(srcBackend.isDecommissioned());
 
         long startTimestamp = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTimestamp < 90000
@@ -163,7 +191,7 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         // TabletInvertedIndex still holds these tablets of srcBackend, but they are all in recycled status
         List<Long> tabletList = Env.getCurrentInvertedIndex().getTabletIdsByBackendId(srcBackend.getId());
-        Assertions.assertTrue(tabletList.size() > 0);
+        Assertions.assertFalse(tabletList.isEmpty());
         Assertions.assertTrue(Env.getCurrentRecycleBin().allTabletsInRecycledStatus(tabletList));
 
         // recover tbl1, because tbl1 has more than one replica, so it still can be recovered
@@ -175,5 +203,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
     }
+
+
 
 }

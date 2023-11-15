@@ -94,7 +94,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
         if (!future_block->is_handled()) {
             future_block->cv->wait(l);
         }
-        // future_block->get_status()
+        RETURN_IF_ERROR(future_block->get_status());
         loaded_rows += future_block->get_loaded_rows();
         total_rows += future_block->get_total_rows();
     }
@@ -102,6 +102,10 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
                                          loaded_rows);
     state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
                                    state->num_rows_load_filtered());
+    if (_load_block_queue && _load_block_queue->wait_internal_group_commit_finish) {
+        std::unique_lock l(_load_block_queue->mutex);
+        _load_block_queue->internal_group_commit_finish_cv.wait(l);
+    }
     return Status::OK();
 }
 
@@ -159,8 +163,9 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         state->set_import_label(_load_block_queue->label);
         state->set_wal_id(_load_block_queue->txn_id);
     }
+    RETURN_IF_ERROR(_load_block_queue->add_block(future_block));
     _future_blocks.emplace_back(future_block);
-    return _load_block_queue->add_block(future_block);
+    return Status::OK();
 }
 
 } // namespace vectorized

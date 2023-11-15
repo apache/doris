@@ -101,3 +101,36 @@ CREATE TABLE dbo.t_id (
     Name nvarchar(100)
 );
 
+CREATE TABLE dbo.all_type (
+    id int PRIMARY KEY NOT NULL,
+    name varchar(10) NULL,
+    age int NULL,
+    tinyint_value tinyint NULL,
+    smallint_value smallint NULL,
+    bigint_value bigint NULL,
+    real_value real NULL,
+    float_value float NULL,
+    floatn_value float(5) NULL,
+    decimal_value decimal(38,0) NULL,
+    numeric_value numeric(38,0) NULL,
+    decimal_value2 decimal(38,10) NULL,
+    numeric_value2 numeric(38,10) NULL,
+    char_value char(20) NULL,
+    varchar_value varchar(20) NULL,
+    varcharmax_value varchar(max) NULL,
+    nchar_value nchar(20) NULL,
+    nvarchar_value nvarchar(20) NULL,
+    nvarcharmax_value nvarchar(max) NULL,
+    date_value date NULL,
+    time_value time NULL,
+    datetime_value datetime NULL,
+    datetime2_value datetime2 NULL,
+    smalldatetime_value smalldatetime NULL,
+    datetimeoffset_value datetimeoffset NULL,
+    text_value text NULL,
+    ntext_value ntext NULL,
+    money_value money NULL,
+    smallmoney_value smallmoney NULL,
+    bit_value bit NULL
+);
+

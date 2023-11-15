@@ -25,7 +25,6 @@
 #include <memory>
 #include <sstream>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -205,7 +204,8 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         }
         case TYPE_DECIMAL32:
         case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128I: {
+        case TYPE_DECIMAL128I:
+        case TYPE_DECIMAL256: {
             auto val = type_ptr->to_string(*column, row);
             fmt::format_to(_insert_stmt_buffer, "{}", val);
             break;

@@ -174,7 +174,7 @@ public:
     UIntGauge* data_stream_receiver_count;
     UIntGauge* fragment_endpoint_count;
     UIntGauge* active_scan_context_count;
-    UIntGauge* plan_fragment_count;
+    UIntGauge* fragment_instance_count;
     UIntGauge* load_channel_count;
     UIntGauge* result_buffer_block_count;
     UIntGauge* result_block_queue_count;
@@ -227,6 +227,18 @@ public:
     UIntGauge* light_work_pool_max_queue_size;
     UIntGauge* heavy_work_max_threads;
     UIntGauge* light_work_max_threads;
+
+    UIntGauge* flush_thread_pool_queue_size;
+    UIntGauge* flush_thread_pool_thread_num;
+
+    UIntGauge* local_scan_thread_pool_queue_size;
+    UIntGauge* local_scan_thread_pool_thread_num;
+    UIntGauge* remote_scan_thread_pool_queue_size;
+    UIntGauge* remote_scan_thread_pool_thread_num;
+    UIntGauge* limited_scan_thread_pool_queue_size;
+    UIntGauge* limited_scan_thread_pool_thread_num;
+    UIntGauge* group_local_scan_thread_pool_queue_size;
+    UIntGauge* group_local_scan_thread_pool_thread_num;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

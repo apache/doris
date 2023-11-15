@@ -24,7 +24,6 @@
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_table_utils.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 template <typename Key, typename Mapped>
@@ -269,9 +268,4 @@ private:
     // this flag is set to true, and resize does not actually happen,
     // PartitionedHashTable will convert this hash table to partitioned hash table
     bool _need_partition;
-};
-
-template <typename Key, typename Mapped, typename Hash, bool PartitionedHashTable>
-struct HashTableTraits<PHHashMap<Key, Mapped, Hash, PartitionedHashTable>> {
-    static constexpr bool is_phmap = true;
 };

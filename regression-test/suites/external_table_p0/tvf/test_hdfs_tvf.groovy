@@ -246,7 +246,93 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}"); """
+
+
+            // test hdfs function compatible
+            // because the property `fs.defaultFS` has been delete by pr https://github.com/apache/doris/pull/24706
+            // we should test the compatible of `fs.defaultFS`
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
+            format = "csv"
+            order_qt_hdfs_compatible """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
+                        "format" = "${format}") order by c1; """
+
+            // test csv_schema property
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
+            format = "csv"
+            order_qt_hdfs_csv_schema """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "csv_schema" = "id:int;tinyint_col:tinyint;smallint_col:smallint;bigint_col:bigint;largeint_col:largeint;float_col:float;double_col:double;decimal_col:decimal(10,5);string_col:string;string_col:string;string_col:string;date_col:date;datetime_col:datetime(3)",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
+                        "format" = "${format}") order by id; """
+
+            order_qt_hdfs_desc_csv_schema """ desc function HDFS(
+                        "uri" = "${uri}",
+                        "csv_schema" = "id:int;tinyint_col:tinyint;smallint_col:smallint;bigint_col:bigint;largeint_col:largeint;float_col:float;double_col:double;decimal_col:decimal(10,5);string_col:string;string_col:string;string_col:string;date_col:date;datetime_col:datetime(3)",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
+                        "format" = "${format}"); """
+
         } finally {
         }
     }
+
+    // test exception
+    test {
+        sql """ select * from HDFS(
+                        "uri" = "",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
+                        "format" = "csv") order by c1;
+            """
+
+        // check exception
+        exception """Properties 'uri' is required"""
+    }
+
+    // test exception
+    test {
+        sql """ select * from HDFS(
+                        "uri" = "xx",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
+                        "format" = "csv") order by c1;
+            """
+
+        // check exception
+        exception """Invalid export path, there is no schema of URI found. please check your path"""
+    }
+
+    // test exception
+    test {
+        sql """ select * from HDFS(
+                        "uri" = "xx",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = "",
+                        "format" = "csv") order by c1;
+            """
+
+        // check exception
+        exception """column_separator can not be empty"""
+    }
+
+
+    // test exception
+    test {
+        sql """ select * from HDFS(
+                        "uri" = "xx",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "line_delimiter" = "",
+                        "format" = "csv") order by c1;
+            """
+
+        // check exception
+        exception """line_delimiter can not be empty"""
+    }
+
+
 }

@@ -17,6 +17,9 @@
 
 #include "olap/wal_writer.h"
 
+#include <atomic>
+
+#include "common/config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -25,7 +28,12 @@
 
 namespace doris {
 
-WalWriter::WalWriter(const std::string& file_name) : _file_name(file_name) {}
+WalWriter::WalWriter(const std::string& file_name,
+                     const std::shared_ptr<std::atomic_size_t>& all_wal_disk_bytes)
+        : _file_name(file_name),
+          _count(0),
+          _disk_bytes(0),
+          _all_wal_disk_bytes(all_wal_disk_bytes) {}
 
 WalWriter::~WalWriter() {}
 
@@ -44,6 +52,12 @@ Status WalWriter::finalize() {
 }
 
 Status WalWriter::append_blocks(const PBlockArray& blocks) {
+    {
+        std::unique_lock l(_mutex);
+        while (_all_wal_disk_bytes->load(std::memory_order_relaxed) > config::wal_max_disk_size) {
+            cv.wait_for(l, std::chrono::milliseconds(WalWriter::MAX_WAL_WRITE_WAIT_TIME));
+        }
+    }
     size_t total_size = 0;
     for (const auto& block : blocks) {
         total_size += LENGTH_SIZE + block->ByteSizeLong() + CHECKSUM_SIZE;
@@ -62,6 +76,11 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
         offset += CHECKSUM_SIZE;
     }
     DCHECK(offset == total_size);
+    _disk_bytes.store(_disk_bytes.fetch_add(total_size, std::memory_order_relaxed),
+                      std::memory_order_relaxed);
+    _all_wal_disk_bytes->store(
+            _all_wal_disk_bytes->fetch_add(total_size, std::memory_order_relaxed),
+            std::memory_order_relaxed);
     // write rows
     RETURN_IF_ERROR(_file_writer->append({row_binary, offset}));
     _count++;

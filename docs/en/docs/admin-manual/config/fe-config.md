@@ -167,7 +167,7 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
-### `grpc_threadmgr_threads_nums`
+#### `grpc_threadmgr_threads_nums`
 
 Default: 4096
 
@@ -666,43 +666,6 @@ Default：1048576  （1M）
 
 http header size configuration parameter, the default value is 1M.
 
-#### `enable_tracing`
-
-Default：false
-
-IsMutable：false
-
-MasterOnly：false
-
-Whether to enable tracking
-
-If this configuration is enabled, you should also specify the trace_export_url.
-
-#### `trace_exporter`
-
-Default：zipkin
-
-IsMutable：false
-
-MasterOnly：false
-
-Current support for exporting traces:
-  zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-  collector: The collector can be used to receive and process traces and support export to a variety of third-party systems.
-If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-
-#### `trace_export_url`
-
-Default：`http://127.0.0.1:9411/api/v2/spans`
-
-IsMutable：false
-
-MasterOnly：false
-
-trace export to zipkin like: `http://127.0.0.1:9411/api/v2/spans`
-
-trace export to collector like: `http://127.0.0.1:4318/v1/traces`
-
 ### Query Engine
 
 #### `default_max_query_instances`
@@ -866,7 +829,7 @@ In order to avoid occupying too much memory, the maximum data size of rows that 
 
 #### `cache_last_version_interval_second`
 
-Default：900
+Default：30
 
 IsMutable：true
 
@@ -1814,20 +1777,6 @@ In some very special circumstances, such as code bugs, or human misoperation, et
 
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing
 
-#### `recover_with_skip_missing_version`
-
-Default：disable
-
-IsMutable：true
-
-MasterOnly：true
-
-In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be. In this case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
-This configuration has three values:
-* disable : If an exception occurs, an error will be reported normally.
-* ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
-* ignore_all: In addition to ignore_version, when encountering no queryable replica, skip it directly instead of throwing an exception
-
 #### `min_clone_task_timeout_sec` `And max_clone_task_timeout_sec`
 
 Default：Minimum 3 minutes, maximum two hours
@@ -2096,11 +2045,17 @@ Only for Master FE: true
 
 The data size threshold used to judge whether replica is too large
 
-#### `schedule_slot_num_per_path`
+#### `schedule_slot_num_per_hdd_path`
 
-Default：2
+Default：4
 
-the default slot number per path in tablet scheduler , remove this config and dynamically adjust it by clone task statistic
+the default slot number per path in tablet scheduler for hdd , remove this config and dynamically adjust it by clone task statistic
+
+#### `schedule_slot_num_per_ssd_path`
+
+Default：8
+
+the default slot number per path in tablet scheduler for ssd , remove this config and dynamically adjust it by clone task statistic
 
 #### `tablet_repair_delay_factor_second`
 
@@ -2777,3 +2732,9 @@ Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file 
 Default: mysql
 
 To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. If this database conflicts with a user's own database, please modify this field to replace the name of the Doris built-in MySQL database with a different name.
+
+#### `max_auto_partition_num`
+
+Default value: 2000
+
+For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000.

@@ -33,13 +33,13 @@
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/bit_cast.h"
 #include "vec/common/memcpy_small.h"
 #include "vec/common/nan_utils.h"
 #include "vec/common/radix_sort.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -342,7 +342,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 
 template <typename T>
 UInt64 ColumnVector<T>::get64(size_t n) const {
-    return ext::bit_cast<UInt64>(data[n]);
+    return static_cast<UInt64>(data[n]);
 }
 
 template <typename T>

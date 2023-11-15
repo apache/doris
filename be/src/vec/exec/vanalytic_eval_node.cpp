@@ -19,21 +19,18 @@
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -264,6 +261,7 @@ Status VAnalyticEvalNode::alloc_resource(RuntimeState* state) {
 
 Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* output_block,
                                bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     if (_input_eos && (_output_block_index == _input_blocks.size() || _input_total_rows == 0)) {
         *eos = true;
         return Status::OK();
@@ -290,6 +288,7 @@ Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block
 }
 
 void VAnalyticEvalNode::release_resource(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     if (is_closed()) {
         return;
     }
@@ -335,6 +334,8 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
             break;
         }
     }
+
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(_output_current_block(block));
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     reached_limit(block, eos);
@@ -540,6 +541,7 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
 
 Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block* input_block,
                                bool eos) {
+    SCOPED_TIMER(_exec_timer);
     _input_eos = eos;
     if (_input_eos && input_block->rows() == 0) {
         _need_more_input = false;

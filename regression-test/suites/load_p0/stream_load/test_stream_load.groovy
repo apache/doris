@@ -14,23 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import java.util.Date
-import java.text.SimpleDateFormat
-import org.apache.http.HttpResponse
-import org.apache.http.client.methods.HttpPut
-import org.apache.http.impl.client.CloseableHttpClient
-import org.apache.http.impl.client.HttpClients
-import org.apache.http.entity.ContentType
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.config.RequestConfig
-import org.apache.http.client.RedirectStrategy
-import org.apache.http.protocol.HttpContext
-import org.apache.http.HttpRequest
-import org.apache.http.impl.client.LaxRedirectStrategy
+
 import org.apache.http.client.methods.RequestBuilder
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
+
+import java.text.SimpleDateFormat
 
 suite("test_stream_load", "p0") {
     sql "show tables"
@@ -65,7 +54,7 @@ suite("test_stream_load", "p0") {
         DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
-    
+
     // test strict_mode success
     streamLoad {
         table "${tableName}"
@@ -206,6 +195,10 @@ suite("test_stream_load", "p0") {
     def tableName7 = "test_unique_key_with_delete"
     def tableName8 = "test_array"
     def tableName10 = "test_struct"
+    def tableName11 = "test_map"
+    def tableName12 = "test_num_as_string"
+    def tableName17 = "test_trim_double_quotes"
+
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """ DROP TABLE IF EXISTS ${tableName5} """
@@ -213,6 +206,9 @@ suite("test_stream_load", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName7} """
     sql """ DROP TABLE IF EXISTS ${tableName8} """
     sql """ DROP TABLE IF EXISTS ${tableName10} """
+    sql """ DROP TABLE IF EXISTS ${tableName11} """
+    sql """ DROP TABLE IF EXISTS ${tableName12} """
+    sql """ DROP TABLE IF EXISTS ${tableName17} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
@@ -296,7 +292,7 @@ suite("test_stream_load", "p0") {
       `k4` ARRAY<BIGINT> NULL COMMENT "",
       `k5` ARRAY<CHAR> NULL COMMENT "",
       `k6` ARRAY<VARCHAR(20)> NULL COMMENT "",
-      `k7` ARRAY<DATE> NULL COMMENT "", 
+      `k7` ARRAY<DATE> NULL COMMENT "",
       `k8` ARRAY<DATETIME> NULL COMMENT "",
       `k9` ARRAY<FLOAT> NULL COMMENT "",
       `k10` ARRAY<DOUBLE> NULL COMMENT "",
@@ -330,6 +326,113 @@ suite("test_stream_load", "p0") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName11} (
+      `k1` int(11) NULL,
+      `k2` map<int, char(7)> NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName12} (
+      `k1` int(11) NULL,
+      `k2` float NULL,
+      `k3` double NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName17} (
+      `k1` int(11) NULL,
+      `k2` VARCHAR(20) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    // test num_as_string
+    streamLoad {
+        table "${tableName12}"
+
+        set 'format', 'JSON'
+        set 'num_as_string', 'true'
+        set 'strip_outer_array', 'true'
+        file 'num_as_string.json'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    order_qt_num_as_string "SELECT * FROM ${tableName12} order by k1"
+
+    sql """truncate table ${tableName12}"""
+    sql """sync"""
+
+
+    streamLoad {
+        table "${tableName12}"
+
+        set 'format', 'JSON'
+        set 'num_as_string', 'false'
+        set 'strip_outer_array', 'true'
+        file 'num_as_string.json'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    qt_num_as_string_false "SELECT * FROM ${tableName12} order by k1"
+
+    // load map with specific-length char with non-specific-length data
+    streamLoad {
+        table "${tableName11}"
+
+        set 'column_separator', '\t'
+
+        file 'map_char_test.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(4, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_map11 "SELECT * FROM ${tableName11} order by k1"
 
     // load all columns
     streamLoad {
@@ -845,7 +948,7 @@ suite("test_stream_load", "p0") {
             assertEquals(5, json.NumberUnselectedRows)
         }
     }
-    
+
     sql "sync"
     order_qt_sql1 "select * from ${tableName9} order by k1, k2"
 
@@ -870,7 +973,7 @@ suite("test_stream_load", "p0") {
         DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
-    
+
     sql """create USER common_user@'%' IDENTIFIED BY '123456'"""
     sql """GRANT LOAD_PRIV ON *.* TO 'common_user'@'%';"""
 
@@ -897,7 +1000,7 @@ suite("test_stream_load", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    
+
     sql "sync"
     sql """DROP USER 'common_user'@'%'"""
 
@@ -939,7 +1042,41 @@ suite("test_stream_load", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    
+
+    streamLoad {
+        table "${tableName14}"
+        set 'merge_type', 'other'
+        file 'test_default_value.csv'
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]Invalid merge type other", json.Message)
+        }
+    }
+
+    // invalid file format
+    streamLoad {
+        table "${tableName8}"
+
+        set 'format', 'txt'
+        file 'array_malformat.csv'
+
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assert json.Message.contains("unknown data format")
+        }
+    }
+
     sql "sync"
     def res = sql "select * from ${tableName14}"
     def time = res[0][5].toString().split("T")[0].split("-")
@@ -1022,7 +1159,7 @@ suite("test_stream_load", "p0") {
             PROPERTIES ("replication_allocation" = "tag.location.default: 1");
         """
 
-        def label = UUID.randomUUID().toString().replaceAll("-", "") 
+        def label = UUID.randomUUID().toString().replaceAll("-", "")
         streamLoad {
             table "${tableName15}"
 
@@ -1076,7 +1213,7 @@ suite("test_stream_load", "p0") {
         }
 
         do_streamload_2pc.call(label, "commit")
-        
+
         def count = 0
         while (true) {
             res = sql "select count(*) from ${tableName15}"
@@ -1095,6 +1232,192 @@ suite("test_stream_load", "p0") {
         qt_sql_2pc_commit "select * from ${tableName15} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName15} FORCE"""
+    }
+
+    // test chunked transfer
+    def tableName16 = "test_chunked_transfer"
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName16} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName16} (
+                `k1` bigint(20) NULL DEFAULT "1",
+                `k2` bigint(20) NULL ,
+                `v1` tinyint(4) NULL,
+                `v2` tinyint(4) NULL,
+                `v3` tinyint(4) NULL,
+                `v4` DATETIME NULL
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
+
+        def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3  -T ${context.dataPath}/test_chunked_transfer.csv http://${context.config.feHttpAddress}/api/${db}/${tableName16}/_stream_load"
+        log.info("test chunked transfer command: ${command}")
+        def process = command.execute()
+        code = process.waitFor()
+        out = process.text
+        json2pc = parseJson(out)
+        log.info("test chunked transfer result: ${out}".toString())
+
+        qt_sql_chunked_transfer_csv "select * from ${tableName16} order by k1"
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
+    }
+
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName16} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName16} (
+                `k1` bigint(20) NULL DEFAULT "1",
+                `k2` bigint(20) NULL ,
+                `v1` tinyint(4) NULL,
+                `v2` tinyint(4) NULL,
+                `v3` tinyint(4) NULL,
+                `v4` DATETIME NULL
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
+
+        def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H Transfer-Encoding:chunked -H format:json -H read_json_by_line:true -T ${context.dataPath}/test_chunked_transfer.json http://${context.config.feHttpAddress}/api/${db}/${tableName16}/_stream_load"
+        log.info("test chunked transfer command: ${command}")
+        def process = command.execute()
+        code = process.waitFor()
+        out = process.text
+        json2pc = parseJson(out)
+        log.info("test chunked transfer result: ${out}".toString())
+
+        qt_sql_chunked_transfer_json "select * from ${tableName16} order by k1"
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
+    }
+
+    // test comment
+    streamLoad {
+        table "${tableName8}"
+
+        set 'comment', 'test comment'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("test comment", json.Comment)
+        }
+    }
+
+    // test trim_double_quotes
+    streamLoad {
+        table "${tableName17}"
+        set 'column_separator', '|'
+        set 'trim_double_quotes', 'true'
+        file 'trim_double_quotes.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    order_qt_trim_double_quotes "SELECT * FROM ${tableName17} order by k1"
+
+    sql """truncate table ${tableName17}"""
+    sql """sync"""
+
+    streamLoad {
+        table "${tableName17}"
+        set 'column_separator', '|'
+        set 'trim_double_quotes', 'false'
+        file 'trim_double_quotes.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    order_qt_trim_double_quotes_false "SELECT * FROM ${tableName17} order by k1"
+
+
+
+    // test send_batch_parallelism
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', 'a'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi", json.Message)
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '21474836471'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism out of range, stoi", json.Message)
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '-1'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '1'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
     }
 }
 

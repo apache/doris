@@ -51,8 +51,9 @@ public:
 
     Status _process_conjuncts() override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
-    int parent_id() { return _parent->id(); }
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
+    int parent_id() { return _parent->node_id(); }
 
 private:
     std::vector<TScanRangeParams> _scan_ranges;
@@ -67,8 +68,9 @@ private:
 
 class FileScanOperatorX final : public ScanOperatorX<FileScanLocalState> {
 public:
-    FileScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : ScanOperatorX<FileScanLocalState>(pool, tnode, descs) {
+    FileScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                      const DescriptorTbl& descs)
+            : ScanOperatorX<FileScanLocalState>(pool, tnode, operator_id, descs) {
         _output_tuple_id = tnode.file_scan_node.tuple_id;
     }
 

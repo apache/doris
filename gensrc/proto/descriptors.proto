@@ -65,8 +65,8 @@ message POlapTableSchemaParam {
     repeated PSlotDescriptor slot_descs = 4;
     required PTupleDescriptor tuple_desc = 5;
     repeated POlapTableIndexSchema indexes = 6;
-    optional bool partial_update = 7; // deprecated
-    repeated string partial_update_input_columns = 8; // deprecated
-    optional bool is_strict_mode = 9 [default = false]; // deprecated
+    optional bool partial_update = 7 [default = false];
+    repeated string partial_update_input_columns = 8;
+    optional bool is_strict_mode = 9 [default = false];
 };
 

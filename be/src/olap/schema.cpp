@@ -199,8 +199,19 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL128I>::create();
         break;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL256>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_IPV4>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_IPV6>::create();
+        break;
     default:
-        LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << int(field.type());
+        throw Exception(ErrorCode::SCHEMA_SCHEMA_FIELD_INVALID,
+                        fmt::format("Unexpected type when choosing predicate column, type={}",
+                                    int(field.type())));
     }
 
     if (field.is_nullable()) {

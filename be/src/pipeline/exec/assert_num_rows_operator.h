@@ -50,7 +50,8 @@ public:
 
 class AssertNumRowsOperatorX final : public StreamingOperatorX<AssertNumRowsLocalState> {
 public:
-    AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                           const DescriptorTbl& descs);
 
     Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override;
 

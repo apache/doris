@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <memory>
+#include <sstream>
 #include <string>
 
 #include "common/config.h"
@@ -81,9 +82,10 @@ public:
         // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
         // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
         // on query mem tracker, released on other trackers.
+        std::string mem_tracker_msg {""};
         if (query_mem_tracker->peak_consumption() != 0) {
-            LOG(INFO) << fmt::format(
-                    "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+            mem_tracker_msg = fmt::format(
+                    ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                     "PeakUsed={}",
                     print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
                     MemTracker::print_bytes(query_mem_tracker->consumption()),
@@ -92,6 +94,8 @@ public:
         if (_task_group) {
             _task_group->remove_mem_tracker_limiter(query_mem_tracker);
         }
+
+        LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
     }
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
@@ -206,6 +210,11 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
+    }
+
     bool enable_pipeline_exec() const {
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
@@ -257,7 +266,7 @@ public:
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
-    std::vector<TUniqueId> fragment_ids;
+    std::vector<TUniqueId> fragment_instance_ids;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node

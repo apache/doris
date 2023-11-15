@@ -21,6 +21,9 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserTestBase;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import org.junit.jupiter.api.Test;
 
@@ -48,6 +51,27 @@ public class ExpressionParserTest extends ParserTestBase {
     private void assertExpr(String expr) {
         Expression expression = PARSER.parseExpression(expr);
         System.out.println(expression.toSql());
+    }
+
+    @Test
+    void testNoBackslashEscapes() {
+        parseExpression("'\\b'")
+                .assertEquals(new StringLiteral("\b"));
+        parseExpression("'\\n'")
+                .assertEquals(new StringLiteral("\n"));
+        parseExpression("'\\t'")
+                .assertEquals(new StringLiteral("\t"));
+        parseExpression("'\\0'")
+                .assertEquals(new StringLiteral("\0"));
+        ConnectContext.get().getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+        parseExpression("'\\b'")
+                .assertEquals(new StringLiteral("\\b"));
+        parseExpression("'\\n'")
+                .assertEquals(new StringLiteral("\\n"));
+        parseExpression("'\\t'")
+                .assertEquals(new StringLiteral("\\t"));
+        parseExpression("'\\0'")
+                .assertEquals(new StringLiteral("\\0"));
     }
 
     @Test

@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -35,6 +36,7 @@ import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -131,14 +133,23 @@ public class PushTask extends AgentTask {
             case DELETE:
                 List<TCondition> tConditions = new ArrayList<TCondition>();
                 Map<String, TColumn> colNameToColDesc = columnsDesc.stream()
-                        .collect(Collectors.toMap(TColumn::getColumnName, Function.identity()));
+                        .collect(Collectors.toMap(c -> c.getColumnName(), Function.identity(), (v1, v2) -> v1,
+                                () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
                 for (Predicate condition : conditions) {
                     TCondition tCondition = new TCondition();
                     ArrayList<String> conditionValues = new ArrayList<String>();
                     SlotRef slotRef = (SlotRef) condition.getChild(0);
-                    String columnName = slotRef.getColumnName();
+                    String columnName = new String(slotRef.getColumnName());
+                    TColumn column = colNameToColDesc.get(slotRef.getColumnName());
+                    if (column == null) {
+                        columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
+                        column = colNameToColDesc.get(columnName);
+                        // condition's name and column's name may have inconsistent case
+                        columnName = column.getColumnName();
+                    }
+
                     tCondition.setColumnName(columnName);
-                    int uniqueId = colNameToColDesc.get(columnName).getColUniqueId();
+                    int uniqueId = column.getColUniqueId();
                     if (uniqueId >= 0) {
                         tCondition.setColumnUniqueId(uniqueId);
                     }

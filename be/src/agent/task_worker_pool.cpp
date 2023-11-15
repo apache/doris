@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Status_types.h>
@@ -49,6 +50,7 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_system.h"
+#include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
@@ -1069,9 +1071,6 @@ void TaskWorkerPool::_handle_report(const TReportRequest& request, ReportType ty
                 .error(result.status);
     } else {
         is_report_success = true;
-        LOG_INFO("successfully report {}", TYPE_STRING(type))
-                .tag("host", _master_info.network_address.hostname)
-                .tag("port", _master_info.network_address.port);
     }
     switch (type) {
     case TASK:
@@ -1201,6 +1200,22 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                             .tag("resource_id", resource.id)
                             .tag("resource_name", resource.name)
                             .tag("s3_conf", s3_conf.to_string());
+                    put_storage_resource(resource.id, {std::move(fs), resource.version});
+                }
+            } else if (resource.__isset.hdfs_storage_param) {
+                Status st;
+                std::shared_ptr<io::HdfsFileSystem> fs;
+                if (existed_resource.fs == nullptr) {
+                    st = io::HdfsFileSystem::create(resource.hdfs_storage_param, "", nullptr, &fs);
+                } else {
+                    fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
+                }
+                if (!st.ok()) {
+                    LOG(WARNING) << "update hdfs resource failed: " << st;
+                } else {
+                    LOG_INFO("successfully update hdfs resource")
+                            .tag("resource_id", resource.id)
+                            .tag("resource_name", resource.name);
                     put_storage_resource(resource.id, {std::move(fs), resource.version});
                 }
             } else {
@@ -1934,6 +1949,10 @@ void StorageMediumMigrateTaskPool::_storage_medium_migrate_worker_thread_callbac
             EngineStorageMigrationTask engine_task(tablet, dest_store);
             status = StorageEngine::instance()->execute_task(&engine_task);
         }
+        // fe should ignore this err
+        if (status.is<FILE_ALREADY_EXIST>()) {
+            status = Status::OK();
+        }
         if (!status.ok()) {
             LOG_WARNING("failed to migrate storage medium")
                     .tag("signature", agent_task_req.signature)
@@ -1996,8 +2015,9 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         *dest_store = stores[0];
     }
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
-        return Status::InternalError("tablet is already on specified path {}",
-                                     tablet->data_dir()->path());
+        LOG_WARNING("tablet is already on specified path").tag("path", tablet->data_dir()->path());
+        return Status::Error<FILE_ALREADY_EXIST, false>("tablet is already on specified path: {}",
+                                                        tablet->data_dir()->path());
     }
 
     // check local disk capacity
@@ -2006,7 +2026,6 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         return Status::InternalError("reach the capacity limit of path {}, tablet_size={}",
                                      (*dest_store)->path(), tablet_size);
     }
-
     return Status::OK();
 }
 

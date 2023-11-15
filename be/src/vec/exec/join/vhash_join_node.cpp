@@ -21,7 +21,6 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <algorithm>
 #include <array>
@@ -34,7 +33,6 @@
 #include <type_traits>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/object_pool.h"
@@ -52,7 +50,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
-#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -316,6 +313,7 @@ void HashJoinNode::prepare_for_next() {
 }
 
 Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_probe_timer);
     if (_short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
@@ -495,6 +493,7 @@ Status HashJoinNode::_filter_data_and_build_output(RuntimeState* state,
 }
 
 Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     _probe_eos = eos;
     if (input_block->rows() > 0) {
         COUNTER_UPDATE(_probe_rows_counter, input_block->rows());
@@ -670,6 +669,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 }
 
 Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_allocate_resource_timer);
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
@@ -724,6 +724,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
 }
 
 Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_build_timer);
 
     // make one block for each 4 gigabytes

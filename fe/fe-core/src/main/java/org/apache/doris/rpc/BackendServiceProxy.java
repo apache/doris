@@ -111,18 +111,30 @@ public class BackendServiceProxy {
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
         String realIp = NetUtils.getIpByHost(address.getHostname());
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
-        if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)) {
+        if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
+                && serviceClientExtIp.client.isNormalState()) {
             return serviceClientExtIp.client;
         }
+
         // not exist, create one and return.
+        BackendServiceClient removedClient = null;
         lock.lock();
         try {
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
                 LOG.warn("Cached ip changed ,before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
                 serviceMap.remove(address);
+                removedClient = serviceClientExtIp.client;
+                serviceClientExtIp = null;
             }
-            serviceClientExtIp = serviceMap.get(address);
+            if (serviceClientExtIp != null && !serviceClientExtIp.client.isNormalState()) {
+                // At this point we cannot judge the progress of reconnecting the underlying channel.
+                // In the worst case, it may take two minutes. But we can't stand the connection refused
+                // for two minutes, so rebuild the channel directly.
+                serviceMap.remove(address);
+                removedClient = serviceClientExtIp.client;
+                serviceClientExtIp = null;
+            }
             if (serviceClientExtIp == null) {
                 BackendServiceClient client = new BackendServiceClient(address, grpcThreadPool);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
@@ -130,6 +142,9 @@ public class BackendServiceProxy {
             return serviceMap.get(address).client;
         } finally {
             lock.unlock();
+            if (removedClient != null) {
+                removedClient.shutdown();
+            }
         }
     }
 

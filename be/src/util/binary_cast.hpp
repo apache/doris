@@ -23,6 +23,7 @@
 
 #include "runtime/decimalv2_value.h"
 #include "util/types.h"
+#include "vec/core/wide_integer.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris {
 union TypeConverter {
@@ -76,6 +77,7 @@ To binary_cast(From from) {
     constexpr bool from_vec_dt_to_i64 = match_v<From, doris::VecDateTimeValue, To, __int64_t>;
     constexpr bool from_i128_to_decv2 = match_v<From, __int128_t, To, DecimalV2Value>;
     constexpr bool from_decv2_to_i128 = match_v<From, DecimalV2Value, To, __int128_t>;
+    constexpr bool from_decv2_to_i256 = match_v<From, DecimalV2Value, To, wide::Int256>;
 
     constexpr bool from_ui32_to_date_v2 = match_v<From, uint32_t, To, DateV2Value<DateV2ValueType>>;
 
@@ -89,8 +91,8 @@ To binary_cast(From from) {
 
     static_assert(from_u64_to_db || from_i64_to_db || from_db_to_i64 || from_db_to_u64 ||
                   from_i64_to_vec_dt || from_vec_dt_to_i64 || from_i128_to_decv2 ||
-                  from_decv2_to_i128 || from_ui32_to_date_v2 || from_date_v2_to_ui32 ||
-                  from_ui64_to_datetime_v2 || from_datetime_v2_to_ui64);
+                  from_decv2_to_i128 || from_decv2_to_i256 || from_ui32_to_date_v2 ||
+                  from_date_v2_to_ui32 || from_ui64_to_datetime_v2 || from_datetime_v2_to_ui64);
 
     if constexpr (from_u64_to_db) {
         TypeConverter conv;
