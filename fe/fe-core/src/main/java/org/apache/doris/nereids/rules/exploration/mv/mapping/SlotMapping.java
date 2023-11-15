@@ -15,9 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.mv;
+package org.apache.doris.nereids.rules.exploration.mv.mapping;
+
+import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+
+import java.util.Map;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * SlotMapping, this is open generated from relationMapping
@@ -42,8 +49,27 @@ public class SlotMapping extends Mapping {
         return new SlotMapping(relationSlotMap);
     }
 
+    /**
+     * SlotMapping, this is open generated from relationMapping
+     */
+    @Nullable
     public static SlotMapping generate(RelationMapping relationMapping) {
-        // TODO implement
-        return SlotMapping.of(null);
+        BiMap<MappedSlot, MappedSlot> relationSlotMap = HashBiMap.create();
+        BiMap<MappedRelation, MappedRelation> mappedRelationMap = relationMapping.getMappedRelationMap();
+        for (Map.Entry<MappedRelation, MappedRelation> mappedRelationEntry : mappedRelationMap.entrySet()) {
+            Map<String, Slot> targetNameSlotMap =
+                    mappedRelationEntry.getValue().getBelongedRelation().getOutput().stream()
+                            .collect(Collectors.toMap(Slot::getName, slot -> slot));
+            for (Slot sourceSlot : mappedRelationEntry.getKey().getBelongedRelation().getOutput()) {
+                Slot targetSlot = targetNameSlotMap.get(sourceSlot.getName());
+                // source slot can not map from target, bail out
+                if (targetSlot == null) {
+                    return null;
+                }
+                relationSlotMap.put(MappedSlot.of(sourceSlot, mappedRelationEntry.getKey().getBelongedRelation()),
+                        MappedSlot.of(targetSlot, mappedRelationEntry.getValue().getBelongedRelation()));
+            }
+        }
+        return SlotMapping.of(relationSlotMap);
     }
 }

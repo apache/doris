@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors.PredicatesSpliter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -55,8 +54,7 @@ public class Predicates {
      * Split the expression to equal, range and residual predicate.
      * */
     public static SplitPredicate splitPredicates(Expression expression) {
-        PredicatesSpliter predicatesSplit = new PredicatesSpliter(expression);
-        expression.accept(predicatesSplit, null);
+        PredicatesSplitter predicatesSplit = new PredicatesSplitter(expression);
         return predicatesSplit.getSplitPredicate();
     }
 
@@ -74,15 +72,15 @@ public class Predicates {
             this.residualPredicates = residualPredicates;
         }
 
-        public Expression getEqualPredicates() {
+        public Expression getEqualPredicate() {
             return equalPredicates;
         }
 
-        public Expression getRangePredicates() {
+        public Expression getRangePredicate() {
             return rangePredicates;
         }
 
-        public Expression getResidualPredicates() {
+        public Expression getResidualPredicate() {
             return residualPredicates;
         }
 
@@ -106,10 +104,6 @@ public class Predicates {
             return equalPredicates == null
                     && rangePredicates == null
                     && residualPredicates == null;
-        }
-
-        public Expression composedExpression() {
-            return ExpressionUtils.and(equalPredicates, rangePredicates, residualPredicates);
         }
 
         public List<Expression> toList() {

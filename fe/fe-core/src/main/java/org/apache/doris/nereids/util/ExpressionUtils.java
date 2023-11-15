@@ -19,7 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.exploration.mv.SlotMapping;
+import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -205,18 +206,29 @@ public class ExpressionUtils {
                 .orElse(BooleanLiteral.of(type == And.class));
     }
 
-    // Replace the slot in expression with the lineage identifier from specified
-    // baseTable sets or target table types
-    // example as following:
-    // select a + 10 as a1, d from (
-    //     select b - 5 as a, d from table
-    // );
-    // after shuttle a1 and d is [b - 5 + 10, d]
-    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expression,
+    /**
+     * Replace the slot in expressions with the lineage identifier from specifiedbaseTable sets or target table types
+     * example as following:
+     * select a + 10 as a1, d from (
+     * select b - 5 as a, d from table
+     * );
+     * op expression before is: a + 10 as a1, d. after is: b - 5 + 10, d
+     * todo to get from plan struct info
+     */
+    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan,
             Set<TableType> targetTypes,
             Set<String> tableIdentifiers) {
-        return ImmutableList.of();
+
+        ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                new ExpressionLineageReplacer.ExpressionReplaceContext(
+                        expressions.stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                        targetTypes,
+                        tableIdentifiers);
+
+        plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+        // Replace expressions by expression map
+        return replaceContext.getReplacedExpressions();
     }
 
     // Replace the slot in expressions according to the slotMapping
