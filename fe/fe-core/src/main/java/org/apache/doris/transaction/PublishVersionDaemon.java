@@ -129,7 +129,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
+        Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
             Stream<PublishVersionTask> publishVersionTaskStream = transactionState
@@ -141,15 +141,15 @@ public class PublishVersionDaemon extends MasterDaemon {
                             Map<Long, Long> tableIdToDeltaNumRows =
                                     task.getTableIdToDeltaNumRows();
                             tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
-                                tableIdToDeltaNumRows
+                                tableIdToTotalDeltaNumRows
                                         .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
-                                tableIdToNumDeltaRows.putIfAbsent(tableId, numRows);
+                                tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
                             });
                         }
                     });
             boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
                     .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
-            transactionState.setTableIdToTotalNumDeltaRows(tableIdToNumDeltaRows);
+            transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
 
             boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout()
                     || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
