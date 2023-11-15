@@ -63,8 +63,8 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/vrow_distribution.h"
 #include "vec/sink/async_writer_sink.h"
+#include "vec/sink/vrow_distribution.h"
 #include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris {
