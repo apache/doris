@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -79,9 +80,27 @@ public class Array extends ScalarFunction
                         .map(TypeCoercionUtils::replaceCharacterToString)
                         .collect(Collectors.toList());
             }
+            partitioned = partitioned.get(false).stream()
+                    .collect(Collectors.partitioningBy(TypeCoercionUtils::hasDecimalV2Type));
+            if (!partitioned.get(true).isEmpty()) {
+                needTypeCoercion.addAll(partitioned.get(true).stream()
+                        .map(TypeCoercionUtils::replaceDecimalV2WithDefault).collect(Collectors.toList()));
+            }
+            partitioned = partitioned.get(false).stream()
+                    .collect(Collectors.partitioningBy(TypeCoercionUtils::hasDecimalV3Type));
+            if (!partitioned.get(true).isEmpty()) {
+                needTypeCoercion.addAll(partitioned.get(true).stream()
+                        .map(TypeCoercionUtils::replaceDecimalV3WithWildcard).collect(Collectors.toList()));
+            }
+            partitioned = partitioned.get(false).stream()
+                    .collect(Collectors.partitioningBy(TypeCoercionUtils::hasDateTimeV2Type));
+            if (!partitioned.get(true).isEmpty()) {
+                needTypeCoercion.addAll(partitioned.get(true).stream()
+                        .map(TypeCoercionUtils::replaceDateTimeV2WithMax).collect(Collectors.toList()));
+            }
             needTypeCoercion.addAll(partitioned.get(false));
             return needTypeCoercion.stream()
-                    .map(dataType -> FunctionSignature.ret(ArrayType.of(dataType)).varArgs(dataType))
+                    .map(dataType -> FunctionSignature.ret(ArrayType.of(new FollowToArgumentType(0))).varArgs(dataType))
                     .collect(ImmutableList.toImmutableList());
         }
     }
