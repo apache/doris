@@ -39,4 +39,23 @@ suite("test_frontend") {
         result = sql """SHOW FRONTENDS;"""
         logger.debug("result:${result}")
     }
+
+    // case for drop follower in batches
+    sql """ALTER SYSTEM ADD FOLLOWER "127.0.0.1:11111";"""
+    sql """ALTER SYSTEM ADD FOLLOWER "127.0.0.1:22222";"""
+    def result = sql """SHOW FRONTENDS;"""
+    logger.debug("result:${result}")
+    sql """ALTER SYSTEM DROP FOLLOWER "127.0.0.1:11111","127.0.0.1:22222";"""
+    result = sql """SHOW FRONTENDS;"""
+    logger.debug("result:${result}")
+
+    // case for drop observer in batches
+    sql """ALTER SYSTEM ADD OBSERVER "127.0.0.1:11111";"""
+    sql """ALTER SYSTEM ADD OBSERVER "127.0.0.1:22222";"""
+    result = sql """SHOW FRONTENDS;"""
+    logger.debug("result:${result}")
+    sql """ALTER SYSTEM DROP OBSERVER "127.0.0.1:11111","127.0.0.1:22222";"""
+    result = sql """SHOW FRONTENDS;"""
+    logger.debug("result:${result}")
+
 }
