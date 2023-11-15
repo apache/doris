@@ -57,7 +57,7 @@ namespace ErrorCode {
     TStatusError(HTTP_ERROR, true);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
-    E(OK, 0, true);                                          \
+    E(OK, 0, false);                                         \
     E(OS_ERROR, -100, true);                                 \
     E(DIR_NOT_EXIST, -101, true);                            \
     E(FILE_NOT_EXIST, -102, true);                           \
