@@ -50,7 +50,7 @@ const std::string GetDorisJNIDefaultClasspath() {
 
     std::ostringstream out;
 
-    auto addJarsFromPath = [&](const std::string& base_path) {
+    auto add_jars_from_path = [&](const std::string& base_path) {
         if (!std::filesystem::exists(base_path)) {
             return;
         }
@@ -64,8 +64,8 @@ const std::string GetDorisJNIDefaultClasspath() {
         }
     };
 
-    addJarsFromPath(std::string(doris_home) + "/lib");
-    addJarsFromPath(std::string(doris_home) + "/custom_lib");
+    add_jars_from_path(std::string(doris_home) + "/lib");
+    add_jars_from_path(std::string(doris_home) + "/custom_lib");
 
     // Check and add HADOOP_CONF_DIR if it's set
     const auto* hadoop_conf_dir = getenv("HADOOP_CONF_DIR");
@@ -101,8 +101,9 @@ const std::string GetDorisJNIClasspathOption() {
 
     // LIBHDFS_OPTS
     const std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
-    std::string libhdfs_opts = fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native",
-                                           java_opts, getenv("DORIS_HOME"));
+    std::string libhdfs_opts =
+            fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{}", java_opts,
+                        getenv("DORIS_HOME"), getenv("DORIS_HOME") + std::string("/lib"));
 
     setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 0);
 }
@@ -161,16 +162,16 @@ const std::string GetDorisJNIClasspathOption() {
 
 bool JniUtil::jvm_inited_ = false;
 __thread JNIEnv* JniUtil::tls_env_ = nullptr;
-jclass JniUtil::internal_exc_cl_ = NULL;
-jclass JniUtil::jni_util_cl_ = NULL;
+jclass JniUtil::internal_exc_cl_ = nullptr;
+jclass JniUtil::jni_util_cl_ = nullptr;
 jclass JniUtil::jni_native_method_exc_cl_ = nullptr;
-jmethodID JniUtil::throwable_to_string_id_ = NULL;
-jmethodID JniUtil::throwable_to_stack_trace_id_ = NULL;
-jmethodID JniUtil::get_jvm_metrics_id_ = NULL;
-jmethodID JniUtil::get_jvm_threads_id_ = NULL;
-jmethodID JniUtil::get_jmx_json_ = NULL;
-jobject JniUtil::jni_scanner_loader_obj_ = NULL;
-jmethodID JniUtil::jni_scanner_loader_method_ = NULL;
+jmethodID JniUtil::throwable_to_string_id_ = nullptr;
+jmethodID JniUtil::throwable_to_stack_trace_id_ = nullptr;
+jmethodID JniUtil::get_jvm_metrics_id_ = nullptr;
+jmethodID JniUtil::get_jvm_threads_id_ = nullptr;
+jmethodID JniUtil::get_jmx_json_ = nullptr;
+jobject JniUtil::jni_scanner_loader_obj_ = nullptr;
+jmethodID JniUtil::jni_scanner_loader_method_ = nullptr;
 
 Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) {
     DCHECK(jstr != nullptr);
@@ -192,7 +193,7 @@ Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) 
 }
 
 Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
-    DCHECK(env_ == NULL);
+    DCHECK(env_ == nullptr);
     DCHECK_GT(max_local_ref, 0);
     if (env->PushLocalFrame(max_local_ref) < 0) {
         env->ExceptionClear();
