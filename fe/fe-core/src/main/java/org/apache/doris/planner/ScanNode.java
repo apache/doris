@@ -86,6 +86,9 @@ public abstract class ScanNode extends PlanNode {
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
 
+    // create a mapping between output slot's id and project expr
+    Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
+
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
         this.desc = desc;
@@ -605,6 +608,7 @@ public abstract class ScanNode extends PlanNode {
                         }
                         newRhs.add(new SlotRef(slotDesc));
                         allOutputSlotIds.add(slotDesc.getId());
+                        outputSlotToProjectExpr.put(slotDesc.getId(), rhsExpr);
                     } else {
                         newRhs.add(rhs.get(i));
                     }
@@ -621,25 +625,23 @@ public abstract class ScanNode extends PlanNode {
         if (outputTupleDesc != null && requiredSlotIdSet != null) {
             Preconditions.checkNotNull(outputSmap);
             ArrayList<SlotId> materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
-            Preconditions.checkState(projectList != null && projectList.size() == materializedSlotIds.size(),
-                    "projectList's size should be same as materializedSlotIds's size");
-
-            // create a mapping between materialized slot's id and project expr
-            Map<SlotId, Expr> slotToExpr = new HashMap<>();
-            for (int i = 0; i < materializedSlotIds.size(); i++) {
-                slotToExpr.put(materializedSlotIds.get(i), projectList.get(i));
+            Preconditions.checkState(projectList != null && projectList.size() <= materializedSlotIds.size(),
+                    "projectList's size should be less than materializedSlotIds's size");
+            boolean hasNewSlot = false;
+            if (projectList.size() < materializedSlotIds.size()) {
+                // need recreate projectList based on materializedSlotIds
+                hasNewSlot = true;
             }
 
             // find new project expr from outputSmap based on requiredSlotIdSet
             ArrayList<SlotId> allSlots = outputTupleDesc.getAllSlotIds();
-            boolean hasNewSlot = false;
             for (SlotId slotId : requiredSlotIdSet) {
                 if (!materializedSlotIds.contains(slotId) && allSlots.contains(slotId)) {
                     SlotDescriptor slot = outputTupleDesc.getSlot(slotId.asInt());
                     for (Expr expr : outputSmap.getRhs()) {
                         if (expr instanceof SlotRef && ((SlotRef) expr).getSlotId() == slotId) {
                             slot.setIsMaterialized(true);
-                            slotToExpr.put(slotId, expr.getSrcSlotRef());
+                            outputSlotToProjectExpr.put(slotId, expr.getSrcSlotRef());
                             hasNewSlot = true;
                         }
                     }
@@ -651,7 +653,7 @@ public abstract class ScanNode extends PlanNode {
                 projectList.clear();
                 materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
                 for (SlotId slotId : materializedSlotIds) {
-                    projectList.add(slotToExpr.get(slotId));
+                    projectList.add(outputSlotToProjectExpr.get(slotId));
                 }
             }
         }
