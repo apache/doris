@@ -269,7 +269,6 @@ Status VRowDistribution::generate_rows_distribution(
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             _state, &input_block, block, *_vec_output_expr_ctxs, input_rows, has_filtered_rows));
 
-    _tablet_finder->clear_for_new_batch();
     _row_distribution_watch.start();
     auto num_rows = block->rows();
     _tablet_finder->filter_bitmap().Reset(num_rows);
