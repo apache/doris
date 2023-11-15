@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.manager;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -57,7 +58,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         if (jobMap.get(job.getJobId()) != null) {
             throw new JobException("job id exist,jobId:" + job.getJobId());
         }
-        //Env.getCurrentEnv().getEditLog().logCreateJob(job);
+        Env.getCurrentEnv().getEditLog().logCreateJob(job);
         //check name exist
         jobMap.put(job.getJobId(), job);
         //check its need to scheduler
@@ -75,7 +76,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         checkJobExist(jobId);
         jobMap.get(jobId).setJobStatus(JobStatus.STOPPED);
         jobMap.get(jobId).cancelAllTasks();
-        //Env.getCurrentEnv().getEditLog().logDeleteJob(jobMap.get(jobId));
+        Env.getCurrentEnv().getEditLog().logDeleteJob(jobMap.get(jobId));
         jobMap.remove(jobId);
     }
 
@@ -95,7 +96,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
     public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
-        //Env.getCurrentEnv().getEditLog().logUpdateJob(jobMap.get(jobId));
+        Env.getCurrentEnv().getEditLog().logUpdateJob(jobMap.get(jobId));
     }
 
     public void alterJobStatus(String jobName, JobStatus jobStatus, JobType jobType) throws JobException {

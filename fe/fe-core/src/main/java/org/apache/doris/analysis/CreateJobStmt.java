@@ -144,10 +144,12 @@ public class CreateJobStmt extends DdlStmt {
         job.setJobName(labelName.getLabelName());
         job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
         job.setJobStatus(JobStatus.RUNNING);
-        job.checkJobParams();
+        job.setJobId(12234L);
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt);
         job.setExecuteSql(executeSql);
+
+        //job.checkJobParams();
         jobInstance = job;
     }
 

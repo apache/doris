@@ -32,7 +32,6 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -85,10 +84,6 @@ public class InsertJob extends AbstractJob<InsertTask> {
         }
     }
 
-    public static InsertJob readFields(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), InsertJob.class);
-    }
-
     @Override
     public List<InsertTask> queryTasks() {
         return null;
@@ -126,7 +121,6 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, JobType.INSERT.name());
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 }
