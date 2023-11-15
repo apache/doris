@@ -81,7 +81,7 @@ DEFINE_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-DEFINE_String(mem_limit, "80%");
+DEFINE_String(mem_limit, "90%");
 
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");

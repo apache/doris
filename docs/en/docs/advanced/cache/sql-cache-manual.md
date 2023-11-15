@@ -69,6 +69,4 @@ After the first query, if the following three conditions are met, the query resu
 
 3. The query result bytes is less than cache_result_max_data_size in fe.conf.
 
-## Related parameters
-
-For detailed parameter introduction, see query-cache.md.
+For detailed parameter introduction and unfinished matters, see query-cache.md.

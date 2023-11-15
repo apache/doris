@@ -188,7 +188,7 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying too the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-* Default value: 80%
+* Default value: 90%
 
 #### `cluster_id`
 

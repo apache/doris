@@ -70,14 +70,12 @@ MySQL [(none)]> set [global] enable_partition_cache=true;
 If two caching strategies are enabled at the same time, you need to pay attention to the following parameters:
 
 ```text
-cache_last_version_interval_second=900
+cache_last_version_interval_second=30
 ```
 
 If the interval between the latest version of the partition and the present is greater than cache_last_version_interval_second, the entire query result will be cached first. If it is less than this interval, if it meets the conditions of PartitionCache, the PartitionCache data will be pressed.
 
-## Related parameters
-
-For detailed parameter introduction, see query-cache.md
+For detailed parameter introduction and unfinished matters, see query-cache.md.
 
 ## Implementation principle example
 

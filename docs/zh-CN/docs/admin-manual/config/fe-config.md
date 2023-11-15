@@ -830,7 +830,7 @@ http header size 配置参数
 
 #### `cache_last_version_interval_second`
 
-默认值：900
+默认值：30
 
 是否可以动态配置：true
 
