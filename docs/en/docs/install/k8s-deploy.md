@@ -32,12 +32,12 @@ Doris-Operator is a software extension to Kubernetes and follow Kubernetes princ
 Having a Kubernetes environment is the premise to deploy Doris on Kubernetes. If you already have it, please ignore this step. 
 Hosted Kubernetes on cloud platform or set-up by yourself are all good choice.  
 **Hosted EKS**  
-Option 1: Check that the following [command-line](https://docs.aws.amazon.com/eks/latest/userguide/getting-started.html) tools are installed in your environment:  
+Check that the following [command-line](https://docs.aws.amazon.com/eks/latest/userguide/getting-started.html) tools are installed in your environment:  
 - Install and configure AWS command-line tool AWS CLI.
 - Install EKS cluster command-line tool eksctl.
 - Install Kubernetes cluster command-line tool kubectl. 
 
-Option 2: Use one of the following methods to create an EKS cluster:  
+Use one of the following methods to create an EKS cluster:  
 - [Use eksctl to quickly create an EKS cluster](https://docs.aws.amazon.com/eks/latest/userguide/getting-started-eksctl.html).
 - [Manually create an EKS cluster with the AWS console and AWS CLI](https://docs.aws.amazon.com/eks/latest/userguide/getting-started-console.html).
 
@@ -53,12 +53,12 @@ Kubernetes official documents recommends some ways to set up Kubernetes, as [min
 kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/crd/bases/doris.selectdb.com_dorisclusters.yaml    
 ```
 **2. Install Doris-Operator**  
-   Option 1: Default Deployment Method
+If you want to use the defaults operator resource:
    ```shell
    kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml
    ```  
-   Option 2: User-defined Deployment Method  
-   The user defined deployment in github repo are simply. Instead of using the command below, apply your local version of the Operator manifest to the cluster when you custom operator resource.
+The user defined deployment in github repo are simply:  
+Instead of using the command below, apply your local version of the Operator manifest to the cluster when you custom operator resource.
    ```shell
    kubectl apply -f operator.yaml  
    ```  
