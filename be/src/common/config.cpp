@@ -351,6 +351,9 @@ DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "200");
 // In vertical compaction, max dest segment file size
 DEFINE_mInt64(vertical_compaction_max_segment_size, "268435456");
 
+// If enabled, segments will be flushed column by column
+DEFINE_mBool(enable_vertical_segment_writer, "true");
+
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 
