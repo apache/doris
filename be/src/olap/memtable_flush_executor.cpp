@@ -90,6 +90,9 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     int64_t submit_task_time = MonotonicNanos();
     auto task = std::make_shared<MemtableFlushTask>(
             this, std::move(mem_table), _rowset_writer->allocate_segment_id(), submit_task_time);
+    while (_stats.flush_running_count > 2) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
     _stats.flush_running_count++;
     return _flush_token->submit(std::move(task));
 }
