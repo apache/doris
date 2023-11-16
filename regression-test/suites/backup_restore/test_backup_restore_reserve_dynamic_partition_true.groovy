@@ -84,7 +84,7 @@ suite("test_backup_restore_dynamic_partition_reserve_true", "backup_restore") {
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
-    sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    sql "DROP TABLE ${dbName}.${tableName} FORCE"
 
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
@@ -98,15 +98,16 @@ suite("test_backup_restore_dynamic_partition_reserve_true", "backup_restore") {
         )
     """
     
-    // def restore_properties = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
-
-    // assertTrue(restore_properties.indexOf("\"dynamic_partition.enable\" = \"true\"") != -1)
-
     while (!syncer.checkAllRestoreFinish(dbName)) {
         Thread.sleep(3000)
     }
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 20);
+
+    def restore_properties = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
+
+    assertTrue(restore_properties[1][1].indexOf("\"dynamic_partition.enable\" = \"true\"") != -1)
+
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"

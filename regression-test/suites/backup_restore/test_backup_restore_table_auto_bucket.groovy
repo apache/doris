@@ -58,7 +58,7 @@ suite("test_backup_restore_table_auto_bucket", "backup_restore") {
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
-    sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    sql "DROP TABLE ${dbName}.${tableName} FORCE"
 
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
@@ -73,6 +73,11 @@ suite("test_backup_restore_table_auto_bucket", "backup_restore") {
     while (!syncer.checkAllRestoreFinish(dbName)) {
         Thread.sleep(3000)
     }
+
+    def restore_properties = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
+
+    assertTrue(restore_properties[1][1].indexOf("DISTRIBUTED BY HASH(`id`) BUCKETS AUTO") != -1)
+
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 
