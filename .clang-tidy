@@ -14,7 +14,6 @@ Checks: |
   readability-*,
   -readability-identifier-length,
   -readability-implicit-bool-conversion,
-  -readability-function-cognitive-complexity,
   -readability-magic-numbers,
   -readability-else-after-return,
   -readability-inconsistent-declaration-parameter-name,
@@ -26,3 +25,8 @@ Checks: |
   performance-inefficient-algorithm,
   performance-move-const-arg
 WarningsAsErrors: '*'
+CheckOptions:
+  - key:             readability-function-size.LineThreshold
+    value:           '80'
+  - key:             readability-function-cognitive-complexity.Threshold
+    value:           '50'
