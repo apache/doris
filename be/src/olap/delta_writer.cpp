@@ -615,6 +615,7 @@ int64_t DeltaWriter::mem_consumption(MemType mem) {
 }
 
 int64_t DeltaWriter::active_memtable_mem_consumption() {
+    std::lock_guard<std::mutex> l(_lock);
     return _mem_table != nullptr ? _mem_table->memory_usage() : 0;
 }
 
