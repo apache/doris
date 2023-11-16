@@ -827,7 +827,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
 }
 
 void VNodeChannel::cancel(const std::string& cancel_msg) {
-    if (_is_closed) {
+    if (_is_closed || _cancelled) {
         // skip the channels that have been canceled or close_wait.
         return;
     }
