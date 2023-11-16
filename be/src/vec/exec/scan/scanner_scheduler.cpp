@@ -85,6 +85,8 @@ ScannerScheduler::~ScannerScheduler() {
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
+    _remote_scan_thread_pool->join();
+    _limited_scan_thread_pool->wait();
 
     for (int i = 0; i < QUEUE_NUM; i++) {
         delete _pending_queues[i];
@@ -114,14 +116,9 @@ Status ScannerScheduler::init(ExecEnv* env) {
             config::doris_scanner_thread_pool_queue_size, "local_scan");
 
     // 3. remote scan thread pool
-    _remote_thread_pool_max_size = config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                                           ? config::doris_max_remote_scanner_thread_pool_thread_num
-                                           : std::max(512, CpuInfo::num_cores() * 10);
-    ThreadPoolBuilder("RemoteScanThreadPool")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
-            .set_max_threads(_remote_thread_pool_max_size)
-            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-            .build(&_remote_scan_thread_pool);
+    _remote_scan_thread_pool = std::make_unique<PriorityThreadPool>(
+            config::doris_remote_scanner_thread_pool_thread_num,
+            config::doris_remote_scanner_thread_pool_queue_size, "RemoteScanThreadPool");
 
     // 4. limited scan thread pool
     ThreadPoolBuilder("LimitedScanThreadPool")
@@ -252,9 +249,12 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                         ret = _local_scan_thread_pool->offer(task);
                     }
                 } else {
-                    ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
+                    PriorityThreadPool::Task task;
+                    task.work_function = [this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
-                    });
+                    };
+                    task.priority = nice;
+                    ret = _remote_scan_thread_pool->offer(task);
                 }
                 if (ret) {
                     this_run.erase(iter++);
@@ -448,7 +448,7 @@ void ScannerScheduler::_register_metrics() {
     REGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size,
                          [this]() { return _remote_scan_thread_pool->get_queue_size(); });
     REGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num,
-                         [this]() { return _remote_scan_thread_pool->num_threads(); });
+                         [this]() { return _remote_scan_thread_pool->get_active_threads(); });
     REGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size,
                          [this]() { return _limited_scan_thread_pool->get_queue_size(); });
     REGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num,
