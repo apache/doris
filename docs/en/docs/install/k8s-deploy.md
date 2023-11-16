@@ -42,13 +42,13 @@ Hosted Kubernetes on cloud platform or set-up by yourself are all good choice.
 - [Manually create an EKS cluster with the AWS console and AWS CLI](https://docs.aws.amazon.com/eks/latest/userguide/getting-started-console.html).
 
 **Hosted GKE**    
-Complete all the [prerequisites](https://cloud.google.com/kubernetes-engine/docs/deploy-app-cluster#before-you-begin) when [Create a GKE cluster](https://cloud.google.com/kubernetes-engine/docs/deploy-app-cluster#create_cluster).  
+Complete all the [prerequisites](https://cloud.google.com/kubernetes-engine/docs/deploy-app-cluster#before-you-begin) when [create a GKE cluster](https://cloud.google.com/kubernetes-engine/docs/deploy-app-cluster#create_cluster).  
 
 **Create as Kubernetes recommend**    
 Kubernetes official documents recommends some ways to set up Kubernetes, as [minikube](https://minikube.sigs.k8s.io/docs/start/),[kOps](https://kubernetes.io/zh-cn/docs/setup/production-environment/tools/kops/).
 
 ### Deploy Doris-Operator on Kubernetes
-**1. Apply the [custom resource definition(CRD)](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions)**  
+**1. Apply the [Custom Resource Definition(CRD)](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions)**  
 ```shell
 kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/crd/bases/doris.selectdb.com_dorisclusters.yaml    
 ```
@@ -73,7 +73,7 @@ Expected result, the Pod `STATUS` is `Running` and all containers in Pod are all
 
 ### Start Doris on Kubernetes
 **1. Initialize Doris Cluster**    
-User can directly deploy Doris by [example](https://github.com/selectdb/doris-operator/tree/master/doc/examples) provided by Doris-Operator. Below is the commands:    
+User can directly deploy Doris by [examples](https://github.com/selectdb/doris-operator/tree/master/doc/examples) provided by Doris-Operator. Below is the command:    
 ```shell
 kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml  
 ```
@@ -108,12 +108,13 @@ Service created by Doris-Operator have two types, suffix is `-internal` or `-ser
 
 - In Kubernetes  
 In kubernetes, Using `CLUSTER-IP`  is recommended. For example, the fe service's `CLUSTER-IP`  is `10.152.183.37` that displayed by above command. Using below command to access fe service.
-    ```shell
-    mysql -h 10.152.183.37 -uroot -P9030
-    ```
+ ```shell
+mysql -h 10.152.183.37 -uroot -P9030
+```
 
 - Out Kubernetes  
 Using `EXTERNAL-IP` to access fe from Kubernetes external. In default, Doris-Operator not provided `EXTERNAL-IP` mode. If you want to use `EXTERNAL-IP`, should custom resource `Service` field, reference the doc [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) to deploy.
 
-### Tip
+:::Tip
 If the doc not cover your requirements, Pleaser reference the docs [Doris-Operator](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) and the api document to custom [DorisCluster](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) resource to deploy.
+:::
