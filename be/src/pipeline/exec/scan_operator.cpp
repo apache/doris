@@ -1180,8 +1180,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_done_dependency =
             ScannerDoneDependency::create_shared(p.operator_id(), _scanner_ctx.get());
     _source_dependency->add_child(_scanner_done_dependency);
-    _data_ready_dependency =
-            DataReadyDependency::create_shared(p.operator_id(), _scanner_ctx.get());
+    _data_ready_dependency = DataReadyDependency::create_shared(p.operator_id());
     _source_dependency->add_child(_data_ready_dependency);
 
     _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency,

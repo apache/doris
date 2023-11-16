@@ -93,8 +93,7 @@ private:
 class DataReadyDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(DataReadyDependency);
-    DataReadyDependency(int id, vectorized::ScannerContext* scanner_ctx)
-            : Dependency(id, "DataReadyDependency"), _scanner_ctx(scanner_ctx) {}
+    DataReadyDependency(int id) : Dependency(id, "DataReadyDependency") {}
 
     void* shared_state() override { return nullptr; }
 
@@ -106,9 +105,6 @@ public:
         }
         return _ready_for_read ? nullptr : this;
     }
-
-private:
-    vectorized::ScannerContext* _scanner_ctx;
 };
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
