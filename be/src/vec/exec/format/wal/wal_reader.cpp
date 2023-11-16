@@ -36,7 +36,6 @@ Status WalReader::init_reader() {
     return Status::OK();
 }
 Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    LOG(INFO) << "raw block " << block->dump_data(0, 2);
     //read src block
     PBlock pblock;
     auto st = _wal_reader->read_block(pblock);
@@ -52,7 +51,6 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     }
     vectorized::Block src_block;
     RETURN_IF_ERROR(src_block.deserialize(pblock));
-    LOG(INFO) << "src_block block " << src_block.dump_data(0, 2);
     //convert to dst block
     vectorized::Block dst_block;
     int index = 0;
@@ -68,9 +66,8 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         index++;
     }
     block->swap(dst_block);
-    LOG(INFO) << "dst_block block " << block->dump_data(0, 2);
     *read_rows = block->rows();
-    LOG(INFO) << "read block rows:" << *read_rows;
+    VLOG_DEBUG << "read block rows:" << *read_rows;
     return Status::OK();
 }
 

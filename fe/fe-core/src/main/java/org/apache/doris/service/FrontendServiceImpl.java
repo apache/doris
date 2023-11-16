@@ -1859,8 +1859,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long dbId = db.getId();
         DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
-        LOG.info("request db_id:" + request.getDbId() + ",db_id:" + dbId + ",txn_id:" + request.getTxnId() + ",state:"
-                + transactionState);
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
@@ -3513,7 +3511,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         StringBuilder sb = new StringBuilder();
         for (Column column : table.getFullSchema()) {
-            LOG.info(column.getName() + ":" + column.getUniqueId());
             sb.append(column.getName() + ":" + column.getUniqueId() + ",");
         }
         String columnInfo = sb.toString();

@@ -574,14 +574,6 @@ private:
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 
-//    Status write_wal(OlapTableBlockConvertor* block_convertor, OlapTabletFinder* tablet_finder,
-//                     vectorized::Block* block, RuntimeState* state, int64_t num_rows,
-//                     int64_t filtered_rows);
-//
-//    void _group_commit_block(vectorized::Block* input_block, int64_t num_rows, int64_t filter_rows,
-//                             RuntimeState* state, vectorized::Block* block,
-//                             OlapTableBlockConvertor* block_convertor,
-//                             OlapTabletFinder* tablet_finder);
 
     TDataSink _t_sink;
 

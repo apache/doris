@@ -93,7 +93,6 @@ public class LoadAction extends RestBaseController {
                 LOG.info(pair[0] + ":" + pair[1]);
                 if (isGroupCommitBlock(pair)) {
                     String msg = "insert table " + pair[1] + " is blocked on schema change";
-                    LOG.info(msg);
                     return new RestBaseResult(msg);
                 }
             } catch (Exception e) {
@@ -136,7 +135,6 @@ public class LoadAction extends RestBaseController {
                 String[] pair = parseDbAndTb(sql);
                 if (isGroupCommitBlock(pair)) {
                     String msg = "insert table " + pair[1] + " is blocked on schema change";
-                    LOG.info(msg);
                     return new RestBaseResult(msg);
                 }
             } catch (Exception e) {
@@ -333,6 +331,7 @@ public class LoadAction extends RestBaseController {
 
     private TNetworkAddress selectRedirectBackend(String clusterName, boolean groupCommit) throws LoadException {
         Backend backend = null;
+        BeSelectionPolicy policy = null;
         if (groupCommit) {
             List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             for (Long backendId : allBackendIds) {
@@ -345,7 +344,7 @@ public class LoadAction extends RestBaseController {
         } else {
             String qualifiedUser = ConnectContext.get().getQualifiedUser();
             Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
-            BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+            policy = new BeSelectionPolicy.Builder()
                     .addTags(userTags)
                     .needLoadAvailable().build();
             List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
@@ -357,7 +356,6 @@ public class LoadAction extends RestBaseController {
         if (backend == null) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        LOG.info("choose be:" + backend.getHost());
         return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
     }
 
