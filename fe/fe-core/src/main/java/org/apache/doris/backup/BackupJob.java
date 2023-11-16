@@ -164,6 +164,10 @@ public class BackupJob extends AbstractJob {
         return BackupContent.ALL;
     }
 
+    public Map<String, String> getBackupTablesErrorIgnore() {
+        return backupTablesErrorIgnore;
+    }
+
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
 
