@@ -238,4 +238,38 @@ suite("test_multi_range_partition") {
         contains "partitions=2/3 (p2,p3)"
     }
 
+    
+    // test if a range is not sliced to multiple single point
+    // for example: range [3,7) is sliced to [3,3], [4,4],[5,5],[6,6]
+    sql "set partition_pruning_expand_threshold=1;"
+
+    explain {
+        sql "select * from pt where k1 < 5;"
+        contains "partitions=2/3 (p1,p2)"
+    }
+
+    explain {
+        sql "select * from pt where not k1 < 5;"
+        contains "partitions=2/3 (p2,p3)"
+    }
+
+    explain {
+        sql "select * from pt where k2 < 5;"
+        contains "partitions=3/3 (p1,p2,p3)"
+    }
+
+    explain {
+        sql "select * from pt where not k2 < 5;"
+        contains "partitions=3/3 (p1,p2,p3)"
+    }
+
+    explain {
+        sql "select * from pt where k3 < 5;"
+        contains "partitions=3/3 (p1,p2,p3)"
+    }
+
+    explain {
+        sql "select * from pt where not k3 < 5;"
+        contains "partitions=3/3 (p1,p2,p3)"
+    }
 }
