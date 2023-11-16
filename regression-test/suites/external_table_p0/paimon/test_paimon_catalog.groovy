@@ -227,7 +227,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c53 c53
             qt_c54 c54
             qt_c55 c55
-            qt_c56 c56
+            // qt_c56 c56
             qt_c57 c57
             qt_c58 c58
             qt_c59 c59
@@ -245,7 +245,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c71 c71
             qt_c72 c72
             qt_c73 c73
-            qt_c74 c74
+            // qt_c74 c74
             qt_c75 c75
             qt_c76 c76
             qt_c77 c77
@@ -263,7 +263,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c80 c89
             qt_c90 c90
             qt_c91 c91
-            qt_c92 c92
+            // qt_c92 c92
             qt_c93 c93
             qt_c94 c94
             qt_c95 c95

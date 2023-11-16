@@ -177,12 +177,14 @@ public class StatisticsUtil {
         sessionVariable.enablePageCache = false;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
-        sessionVariable.setEnableNereidsPlanner(false);
+        sessionVariable.setEnableNereidsPlanner(true);
+        sessionVariable.setEnablePipelineEngine(false);
         sessionVariable.enableProfile = false;
         sessionVariable.enableScanRunSerial = limitScan;
-        sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
-        sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.queryTimeoutS = StatisticsUtil.getAnalyzeTimeout();
+        sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
+        sessionVariable.forbidUnknownColStats = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -807,7 +809,7 @@ public class StatisticsUtil {
 
     public static boolean inAnalyzeTime(LocalTime now) {
         try {
-            Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
+            Pair<LocalTime, LocalTime> range = findConfigFromGlobalSessionVar();
             if (range == null) {
                 return false;
             }
@@ -824,17 +826,17 @@ public class StatisticsUtil {
         }
     }
 
-    private static Pair<LocalTime, LocalTime> findRangeFromGlobalSessionVar() {
+    private static Pair<LocalTime, LocalTime> findConfigFromGlobalSessionVar() {
         try {
             String startTime =
-                    findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
-                            .fullAutoAnalyzeStartTime;
+                    findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_START_TIME)
+                            .autoAnalyzeStartTime;
             // For compatibility
             if (StringUtils.isEmpty(startTime)) {
                 startTime = StatisticConstants.FULL_AUTO_ANALYZE_START_TIME;
             }
-            String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
-                    .fullAutoAnalyzeEndTime;
+            String endTime = findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_END_TIME)
+                    .autoAnalyzeEndTime;
             if (StringUtils.isEmpty(startTime)) {
                 endTime = StatisticConstants.FULL_AUTO_ANALYZE_END_TIME;
             }
@@ -845,7 +847,7 @@ public class StatisticsUtil {
         }
     }
 
-    private static SessionVariable findRangeFromGlobalSessionVar(String varName) throws Exception {
+    protected static SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
         SessionVariable sessionVariable =  VariableMgr.newSessionVariable();
         VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
         VariableMgr.getValue(sessionVariable, variableExpr);
@@ -854,10 +856,71 @@ public class StatisticsUtil {
 
     public static boolean enableAutoAnalyze() {
         try {
-            return findRangeFromGlobalSessionVar(SessionVariable.ENABLE_FULL_AUTO_ANALYZE).enableFullAutoAnalyze;
+            return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_AUTO_ANALYZE).enableAutoAnalyze;
         } catch (Exception e) {
             LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
         }
         return false;
     }
+
+    public static int getInsertMergeCount() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.STATS_INSERT_MERGE_ITEM_COUNT)
+                    .statsInsertMergeItemCount;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of insert_merge_item_count, return default", e);
+        }
+        return StatisticConstants.INSERT_MERGE_ITEM_COUNT;
+    }
+
+    public static long getHugeTableSampleRows() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_DEFAULT_SAMPLE_ROWS)
+                    .hugeTableDefaultSampleRows;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_table_default_sample_rows, return default", e);
+        }
+        return StatisticConstants.HUGE_TABLE_DEFAULT_SAMPLE_ROWS;
+    }
+
+    public static long getHugeTableLowerBoundSizeInBytes() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES)
+                    .hugeTableLowerBoundSizeInBytes;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_table_lower_bound_size_in_bytes, return default", e);
+        }
+        return StatisticConstants.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES;
+    }
+
+    public static long getHugeTableAutoAnalyzeIntervalInMillis() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
+                    .hugeTableAutoAnalyzeIntervalInMillis;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_table_auto_analyze_interval_in_millis, return default", e);
+        }
+        return StatisticConstants.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS;
+    }
+
+    public static long getTableStatsHealthThreshold() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.TABLE_STATS_HEALTH_THRESHOLD)
+                    .tableStatsHealthThreshold;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
+        }
+        return StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD;
+    }
+
+    public static int getAnalyzeTimeout() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.ANALYZE_TIMEOUT)
+                    .analyzeTimeoutS;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
+        }
+        return StatisticConstants.ANALYZE_TIMEOUT_IN_SEC;
+    }
+
 }

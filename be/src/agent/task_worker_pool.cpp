@@ -1925,6 +1925,10 @@ void StorageMediumMigrateTaskPool::_storage_medium_migrate_worker_thread_callbac
             EngineStorageMigrationTask engine_task(tablet, dest_store);
             status = _env->storage_engine()->execute_task(&engine_task);
         }
+        // fe should ignore this err
+        if (status.is<FILE_ALREADY_EXIST>()) {
+            status = Status::OK();
+        }
         if (!status.ok()) {
             LOG_WARNING("failed to migrate storage medium")
                     .tag("signature", agent_task_req.signature)
@@ -1987,8 +1991,9 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         *dest_store = stores[0];
     }
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
-        return Status::InternalError("tablet is already on specified path {}",
-                                     tablet->data_dir()->path());
+        LOG_WARNING("tablet is already on specified path").tag("path", tablet->data_dir()->path());
+        return Status::Error<FILE_ALREADY_EXIST, false>("tablet is already on specified path: {}",
+                                                        tablet->data_dir()->path());
     }
 
     // check local disk capacity
@@ -1997,7 +2002,6 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         return Status::InternalError("reach the capacity limit of path {}, tablet_size={}",
                                      (*dest_store)->path(), tablet_size);
     }
-
     return Status::OK();
 }
 

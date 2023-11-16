@@ -2731,3 +2731,13 @@ Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数
 默认值：2000
 
 对于自动分区表，防止用户意外创建大量分区，每个OLAP表允许的分区数量为`max_auto_partition_num`。默认2000。
+
+#### `fe_thrift_max_pkg_bytes`
+
+默认值：20000000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+用于限制fe节点thrift端口可以接收的最大包长度，避免接收到过大或者错误的包导致OOM

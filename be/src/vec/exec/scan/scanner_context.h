@@ -41,6 +41,10 @@ class ThreadPoolToken;
 class RuntimeState;
 class TupleDescriptor;
 
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
+
 namespace vectorized {
 
 class VScanner;
@@ -149,6 +153,7 @@ public:
         }
         return thread_slot_num;
     }
+    taskgroup::TaskGroup* get_task_group() const;
 
     void reschedule_scanner_ctx();
 
@@ -241,6 +246,7 @@ protected:
     std::list<VScannerSPtr> _scanners;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
+    std::vector<int64_t> _finished_scanner_wait_worker_time;
 
     const int _num_parallel_instances;
 

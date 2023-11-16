@@ -71,7 +71,11 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
         order_qt_filter2  """ select * from test_char where 1 = 1 and id = 1  order by id; """
         order_qt_filter3  """ select * from test_char where id = 1  order by id; """
         order_qt_id """ select count(*) from (select * from t_id) as a; """
-
+        order_qt_all_type """ select * from all_type order by id; """
+        sql """ drop table if exists internal.${internal_db_name}.all_type; """
+        order_qt_ctas """ create table internal.${internal_db_name}.ctas_all_type PROPERTIES("replication_num" = "1") as select * from all_type; """
+        qt_desc_query_ctas """ desc internal.${internal_db_name}.ctas_all_type; """
+        order_qt_query_ctas """ select * from internal.${internal_db_name}.ctas_all_type order by id; """
 
         sql """ drop catalog if exists ${catalog_name} """
 

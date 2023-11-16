@@ -20,18 +20,16 @@
 #include <memory>
 #include <mutex>
 
+#include "pipeline/task_scheduler.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/task_group/task_group.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris::taskgroup {
 
 TaskGroupManager::TaskGroupManager() = default;
 TaskGroupManager::~TaskGroupManager() = default;
-
-TaskGroupManager* TaskGroupManager::instance() {
-    static TaskGroupManager tgm;
-    return &tgm;
-}
 
 TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& task_group_info) {
     {
