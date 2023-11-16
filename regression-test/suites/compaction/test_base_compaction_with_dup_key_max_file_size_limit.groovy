@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_base_compaction_with_dup_key_max_file_size_limit") {
+suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
     def tableName = "test_base_compaction_with_dup_key_max_file_size_limit"
  
     // use customer table of tpch_sf100
