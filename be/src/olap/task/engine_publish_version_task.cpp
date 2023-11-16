@@ -95,6 +95,13 @@ Status EnginePublishVersionTask::finish() {
             StorageEngine::instance()->tablet_publish_txn_thread_pool()->new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
     std::unordered_map<int64_t, int64_t> tablet_id_to_num_delta_rows;
+
+#ifndef NDEBUG
+    if (UNLIKELY(_publish_version_req.partition_version_infos.empty())) {
+        LOG(WARNING) << "transaction_id: " << transaction_id << " empty partition_version_infos";
+    }
+#endif
+
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
@@ -114,6 +121,12 @@ Status EnginePublishVersionTask::finish() {
 
         Version version(par_ver_info.version, par_ver_info.version);
 
+#ifndef NDEBUG
+        if (UNLIKELY(tablet_related_rs.empty())) {
+            LOG(WARNING) << "transaction_id: " << transaction_id
+                         << ", partition id: " << partition_id << " with empty tablet_related_rs";
+        }
+#endif
         // each tablet
         for (auto& tablet_rs : tablet_related_rs) {
             TabletInfo tablet_info = tablet_rs.first;
@@ -208,6 +221,12 @@ Status EnginePublishVersionTask::finish() {
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
             auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
+#ifndef NDEBUG
+            LOG(INFO) << "transaction_id: " << transaction_id << ", partition id: " << partition_id
+                      << ", version: " << version.second
+                      << " start to publish version on tablet: " << tablet_info.tablet_id
+                      << ", submit status: " << submit_st.code();
+#endif
             CHECK(submit_st.ok()) << submit_st;
         }
     }
