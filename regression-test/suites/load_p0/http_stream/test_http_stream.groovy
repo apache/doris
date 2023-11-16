@@ -684,6 +684,7 @@ suite("test_http_stream", "p0") {
         sql """truncate table ${tableName15}"""
         sql """sync"""
 
+        // TODO Waiting for the http_stream strict_mode problem to be fixed
         streamLoad {
             set 'version', '1'
             set 'strict_mode', 'test'
