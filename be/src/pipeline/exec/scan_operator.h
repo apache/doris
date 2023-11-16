@@ -99,9 +99,6 @@ public:
     void* shared_state() override { return nullptr; }
 
     [[nodiscard]] Dependency* read_blocked_by() override {
-        if (_scanner_ctx->get_num_running_scanners() == 0 && _scanner_ctx->should_be_scheduled()) {
-            _scanner_ctx->reschedule_scanner_ctx();
-        }
         if (config::enable_fuzzy_mode && !_ready_for_read &&
             _should_log(_read_dependency_watcher.elapsed_time())) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
