@@ -414,6 +414,9 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_per_fragment_instance_idx(local_params.sender_id);
         _runtime_states[i]->set_num_per_fragment_instances(request.num_senders);
         _runtime_states[i]->resize_op_id_to_local_state(max_operator_id());
+        _runtime_states[i]->set_load_stream_per_node(request.load_stream_per_node);
+        _runtime_states[i]->set_total_load_streams(request.total_load_streams);
+        _runtime_states[i]->set_num_local_sink(request.num_local_sink);
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto task = std::make_unique<PipelineXTask>(
