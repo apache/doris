@@ -117,6 +117,43 @@ suite("test_unique_backup_restore", "backup_restore") {
     }
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 1)
+
+    sql "DROP REPOSITORY `${repoName}`"
+
+    repoName = "test_bakcup_ignore_table_error_repo"
+    syncer.createS3Repository(repoName)
+    snapshotName = "test_bakcup_ignore_table_error_snapshot"
+    sql """
+        BACKUP SNAPSHOT ${dbName}.${snapshotName}
+        TO `${repoName}`
+        ON (${tableName})
+        PROPERTIES ("type" = "full", 'backup_tables_error_ignore_ratio'='0.2')
+        """
+    
+    while (!syncer.checkSnapshotFinish(dbName)) {
+        Thread.sleep(3000)
+    }
+
+    snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    assertTrue(snapshot != null)
+    sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${snapshotName}
+        FROM `${repoName}`
+        ON ( `${tableName}`)
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "replication_num" = "1"
+        )
+        """
+    while (!syncer.checkAllRestoreFinish(dbName)) {
+        Thread.sleep(3000)
+    }
+    result = sql "SELECT * FROM ${dbName}.${tableName}"
+    assertEquals(result.size(), 1)
+
+
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"

@@ -353,4 +353,160 @@ public class BackupJobTest {
         Assert.assertEquals(Status.ErrCode.NOT_FOUND, job.getStatus().getErrCode());
         Assert.assertEquals(BackupJobState.CANCELLED, job.getState());
     }
+
+    @Test
+    public void testRunIgnoreAbnormal() {
+        // 1.pending
+        AgentTaskQueue.clearAllTasks();
+
+        List<TableRef> tableRefs = Lists.newArrayList();
+        tableRefs.add(
+                new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
+                        null));
+        tableRefs.add(new TableRef(
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
+                        null));
+        job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
+                env, repo.getId(), 0.4);
+        job.run();
+        Assert.assertEquals(Status.ErrCode.COMMON_ERROR, job.getStatus().getErrCode());
+        Assert.assertEquals(BackupJobState.CANCELLED, job.getState());
+        Assert.assertEquals(1, job.getBackupTablesErrorIgnore().size());
+    }
+
+    @Test
+    public void testRunIgnoreNormal() {
+        AgentTaskQueue.clearAllTasks();
+
+        List<TableRef> tableRefs = Lists.newArrayList();
+        tableRefs.add(
+                new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
+                        null));
+        tableRefs.add(new TableRef(
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
+                        null));
+        job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
+                env, repo.getId(), 0.6);
+        // 1.pending
+        Assert.assertEquals(BackupJobState.PENDING, job.getState());
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
+        Assert.assertEquals(1, job.getBackupTablesErrorIgnore().size());
+
+        BackupMeta backupMeta = job.getBackupMeta();
+        Assert.assertEquals(1, backupMeta.getTables().size());
+        OlapTable backupTbl = (OlapTable) backupMeta.getTable(UnitTestUtil.TABLE_NAME);
+        List<String> partNames = Lists.newArrayList(backupTbl.getPartitionNames());
+        Assert.assertNotNull(backupTbl);
+        Assert.assertEquals(backupTbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames),
+                            ((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
+        Assert.assertEquals(1, AgentTaskQueue.getTaskNum());
+        AgentTask task = AgentTaskQueue.getTask(backendId, TTaskType.MAKE_SNAPSHOT, tabletId);
+        Assert.assertTrue(task instanceof SnapshotTask);
+        SnapshotTask snapshotTask = (SnapshotTask) task;
+
+        // 2. snapshoting
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
+
+        // 3. snapshot finished
+        String snapshotPath = "/path/to/snapshot";
+        List<String> snapshotFiles = Lists.newArrayList();
+        snapshotFiles.add("1.dat");
+        snapshotFiles.add("1.idx");
+        snapshotFiles.add("1.hdr");
+        TStatus taskStatus = new TStatus(TStatusCode.OK);
+        TBackend tBackend = new TBackend("", 0, 1);
+        TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
+                snapshotTask.getSignature(), taskStatus);
+        request.setSnapshotFiles(snapshotFiles);
+        request.setSnapshotPath(snapshotPath);
+        Assert.assertTrue(job.finishTabletSnapshotTask(snapshotTask, request));
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.UPLOAD_SNAPSHOT, job.getState());
+
+        // 4. upload snapshots
+        AgentTaskQueue.clearAllTasks();
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.UPLOADING, job.getState());
+        Assert.assertEquals(1, AgentTaskQueue.getTaskNum());
+        task = AgentTaskQueue.getTask(backendId, TTaskType.UPLOAD, id.get() - 1);
+        Assert.assertTrue(task instanceof UploadTask);
+        UploadTask upTask = (UploadTask) task;
+
+        Assert.assertEquals(job.getJobId(), upTask.getJobId());
+        Map<String, String> srcToDest = upTask.getSrcToDestPath();
+        Assert.assertEquals(1, srcToDest.size());
+        String dest = srcToDest.get(snapshotPath + "/" + tabletId + "/" + 0);
+        Assert.assertNotNull(dest);
+
+        // 5. uploading
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.UPLOADING, job.getState());
+        Map<Long, List<String>> tabletFileMap = Maps.newHashMap();
+        request = new TFinishTaskRequest(tBackend, TTaskType.UPLOAD,
+                upTask.getSignature(), taskStatus);
+        request.setTabletFiles(tabletFileMap);
+
+        Assert.assertFalse(job.finishSnapshotUploadTask(upTask, request));
+        List<String> tabletFiles = Lists.newArrayList();
+        tabletFileMap.put(tabletId, tabletFiles);
+        Assert.assertFalse(job.finishSnapshotUploadTask(upTask, request));
+        tabletFiles.add("1.dat.4f158689243a3d6030352fec3cfd3798");
+        tabletFiles.add("wrong_files.idx.4f158689243a3d6030352fec3cfd3798");
+        tabletFiles.add("wrong_files.hdr.4f158689243a3d6030352fec3cfd3798");
+        Assert.assertFalse(job.finishSnapshotUploadTask(upTask, request));
+        tabletFiles.clear();
+        tabletFiles.add("1.dat.4f158689243a3d6030352fec3cfd3798");
+        tabletFiles.add("1.idx.4f158689243a3d6030352fec3cfd3798");
+        tabletFiles.add("1.hdr.4f158689243a3d6030352fec3cfd3798");
+        Assert.assertTrue(job.finishSnapshotUploadTask(upTask, request));
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.SAVE_META, job.getState());
+
+        // 6. save meta
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.UPLOAD_INFO, job.getState());
+        File metaInfo = new File(job.getLocalMetaInfoFilePath());
+        Assert.assertTrue(metaInfo.exists());
+        File jobInfo = new File(job.getLocalJobInfoFilePath());
+        Assert.assertTrue(jobInfo.exists());
+
+        BackupMeta restoreMetaInfo = null;
+        BackupJobInfo restoreJobInfo = null;
+        try {
+            restoreMetaInfo = BackupMeta.fromFile(job.getLocalMetaInfoFilePath(), FeConstants.meta_version);
+            Assert.assertEquals(1, restoreMetaInfo.getTables().size());
+            OlapTable olapTable = (OlapTable) restoreMetaInfo.getTable(tblId);
+            Assert.assertNotNull(olapTable);
+            Assert.assertNotNull(restoreMetaInfo.getTable(UnitTestUtil.TABLE_NAME));
+            List<String> names = Lists.newArrayList(olapTable.getPartitionNames());
+            Assert.assertEquals(((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, names),
+                                olapTable.getSignature(BackupHandler.SIGNATURE_VERSION, names));
+
+            restoreJobInfo = BackupJobInfo.fromFile(job.getLocalJobInfoFilePath());
+            Assert.assertEquals(UnitTestUtil.DB_NAME, restoreJobInfo.dbName);
+            Assert.assertEquals(job.getLabel(), restoreJobInfo.name);
+            Assert.assertEquals(1, restoreJobInfo.backupOlapTableObjects.values().size());
+        } catch (IOException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        Assert.assertNull(job.getBackupMeta());
+        Assert.assertNull(job.getJobInfo());
+
+        // 7. upload_info
+        job.run();
+        Assert.assertEquals(Status.OK, job.getStatus());
+        Assert.assertEquals(BackupJobState.PARTIAL_FINISHED, job.getState());
+        Assert.assertEquals(1, job.getBackupTablesErrorIgnore().size());
+    }
 }
