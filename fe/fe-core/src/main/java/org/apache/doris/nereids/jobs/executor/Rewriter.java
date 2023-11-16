@@ -56,11 +56,13 @@ import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
+import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubquery;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractAndNormalizeWindowExpression;
@@ -124,6 +126,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
+                            new EliminateSortUnderSubquery(),
                             new EliminateGroupByConstant(),
                             // MergeProjects depends on this rule
                             new LogicalSubQueryAliasToLogicalProject(),
@@ -173,6 +176,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateLimit(),
                             new EliminateFilter(),
                             new EliminateAggregate(),
+                            new EliminateJoinCondition(),
                             new EliminateAssertNumRows()
                     )
             ),

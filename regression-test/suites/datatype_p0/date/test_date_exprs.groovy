@@ -20,20 +20,20 @@ suite("test_date_exprs") {
     def tbName = "test_date_exprs"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
-            create table ${tbName}(k1 datetimev2, k2 int) distributed by hash(k1) buckets 1 properties("replication_num" = "1");
+            create table ${tbName}(k1 datetimev1, k2 int) distributed by hash(k1) buckets 1 properties("replication_num" = "1");
         """
     sql """ insert into ${tbName} values("2016-11-04 00:00:01", 1); """
 
     qt_sql1 """ select dt
              from
              (
-             select cast(k1 as date) as dt
+             select cast(k1 as datev1) as dt
              from ${tbName}
              ) r; """
     qt_sql2 """ select dt
              from
              (
-             select cast(k1 as datev2) as dt
+             select cast(k1 as datev1) as dt
              from ${tbName}
              ) r; """
     sql "DROP TABLE ${tbName}"

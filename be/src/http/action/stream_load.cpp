@@ -523,7 +523,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_send_batch_parallelism(
                     std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid send_batch_parallelism format, {}", e.what());
+            return Status::InvalidArgument("send_batch_parallelism must be an integer, {}",
+                                           e.what());
+        } catch (const std::out_of_range& e) {
+            return Status::InvalidArgument("send_batch_parallelism out of range, {}", e.what());
         }
     }
 

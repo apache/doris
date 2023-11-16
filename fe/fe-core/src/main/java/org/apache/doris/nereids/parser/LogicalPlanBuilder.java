@@ -1334,7 +1334,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit(), true);
+                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit());
             }
 
             if (right instanceof Interval) {
@@ -1347,7 +1347,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit(), false);
+                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit());
             }
 
             return ParserUtils.withOrigin(ctx, () -> {
@@ -1905,11 +1905,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * TODO remove this function after we refactor type coercion.
      */
     private List<Literal> typeCoercionItems(List<Literal> items) {
-        DataType dataType = new Array(items.toArray(new Literal[0])).expectedInputTypes().get(0);
+        Array array = new Array(items.toArray(new Literal[0]));
+        if (array.expectedInputTypes().isEmpty()) {
+            return ImmutableList.of();
+        }
+        DataType dataType = array.expectedInputTypes().get(0);
         return items.stream()
                 .map(item -> item.checkedCastTo(dataType))
                 .map(Literal.class::cast)
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -2890,7 +2894,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new TableSample(percent, true, seek);
         }
         SampleByRowsContext sampleByRowsContext = (SampleByRowsContext) sampleContext;
-        long rows = Long.parseLong(sampleByRowsContext.ROWS().getText());
+        long rows = Long.parseLong(sampleByRowsContext.INTEGER_VALUE().getText());
         return new TableSample(rows, false, seek);
     }
 
