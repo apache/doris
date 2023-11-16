@@ -30,8 +30,8 @@ suite("two_level_nestedtypes_with_s3data") {
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
 
-//    def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
-    def dataFilePath = "/mnt/disk1/wangqiannan/export/tl/two_level"
+    def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
+//    def dataFilePath = "/mnt/disk1/wangqiannan/export/tl/two_level"
     def table_names = [
                                         "two_level_array_array",
                                         "two_level_array_map",
@@ -61,6 +61,9 @@ suite("two_level_nestedtypes_with_s3data") {
         }
     }
 
+    def select_nested_scala_element_at = { agg_expr, table_name ->
+        order_qt_select_nested "select ${agg_expr} from ${table_name} where ${agg_expr} IS NOT NULL AND k1 IS NOT NULL order by k1 limit 10;"
+    }
     def groupby_or_orderby_element_at = {is_groupby, table_name, agg_expr ->
         if (is_groupby) {
             order_qt_sql "select ${agg_expr} from ${table_name} where k1 IS NOT NULL group by ${agg_expr};"
@@ -102,29 +105,35 @@ suite("two_level_nestedtypes_with_s3data") {
     }
     def load_from_s3 = {table_name, uri_file, format ->
         if (format == "csv") {
-            order_qt_sql_tvf """select c2, c9, c10, c12, c16 from local(
-                "file_path" = "${uri_file}",
-                "backend_id" = "${be_id}",
-                "column_separator"="|",
-                "format" = "${format}") order by c1 limit 10; """
+            order_qt_sql_s3 """select c2, c9, c10, c12, c16 from s3(
+                "uri" = "${uri_file}",
+                    "s3.access_key"= "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "format" = "${format}",
+                    "column_separator"="|",
+                    "read_json_by_line"="true") order by c1 limit 10; """
             sql """
-            insert into ${table_name} select * from local(
-            "file_path" = "${uri_file}",
-            "backend_id" = "${be_id}",
-            "column_separator"="|",
-            "format" = "${format}") order by c1; """
+            insert into ${table_name} select * from s3(
+            "uri" = "${uri_file}",
+                    "s3.access_key"= "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "format" = "${format}",
+                    "column_separator"="|",
+                    "read_json_by_line"="true") order by c1; """
         } else {
-            order_qt_sql_tvf """select c_bool, c_double, c_decimal, c_date, c_char from local(
-                "file_path" = "${uri_file}",
-                "backend_id" = "${be_id}",
-                "column_separator"="|",
-                "format" = "${format}") order by k1 limit 10;"""
+            order_qt_sql_s3 """select c_bool, c_double, c_decimal, c_date, c_char from s3(
+                "uri" = "${uri_file}",
+                    "s3.access_key"= "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "format" = "${format}",
+                    "read_json_by_line"="true") order by k1 limit 10;"""
             sql """
-            insert into ${table_name} select * from local(
-            "file_path" = "${uri_file}",
-            "backend_id" = "${be_id}",
-            "column_separator"="|",
-            "format" = "${format}") order by k1; """
+            insert into ${table_name} select * from s3(
+            "uri" = "${uri_file}",
+                    "s3.access_key"= "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "format" = "${format}",
+                    "read_json_by_line"="true") order by k1; """
         }
         // where to filter different format data
         qt_select_doris """ select c_bool, c_double, c_decimal, c_date, c_char from ${table_name} where k1 IS NOT NULL order by k1 limit 10; """
@@ -180,7 +189,7 @@ suite("two_level_nestedtypes_with_s3data") {
         for (int fi = 0; fi < format_order.size(); ++fi) {
             String form = format_order[fi]
             sql "truncate table ${table_name};"
-            load_from_tvf(table_name, array_files[ffi], form)
+            load_from_s3(table_name, array_files[ffi], form)
             ++ ffi
         }
         qt_select_count_array """ select count() from ${table_name}; """
@@ -188,8 +197,8 @@ suite("two_level_nestedtypes_with_s3data") {
 
 
 
-    for (int i = 0; i < 2; ++i) {
-        String table_name = table_names[i] // array-array, array-map
+    for (int i = 0; i < 3; ++i) {
+        String table_name = table_names[i] // array-array, array-map, array-struct
         // select element_at(column)
         for (String col : colNameArr) {
             // first
@@ -197,13 +206,13 @@ suite("two_level_nestedtypes_with_s3data") {
             // last
             order_qt_select_arr "select ${col}[-1] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
             // null
-            order_qt_select_arr "select ${col}[0] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
+            order_qt_select_arr_null "select ${col}[0] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
             // null
-            order_qt_select_arr "select ${col}[1000] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
+            order_qt_select_arr_null "select ${col}[1000] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
         }
         // select * from table where element_at(column) with equal expr
         for (String col : colNameArr) {
-            order_qt_select_arr "select ${col}[1], ${col}[-1] from ${table_name} where ${col}[1][1] IS NOT NULL AND k1 IS NOT NULL order by k1 limit 10;"
+            order_qt_select_arr "select ${col}[1], ${col}[-1] from ${table_name} WHERE k1 IS NOT NULL order by k1 limit 10;"
         }
         // select * from table where groupby|orderby column will meet exception
         for (String col : colNameArr) {
@@ -218,10 +227,13 @@ suite("two_level_nestedtypes_with_s3data") {
     // most-nested-column
     // array-array
     String agg_expr = "${colNameArr[0]}[1][1]"
+    select_nested_scala_element_at(agg_expr, table_names[0])
+
     groupby_or_orderby_element_at(true, table_names[0], agg_expr)
     groupby_or_orderby_element_at(false, table_names[0], agg_expr)
     // array-map
     agg_expr = "${colNameArr[0]}[1][map_keys(${colNameArr[0]}[1])[1]]"
+    select_nested_scala_element_at(agg_expr, table_names[1])
     groupby_or_orderby_element_at(true, table_names[1], agg_expr)
     groupby_or_orderby_element_at(false, table_names[1], agg_expr)
 
@@ -264,13 +276,13 @@ suite("two_level_nestedtypes_with_s3data") {
         for (int fi = 0; fi < format_order.size(); ++fi) {
             String form = format_order[fi]
             sql "truncate table ${table_name};"
-            load_from_tvf(table_name, map_files[ffi], form)
+            load_from_s3(table_name, map_files[ffi], form)
             ++ ffi
         }
         qt_select_count_map """ select count() from ${table_name}; """
     }
-    for (int i = 3; i < 4; ++i ) {
-        String table_name = table_names[i] // map-array, map-map
+    for (int i = 3; i < 6; ++i ) {
+        String table_name = table_names[i] // map-array map-map map-struct
         // select element_at(column)
         for (String col : colNameArr) {
             // first
@@ -278,13 +290,13 @@ suite("two_level_nestedtypes_with_s3data") {
             // last
             order_qt_select_map "select ${col}[map_keys(${col})[-1]] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
             // null
-            order_qt_select_map "select ${col}[map_keys(${col})[0]] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
+            order_qt_select_map_null "select ${col}[map_keys(${col})[0]] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
             // null
-            order_qt_select_map "select ${col}[map_keys(${col})[1000]] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
+            order_qt_select_map_null "select ${col}[map_keys(${col})[1000]] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
         }
         // select * from table where element_at(column) with equal expr
         for (String col : colNameArr) {
-            order_qt_select_map "select ${col}[map_keys(${col})[1]], ${col}[map_keys(${col})[-1]] from ${table_name} where ${col}[1][1] IS NOT NULL AND k1 IS NOT NULL order by k1 limit 10;"
+            order_qt_select_map "select ${col}[map_keys(${col})[1]], ${col}[map_keys(${col})[-1]] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
         }
         // select * from table where groupby|orderby column will meet exception
         for (String col : colNameArr) {
@@ -301,17 +313,19 @@ suite("two_level_nestedtypes_with_s3data") {
     // most-nested-column
     // map-array
     agg_expr = "${colNameArr[0]}[map_keys(${colNameArr[0]})[1]][1]"
+    select_nested_scala_element_at(agg_expr, table_names[3])
     groupby_or_orderby_element_at(true, table_names[3], agg_expr)
     groupby_or_orderby_element_at(false, table_names[3], agg_expr)
     // map-map
     agg_expr = "${colNameArr[0]}[map_keys(${colNameArr[0]})[1]][map_keys(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]])[1]]"
+    select_nested_scala_element_at(agg_expr, table_names[4])
     groupby_or_orderby_element_at(true, table_names[4], agg_expr)
     groupby_or_orderby_element_at(false, table_names[4], agg_expr)
     // map-struct
     // select element_at(column)
     order_qt_select_map "select struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1), struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 'col17') from ${table_names[5]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where element_at(column) with equal expr
-    order_qt_select_map "select struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1), struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 'col17') from ${table_names[5]} where struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1) IS NOT NULL AND k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_map "select struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1), struct_element(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 'col17') from ${table_names[5]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where groupby|orderby column will meet exception
     groupby_or_orderby_exception(true, table_names[5], colNameArr[0])
     groupby_or_orderby_exception(false, table_names[5], colNameArr[0])
@@ -345,13 +359,13 @@ suite("two_level_nestedtypes_with_s3data") {
         for (int fi = 0; fi < format_order.size(); ++fi) {
             String form = format_order[fi]
             sql "truncate table ${table_name};"
-            load_from_tvf(table_name, struct_files[ffi], form)
+            load_from_s3(table_name, struct_files[ffi], form)
             ++ ffi
         }
         qt_select_count_struct """ select count() from ${table_name}; """
     }
     for (int i = 6; i < 8; ++i ) {
-        String table_name = table_names[i] // struct-array, struct-map
+        String table_name = table_names[i] // struct-array, struct-map, struct-struct
         // select element_at(column)
         for (String col : colNameArr) {
             order_qt_select_struct "select struct_element(${colNameArr[0]}, 1), struct_element(${colNameArr[0]}, 'col_1') from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
@@ -387,17 +401,19 @@ suite("two_level_nestedtypes_with_s3data") {
     // most-nested-column
     // struct-array
     agg_expr = "struct_element(${colNameArr[0]}, 1)[1]"
+    select_nested_scala_element_at(agg_expr, table_names[6])
     groupby_or_orderby_element_at(true, table_names[6], agg_expr)
     groupby_or_orderby_element_at(false, table_names[6], agg_expr)
     // struct-map
     agg_expr = "struct_element(${colNameArr[0]}, 1)[map_keys(struct_element(${colNameArr[0]}, 1))[1]]"
+    select_nested_scala_element_at(agg_expr, table_names[7])
     groupby_or_orderby_element_at(true, table_names[7], agg_expr)
     groupby_or_orderby_element_at(false, table_names[7], agg_expr)
     // struct-struct
     // select element_at(column)
     order_qt_select_struct "select struct_element(struct_element(${colNameArr[0]}, 1), 1), struct_element(struct_element(${colNameArr[0]}, 1), 'col1') from ${table_names[8]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where element_at(column) with equal expr
-    order_qt_select_struct "select struct_element(struct_element(${colNameArr[0]}, 1), 1), struct_element(struct_element(${colNameArr[0]}, 1), 'col1') from ${table_names[8]} where struct_element(struct_element(${colNameArr[0]}, 1), 1) IS NOT NULL AND k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_struct "select struct_element(struct_element(${colNameArr[0]}, 1), 1), struct_element(struct_element(${colNameArr[0]}, 1), 'col1') from ${table_names[8]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where groupby|orderby column will meet exception
     groupby_or_orderby_exception(true, table_names[8], colNameArr[0])
     groupby_or_orderby_exception(false, table_names[8], colNameArr[0])
