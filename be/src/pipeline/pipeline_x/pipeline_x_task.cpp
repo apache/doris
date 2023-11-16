@@ -91,14 +91,14 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     }
 
     _block = doris::vectorized::Block::create_unique();
-    RETURN_IF_ERROR(extract_dependencies());
+    RETURN_IF_ERROR(_extract_dependencies());
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
     _prepared = true;
     return Status::OK();
 }
 
-Status PipelineXTask::extract_dependencies() {
+Status PipelineXTask::_extract_dependencies() {
     for (auto op : _operators) {
         auto result = _state->get_local_state_result(op->operator_id());
         if (!result) {
@@ -380,7 +380,7 @@ void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
             << " _blocked_dep: " << (_blocked_dep ? _blocked_dep->debug_string() : "NULL")
             << " task state: " << get_state_name(state);
     if (state == PipelineTaskState::PENDING_FINISH) {
-        _blocked_dep = finish_blocked_dependency(true);
+        _blocked_dep = _finish_blocked_dependency(true);
         if (_blocked_dep == nullptr) {
             _make_run();
         } else {
