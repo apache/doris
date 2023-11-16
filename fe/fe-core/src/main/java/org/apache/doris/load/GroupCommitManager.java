@@ -26,8 +26,6 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
-import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,6 +64,7 @@ public class GroupCommitManager {
         boolean empty = true;
         for (int i = 0; i < aliveBeIds.size(); i++) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(aliveBeIds.get(i));
+            // in ut port is -1, skip checking
             if (backend.getBrpcPort() < 0) {
                 return true;
             }
@@ -73,44 +72,7 @@ public class GroupCommitManager {
                     .setTableId(tableId)
                     .setTxnId(endTransactionId)
                     .build();
-            PGetWalQueueSizeResponse response = null;
-            long start = System.currentTimeMillis();
-            boolean done = false;
-            long size = 0;
-            while (!done && System.currentTimeMillis() - start <= Config.check_wal_queue_timeout_threshold) {
-                try {
-                    Future<PGetWalQueueSizeResponse> future = BackendServiceProxy.getInstance()
-                            .getWalQueueSize(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
-                    response = future.get();
-                } catch (Exception e) {
-                    LOG.warn("encounter exception while getting wal queue size on backend id: " + backend.getId()
-                            + ",exception:" + e);
-                    String msg = e.getMessage();
-                    if (msg.contains("Method") && msg.contains("unimplemented")) {
-                        break;
-                    }
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException ie) {
-                        LOG.info("group commit manager sleep wait InterruptedException: ", ie);
-                    }
-                    continue;
-                }
-                TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
-                if (code != TStatusCode.OK) {
-                    String msg = "get wal queue size fail,backend id: " + backend.getId() + ", status: "
-                            + response.getStatus();
-                    LOG.warn(msg);
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException ie) {
-                        LOG.info("group commit manager sleep wait InterruptedException: ", ie);
-                    }
-                    continue;
-                }
-                size = response.getSize();
-                done = true;
-            }
+            long size = getWallQueueSize(backend, request);
             if (size > 0) {
                 LOG.info("backend id:" + backend.getId() + ",wal size:" + size);
                 empty = false;
@@ -121,12 +83,21 @@ public class GroupCommitManager {
 
     public long getAllWalQueueSize(Backend backend) {
         PGetWalQueueSizeRequest request = PGetWalQueueSizeRequest.newBuilder()
+                .setTableId(-1)
+                .setTxnId(-1)
                 .build();
+        long size = getWallQueueSize(backend, request);
+        if (size > 0) {
+            LOG.info("backend id:" + backend.getId() + ",all wal size:" + size);
+        }
+        return size;
+    }
+
+    public long getWallQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
         PGetWalQueueSizeResponse response = null;
-        long start = System.currentTimeMillis();
-        boolean done = false;
+        long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
         long size = 0;
-        while (!done && System.currentTimeMillis() - start <= Config.check_wal_queue_timeout_threshold) {
+        while (System.currentTimeMillis() <= expireTime) {
             if (!backend.isAlive()) {
                 try {
                     Thread.sleep(100);
@@ -137,10 +108,10 @@ public class GroupCommitManager {
             }
             try {
                 Future<PGetWalQueueSizeResponse> future = BackendServiceProxy.getInstance()
-                        .getAllWalQueueSize(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
+                        .getWalQueueSize(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
                 response = future.get();
             } catch (Exception e) {
-                LOG.warn("encounter exception while getting all wal queue size on backend id: " + backend.getId()
+                LOG.warn("encounter exception while getting wal queue size on backend id: " + backend.getId()
                         + ",exception:" + e);
                 String msg = e.getMessage();
                 if (msg.contains("Method") && msg.contains("unimplemented")) {
@@ -155,7 +126,7 @@ public class GroupCommitManager {
             }
             TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                String msg = "get all wal queue size fail,backend id: " + backend.getId() + ", status: "
+                String msg = "get all queue size fail,backend id: " + backend.getId() + ", status: "
                         + response.getStatus();
                 LOG.warn(msg);
                 try {
@@ -166,29 +137,9 @@ public class GroupCommitManager {
                 continue;
             }
             size = response.getSize();
-            done = true;
-        }
-        if (size > 0) {
-            LOG.info("backend id:" + backend.getId() + ",all wal size:" + size);
+            break;
         }
         return size;
     }
 
-
-    public boolean needRecovery(long dbId, long transactionId) {
-        TransactionState state = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionState(dbId, transactionId);
-        if (state == null || state.getTransactionStatus() == null) {
-            LOG.info("txn {} state is null ,skip recovery", transactionId);
-            return false;
-        } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED
-                || state.getTransactionStatus() == TransactionStatus.VISIBLE) {
-            LOG.info("txn {} state is {}, "
-                    + "skip recovery", transactionId, state.getTransactionStatus());
-            return false;
-        } else {
-            LOG.info("txn {} state is {} ,need recovery", transactionId, state.getTransactionStatus());
-            return true;
-        }
-    }
 }

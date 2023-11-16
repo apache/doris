@@ -33,10 +33,7 @@
 #include <stdint.h>
 
 #include <atomic>
-
-#include "olap/wal_writer.h"
-// IWYU pragma: no_include <bits/chrono.h>
-#include <chrono> // IWYU pragma: keep
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
@@ -59,6 +56,7 @@
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
+#include "olap/wal_writer.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -84,22 +82,21 @@ namespace vectorized {
 
 class VWalWriter {
 public:
-    VWalWriter(int64_t tb_id, int64_t db_id, int64_t wal_id, RuntimeState* state,
+    VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id, RuntimeState* state,
                TupleDescriptor* output_tuple_desc);
     ~VWalWriter();
     Status init();
     Status write_wal(OlapTableBlockConvertor* block_convertor, OlapTabletFinder* tablet_finder,
                      vectorized::Block* block, RuntimeState* state, int64_t num_rows,
                      int64_t filtered_rows);
-    Status group_commit_block(vectorized::Block* input_block, int64_t num_rows, int64_t filter_rows,
-                             RuntimeState* state, vectorized::Block* block,
-                             OlapTableBlockConvertor* block_convertor,
-                             OlapTabletFinder* tablet_finder);
+    Status append_block(vectorized::Block* input_block, int64_t num_rows, int64_t filter_rows,
+                        vectorized::Block* block, OlapTableBlockConvertor* block_convertor,
+                        OlapTabletFinder* tablet_finder);
     Status close();
 
 private:
-    int64_t _tb_id;
     int64_t _db_id;
+    int64_t _tb_id;
     int64_t _wal_id;
     uint32_t _version = 0;
     std::string _label;

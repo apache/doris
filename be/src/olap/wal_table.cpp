@@ -73,13 +73,13 @@ Status WalTable::replay_wals() {
                 LOG(WARNING) << "All replay wal failed, db=" << _db_id << ", table=" << _table_id
                              << ", wal=" << wal
                              << ", retry_num=" << config::group_commit_replay_wal_retry_num;
-                std::string rename_path = get_tmp_path(wal);
+                std::string rename_path = _get_tmp_path(wal);
                 LOG(INFO) << "rename wal from " << wal << " to " << rename_path;
                 std::rename(wal.c_str(), rename_path.c_str());
                 _replay_wal_map.erase(wal);
                 continue;
             }
-            if (need_replay(info)) {
+            if (_need_replay(info)) {
                 need_replay_wals.push_back(wal);
             }
         }
@@ -98,7 +98,7 @@ Status WalTable::replay_wals() {
                 }
             }
         }
-        auto st = replay_wal_internal(wal);
+        auto st = _replay_wal_internal(wal);
         if (!st.ok()) {
             std::lock_guard<std::mutex> lock(_replay_wal_lock);
             auto it = _replay_wal_map.find(wal);
@@ -116,7 +116,7 @@ Status WalTable::replay_wals() {
     return Status::OK();
 }
 
-std::string WalTable::get_tmp_path(const std::string wal) {
+std::string WalTable::_get_tmp_path(const std::string wal) {
     std::vector<std::string> path_element;
     doris::vectorized::WalReader::string_split(wal, "/", path_element);
     std::stringstream ss;
@@ -137,7 +137,7 @@ std::string WalTable::get_tmp_path(const std::string wal) {
     return ss.str();
 }
 
-bool WalTable::need_replay(const doris::WalTable::replay_wal_info& info) {
+bool WalTable::_need_replay(const doris::WalTable::replay_wal_info& info) {
 #ifndef BE_TEST
     auto& [retry_num, start_ts, replaying] = info;
     auto replay_interval =
@@ -148,7 +148,7 @@ bool WalTable::need_replay(const doris::WalTable::replay_wal_info& info) {
 #endif
 }
 
-Status WalTable::abort_txn(int64_t db_id, int64_t wal_id) {
+Status WalTable::_abort_txn(int64_t db_id, int64_t wal_id) {
     TLoadTxnRollbackRequest request;
     request.__set_auth_code(0); // this is a fake, fe not check it now
     request.__set_db_id(db_id);
@@ -168,7 +168,7 @@ Status WalTable::abort_txn(int64_t db_id, int64_t wal_id) {
     return result_status;
 }
 
-Status WalTable::replay_wal_internal(const std::string& wal) {
+Status WalTable::_replay_wal_internal(const std::string& wal) {
     LOG(INFO) << "Start replay wal for db=" << _db_id << ", table=" << _table_id << ", wal=" << wal;
     // start a new stream load
     {
@@ -184,34 +184,23 @@ Status WalTable::replay_wal_internal(const std::string& wal) {
             return Status::OK();
         }
     }
-    // check whether wal need to do recover or not
     std::shared_ptr<std::pair<int64_t, std::string>> pair = nullptr;
-    RETURN_IF_ERROR(get_wal_info(wal, pair));
+    RETURN_IF_ERROR(_get_wal_info(wal, pair));
     auto wal_id = pair->first;
     auto label = pair->second;
 #ifndef BE_TEST
-    bool needRecovery = true;
-    RETURN_IF_ERROR(check_wal_recovery(wal_id, needRecovery));
-    if (!needRecovery) {
-        LOG(INFO) << "wal is already committed, skip recovery, wal=" << wal_id;
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(_table_id, wal_id));
-        std::lock_guard<std::mutex> lock(_replay_wal_lock);
-        _replay_wal_map.erase(wal);
-        return Status::OK();
-    }
-    auto st = abort_txn(_db_id, wal_id);
+    auto st = _abort_txn(_db_id, wal_id);
     if (!st.ok()) {
         LOG(WARNING) << "abort txn " << wal_id << " fail";
     }
-    RETURN_IF_ERROR(get_column_info(_db_id, _table_id));
+    RETURN_IF_ERROR(_get_column_info(_db_id, _table_id));
 #endif
-    RETURN_IF_ERROR(send_request(wal_id, wal, label));
+    RETURN_IF_ERROR(_send_request(wal_id, wal, label));
     return Status::OK();
 }
 
-Status WalTable::get_wal_info(const std::string& wal,
-                              std::shared_ptr<std::pair<int64_t, std::string>>& pair) {
+Status WalTable::_get_wal_info(const std::string& wal,
+                               std::shared_ptr<std::pair<int64_t, std::string>>& pair) {
     std::vector<std::string> path_element;
     doris::vectorized::WalReader::string_split(wal, "/", path_element);
     auto pos = path_element[path_element.size() - 1].find("_");
@@ -230,7 +219,7 @@ void http_request_done(struct evhttp_request* req, void* arg) {
     event_base_loopbreak((struct event_base*)arg);
 }
 
-Status WalTable::send_request(int64_t wal_id, const std::string& wal, const std::string& label) {
+Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std::string& label) {
 #ifndef BE_TEST
     struct event_base* base = nullptr;
     struct evhttp_connection* conn = nullptr;
@@ -244,7 +233,7 @@ Status WalTable::send_request(int64_t wal_id, const std::string& wal, const std:
     evhttp_add_header(req->output_headers, HTTP_AUTH_CODE.c_str(), std::to_string(wal_id).c_str());
     evhttp_add_header(req->output_headers, HTTP_WAL_ID_KY.c_str(), std::to_string(wal_id).c_str());
     std::string columns;
-    RETURN_IF_ERROR(read_wal_header(wal, columns));
+    RETURN_IF_ERROR(_read_wal_header(wal, columns));
     std::vector<std::string> column_id_element;
     doris::vectorized::WalReader::string_split(columns, ",", column_id_element);
     std::vector<size_t> index_vector;
@@ -372,33 +361,12 @@ void WalTable::stop() {
     } while (!done);
 }
 
-Status WalTable::check_wal_recovery(int64_t wal_id, bool& needRecovery) {
-    TCheckWalRecoveryRequest request;
-    request.__set_wal_id(wal_id);
-    request.__set_db_id(_db_id);
-    TCheckWalRecoveryResult result;
-    Status status;
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    if (master_addr.hostname.empty() || master_addr.port == 0) {
-        status = Status::InternalError("Have not get FE Master heartbeat yet");
-    } else {
-        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr.hostname, master_addr.port,
-                [&request, &result](FrontendServiceConnection& client) {
-                    client->checkWalRecovery(result, request);
-                }));
-        needRecovery = result.need_recovery;
-        status = Status::create(result.status);
-    }
-    return status;
-}
-
 size_t WalTable::size() {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     return _replay_wal_map.size();
 }
 
-Status WalTable::get_column_info(int64_t db_id, int64_t tb_id) {
+Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id) {
     TGetColumnInfoRequest request;
     request.__set_db_id(db_id);
     request.__set_table_id(tb_id);
@@ -434,7 +402,7 @@ Status WalTable::get_column_info(int64_t db_id, int64_t tb_id) {
     return status;
 }
 
-Status WalTable::read_wal_header(const std::string& wal_path, std::string& columns) {
+Status WalTable::_read_wal_header(const std::string& wal_path, std::string& columns) {
     std::shared_ptr<doris::WalReader> wal_reader;
     RETURN_IF_ERROR(_exec_env->wal_mgr()->create_wal_reader(wal_path, wal_reader));
     uint32_t version = 0;

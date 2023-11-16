@@ -38,6 +38,7 @@ private:
     Status _deserialize(PBlock& block, std::string& buf);
     Status _check_checksum(const char* binary, size_t size, uint32_t checksum);
 
+private:
     std::string _file_name;
     size_t _offset;
     io::FileReaderSPtr file_reader;

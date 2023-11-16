@@ -1292,17 +1292,6 @@ struct TGetBackendMetaResult {
     2: optional list<Types.TBackend> backends
 }
 
-struct TCheckWalRecoveryRequest {
-    1: optional i64 db_id
-    2: optional i64 table_id
-    3: optional i64 wal_id
-}
-
-struct TCheckWalRecoveryResult {
-    1: optional Status.TStatus status
-    2: optional bool need_recovery
-}
-
 struct TGetColumnInfoRequest {
     1: optional i64 db_id
     2: optional i64 table_id
@@ -1389,6 +1378,5 @@ service FrontendService {
 
     TGetBackendMetaResult getBackendMeta(1: TGetBackendMetaRequest request)
 
-    TCheckWalRecoveryResult checkWalRecovery(1: TCheckWalRecoveryRequest request)
     TGetColumnInfoResult getColumnInfo(1: TGetColumnInfoRequest request)
 }

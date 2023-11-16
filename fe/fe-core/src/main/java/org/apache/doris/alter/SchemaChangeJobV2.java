@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
@@ -607,17 +608,25 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.BLOCK);
         LOG.info("block table {}", tableId);
         List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-        boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
-                .isPreviousWalFinished(tableId, maxWalId, aliveBeIds);
-        while (!walFinished) {
+        long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
+        boolean walFinished = false;
+        while (System.currentTimeMillis() < expireTime) {
             LOG.info("wai for wal queue size to be empty");
             walFinished = Env.getCurrentEnv().getGroupCommitManager()
-                    .isPreviousWalFinished(tableId, watershedTxnId, aliveBeIds);
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException ie) {
-                LOG.info("schema change job sleep wait for wal InterruptedException: ", ie);
+                    .isPreviousWalFinished(tableId, maxWalId, aliveBeIds);
+            if (walFinished) {
+                LOG.info("all wal is finished");
+                break;
+            } else {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    LOG.info("schema change job sleep wait for wal InterruptedException: ", ie);
+                }
             }
+        }
+        if (!walFinished) {
+            LOG.warn("waitWalFinished time out");
         }
         Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
         LOG.info("release table {}", tableId);
@@ -840,7 +849,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (db != null) {
             OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
             if (tbl != null) {
-                waitWalFinished(watershedTxnId);
                 tbl.writeLock();
                 try {
                     onFinished(tbl);

@@ -17,92 +17,37 @@
 
 #include "vwal_writer.h"
 
-#include <brpc/http_method.h>
-#include <bthread/bthread.h>
-#include <fmt/format.h>
-#include <gen_cpp/DataSinks_types.h>
-#include <gen_cpp/Descriptors_types.h>
-#include <gen_cpp/Exprs_types.h>
-#include <gen_cpp/FrontendService.h>
-#include <gen_cpp/FrontendService_types.h>
-#include <gen_cpp/HeartbeatService_types.h>
-#include <gen_cpp/Metrics_types.h>
-#include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
-#include <gen_cpp/internal_service.pb.h>
-#include <glog/logging.h>
-#include <google/protobuf/stubs/common.h>
-#include <sys/param.h>
 
-#include <algorithm>
-#include <exception>
-#include <initializer_list>
-#include <memory>
 #include <mutex>
-#include <ranges>
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
-#include "olap/wal_manager.h"
-#include "util/runtime_profile.h"
-#include "vec/data_types/data_type.h"
-#include "vec/exprs/vexpr_fwd.h"
-#include "vec/runtime/vdatetime_value.h"
-#include "vec/sink/vtablet_sink.h"
-
-#ifdef DEBUG
-#include <unordered_set>
-#endif
-
-#include "bvar/bvar.h"
-#include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/logging.h"
-#include "common/object_pool.h"
-#include "common/signal_handler.h"
+#include "common/compiler_util.h"
 #include "common/status.h"
-#include "exec/tablet_info.h"
+#include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
-#include "service/backend_options.h"
-#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
 #include "util/proto_util.h"
-#include "util/ref_count_closure.h"
-#include "util/threadpool.h"
-#include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"
-#include "util/time.h"
-#include "util/uid_util.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/future_block.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 namespace vectorized {
 
-VWalWriter::VWalWriter(int64_t tb_id, int64_t db_id, int64_t wal_id, RuntimeState* state,
+VWalWriter::VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id, RuntimeState* state,
                        TupleDescriptor* output_tuple_desc)
-        : _tb_id(tb_id),
-          _db_id(db_id),
+        : _db_id(db_id),
+          _tb_id(tb_id),
           _wal_id(wal_id),
           _state(state),
           _output_tuple_desc(output_tuple_desc) {}
@@ -151,12 +96,12 @@ Status VWalWriter::write_wal(OlapTableBlockConvertor* block_convertor,
     }
     return Status::OK();
 }
-Status VWalWriter::group_commit_block(vectorized::Block* input_block, int64_t num_rows,
-                                      int64_t filter_rows, RuntimeState* state,
-                                      vectorized::Block* block,
-                                      OlapTableBlockConvertor* block_convertor,
-                                      OlapTabletFinder* tablet_finder) {
-    RETURN_IF_ERROR(write_wal(block_convertor, tablet_finder, block, state, num_rows, filter_rows));
+Status VWalWriter::append_block(vectorized::Block* input_block, int64_t num_rows,
+                                int64_t filter_rows, vectorized::Block* block,
+                                OlapTableBlockConvertor* block_convertor,
+                                OlapTabletFinder* tablet_finder) {
+    RETURN_IF_ERROR(
+            write_wal(block_convertor, tablet_finder, block, _state, num_rows, filter_rows));
 #ifndef BE_TEST
     auto* future_block = assert_cast<FutureBlock*>(input_block);
     std::unique_lock<doris::Mutex> l(*(future_block->lock));

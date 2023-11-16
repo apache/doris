@@ -682,16 +682,11 @@ private:
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
     bool _group_commit = false;
-//    std::shared_ptr<WalWriter> _wal_writer = nullptr;
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
     std::shared_ptr<VWalWriter> _v_wal_writer = nullptr;
 
-    //    int64_t _tb_id;
-//    int64_t _db_id;
-//    int64_t _wal_id;
-//    uint32_t _version = 0;
 };
 } // namespace doris::vectorized

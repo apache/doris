@@ -166,10 +166,6 @@ public class BackendServiceClient {
         return stub.getWalQueueSize(request);
     }
 
-    public Future<InternalService.PGetWalQueueSizeResponse> getAllWalQueueSize(
-            InternalService.PGetWalQueueSizeRequest request) {
-        return stub.getAllWalQueueSize(request);
-    }
 
     public void shutdown() {
         if (!channel.isShutdown()) {

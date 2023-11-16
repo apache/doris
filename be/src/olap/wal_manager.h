@@ -40,6 +40,8 @@ public:
         REPLAY,
         CREATE,
     };
+
+public:
     WalManager(ExecEnv* exec_env, const std::string& wal_dir);
     ~WalManager();
     Status delete_wal(int64_t wal_id);

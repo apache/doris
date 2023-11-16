@@ -113,32 +113,25 @@ Status WalManager::erase_wal_status_queue(int64_t table_id, int64_t wal_id) {
 Status WalManager::get_wal_status_queue_size(const PGetWalQueueSizeRequest* request,
                                              PGetWalQueueSizeResponse* response) {
     std::lock_guard<std::shared_mutex> wrlock(_wal_status_lock);
+    size_t count = 0;
     auto table_id = request->table_id();
     auto txn_id = request->txn_id();
-    size_t count = 0;
-    auto it = _wal_status_queues.find(table_id);
-    if (it == _wal_status_queues.end()) {
-        LOG(INFO) << ("table_id " + std::to_string(table_id) + " not found in wal status queue");
-    } else {
-        for (auto wal_it = it->second.begin(); wal_it != it->second.end(); ++wal_it) {
-            if (wal_it->first <= txn_id) {
-                count += 1;
+    if (table_id > 0 && txn_id > 0) {
+        auto it = _wal_status_queues.find(table_id);
+        if (it == _wal_status_queues.end()) {
+            LOG(INFO) << ("table_id " + std::to_string(table_id) +
+                          " not found in wal status queue");
+        } else {
+            for (auto wal_it = it->second.begin(); wal_it != it->second.end(); ++wal_it) {
+                if (wal_it->first <= txn_id) {
+                    count += 1;
+                }
             }
         }
-    }
-    response->set_size(count);
-    if (count > 0) {
-        print_wal_status_queue();
-    }
-    return Status::OK();
-}
-
-Status WalManager::get_all_wal_status_queue_size(const PGetWalQueueSizeRequest* request,
-                                                 PGetWalQueueSizeResponse* response) {
-    std::lock_guard<std::shared_mutex> wrlock(_wal_status_lock);
-    size_t count = 0;
-    for (auto it = _wal_status_queues.begin(); it != _wal_status_queues.end(); it++) {
-        count += it->second.size();
+    } else {
+        for (auto it = _wal_status_queues.begin(); it != _wal_status_queues.end(); it++) {
+            count += it->second.size();
+        }
     }
     response->set_size(count);
     if (count > 0) {
@@ -214,7 +207,6 @@ Status WalManager::create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>&
     }
     return Status::OK();
 }
-
 Status WalManager::scan_wals(const std::string& wal_path) {
     size_t count = 0;
     bool exists = true;
@@ -368,8 +360,7 @@ Status WalManager::delete_wal(int64_t wal_id) {
 }
 
 bool WalManager::is_running() {
-    std::lock_guard<std::shared_mutex> wrlock(_stop_lock);
-    return !_stop;
+    return !_stop.load();
 }
 
 void WalManager::stop_relay_wal() {

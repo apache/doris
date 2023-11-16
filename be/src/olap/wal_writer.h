@@ -28,6 +28,8 @@
 namespace doris {
 
 using PBlockArray = std::vector<PBlock*>;
+extern const char* k_wal_magic;
+extern const uint32_t k_wal_magic_length;
 
 class WalWriter {
 public:
@@ -43,6 +45,8 @@ public:
     Status append_header(uint32_t version, std::string col_ids);
 
     std::string file_name() { return _file_name; };
+
+public:
     static const int64_t LENGTH_SIZE = 8;
     static const int64_t CHECKSUM_SIZE = 4;
     doris::ConditionVariable cv;

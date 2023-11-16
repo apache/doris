@@ -466,16 +466,5 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<PGetWalQueueSizeResponse> getAllWalQueueSize(TNetworkAddress address,
-            PGetWalQueueSizeRequest request) throws RpcException {
-        try {
-            final BackendServiceClient client = getProxy(address);
-            return client.getAllWalQueueSize(request);
-        } catch (Throwable e) {
-            LOG.warn("failed to get all wal queue size from address={}:{}", address.getHostname(),
-                    address.getPort(), e);
-            throw new RpcException(address.hostname, e.getMessage());
-        }
-    }
 
 }
