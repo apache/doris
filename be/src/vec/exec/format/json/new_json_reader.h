@@ -252,8 +252,12 @@ private:
     std::string _simdjson_ondemand_padding_buffer;
     std::string _simdjson_ondemand_unscape_padding_buffer;
     // char _simdjson_ondemand_padding_buffer[_padded_size];
-    simdjson::ondemand::document _original_json_doc;
+    simdjson::ondemand::document_reference _original_json_doc;
     simdjson::ondemand::value _json_value;
+    simdjson::ondemand::document_stream _json_stream;
+    simdjson::ondemand::document_stream::iterator _json_stream_iterator;
+    bool _is_json_stream_iterator_init = false;
+    size_t _length = 0;
     // for strip outer array
     // array_iter pointed to _array
     simdjson::ondemand::array_iterator _array_iter;

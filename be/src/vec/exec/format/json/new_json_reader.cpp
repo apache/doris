@@ -1442,7 +1442,7 @@ Status NewJsonReader::_simdjson_parse_json(bool* is_empty_row, bool* eof) {
     RETURN_IF_ERROR(_simdjson_parse_json_doc(&size, eof));
 
     // read all data, then return
-    if (size == 0 || *eof) {
+    if (*eof) {
         *is_empty_row = true;
         return Status::OK();
     }
@@ -1472,6 +1472,15 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
         *size = length;
         if (length == 0) {
             *eof = true;
+        } else {
+            _length = length;
+        }
+
+        if (_is_json_stream_iterator_init == true) {
+            ++_json_stream_iterator;
+            if (_json_stream_iterator != _json_stream.end()) {
+                *eof = false;
+            }
         }
     }
 
@@ -1495,11 +1504,26 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
     }
     memcpy(&_simdjson_ondemand_padding_buffer.front(), json_str, *size);
     _original_doc_size = *size;
-    auto error =
-            _ondemand_json_parser
-                    ->iterate(std::string_view(_simdjson_ondemand_padding_buffer.data(), *size),
-                              _padded_size)
-                    .get(_original_json_doc);
+    simdjson::error_code error = simdjson::error_code::SUCCESS;
+    if (_line_reader != nullptr) {
+        error = _ondemand_json_parser->iterate_many(_simdjson_ondemand_padding_buffer)
+                        .get(_json_stream);
+        _json_stream_iterator = _json_stream.begin();
+        _original_json_doc = (*_json_stream_iterator).value();
+    } else {
+        if (!_is_json_stream_iterator_init) {
+            error = _ondemand_json_parser->iterate_many(_simdjson_ondemand_padding_buffer)
+                            .get(_json_stream);
+            _json_stream_iterator = _json_stream.begin();
+            _is_json_stream_iterator_init = true;
+        }
+        _original_json_doc = (*_json_stream_iterator).value();
+        if (_json_stream_iterator.current_index() == _length) {
+            *eof = true;
+            return Status::OK();
+        }
+    }
+
     auto return_quality_error = [&](fmt::memory_buffer& error_msg,
                                     const std::string& doc_info) -> Status {
         RETURN_IF_ERROR(_state->append_error_msg_to_file(
