@@ -761,5 +761,40 @@ class Suite implements GroovyInterceptable {
     DebugPoint GetDebugPoint() {
         return debugPoint
     }
+
+    void waitingMTMVTaskFinished(String jobName) {
+        String showTasks = "SHOW MTMV JOB TASKS FOR " + jobName
+        List<List<String>> showTaskMetaResult = sql_meta(showTasks)
+        int index = showTaskMetaResult.indexOf(['Status', 'CHAR'])
+        String status = "PENDING"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            if (!result.isEmpty()) {
+                status = result.last().get(index)
+            }
+            println "The state of ${showTasks} is ${status}"
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'))
+        if (status != "SUCCESS") {
+            println "status is not success"
+            println result.toString()
+        }
+        Assert.assertEquals("SUCCESS", status)
+    }
+
+    String getJobName(String mtmvName) {
+        String showMTMV = "select * from mtmvs("database"="zd") where Name = "${mtmvName}"";
+        List<List<String>> showTaskMetaResult = sql_meta(showMTMV)
+        int index = showTaskMetaResult.indexOf(['JobName', 'CHAR'])
+
+        result = sql(showMTMV)
+        if (result.isEmpty()) {
+            Assert.fail();
+        }
+        return result.last().get(index);
+    }
 }
 
