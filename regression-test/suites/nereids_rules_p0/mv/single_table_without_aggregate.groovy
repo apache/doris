@@ -108,21 +108,11 @@ suite("single_table_without_aggregate") {
             "from orders "
     def query2_2 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
             "from orders " +
-            "order by O_CUSTKEY"
-    // should support but not, need to fix order key not appear select
+            "order by O_ORDERKEY limit 10"
+    // should support but not, need to fix limit
 //    check_rewrite(mv2_2, query2_2, "mv2_2")
     order_qt_query2_2 "${query2_2}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv2_2 ON orders"""
-
-    def mv2_3 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
-            "from orders "
-    def query2_3 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
-            "from orders " +
-            "order by O_ORDERKEY limit 10"
-    // should support but not, need to fix limit
-//    check_rewrite(mv2_3, query2_3, "mv2_3")
-    order_qt_query2_3 "${query2_3}"
-    sql """DROP MATERIALIZED VIEW IF EXISTS mv2_3 ON orders"""
 
 
     // select + from + filter
@@ -161,35 +151,20 @@ suite("single_table_without_aggregate") {
 
 
     def mv4_1 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
-            "from orders " +
-            "where abs(O_TOTALPRICE) > 10 and O_ORDERKEY > 1"
+            "from orders "
     def query4_1 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
             "from orders " +
-            "where abs(O_TOTALPRICE) > 20 and O_ORDERKEY > 5 " +
-            "order by O_CUSTKEY "
-    // should support but not, need to fix predicate compensation
+            "where abs(O_TOTALPRICE) > 10 " +
+            "order by O_ORDERKEY limit 10"
+    // should support but not, need to fix limit
 //    check_rewrite(mv4_1, query4_1, "mv4_1")
     order_qt_query4_1 "${query4_1}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv4_1 ON orders"""
 
 
-    def mv4_2 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
-            "from orders "
-    def query4_2 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
-            "from orders " +
-            "where abs(O_TOTALPRICE) > 10 " +
-            "order by O_ORDERKEY limit 10"
-    // should support but not, need to fix limit
-//    check_rewrite(mv4_2, query4_2, "mv4_2")
-    order_qt_query4_2 "${query4_2}"
-    sql """DROP MATERIALIZED VIEW IF EXISTS mv4_2 ON orders"""
-
-
     // select + from + sub query
-    def mv5_0 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
-            "from " +
-            "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
-            "from orders) sub_query"
+    def mv5_0 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
+            "from orders sub_query"
     def query5_0 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
             "from " +
             "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
@@ -200,10 +175,8 @@ suite("single_table_without_aggregate") {
     sql """DROP MATERIALIZED VIEW IF EXISTS mv5_0 ON orders"""
 
     // select + from + filter + sub query
-    def mv5_1 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
-            "from " +
-            "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
-            "from orders) sub_query "
+    def mv5_1 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
+            "from orders sub_query "
     def query5_1 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
             "from " +
             "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
@@ -216,10 +189,8 @@ suite("single_table_without_aggregate") {
 
 
     // select + from + filter + order by + limit + sub query
-    def mv5_2 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
-            "from " +
-            "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
-            "from orders) sub_query "
+    def mv5_2 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
+            "from orders "
     def query5_2 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
             "from " +
             "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
