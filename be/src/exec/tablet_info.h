@@ -127,7 +127,7 @@ struct VOlapTablePartition {
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
     bool is_mutable;
-    // -1 indicates load_to_single_tablet = false
+    // -1 indicates partition with hash distribution
     int64_t load_tablet_idx = -1;
 
     VOlapTablePartition(vectorized::Block* partition_block)
@@ -187,7 +187,7 @@ public:
             const std::vector<VOlapTablePartition*>& partitions,
             std::vector<uint32_t>& tablet_indexes /*result*/,
             /*TODO: check if flat hash map will be better*/
-            std::map<int64_t, int64_t>* partition_tablets_buffer = nullptr) const {
+            std::map<VOlapTablePartition*, int64_t>* partition_tablets_buffer = nullptr) const {
         std::function<uint32_t(vectorized::Block*, uint32_t, const VOlapTablePartition&)>
                 compute_function;
         if (!_distributed_slot_locs.empty()) {
@@ -212,10 +212,9 @@ public:
             compute_function = [](vectorized::Block* block, uint32_t row,
                                   const VOlapTablePartition& partition) -> uint32_t {
                 if (partition.load_tablet_idx == -1) {
-                    // load_to_single_tablet = false, just do random
+                    // for compatible with old version, just do random
                     return butil::fast_rand() % partition.num_buckets;
                 }
-                // load_to_single_tablet = ture, do round-robin
                 return partition.load_tablet_idx % partition.num_buckets;
             };
         }
@@ -226,14 +225,15 @@ public:
             }
         } else { // use buffer
             for (auto index : indexes) {
-                auto& partition_id = partitions[index]->id;
-                if (auto it = partition_tablets_buffer->find(partition_id);
+                auto* partition = partitions[index];
+                if (auto it = partition_tablets_buffer->find(partition);
                     it != partition_tablets_buffer->end()) {
                     tablet_indexes[index] = it->second; // tablet
+                } else {
+                    // compute and save in buffer
+                    (*partition_tablets_buffer)[partition] = tablet_indexes[index] =
+                            compute_function(block, index, *partitions[index]);
                 }
-                // compute and save in buffer
-                (*partition_tablets_buffer)[partition_id] = tablet_indexes[index] =
-                        compute_function(block, index, *partitions[index]);
             }
         }
     }
