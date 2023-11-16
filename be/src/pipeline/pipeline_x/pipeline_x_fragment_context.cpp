@@ -269,7 +269,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         break;
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
-        if (state->query_options().enable_memtable_on_sink_node) {
+        if (state->query_options().enable_memtable_on_sink_node &&
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             _sink.reset(new OlapTableSinkV2OperatorX(pool, next_operator_id(), row_desc,
                                                      output_exprs, false));
         } else {
@@ -1009,4 +1010,23 @@ Status PipelineXFragmentContext::send_report(bool done) {
                        std::placeholders::_2)},
             shared_from_this());
 }
+
+bool PipelineXFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
+    OlapTableSchemaParam schema;
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
+    if (schema.is_partial_update()) {
+        return true;
+    }
+    for (const auto& index_schema : schema.indexes()) {
+        for (const auto& index : index_schema->indexes) {
+            if (index->index_type() == INVERTED) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace doris::pipeline
