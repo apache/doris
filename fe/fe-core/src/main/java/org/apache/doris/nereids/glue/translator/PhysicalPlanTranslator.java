@@ -69,7 +69,7 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -1138,7 +1138,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         JoinType joinType = hashJoin.getJoinType();
 
         List<Expr> execEqConjuncts = hashJoin.getHashJoinConjuncts().stream()
-                .map(EqualTo.class::cast)
+                .map(EqualPredicate.class::cast)
                 .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
