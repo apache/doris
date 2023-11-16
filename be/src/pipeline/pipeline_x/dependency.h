@@ -121,8 +121,7 @@ protected:
 
 class WriteDependency : public Dependency {
 public:
-    WriteDependency(int id, int node_id, std::string name)
-            : Dependency(id, node_id, name), _ready_for_write(true) {}
+    WriteDependency(int id, int node_id, std::string name) : Dependency(id, node_id, name) {}
     ~WriteDependency() override = default;
 
     bool is_write_dependency() override { return true; }
@@ -155,7 +154,7 @@ public:
 
 protected:
     friend class Dependency;
-    bool _ready_for_write;
+    std::atomic<bool> _ready_for_write {true};
     MonotonicStopWatch _write_dependency_watcher;
 
 private:
@@ -164,8 +163,7 @@ private:
 
 class FinishDependency final : public Dependency {
 public:
-    FinishDependency(int id, int node_id, std::string name)
-            : Dependency(id, node_id, name), _ready_to_finish(true) {}
+    FinishDependency(int id, int node_id, std::string name) : Dependency(id, node_id, name) {}
     ~FinishDependency() override = default;
 
     void should_finish_after_check() { _ready_to_finish = false; }
@@ -196,7 +194,7 @@ public:
     void add_block_task(PipelineXTask* task) override;
 
 protected:
-    bool _ready_to_finish;
+    std::atomic<bool> _ready_to_finish {true};
     MonotonicStopWatch _finish_dependency_watcher;
 
 private:
