@@ -212,7 +212,7 @@ private:
     int _task_idx;
     bool _dry_run = false;
 
-    Dependency* _blocked_dep;
+    Dependency* _blocked_dep {nullptr};
 
     std::atomic<bool> _use_blocking_queue {true};
 };
