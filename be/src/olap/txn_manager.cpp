@@ -139,6 +139,19 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     std::lock_guard<std::shared_mutex> txn_wrlock(_get_txn_map_lock(transaction_id));
     txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
 
+    DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("TxnManager.prepare_txn.random_failed random failed");
+            return Status::InternalError("debug prepare txn random failed");
+        }
+    });
+    DBUG_EXECUTE_IF("TxnManager.prepare_txn.wait", {
+        if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+            LOG_WARNING("TxnManager.prepare_txn.wait").tag("wait ms", wait);
+            std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
+
     /// Step 1: check if the transaction is already exist
     do {
         auto iter = txn_tablet_map.find(key);
@@ -296,11 +309,18 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                 key.first, key.second, tablet_info.to_string());
     }
 
-    DBUG_EXECUTE_IF(
-            "TxnManager.commit_txn_random_failed",
-            if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-                return Status::InternalError("debug commit txn random failed");
-            });
+    DBUG_EXECUTE_IF("TxnManager.commit_txn.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("TxnManager.commit_txn.random_failed");
+            return Status::InternalError("debug commit txn random failed");
+        }
+    });
+    DBUG_EXECUTE_IF("TxnManager.commit_txn.wait", {
+        if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+            LOG_WARNING("TxnManager.commit_txn.wait").tag("wait ms", wait);
+            std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
 
     std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
     // this while loop just run only once, just for if break
@@ -356,6 +376,12 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     if (!is_recovery) {
         Status save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
                                                      rowset_ptr->rowset_meta()->get_rowset_pb());
+        DBUG_EXECUTE_IF("TxnManager.RowsetMetaManager.save_wait", {
+            if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+                LOG_WARNING("TxnManager.RowsetMetaManager.save_wait").tag("wait ms", wait);
+                std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+            }
+        });
         if (!save_status.ok()) {
             return Status::Error<ROWSET_SAVE_FAILED>(
                     "save committed rowset failed. when commit txn rowset_id: {}, tablet id: {}, "
@@ -430,6 +456,18 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 "tablet={}",
                 partition_id, transaction_id, tablet_info.to_string());
     }
+    DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_before_save_rs_meta", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("TxnManager.publish_txn.random_failed_before_save_rs_meta");
+            return Status::InternalError("debug publish txn before save rs meta random failed");
+        }
+    });
+    DBUG_EXECUTE_IF("TxnManager.publish_txn.wait_before_save_rs_meta", {
+        if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+            LOG_WARNING("TxnManager.publish_txn.wait_before_save_rs_meta").tag("wait ms", wait);
+            std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
 
     /// Step 2: make rowset visible
     // save meta need access disk, it maybe very slow, so that it is not in global txn lock
@@ -437,6 +475,19 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // TODO(ygl): rowset is already set version here, memory is changed, if save failed
     // it maybe a fatal error
     rowset->make_visible(version);
+
+    DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_after_save_rs_meta", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("TxnManager.publish_txn.random_failed_after_save_rs_meta");
+            return Status::InternalError("debug publish txn after save rs meta random failed");
+        }
+    });
+    DBUG_EXECUTE_IF("TxnManager.publish_txn.wait_after_save_rs_meta", {
+        if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+            LOG_WARNING("TxnManager.publish_txn.wait_after_save_rs_meta").tag("wait ms", wait);
+            std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
         std::unique_ptr<RowsetWriter> rowset_writer;
