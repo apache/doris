@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -39,6 +40,7 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -52,14 +54,24 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
             List<NamedExpression> outputs =
                     ExpressionUtils.rewriteDownShortCircuit(project.getProjects(), output -> {
                         if (output instanceof WindowExpression) {
+                            WindowExpression windowExpression = (WindowExpression) output;
                             Expression expression = ((WindowExpression) output).getFunction();
                             if (expression instanceof Sum || expression instanceof Max
                                     || expression instanceof Min || expression instanceof Avg) {
                                 // sum, max, min and avg in window function should be always nullable
-                                return ((WindowExpression) output)
+                                windowExpression = ((WindowExpression) output)
                                         .withFunction(((NullableAggregateFunction) expression)
                                                 .withAlwaysNullable(true));
                             }
+                            // remove literal partition by and order by keys
+                            return windowExpression.withPartitionKeysOrderKeys(
+                                    windowExpression.getPartitionKeys().stream()
+                                            .filter(expression -> !(expression instanceof Literal))
+                                            .collect(Collectors.toList()),
+                                    windowExpression.getOrderKeys().stream()
+                                            .filter(orderExpression -> !(orderExpression
+                                                    .getOrderKey().getExpr() instanceof Literal))
+                                            .collect(Collectors.toList()));
                         }
                         return output;
                     });
