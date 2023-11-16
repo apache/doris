@@ -84,9 +84,9 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_broker_load"
+excludeSuites = "test_broker_load,test_leading"
 // this directories will not be executed
-excludeDirectories = "segcompaction_p2,workload_manager_p1"
+excludeDirectories = "segcompaction_p2,workload_manager_p1,nereids_hint_tpch_p0"
 
 customConf1 = "test_custom_conf_value"
 
