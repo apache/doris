@@ -197,11 +197,11 @@ public:
 
     void set_should_stop() {
         _should_stop = true;
-        _set_ready_to_finish();
+        _set_ready_to_finish(_busy_channels == 0);
     }
 
 private:
-    void _set_ready_to_finish();
+    void _set_ready_to_finish(bool all_done);
 
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;

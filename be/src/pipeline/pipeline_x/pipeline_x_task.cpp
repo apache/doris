@@ -377,7 +377,8 @@ void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
     _wake_up_by = _blocked_dep;
     DCHECK_EQ(wake_up_dep, _blocked_dep)
             << "wake_up_dep: " << wake_up_dep->debug_string()
-            << " _blocked_dep: " << (_blocked_dep ? _blocked_dep->debug_string() : "NULL");
+            << " _blocked_dep: " << (_blocked_dep ? _blocked_dep->debug_string() : "NULL")
+            << " task state: " << get_state_name(state);
     if (state == PipelineTaskState::PENDING_FINISH) {
         _blocked_dep = finish_blocked_dependency(true);
         if (_blocked_dep == nullptr) {
