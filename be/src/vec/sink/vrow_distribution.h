@@ -73,6 +73,7 @@ public:
         CreatePartitionCallback create_partition_callback;
     };
     friend class VTabletWriter;
+    friend class VTabletWriterV2;
 
     VRowDistribution() = default;
     virtual ~VRowDistribution() = default;

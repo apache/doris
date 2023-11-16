@@ -1332,6 +1332,7 @@ Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
 
     // must before set _try_close
     if (status.ok()) {
+        SCOPED_TIMER(_profile->total_time_counter());
         _row_distribution._deal_batched = true;
         status = _send_new_partition_batch();
     }

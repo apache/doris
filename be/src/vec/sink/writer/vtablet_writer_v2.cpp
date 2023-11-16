@@ -347,6 +347,9 @@ Status VTabletWriterV2::append_block(Block& input_block) {
         return status;
     }
 
+    // check out of limit
+    RETURN_IF_ERROR(_send_new_partition_batch());
+
     auto input_rows = input_block.rows();
     auto input_bytes = input_block.bytes();
     if (UNLIKELY(input_rows == 0)) {
@@ -432,6 +435,26 @@ Status VTabletWriterV2::_cancel(Status status) {
     return Status::OK();
 }
 
+Status VTabletWriterV2::_send_new_partition_batch() {
+    if (_row_distribution.need_deal_batching()) { // maybe try_close more than 1 time
+        RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
+
+        Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
+
+        // these order is only.
+        //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
+        //  2. deal batched block
+        //  3. now reuse the column of lval block. cuz append_block doesn't real adjust it. it generate a new block from that.
+        _row_distribution.clear_batching_stats();
+        RETURN_IF_ERROR(this->append_block(tmp_block));
+        _row_distribution._batching_block->set_mutable_columns(
+                tmp_block.mutate_columns()); // Recovery back
+        _row_distribution._batching_block->clear_column_data();
+        _row_distribution._deal_batched = false;
+    }
+    return Status::OK();
+}
+
 Status VTabletWriterV2::close(Status exec_status) {
     std::lock_guard<std::mutex> close_lock(_close_mutex);
     if (_is_closed) {
@@ -439,6 +462,13 @@ Status VTabletWriterV2::close(Status exec_status) {
     }
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
+
+    if (status.ok()) {
+        SCOPED_TIMER(_profile->total_time_counter());
+        _row_distribution._deal_batched = true;
+        status = _send_new_partition_batch();
+    }
+
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null

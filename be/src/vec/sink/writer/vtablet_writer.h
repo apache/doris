@@ -521,9 +521,6 @@ public:
 
     Status init_properties(ObjectPool* pool, bool group_commit);
 
-    Status send(Block* block) { // for callback
-        return append_block(*block);
-    }
     Status append_block(Block& block) override;
 
     Status close(Status) override;
