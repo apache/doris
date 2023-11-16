@@ -155,18 +155,19 @@ public class DecommissionTest {
     void checkBalance(int tryTimes, int totalReplicaNum, int backendNum) throws Exception {
         for (int i = 0; i < tryTimes; i++) {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (backendNum == backendIds.size())
+            if (backendNum == backendIds.size()) {
                 break;
             }
 
             Thread.sleep(1000);
         }
 
-        List<Integer> tabletNums = Env.getCurrentSystemInfo().getAllBackendIds(true)
+        List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        Assert.assertEquals(backendNum, backendIds.size());
+        List<Integer> tabletNums = backendIds.stream()
                 .map(beId -> Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId))
                 .collect(Collectors.toList());
 
-        Assert.assertEquals("tablet nums = " + tabletNums, backendNum, backendIds.size());
         int avgReplicaNum = totalReplicaNum / backendNum;
         boolean balanced = tabletNums.stream().allMatch(num -> Math.abs(num - avgReplicaNum) <= 30);
         Assert.assertTrue("not balance, tablet nums = " + tabletNums, balanced);
