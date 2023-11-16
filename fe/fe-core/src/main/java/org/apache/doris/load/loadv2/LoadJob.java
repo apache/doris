@@ -300,10 +300,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return jobType;
     }
 
-    public long getCreateTimestamp() {
-        return createTimestamp;
-    }
-
     protected long getDeadlineMs() {
         return createTimestamp + getTimeout() * 1000;
     }
@@ -332,10 +328,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void setLoadFileInfo(int fileNum, long fileSize) {
         this.loadStatistic.fileNum = fileNum;
         this.loadStatistic.totalFileSizeB = fileSize;
-    }
-
-    public TUniqueId getRequestId() {
-        return requestId;
     }
 
     /**
@@ -396,14 +388,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public UserIdentity getUserInfo() {
         return userInfo;
-    }
-
-    public void setUserInfo(UserIdentity userInfo) {
-        this.userInfo = userInfo;
-    }
-
-    public String getComment() {
-        return comment;
     }
 
     public void setComment(String comment) {
