@@ -1022,11 +1022,15 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
         // also tablets once failed to do follow cooldown
         auto skip_tablet = [this, skip_failed_interval,
                             cur_time](const TabletSharedPtr& tablet) -> bool {
+            bool is_skip =
+                    cur_time - tablet->last_failed_follow_cooldown_time() < skip_failed_interval ||
+                    TABLET_RUNNING != tablet->tablet_state();
+            if (is_skip) {
+                return is_skip;
+            }
             std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
-            return cur_time - tablet->last_failed_follow_cooldown_time() < skip_failed_interval ||
-                   TABLET_RUNNING != tablet->tablet_state() ||
-                   _running_cooldown_tablets.find(tablet->tablet_id()) !=
-                           _running_cooldown_tablets.end();
+            return _running_cooldown_tablets.find(tablet->tablet_id()) !=
+                   _running_cooldown_tablets.end();
         };
         _tablet_manager->get_cooldown_tablets(&tablets, std::move(skip_tablet));
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
