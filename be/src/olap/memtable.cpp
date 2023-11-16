@@ -577,7 +577,7 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
         // TODO we should not use a config instead we should use param from load
         // but it's really hard to get the param for now.
         vectorized::IColumn::Filter filter;
-        filter.resize_fill(block.rows(), 0);
+        filter.resize_fill(block.rows(), 1);
         RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(
                 block, variant_column_pos, config::max_filter_ratio_for_variant_parsing, filter));
         size_t count = simd::count_zero_num((int8_t*)filter.data(), filter.size());
