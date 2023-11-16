@@ -128,6 +128,9 @@ PipelineFragmentContext::PipelineFragmentContext(
           _report_thread_active(false),
           _report_status_cb(report_status_cb),
           _is_report_on_cancel(true) {
+    if (_query_ctx->get_task_group()) {
+        _task_group_entity = _query_ctx->get_task_group()->task_entity();
+    }
     _report_thread_future = _report_thread_promise.get_future();
     _fragment_watcher.start();
 }
@@ -689,7 +692,7 @@ Status PipelineFragmentContext::submit() {
     int submit_tasks = 0;
     Status st;
     auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (get_task_group()) {
+    if (_task_group_entity) {
         scheduler = _exec_env->pipeline_task_group_scheduler();
     }
     for (auto& task : _tasks) {

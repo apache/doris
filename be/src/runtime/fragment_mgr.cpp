@@ -736,7 +736,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                 auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
                                                                          &task_group_info);
                 if (status.ok()) {
-                    auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
+                    auto tg = _exec_env->task_group_manager()->get_or_create_task_group(
                             task_group_info);
                     tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
                     query_ctx->set_task_group(tg);

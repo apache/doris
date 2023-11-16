@@ -955,7 +955,7 @@ DEFINE_Bool(enable_fuzzy_mode, "false");
 DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
-DEFINE_mInt16(pipeline_short_query_timeout_s, "20");
+DEFINE_mBool(enable_workload_group_for_scan, "false");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
