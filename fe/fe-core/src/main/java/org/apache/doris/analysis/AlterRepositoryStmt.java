@@ -18,67 +18,68 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Resource;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Maps;
+
+import java.util.HashMap;
 import java.util.Map;
 
-public class AlterResourceStmt extends DdlStmt {
-    private static final String TYPE = "type";
+public class AlterRepositoryStmt extends DdlStmt {
+    private String name;
+    private Map<String, String> properties;
 
-    private final String resourceName;
-    private final Map<String, String> properties;
-
-    public AlterResourceStmt(String resourceName, Map<String, String> properties) {
-        this.resourceName = resourceName;
+    public AlterRepositoryStmt(String name, Map<String, String> properties) {
+        this.name = name;
         this.properties = properties;
-    }
-
-    public String getResourceName() {
-        return resourceName;
+        if (this.properties == null) {
+            this.properties = Maps.newHashMap();
+        }
     }
 
     public Map<String, String> getProperties() {
         return properties;
     }
 
+    public String getName() {
+        return name;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-
-        if (properties == null || properties.isEmpty()) {
-            throw new AnalysisException("Resource properties can't be null");
+        FeNameFormat.checkCommonName("repository", name);
+        Map<String, String> copyProperties = new HashMap<>(properties);
+        if (copyProperties.size() == 0) {
+            throw new UserException("alter repository need contains ak/sk/token info of s3.");
         }
-
-        // check type in properties
-        if (properties.containsKey(TYPE)) {
-            throw new AnalysisException("Can not change resource type.");
+        copyProperties.remove(S3Properties.ACCESS_KEY);
+        copyProperties.remove(S3Properties.SECRET_KEY);
+        copyProperties.remove(S3Properties.SESSION_TOKEN);
+        copyProperties.remove(S3Properties.Env.ACCESS_KEY);
+        copyProperties.remove(S3Properties.Env.SECRET_KEY);
+        copyProperties.remove(S3Properties.Env.TOKEN);
+        if (copyProperties.size() != 0) {
+            throw new UserException("alter repository only support ak/sk/token info of s3."
+                + " unsupported properties: " + copyProperties.keySet());
         }
-
-        // check resource existence
-        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-        if (resource == null) {
-            throw new AnalysisException("Unknown resource: " + resourceName);
-        }
-        // check properties
-        resource.checkProperties(properties);
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER RESOURCE '").append(resourceName).append("' ");
+        sb.append("ALTER REPOSITORY '").append(name).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false, true)).append(")");
         return sb.toString();
     }
