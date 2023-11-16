@@ -29,8 +29,8 @@ suite("one_level_nestedtypes_with_s3data") {
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
 
-//    def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
-    def dataFilePath = "/mnt/disk1/wangqiannan/export/ol"
+    def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
+//    def dataFilePath = "/mnt/disk1/wangqiannan/export/ol"
     def table_names = ["test_array_one_level", "test_map_one_level", "test_struct_one_level"]
 
     def colNameArr = ["c_bool", "c_tinyint", "c_smallint", "c_int", "c_bigint", "c_largeint", "c_float",
@@ -90,31 +90,37 @@ suite("one_level_nestedtypes_with_s3data") {
     }
     def load_from_s3 = {table_name, uri_file, format ->
         if (format == "csv") {
-            order_qt_sql_tvf """select * from local(
-                "file_path" = "${uri_file}",
-                "backend_id" = "${be_id}",
-                "column_separator"="|",
-                "format" = "${format}") order by c1 limit 10; """
+            order_qt_sql_s3 """select * from s3(
+                "uri" = "${uri_file}",
+                    "s3.access_key"= "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "format" = "${format}",
+                    "column_separator"="|",
+                    "read_json_by_line"="true") order by c1 limit 10; """
 
             sql """
-            insert into ${table_name} select * from local(
-            "file_path" = "${uri_file}",
-            "backend_id" = "${be_id}",
-            "column_separator"="|",
-            "format" = "${format}"); """
+            insert into ${table_name} select * from s3(
+            "uri" = "${uri_file}",
+                    "s3.access_key"= "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "format" = "${format}",
+                    "column_separator"="|",
+                    "read_json_by_line"="true"); """
         } else {
-            order_qt_sql_tvf """select * from local(
-                "file_path" = "${uri_file}",
-                "backend_id" = "${be_id}",
-                "column_separator"="|",
-                "format" = "${format}") order by k1 limit 10; """
+            order_qt_sql_s3 """select * from s3(
+                "uri" = "${uri_file}",
+                    "s3.access_key"= "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "format" = "${format}",
+                    "read_json_by_line"="true") order by k1 limit 10; """
 
             sql """
-            insert into ${table_name} select * from local(
-            "file_path" = "${uri_file}",
-            "backend_id" = "${be_id}",
-            "column_separator"="|",
-            "format" = "${format}"); """
+            insert into ${table_name} select * from s3(
+            "uri" = "${uri_file}",
+                    "s3.access_key"= "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "format" = "${format}",
+                    "read_json_by_line"="true"); """
         }
         // where to filter different format data
         qt_select_doris """ select * from ${table_name} where k1 IS NOT NULL order by k1 limit 10; """
@@ -151,7 +157,8 @@ suite("one_level_nestedtypes_with_s3data") {
     int fi = 0
     for (String f : array_files) {
         sql "truncate table ${table_names[2]};"
-        load_from_tvf(table_names[0], f, format_order[fi])
+//        load_from_tvf(table_names[0], f, format_order[fi])
+        load_from_s3(table_names[0], f, format_order[fi])
         ++ fi
     }
     // select element_at(column)
@@ -161,9 +168,9 @@ suite("one_level_nestedtypes_with_s3data") {
         // last
         order_qt_select_arr "select ${col}[-1] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
         // null
-        order_qt_select_arr "select ${col}[0] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
+        order_qt_select_arr_null "select ${col}[0] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
         // null
-        order_qt_select_arr "select ${col}[1000] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
+        order_qt_select_arr_null "select ${col}[1000] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
     }
     // select * from table where element_at(column) with equal expr
     for (String col : colNameArr) {
@@ -192,7 +199,8 @@ suite("one_level_nestedtypes_with_s3data") {
     fi = 0
     for (String f : map_files) {
         sql "truncate table ${table_names[2]};"
-        load_from_tvf(table_names[1], f, format_order[fi])
+//        load_from_tvf(table_names[1], f, format_order[fi])
+        load_from_s3(table_names[1], f, format_order[fi])
         ++ fi
     }
     // select element_at(column)
@@ -201,10 +209,10 @@ suite("one_level_nestedtypes_with_s3data") {
         order_qt_select_map "select ${col}[map_keys(${col})[1]] from ${table_names[1]} where k1 IS NOT NULL order by k1 limit 10;"
         // last
         order_qt_select_map "select ${col}[map_keys(${col})[-1]] from ${table_names[1]} where k1 IS NOT NULL order by k1 limit 10;"
+        // null::q:q
+        order_qt_select_map_null "select ${col}[map_keys(${col})[0]] from ${table_names[1]} where k1 IS NOT NULL order by k1 limit 10;"
         // null
-        order_qt_select_map "select ${col}[map_keys(${col})[0]] from ${table_names[1]} where k1 IS NOT NULL order by k1 limit 10;"
-        // null
-        order_qt_select_map "select ${col}[map_keys(${col})[1000]] from ${table_names[1]} where k1 IS NOT NULL order by k1 limit 10;"
+        order_qt_select_map_null "select ${col}[map_keys(${col})[1000]] from ${table_names[1]} where k1 IS NOT NULL order by k1 limit 10;"
     }
     // select * from table where element_at(column) with equal expr
     for (String col : colNameArr) {
@@ -233,7 +241,8 @@ suite("one_level_nestedtypes_with_s3data") {
     fi = 0
     for (String f : struct_files) {
         sql "truncate table ${table_names[2]};"
-        load_from_tvf(table_names[2], f, format_order[fi])
+//        load_from_tvf(table_names[2], f, format_order[fi])
+        load_from_s3(table_names[2], f, format_order[fi])
         ++ fi
     }
     // select element_at(column)
