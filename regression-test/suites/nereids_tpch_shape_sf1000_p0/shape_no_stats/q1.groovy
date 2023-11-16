@@ -26,6 +26,7 @@ suite("q1") {
     sql 'SET enable_pipeline_engine = true'
     sql 'set parallel_pipeline_task_num=8'
 sql 'set be_number_for_test=3'
+sql 'set enable_runtime_filter_prune=false'
 sql 'set forbid_unknown_col_stats=false;'
 sql 'set enable_runtime_filter_prune=false'
 sql 'set enable_stats=false'
