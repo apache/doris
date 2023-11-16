@@ -80,6 +80,8 @@ private:
     std::vector<std::atomic_int64_t> _cur_bytes_in_queue;
     std::vector<std::atomic_uint32_t> _cur_blocks_nums_in_queue;
 
+    std::atomic_uint32_t _total_cur_blocks_nums_in_queue;
+
     //this will be indicate which queue has data, it's useful when have many queues
     std::atomic_int _flag_queue_idx = 0;
     // only used by streaming agg source operator

@@ -545,23 +545,12 @@ public:
         _union_state = union_state;
     }
     void set_ready_for_write() override {}
-    void set_ready_for_read() override {
-        if (!_union_state->data_queue.is_all_finish()) {
-            return;
-        }
-        if (_ready_for_read) {
-            return;
-        }
-        _read_dependency_watcher.stop();
-        _ready_for_read = true;
-    }
     [[nodiscard]] Dependency* read_blocked_by() override {
         if (_union_state->child_count() == 0) {
             return nullptr;
         }
         return WriteDependency::read_blocked_by();
     }
-    void block_reading() override {}
     void block_writing() override {}
 
 private:

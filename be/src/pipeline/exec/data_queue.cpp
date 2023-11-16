@@ -50,6 +50,7 @@ DataQueue::DataQueue(int child_count, WriteDependency* dependency)
         _cur_bytes_in_queue[i] = 0;
         _cur_blocks_nums_in_queue[i] = 0;
     }
+    _total_cur_blocks_nums_in_queue = 0;
 }
 
 std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
@@ -117,8 +118,9 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
             }
             _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
             _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
+            auto old_value = _total_cur_blocks_nums_in_queue.fetch_sub(1);
             if (_dependency) {
-                if (!_is_finished[_flag_queue_idx]) {
+                if (!_is_finished[_flag_queue_idx] && old_value == 1) {
                     _dependency->block_reading();
                 }
                 _dependency->set_ready_for_write();
@@ -141,6 +143,7 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
         _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
         _queue_blocks[child_idx].emplace_back(std::move(block));
         _cur_blocks_nums_in_queue[child_idx] += 1;
+        _total_cur_blocks_nums_in_queue += 1;
         if (_dependency) {
             _dependency->set_ready_for_read();
             _dependency->block_writing();
