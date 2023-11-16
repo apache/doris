@@ -812,7 +812,7 @@ void VNodeChannel::_add_block_failed_callback(bool is_last_rpc) {
 }
 
 void VNodeChannel::cancel(const std::string& cancel_msg) {
-    if (_is_closed) {
+    if (_is_closed || _cancelled) {
         // skip the channels that have been canceled or close_wait.
         return;
     }
