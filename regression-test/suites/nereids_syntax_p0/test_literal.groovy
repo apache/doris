@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,22 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_invalid_date") {
-    def tbName = "test_invalid_date"
-    sql "DROP TABLE IF EXISTS ${tbName}"
-    sql """
-            CREATE TABLE IF NOT EXISTS ${tbName} (
-                c0 int,
-                c1 char(10),
-                c2 datev1,
-                c3 datev2
-            )
-            UNIQUE KEY(c0)
-            DISTRIBUTED BY HASH(c0) BUCKETS 5 properties("replication_num" = "1");
-        """
-    sql "insert into ${tbName} values(1, 'test1', '2000-01-01', '2000-01-01')"
+suite("test_literal") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
-    qt_sql1 "select str_to_date('202301', '%Y%m');"
-    qt_sql2 "select str_to_date('202301', '%Y%m') from ${tbName}"
-    sql "DROP TABLE ${tbName}"
+
+    // test map and array empty literal
+    sql """
+        select {}, [], [[[null]], [[1, 2, 3]]], {1:[null], 3:[3]};
+    """
 }

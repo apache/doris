@@ -1905,11 +1905,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * TODO remove this function after we refactor type coercion.
      */
     private List<Literal> typeCoercionItems(List<Literal> items) {
-        DataType dataType = new Array(items.toArray(new Literal[0])).expectedInputTypes().get(0);
+        Array array = new Array(items.toArray(new Literal[0]));
+        if (array.expectedInputTypes().isEmpty()) {
+            return ImmutableList.of();
+        }
+        DataType dataType = array.expectedInputTypes().get(0);
         return items.stream()
                 .map(item -> item.checkedCastTo(dataType))
                 .map(Literal.class::cast)
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -2890,7 +2894,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new TableSample(percent, true, seek);
         }
         SampleByRowsContext sampleByRowsContext = (SampleByRowsContext) sampleContext;
-        long rows = Long.parseLong(sampleByRowsContext.ROWS().getText());
+        long rows = Long.parseLong(sampleByRowsContext.INTEGER_VALUE().getText());
         return new TableSample(rows, false, seek);
     }
 
