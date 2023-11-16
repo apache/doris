@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.insert;
 
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadJob;
@@ -42,7 +43,7 @@ public class InsertTask extends AbstractTask {
     private InsertIntoState insertIntoState;
 
     @Override
-    public void before() {
+    public void before() throws JobException {
         super.before();
     }
 
@@ -62,17 +63,17 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public void onFail() {
+    public void onFail() throws JobException {
         super.onFail();
     }
 
     @Override
-    public void onSuccess() {
+    public void onSuccess() throws JobException {
         super.onSuccess();
     }
 
     @Override
-    public void cancel() {
+    public void cancel() throws JobException {
         super.cancel();
     }
 

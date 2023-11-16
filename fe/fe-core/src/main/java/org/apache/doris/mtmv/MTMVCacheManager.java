@@ -28,7 +28,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -41,22 +40,23 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
-import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class MTMVCacheManager implements MTMVHookService {
+public class MTMVCacheManager {
+    private static final Logger LOG = LogManager.getLogger(MTMVCacheManager.class);
     private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
 
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
@@ -187,21 +187,8 @@ public class MTMVCacheManager implements MTMVHookService {
         return tableMTMVs.get(baseTableInfo);
     }
 
-    @Override
-    public void createMTMV(MTMV materializedView) {
-
-    }
-
-    @Override
-    public void dropMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
-    @Override
-    public void registerMTMV(MTMV mtmv) {
-    }
-
     public void refreshMTMVCache(MTMVCache cache, BaseTableInfo mtmvInfo) {
+        LOG.info("refreshMTMVCache,cache: {}, mtmvInfo: {}", cache, mtmvInfo);
         removeMTMV(mtmvInfo);
         addMTMV(cache, mtmvInfo);
     }
@@ -227,20 +214,5 @@ public class MTMVCacheManager implements MTMVHookService {
         for (Set<BaseTableInfo> sets : tableMTMVs.values()) {
             sets.remove(mtmvInfo);
         }
-    }
-
-    @Override
-    public void deregisterMTMV(MTMV mtmv) {
-        removeMTMV(new BaseTableInfo(mtmv));
-    }
-
-    @Override
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) {
-
-    }
-
-    @Override
-    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
-
     }
 }

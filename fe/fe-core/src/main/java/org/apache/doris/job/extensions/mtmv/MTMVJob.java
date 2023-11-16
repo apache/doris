@@ -35,6 +35,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -95,7 +96,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public boolean isReadyForScheduling() {
-        return getRunningTasks().size() == 0;
+        return CollectionUtils.isEmpty(getRunningTasks());
     }
 
     @Override

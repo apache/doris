@@ -47,7 +47,7 @@ import java.util.List;
 import java.util.UUID;
 
 public class MTMVTask extends AbstractTask {
-    private static final Logger LOG = LogManager.getLogger(MTMVJob.class);
+    private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
     public static final Long MAX_HISTORY_TASKS_NUM = 100L;
 
     @SerializedName(value = "dn")

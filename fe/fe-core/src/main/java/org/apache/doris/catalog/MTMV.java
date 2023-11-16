@@ -41,10 +41,12 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
 public class MTMV extends OlapTable {
     private static final Logger LOG = LogManager.getLogger(MTMV.class);
+    private ReentrantReadWriteLock mvRwLock = new ReentrantReadWriteLock(true);
 
     @SerializedName("ri")
     private MTMVRefreshInfo refreshInfo;
@@ -93,7 +95,12 @@ public class MTMV extends OlapTable {
     }
 
     public MTMVStatus getStatus() {
-        return status;
+        try {
+            readLock();
+            return status;
+        } finally {
+            readUnlock();
+        }
     }
 
     public EnvInfo getEnvInfo() {
@@ -113,20 +120,30 @@ public class MTMV extends OlapTable {
     }
 
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
-        return this.status.updateNotNull(newStatus);
+        try {
+            writeLock();
+            return this.status.updateNotNull(newStatus);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void addTaskResult(MTMVTask task, MTMVCache cache) {
-        if (task.getStatus() == TaskStatus.SUCCESS) {
-            this.status.setState(MTMVState.NORMAL);
-            this.status.setSchemaChangeDetail(null);
-            this.status.setRefreshState(MTMVRefreshState.SUCCESS);
-            this.cache = cache;
-            Env.getCurrentEnv().getMtmvService().getCacheManager().refreshMTMVCache(cache, new BaseTableInfo(this));
-        } else {
-            this.status.setRefreshState(MTMVRefreshState.FAIL);
+        try {
+            writeLock();
+            if (task.getStatus() == TaskStatus.SUCCESS) {
+                this.status.setState(MTMVState.NORMAL);
+                this.status.setSchemaChangeDetail(null);
+                this.status.setRefreshState(MTMVRefreshState.SUCCESS);
+                this.cache = cache;
+                Env.getCurrentEnv().getMtmvService().getCacheManager().refreshMTMVCache(cache, new BaseTableInfo(this));
+            } else {
+                this.status.setRefreshState(MTMVRefreshState.FAIL);
+            }
+            this.jobInfo.addHistoryTask(task);
+        } finally {
+            writeUnlock();
         }
-        this.jobInfo.addHistoryTask(task);
     }
 
     public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {
@@ -144,6 +161,22 @@ public class MTMV extends OlapTable {
 
     public Map<String, String> getMvProperties() {
         return mvProperties;
+    }
+
+    public void readLock() {
+        this.mvRwLock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        this.mvRwLock.readLock().unlock();
+    }
+
+    public void writeLock() {
+        this.mvRwLock.writeLock().lock();
+    }
+
+    public void writeUnlock() {
+        this.mvRwLock.writeLock().unlock();
     }
 
     @Override
