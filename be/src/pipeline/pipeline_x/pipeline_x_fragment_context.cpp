@@ -205,7 +205,6 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
     _runtime_state->set_num_local_sink(request.num_local_sink);
-    LOG(INFO) << "load_stream_per_node " << request.load_stream_per_node << ", query_id: " << request.query_id;
 
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
