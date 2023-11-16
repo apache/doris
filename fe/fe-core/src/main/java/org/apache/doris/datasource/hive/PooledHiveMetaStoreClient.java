@@ -210,6 +210,9 @@ public class PooledHiveMetaStoreClient {
     }
 
     public Table getTable(String dbName, String tblName) {
+        if (jdbcHiveClient != null) {
+            return jdbcHiveClient.getTable(dbName, tblName);
+        }
         try (CachedClient client = getClient()) {
             try {
                 return client.client.getTable(dbName, tblName);

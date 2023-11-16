@@ -46,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 
 /**
@@ -158,6 +159,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
         HiveConf hiveConf = new HiveConf();
         for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
             hiveConf.set(kv.getKey(), kv.getValue());
+        }
+        for (Entry<Object, Object> entry : hiveConf.getAllProperties().entrySet()) {
+            LOG.info("yy debug hive conf: " + entry.getKey() + " = " + entry.getValue());
         }
         hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));

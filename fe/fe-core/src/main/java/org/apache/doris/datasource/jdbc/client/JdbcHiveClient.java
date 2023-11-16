@@ -25,6 +25,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -110,7 +111,9 @@ public class JdbcHiveClient extends JdbcClient {
         Connection conn = getConnection();
         try {
             for (String partitionName : partitionNames) {
-                partitions.add(readPartition(conn, dbName, tblName, partitionName));
+                Partition partition = readPartition(conn, dbName, tblName, partitionName);
+                System.out.println(partition);
+                partitions.add(partition);
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get partition name list from jdbc", e);
@@ -159,4 +162,6 @@ public class JdbcHiveClient extends JdbcClient {
         }
     }
 
+    public Table getTable(String dbName, String tblName) {
+    }
 }
