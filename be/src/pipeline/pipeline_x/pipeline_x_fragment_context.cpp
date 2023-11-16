@@ -62,6 +62,7 @@
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
+#include "pipeline/exec/olap_table_sink_v2_operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
@@ -268,9 +269,10 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         break;
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
-        if (state->query_options().enable_memtable_on_sink_node) {
-            return Status::InternalError(
-                    "Unsuported OLAP_TABLE_SINK with enable_memtable_on_sink_node ");
+        if (state->query_options().enable_memtable_on_sink_node &&
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            _sink.reset(new OlapTableSinkV2OperatorX(pool, next_operator_id(), row_desc,
+                                                     output_exprs, false));
         } else {
             _sink.reset(new OlapTableSinkOperatorX(pool, next_operator_id(), row_desc, output_exprs,
                                                    false));
@@ -412,6 +414,9 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_per_fragment_instance_idx(local_params.sender_id);
         _runtime_states[i]->set_num_per_fragment_instances(request.num_senders);
         _runtime_states[i]->resize_op_id_to_local_state(max_operator_id());
+        _runtime_states[i]->set_load_stream_per_node(request.load_stream_per_node);
+        _runtime_states[i]->set_total_load_streams(request.total_load_streams);
+        _runtime_states[i]->set_num_local_sink(request.num_local_sink);
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto task = std::make_unique<PipelineXTask>(
@@ -1005,4 +1010,23 @@ Status PipelineXFragmentContext::send_report(bool done) {
                        std::placeholders::_2)},
             shared_from_this());
 }
+
+bool PipelineXFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
+    OlapTableSchemaParam schema;
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
+    if (schema.is_partial_update()) {
+        return true;
+    }
+    for (const auto& index_schema : schema.indexes()) {
+        for (const auto& index : index_schema->indexes) {
+            if (index->index_type() == INVERTED) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace doris::pipeline

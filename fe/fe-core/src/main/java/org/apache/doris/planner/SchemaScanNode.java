@@ -85,7 +85,7 @@ public class SchemaScanNode extends ScanNode {
     }
 
     @Override
-    public void finalizeForNereids() {
+    public void finalizeForNereids() throws UserException {
         // Convert predicates to MySQL columns and filters.
         frontendIP = FrontendOptions.getLocalHostAddress();
         frontendPort = Config.rpc_port;
