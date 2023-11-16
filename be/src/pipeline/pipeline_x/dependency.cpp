@@ -143,7 +143,8 @@ Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
                                  ? ((WriteDependency*)this)->_write_blocked_task.size()
                                  : 0)
                      << " write done: "
-                     << (is_write_dependency() ? ((WriteDependency*)this)->_ready_for_write : true)
+                     << (is_write_dependency() ? ((WriteDependency*)this)->_ready_for_write.load()
+                                               : true)
                      << "task: " << (task ? task->fragment_context()->debug_string() : "");
     }
 
