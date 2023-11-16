@@ -393,6 +393,9 @@ public class ComputeSignatureHelper {
                 }
             }
         }
+        if (finalType == null) {
+            return signature;
+        }
         DateTimeV2Type argType = finalType;
         List<DataType> newArgTypes = signature.argumentsTypes.stream()
                 .map(at -> TypeCoercionUtils.replaceDateTimeV2WithTarget(at, argType))
@@ -440,6 +443,9 @@ public class ComputeSignatureHelper {
             }
         }
         DecimalV3Type argType = finalType;
+        if (finalType == null) {
+            return signature;
+        }
         List<DataType> newArgTypes = signature.argumentsTypes.stream()
                 .map(at -> TypeCoercionUtils.replaceDecimalV3WithTarget(at, argType))
                 .collect(Collectors.toList());
