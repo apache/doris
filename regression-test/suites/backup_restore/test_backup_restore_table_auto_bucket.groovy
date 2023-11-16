@@ -76,7 +76,7 @@ suite("test_backup_restore_table_auto_bucket", "backup_restore") {
 
     def restore_properties = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
 
-    assertTrue(restore_properties[1][1].indexOf("DISTRIBUTED BY HASH(`id`) BUCKETS AUTO") != -1)
+    assertTrue(restore_properties[0][1].indexOf("DISTRIBUTED BY HASH(`id`) BUCKETS AUTO") != -1)
 
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
