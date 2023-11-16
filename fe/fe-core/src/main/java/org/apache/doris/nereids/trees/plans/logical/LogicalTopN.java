@@ -31,7 +31,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -156,7 +155,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         FunctionalDependencies functionalDependencies = new FunctionalDependencies(
                 child(0).getLogicalProperties().getFunctionalDependencies());
         if (getLimit() == 1) {
-            functionalDependencies.addUniformSlot(ImmutableSet.copyOf(outputs));
+            outputs.forEach(functionalDependencies::addUniformSlot);
         }
         return functionalDependencies;
     }

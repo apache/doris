@@ -392,10 +392,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         }
 
         // left/right semi/anti join propagate left/right functional dependencies
-        if (joinType.isRemainLeftJoin()) {
+        if (joinType.isLeftAntiJoin() || joinType.isLefSemiJoin()) {
             return left().getLogicalProperties().getFunctionalDependencies();
         }
-        if (joinType.isRemainRightJoin()) {
+        if (joinType.isRightSemiJoin() || joinType.isRightAntiJoin()) {
             return right().getLogicalProperties().getFunctionalDependencies();
         }
 

@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.BlockFD;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFD;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -36,7 +36,7 @@ import java.util.Optional;
  * result sink
  */
 public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
-        implements Sink, BlockFD {
+        implements Sink, PropagateFD {
 
     public LogicalResultSink(List<NamedExpression> outputExprs, CHILD_TYPE child) {
         super(PlanType.LOGICAL_RESULT_SINK, outputExprs, child);

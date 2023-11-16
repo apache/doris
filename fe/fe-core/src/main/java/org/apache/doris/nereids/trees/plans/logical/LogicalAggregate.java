@@ -307,11 +307,9 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             return;
         }
 
-        if (ExpressionUtils.isInjectiveAgg(agg)) {
-            if (ExpressionUtils.isInjective(agg)
-                    && child().getLogicalProperties().getFunctionalDependencies().isUnique(agg.getInputSlots())) {
-                fd.addUniqueSlot((Slot) agg.child(0));
-            }
+        if (ExpressionUtils.isInjectiveAgg(agg)
+                && child().getLogicalProperties().getFunctionalDependencies().isUnique(agg.getInputSlots())) {
+            fd.addUniqueSlot(namedExpression.toSlot());
         }
     }
 
@@ -342,7 +340,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 .collect(ImmutableSet.toImmutableSet());
         if (child().getLogicalProperties().getFunctionalDependencies().isUniform(groupByKeys)) {
             fd.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies());
-            return fd;
         }
 
         // when group by all unique slot, the result depends on its agg function

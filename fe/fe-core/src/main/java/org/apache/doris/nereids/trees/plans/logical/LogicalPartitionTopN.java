@@ -41,8 +41,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Logical partition-top-N plan.
@@ -212,9 +210,9 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
             return fd;
         }
-        Set<Slot> keys = partitionKeys.stream()
+        ImmutableSet<Slot> keys = partitionKeys.stream()
                 .map(s -> (Slot) s)
-                .collect(Collectors.toSet());
+                .collect(ImmutableSet.toImmutableSet());
 
         if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(keys)
                 && getPartitionLimit() == 1) {

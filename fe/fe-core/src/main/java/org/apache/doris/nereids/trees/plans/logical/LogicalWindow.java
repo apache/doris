@@ -37,12 +37,11 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * logical node to deal with window functions;
@@ -245,9 +244,9 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
             return;
         }
-        Set<Slot> slotSet = partitionKeys.stream()
+        ImmutableSet<Slot> slotSet = partitionKeys.stream()
                 .map(s -> (Slot) s)
-                .collect(Collectors.toSet());
+                .collect(ImmutableSet.toImmutableSet());
 
         // if partition by keys are unique, output is uniform
         if (child(0).getLogicalProperties().getFunctionalDependencies().isUnique(slotSet)) {
