@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -28,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -143,16 +143,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public FunctionalDependencies computeFD(List<Slot> outputs) {
         FunctionalDependencies fd = new FunctionalDependencies(
                 child().getLogicalProperties().getFunctionalDependencies());
-        for (Expression conjuct : conjuncts) {
-            if (conjuct instanceof EqualTo) {
-                EqualTo equalTo = (EqualTo) conjuct;
-                // TODO: process more expression
-                if (equalTo.left() instanceof Slot && equalTo.right().isConstant()) {
-                    //Equal expr reject Null values in filter. Therefore, we can safely add them in fd
-                    fd.addUniformSlot((Slot) equalTo.left());
-                }
-            }
-        }
+        getConjuncts().forEach(e -> fd.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
         return fd;
     }
 }

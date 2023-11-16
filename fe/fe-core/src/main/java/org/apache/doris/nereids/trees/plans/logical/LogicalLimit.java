@@ -31,8 +31,8 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -148,7 +148,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
         FunctionalDependencies functionalDependencies = new FunctionalDependencies(
                 child(0).getLogicalProperties().getFunctionalDependencies());
         if (getLimit() == 1) {
-            functionalDependencies.addUniformSlot(new HashSet<>(outputs));
+            functionalDependencies.addUniformSlot(ImmutableSet.copyOf(outputs));
         }
         return functionalDependencies;
     }

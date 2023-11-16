@@ -386,9 +386,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public FunctionalDependencies computeFD(List<Slot> outputs) {
+        //1. NALAJ and FOJ block functional dependencies
         if (joinType.isNullAwareLeftAntiJoin() || joinType.isFullOuterJoin()) {
             return new FunctionalDependencies();
         }
+
+        // left/right semi/anti join propagate left/right functional dependencies
         if (joinType.isRemainLeftJoin()) {
             return left().getLogicalProperties().getFunctionalDependencies();
         }
@@ -396,6 +399,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             return right().getLogicalProperties().getFunctionalDependencies();
         }
 
+        // if there is non-equal join conditions, block functional dependencies
         if (!otherJoinConjuncts.isEmpty()) {
             return new FunctionalDependencies();
         }
@@ -411,26 +415,32 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 .getFunctionalDependencies().isUnique(keys.first);
         FunctionalDependencies fd = new FunctionalDependencies();
         if (joinType.isInnerJoin()) {
+            // inner join propagate uniforms slots
+            // And if the hash keys is unique, inner join can propagate all functional dependencies
             if (isLeftUnique && isRightUnique) {
                 fd.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
                 fd.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
             } else {
-                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies().getUniformSet());
-                fd.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
+                fd.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies());
             }
         }
+
+        // left/right outer join propagate left/right uniforms slots
+        // And if the right/left hash keys is unique,
+        // join can propagate left/right functional dependencies
         if (joinType.isLeftOuterJoin()) {
             if (isRightUnique) {
                 fd = left().getLogicalProperties().getFunctionalDependencies();
             } else {
-                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
             }
         }
         if (joinType.isRightOuterJoin()) {
             if (isLeftUnique) {
                 fd = left().getLogicalProperties().getFunctionalDependencies();
             } else {
-                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
             }
         }
         return fd;

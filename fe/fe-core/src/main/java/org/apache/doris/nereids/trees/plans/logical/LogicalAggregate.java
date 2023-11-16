@@ -26,16 +26,13 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -310,9 +307,9 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             return;
         }
 
-        if (agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min) {
-            if (agg.child(0) instanceof Slot
-                    && child().getLogicalProperties().getFunctionalDependencies().isUnique((Slot) agg.child(0))) {
+        if (ExpressionUtils.isInjectiveAgg(agg)) {
+            if (ExpressionUtils.isInjective(agg)
+                    && child().getLogicalProperties().getFunctionalDependencies().isUnique(agg.getInputSlots())) {
                 fd.addUniqueSlot((Slot) agg.child(0));
             }
         }
@@ -325,6 +322,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             return fd;
         }
 
+        // when group by all tuples, the result only have one row
         if (groupByExpressions.isEmpty()) {
             outputs.forEach(s -> {
                 fd.addUniformSlot(s);
@@ -334,27 +332,30 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         }
 
         if (!(groupByExpressions.stream().allMatch(Slot.class::isInstance))) {
-            fd.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+            fd.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies());
             return fd;
         }
 
+        // when group by uniform slot, the result only have one row
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
         if (child().getLogicalProperties().getFunctionalDependencies().isUniform(groupByKeys)) {
-            fd.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies().getUniformSet());
+            fd.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies());
             return fd;
         }
 
+        // when group by all unique slot, the result depends on its agg function
         if (child().getLogicalProperties().getFunctionalDependencies().isUnique(groupByKeys)) {
             for (NamedExpression namedExpression : getOutputExpressions()) {
                 updateByAggregateFunctionn(namedExpression, fd);
             }
             return fd;
         }
-        if (groupByKeys.containsAll(new HashSet<>(outputs))) {
-            fd.addUniqueSlot(groupByKeys);
-        }
+
+        // group by keys is unique
+        fd.addUniqueSlot(groupByKeys);
+        fd.pruneSlots(new HashSet<>(outputs));
         return fd;
     }
 }

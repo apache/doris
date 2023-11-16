@@ -36,8 +36,8 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -207,17 +207,18 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public FunctionalDependencies computeFD(List<Slot> outputs) {
+        // if key is uniform and limit = 1, then all slot is uniform
         FunctionalDependencies fd = child().getLogicalProperties().getFunctionalDependencies();
         if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
             return fd;
         }
-        Set<Slot> slotSet = partitionKeys.stream()
+        Set<Slot> keys = partitionKeys.stream()
                 .map(s -> (Slot) s)
                 .collect(Collectors.toSet());
 
-        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(slotSet)
+        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(keys)
                 && getPartitionLimit() == 1) {
-            fd.addUniformSlot(new HashSet<>(outputs));
+            fd.addUniformSlot(ImmutableSet.copyOf(outputs));
         }
         return fd;
     }

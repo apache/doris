@@ -30,12 +30,12 @@ import java.util.stream.Collectors;
  */
 public class FunctionalDependencies {
     NestedSet uniqueSet = new NestedSet();
-    Set<Slot> uniformSet = new HashSet<>();
+    NestedSet uniformSet = new NestedSet();
 
     public FunctionalDependencies() {}
 
     public FunctionalDependencies(FunctionalDependencies other) {
-        this.uniformSet = new HashSet<>(other.uniformSet);
+        this.uniformSet = new NestedSet(other.uniformSet);
         this.uniqueSet = new NestedSet(other.uniqueSet);
     }
 
@@ -45,12 +45,12 @@ public class FunctionalDependencies {
         }
     }
 
-    public void addUniformSlot(Set<Slot> slotSet) {
-        slotSet.forEach(this::addUniformSlot);
+    public void addUniformSlot(FunctionalDependencies functionalDependencies) {
+        uniformSet.add(functionalDependencies.uniformSet);
     }
 
-    public Set<Slot> getUniformSet() {
-        return uniformSet;
+    public void addUniformSlot(ImmutableSet<Slot> slotSet) {
+        uniformSet.add(slotSet);
     }
 
     public void pruneSlots(Set<Slot> outputSlots) {
@@ -62,16 +62,7 @@ public class FunctionalDependencies {
         uniqueSet.add(slot);
     }
 
-    /**
-     * add a unique slot
-     */
     public void addUniqueSlot(ImmutableSet<Slot> slotSet) {
-        if (slotSet.isEmpty()) {
-            return;
-        }
-        if (slotSet.size() == 1) {
-            uniqueSet.add(slotSet.iterator().next());
-        }
         uniqueSet.add(slotSet);
     }
 
@@ -94,11 +85,11 @@ public class FunctionalDependencies {
         if (slotSet.isEmpty()) {
             return false;
         }
-        return uniformSet.containsAll(slotSet);
+        return uniformSet.contains(slotSet);
     }
 
     public void addFunctionalDependencies(FunctionalDependencies fd) {
-        uniformSet.addAll(fd.uniformSet);
+        uniformSet.add(fd.uniformSet);
         uniqueSet.add(fd.uniqueSet);
     }
 
@@ -118,6 +109,9 @@ public class FunctionalDependencies {
         }
 
         public boolean contains(Set<Slot> slotSet) {
+            if (slotSet.size() == 1) {
+                return slotSet.contains(slotSet.iterator().next());
+            }
             return slotSets.contains(slotSet);
         }
 
@@ -141,8 +135,14 @@ public class FunctionalDependencies {
         }
 
         public void add(ImmutableSet<Slot> slotSet) {
-            if (slotSet.stream().noneMatch(Slot::nullable)) {
-                slotSets.add(slotSet);
+            if (slotSet.stream().anyMatch(Slot::nullable)) {
+                return;
+            }
+            if (slotSet.isEmpty()) {
+                return;
+            }
+            if (slotSet.size() == 1) {
+                slots.add(slotSet.iterator().next());
             }
         }
 

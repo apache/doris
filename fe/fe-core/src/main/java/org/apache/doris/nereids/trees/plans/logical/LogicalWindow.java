@@ -235,7 +235,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
         List<Expression> partitionKeys = windowExpr.getPartitionKeys();
 
-        // window func should return unique results
+        // window func should return unique results for different rows
         if (!(windowExpr.getFunction() instanceof RowNumber
                 || windowExpr.getFunction() instanceof Rank)) {
             return;
@@ -248,10 +248,13 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         Set<Slot> slotSet = partitionKeys.stream()
                 .map(s -> (Slot) s)
                 .collect(Collectors.toSet());
+
+        // if partition by keys are unique, output is uniform
         if (child(0).getLogicalProperties().getFunctionalDependencies().isUnique(slotSet)) {
             functionalDependencies.addUniformSlot(namedExpression.toSlot());
         }
 
+        // if partition by keys are uniform, output is unique
         if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(slotSet)) {
             functionalDependencies.addUniqueSlot(namedExpression.toSlot());
         }
