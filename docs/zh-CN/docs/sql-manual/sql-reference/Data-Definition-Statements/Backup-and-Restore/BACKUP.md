@@ -58,6 +58,7 @@ PROPERTIES ("key"="value", ...);
 - PROPERTIES 目前支持以下属性：
   -  "type" = "full"：表示这是一次全量更新（默认）
   - "timeout" = "3600"：任务超时时间，默认为一天。单位秒。          
+  - "backup_tables_error_ignore_ratio" = "0.1"：备份表出错时，忽略的比例，默认为0.0，即不忽略错误。用户可以根据需要配置忽略的比例，例如0.1表示忽略10%的错误表。
 
 ### Example
 
@@ -88,6 +89,23 @@ ON
 BACKUP SNAPSHOT example_db.snapshot_label3
 TO example_repo
 EXCLUDE (example_tbl);
+```
+
+4. 全量备份 example_db 下的若干表，忽略10%的错误表：
+
+```sql
+BACKUP SNAPSHOT example_db.snapshot_label1
+TO example_repo
+ON 
+(
+    example_tbl1, example_tbl2, example_tbl3, example_tbl4, example_tbl5, 
+    example_tbl6, example_tbl7, example_tbl8, example_tbl9, example_tbl10
+)
+PROPERTIES 
+(
+    "type" = "full", 
+    "backup_tables_error_ignore_ratio" = "0.1"
+);
 ```
 
 ### Keywords
