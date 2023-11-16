@@ -69,7 +69,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerListResponse listPath(TBrokerListPathRequest request)
             throws TException {
-        logger.info("received a list path request, request detail: " + request);
+        logger.debug("received a list path request, request detail: " + request);
         TBrokerListResponse response = new TBrokerListResponse();
         try {
             boolean fileNameOnly = false;
@@ -92,7 +92,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerListResponse listLocatedFiles(TBrokerListPathRequest request)
             throws TException {
-        logger.info("received a listLocatedFiles request, request detail: " + request);
+        logger.debug("received a listLocatedFiles request, request detail: " + request);
         TBrokerListResponse response = new TBrokerListResponse();
         try {
             boolean recursive = request.isIsRecursive();
@@ -115,7 +115,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
 
     @Override
     public TBrokerIsSplittableResponse isSplittable(TBrokerIsSplittableRequest request) throws TException {
-        logger.info("received a isSplittable request, request detail: " + request);
+        logger.debug("received a isSplittable request, request detail: " + request);
         TBrokerIsSplittableResponse response = new TBrokerIsSplittableResponse();
         try {
             boolean isSplittable = HiveUtils.isSplittable(request.path, request.inputFormat, request.properties);
@@ -133,7 +133,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOperationStatus deletePath(TBrokerDeletePathRequest request)
             throws TException {
-        logger.info("receive a delete path request, request detail: " + request);
+        logger.debug("receive a delete path request, request detail: " + request);
         try {
             fileSystemManager.deletePath(request.path, request.properties);
         } catch (BrokerException e) {
@@ -147,7 +147,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOperationStatus renamePath(TBrokerRenamePathRequest request)
             throws TException {
-        logger.info("receive a rename path request, request detail: " + request);
+        logger.debug("receive a rename path request, request detail: " + request);
         try {
             fileSystemManager.renamePath(request.srcPath, request.destPath, request.properties);
         } catch (BrokerException e) {
@@ -161,7 +161,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerCheckPathExistResponse checkPathExist(
             TBrokerCheckPathExistRequest request) throws TException {
-        logger.info("receive a check path request, request detail: " + request);
+        logger.debug("receive a check path request, request detail: " + request);
         TBrokerCheckPathExistResponse response = new TBrokerCheckPathExistResponse();
         try {
             boolean isPathExist = fileSystemManager.checkPathExist(request.path, request.properties);
@@ -178,7 +178,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOpenReaderResponse openReader(TBrokerOpenReaderRequest request)
             throws TException {
-        logger.info("receive a open reader request, request detail: " + request);
+        logger.debug("receive a open reader request, request detail: " + request);
         TBrokerOpenReaderResponse response = new TBrokerOpenReaderResponse();
         try {
             TBrokerFD fd = fileSystemManager.openReader(request.clientId, request.path,
@@ -234,7 +234,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOperationStatus closeReader(TBrokerCloseReaderRequest request)
             throws TException {
-        logger.info("receive a close reader request, request detail: " + request);
+        logger.debug("receive a close reader request, request detail: " + request);
         try {
             fileSystemManager.closeReader(request.fd);
         } catch (BrokerException e) {
@@ -248,7 +248,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOpenWriterResponse openWriter(TBrokerOpenWriterRequest request)
             throws TException {
-        logger.info("receive a open writer request, request detail: " + request);
+        logger.debug("receive a open writer request, request detail: " + request);
         TBrokerOpenWriterResponse response = new TBrokerOpenWriterResponse();
         try {
             TBrokerFD fd = fileSystemManager.openWriter(request.clientId, request.path, request.properties);
@@ -285,7 +285,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOperationStatus closeWriter(TBrokerCloseWriterRequest request)
             throws TException {
-        logger.info("receive a close writer request, request detail: " + request);
+        logger.debug("receive a close writer request, request detail: " + request);
         try {
             fileSystemManager.closeWriter(request.fd);
         } catch (BrokerException e) {
