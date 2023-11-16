@@ -138,6 +138,9 @@ public:
 
     const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
 
+    // Only for iceberg reader to sanitize invalid column names
+    void iceberg_sanitize(const std::vector<std::string>& read_columns);
+
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,

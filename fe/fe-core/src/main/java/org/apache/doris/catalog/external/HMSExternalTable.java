@@ -435,7 +435,7 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
             for (FieldSchema field : schema) {
-                tmpSchema.add(new Column(field.getName(),
+                tmpSchema.add(new Column(field.getName().toLowerCase(Locale.ROOT),
                         HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                         true, field.getComment(), true, -1));
             }
@@ -484,7 +484,7 @@ public class HMSExternalTable extends ExternalTable {
         Schema schema = icebergTable.schema();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
         for (FieldSchema field : hmsSchema) {
-            tmpSchema.add(new Column(field.getName(),
+            tmpSchema.add(new Column(field.getName().toLowerCase(Locale.ROOT),
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
                             IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
                     true, null, true, false, null, field.getComment(), true, null,
@@ -500,7 +500,7 @@ public class HMSExternalTable extends ExternalTable {
         for (String partitionKey : partitionKeys) {
             // Do not use "getColumn()", which will cause dead loop
             for (Column column : schema) {
-                if (partitionKey.equals(column.getName())) {
+                if (partitionKey.equalsIgnoreCase(column.getName())) {
                     // For partition column, if it is string type, change it to varchar(65535)
                     // to be same as doris managed table.
                     // This is to avoid some unexpected behavior such as different partition pruning result
@@ -524,7 +524,7 @@ public class HMSExternalTable extends ExternalTable {
                 return getHiveColumnStats(colName);
             case ICEBERG:
                 return StatisticsUtil.getIcebergColumnStats(colName,
-                    Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
+                        Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
             default:
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }
