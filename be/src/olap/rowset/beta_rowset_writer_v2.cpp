@@ -58,12 +58,7 @@ namespace doris {
 using namespace ErrorCode;
 
 BetaRowsetWriterV2::BetaRowsetWriterV2(const std::vector<std::shared_ptr<LoadStreamStub>>& streams)
-        : _next_segment_id(0),
-          _num_segment(0),
-          _num_rows_written(0),
-          _total_data_size(0),
-          _total_index_size(0),
-          _streams(streams) {}
+        : _streams(streams) {}
 
 BetaRowsetWriterV2::~BetaRowsetWriterV2() = default;
 
