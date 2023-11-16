@@ -39,7 +39,7 @@ suite("test_backup_restore_dynamic_partition_reserve_true", "backup_restore") {
             "dynamic_partition.start" = "-50",
             "dynamic_partition.end" = "5",
             "dynamic_partition.prefix" = "p",
-            "dynamic_partition.create_history_partition"="true",
+            "dynamic_partition.create_history_partition" = "true",
             "replication_num" = "1"
         )
         """
@@ -107,7 +107,11 @@ suite("test_backup_restore_dynamic_partition_reserve_true", "backup_restore") {
     def restore_properties = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
 
     assertTrue(restore_properties[0][1].indexOf("\"dynamic_partition.enable\" = \"true\"") != -1)
-
+    assertTrue(restore_properties[0][1].indexOf("\"dynamic_partition.time_unit\" = \"YEAR\"") != -1)
+    assertTrue(restore_properties[0][1].indexOf("\"dynamic_partition.start\" = \"-50\"") != -1)
+    assertTrue(restore_properties[0][1].indexOf("\"dynamic_partition.end\" = \"5\"") != -1)
+    assertTrue(restore_properties[0][1].indexOf("\"dynamic_partition.prefix\" = \"p\"") != -1)
+    assertTrue(restore_properties[0][1].indexOf("\"dynamic_partition.create_history_partition\" = \"true\"") != -1)
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
