@@ -24,12 +24,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-Doris-Operator is software extension to Kubernetes that make use of custom resource to manage Doris and it components. It provides [DorisCluster](https://github.com/selectdb/doris-operator/blob/master/config/crd/bases/doris.selectdb.com_dorisclusters.yaml) a Kubernetes [CustomResourceDefinition](https://kubernetes.io/docs/reference/kubernetes-api/extend-resources/custom-resource-definition-v1/) for user to custom resource.
+Doris-Operator is software extension to manage, operate, and maintain Doris clusters on Kubernetes. It allows users to deploy Doris in the way that is defined by their resources. It can manage Doris clusters in all deployment configurations and supports intelligent and parallel management of Doris at scale.
+
 ## Deploy Doris on Kubernetes
 
 ### Start Kubernetes
-Having a Kubernetes environment is the premise to deploy Doris on Kubernetes. If you already have it, please ignore this step. 
-Hosted Kubernetes on cloud platform or set-up by yourself are all good choice.  
+To deploy Doris on Kubernetes using the Doris-Operator, you need a Kubernetes (K8s) cluster first. If you do, you can jump to "Deploy Doris-Operator". 
 
 **Hosted EKS**  
 1. Check that the following [command-line](https://docs.aws.amazon.com/eks/latest/userguide/getting-started.html) tools are installed in your environment:  
@@ -53,48 +53,63 @@ Kubernetes official documents recommends some ways to set up Kubernetes, as [min
 kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/crd/bases/doris.selectdb.com_dorisclusters.yaml    
 ```
 **2. Install Doris-Operator**  
-If you want to use the defaults operator resource:
-   ```shell
-   kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml
-   ```  
-The user defined deployment in github repo are simply:  
-Instead of using the command below, apply your local version of the Operator manifest to the cluster when you custom operator resource.
-   ```shell
-   kubectl apply -f operator.yaml  
-   ```  
-**3. Validate The Operator is Running**  
-Using the command `kubectl -n {namespace} get pods` get the status of deployed operator. 
+ **Option 1: default mode**  
+
+   Use the definition in the Doris-Operator repository:
+
 ```shell
+kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml
+```
+
+   **Option 2: custom deployment**  
+  Configurations in [operator.yaml](https://github.com/selectdb/doris-operator/blob/master/config/operator/operator.yaml) are the basics for successful deployment. For higher cluster management efficiency or to serve specific needs, you can follow these steps:
+
+   - Download the [operator.yaml](https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml) file (using wget, for example)
+   - Tailor the configurations in operator.yaml to your case
+   - Deploy Doris-Operator using the following command
+
+```shell
+kubectl apply -f operator.yaml
+```
+
+**3. Check deployment status**   
+Use the following command to check the service status of Doris-Operator. If the status is `Running` and all containers in the pods are `READY`, that means Doris-Operator is successfully deployed.
+
+```
  kubectl -n doris get pods
  NAME                              READY   STATUS    RESTARTS        AGE
  doris-operator-5b9f7f57bf-tsvjz   1/1     Running   66 (164m ago)   6d22h
 ```
-Expected result, the Pod `STATUS` is `Running` and all containers in Pod are all `READY`.
+
+The default namespace in operator.yaml is Doris. If you have changed that, remember to use the correct namespace in the check status command.
 
 ### Start Doris on Kubernetes
-**1. Initialize Doris Cluster**    
-User can directly deploy Doris by [examples](https://github.com/selectdb/doris-operator/tree/master/doc/examples) provided by Doris-Operator. Below is the command:    
-```shell
-kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml  
+**1. Deploy cluster**  
+The `Doris-Operator` repository includes examples for various use cases in the [doc/examples ](https://github.com/selectdb/doris-operator/tree/master/doc/examples) directory. The command is as below:
+
 ```
-Or download [doriscluster-sample](https://github.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml) a custom resource that tells the Operator how to configure the Kubernetes cluster, and custom resource as [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) and 
-[how_to_use](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) docs. Instead of using the command below, apply the customized resource.
-```shell
-kubeectl apply -f doriscluster-sample.yaml  
+kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml
 ```
-**2. Validate Doris Cluster Status**  
-Using the command `kubectl -n {namespace} get pods` check pods status.
-```shell
-kubectl get pods
+
+You may refer to the following docs for more information: The [how_to_use.md](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) file is about what the Doris-Operator can do. The [DorisCluster](https://github.com/selectdb/doris-operator/blob/master/api/doris/v1/types.go) file is about resource definition and hierarchy. The [api.md](https://github.com/selectdb/doris-operator/tree/master/doc/api.md) file presents the resources definition and hierarchy in a more readable way.
+
+**2. Check cluster status**
+
+- Check pod status  
+  After the cluster deployment resources are distributed, you can check the cluster status using the following command. If all pods are `Running` and all containers in the pods of all components are `READY`, that means the cluster is successfully deployed.
+
+  ```shell
+  kubectl get pods
   NAME                       READY   STATUS    RESTARTS   AGE
   doriscluster-sample-fe-0   1/1     Running   0          20m
   doriscluster-sample-be-0   1/1     Running   0          19m
-```
-All Pods created by DorisCluster resource should be in `Running` STATUS, and each pod's containers should be `RREADY`.
-### Use Doris Cluster  
-On kubernetes Doris-Operator provide `Service` a resource build in kubernetes for access to Doris.  
+  ```
 
-The command `kubectl -n {namespace} get svc -l "app.doris.ownerreference/name={dorisCluster.Name}"` used to get `service` created by Doris-Operator. `dorisCluster.Nmae` is the name of DorisCluster resource deployed by step 1.
+### Access Doris Cluster  
+On Kubernetes, Doris-Operator provide `Service`, which is a resource built in Kubernetes for access to Doris.  
+
+You can view all DorisCluster-related services via  `kubectl -n {namespace} get svc -l "app.doris.ownerreference/name={dorisCluster.Name}"` , in which `dorisCluster.Name` is the name of the DorisCluster resource deployed in step 1.
+
 ```shell
 kubectl -n default get svc -l "app.doris.ownerreference/name=doriscluster-sample"
 NAME                              TYPE        CLUSTER-IP       EXTERNAL-IP                                           PORT(S)                               AGE
@@ -103,19 +118,25 @@ doriscluster-sample-fe-service    ClusterIP   10.152.183.37    a7509284bf3784983
 doriscluster-sample-be-internal   ClusterIP   None             <none>                                                9050/TCP                              29m
 doriscluster-sample-be-service    ClusterIP   10.152.183.141   <none>                                                9060/TCP,8040/TCP,9050/TCP,8060/TCP   29m
 ```
-**Use SQL Client for Access**  
-Service created by Doris-Operator have two types, suffix is `-internal` or `-service`. Service have the `-internal` suffix for communicating in Doris components, Service have `-service` suffix for user to access.  
 
-- In Kubernetes  
-In kubernetes, Using `CLUSTER-IP`  is recommended. For example, the fe service's `CLUSTER-IP`  is `10.152.183.37` that displayed by above command. Using below command to access fe service.
+The services are divided into two types. Those with  `-internal` as a suffix are for internal component communication in the cluster, and those with `-service` are accessible to users.
 
-  ```shell
-  mysql -h 10.152.183.37 -uroot -P9030
-  ```
+**Access from within the cluster**  
 
-- Out Kubernetes  
-Using `EXTERNAL-IP` to access fe from Kubernetes external. In default, Doris-Operator not provided `EXTERNAL-IP` mode. If you want to use `EXTERNAL-IP`, should custom resource `Service` field, reference the doc [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) to deploy.
+You can access components via the `CLUSTER-IP` of the relevant service. For example, to access `doriscluster-sample-fe-service`  (with its `CLUSTERIP` shown above), you can use the following command: 
 
-:::tip
-If the doc not cover your requirements, Pleaser reference the docs [Doris-Operator](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) and the api document to custom [DorisCluster](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) resource to deploy.
-:::
+```shell
+mysql -h 10.152.183.37 -uroot -P9030
+```
+
+**Access from outside the cluster**  
+
+Be default, K8s deployment of Doris cluster does not provide external access. If you need external access, you need to apply for load balancing resources for the cluster. After the resource is ready, you can configure the relevant `service` according to the [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) file. After it is successfully deployed, the service is accessible via its  `EXTERNAL-IP`. For example, to access `doriscluster-sample-fe-service`  (with its `EXTERNAL-IP` shown above), you can use the following command: 
+
+```shell
+mysql -h a7509284bf3784983a596c6eec7fc212-618xxxxxx.com -uroot -P9030
+```
+
+### Note
+
+This guide is about how to deploy Doris on Kubernetes. For more information, you may check [Doris-Operator](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) for the full list of features and capabilities, and [DorisCluster](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) for details about customized deployment of Doris clusters.
