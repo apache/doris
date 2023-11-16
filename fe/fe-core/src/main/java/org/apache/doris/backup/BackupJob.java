@@ -371,7 +371,7 @@ public class BackupJob extends AbstractJob {
     private boolean isTooManyBackupTablesErrorIgnoreToCancel() {
         return BigDecimal.valueOf(backupTablesErrorIgnoreRatio).compareTo(BigDecimal.valueOf(0.0)) != 0
                 && backupTablesErrorIgnore.size()
-                            >= tableRefs.size() * backupTablesErrorIgnoreRatio;
+                            > tableRefs.size() * backupTablesErrorIgnoreRatio;
     }
 
     private boolean isStrictBackup() {
