@@ -477,13 +477,13 @@ public class TableProperty implements Writable {
     }
 
     public void setGroupCommitIntervalMs(int groupCommitIntervalMs) {
-        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_INTERVAL_COMMIT_MS, Integer.toString(groupCommitIntervalMs));
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS, Integer.toString(groupCommitIntervalMs));
     }
 
     public int getGroupCommitIntervalMs() {
         return Integer.parseInt(properties.getOrDefault(
-                PropertyAnalyzer.PROPERTIES_GROUP_INTERVAL_COMMIT_MS,
-                Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_INTERVAL_COMMIT_MS_DEFAULT_VALUE)));
+                PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS,
+                Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE)));
     }
 
     public void buildReplicaAllocation() {
