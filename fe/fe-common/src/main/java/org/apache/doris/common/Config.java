@@ -439,6 +439,13 @@ public class Config extends ConfigBase {
             + "then the load task will be successful." })
     public static int publish_wait_time_second = 300;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段是否检查正在做 Schema 变更的副本。"
+            + "正常情况下，不要关闭此检查。除非在极端情况下出现导入和 Schema 变更出现互相等待死锁时才临时打开。",
+            "Check the replicas which are doing schema change when publish transaction. Do not turn off this check "
+            + " under normal circumstances. It's only temporarily skip check if publish version and schema change have"
+            + " dead lock" })
+    public static boolean publish_version_check_alter_replica = true;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -483,6 +490,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"Insert load 的默认超时时间，单位是秒。",
             "Default timeout for insert load job, in seconds."})
     public static int insert_load_default_timeout_second = 14400; // 4 hour
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "等内部攒批真正写入完成才返回；insert into和stream load默认开启攒批",
+            "Wait for the internal batch to be written before returning; "
+                    + "insert into and stream load use group commit by default."})
+    public static boolean wait_internal_group_commit_finish = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
@@ -1218,7 +1231,7 @@ public class Config extends ConfigBase {
      *  This parameter distinguishes between offline and real-time updates
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static int cache_last_version_interval_second = 900;
+    public static int cache_last_version_interval_second = 30;
 
     /**
      * Set the maximum number of rows that can be cached
@@ -1531,30 +1544,6 @@ public class Config extends ConfigBase {
     public static int auto_check_statistics_in_minutes = 10;
 
     /**
-     * If this configuration is enabled, you should also specify the trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static boolean enable_tracing = false;
-
-    /**
-     * Current support for exporting traces:
-     *   zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-     *   collector: The collector can be used to receive and process traces and support export to a variety of
-     *     third-party systems.
-     * If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static String trace_exporter = "zipkin";
-
-    /**
-     * The endpoint to export spans to.
-     * export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-     * export to collector like: http://127.0.0.1:4318/v1/traces
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
-
-    /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
      * Default is true.
      */
@@ -1570,10 +1559,38 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean enable_pipeline_load = false;
+    /*---------------------- JOB CONFIG START------------------------*/
+    /**
+     * The number of threads used to dispatch timer job.
+     * If we have a lot of timer jobs, we need more threads to dispatch them.
+     * All timer job will be dispatched to a thread pool, and they will be dispatched to the thread queue of the
+     * corresponding type of job
+     * The value should be greater than 0, if it is 0 or <=0, set it to 5
+     */
+    @ConfField(description = {"用于分发定时任务的线程数",
+            "The number of threads used to dispatch timer job."})
+    public static int job_dispatch_timer_job_thread_num = 5;
 
-    @ConfField
-    public static int scheduler_job_task_max_saved_count = 20;
+    /**
+     * The number of timer jobs that can be queued.
+     * if consumer is slow, the queue will be full, and the producer will be blocked.
+     * if you have a lot of timer jobs, you need to increase this value or increase the number of
+     * {@code @dispatch_timer_job_thread_num}
+     * The value should be greater than 0, if it is 0 or <=0, set it to 1024
+     */
+    @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
+    public static int job_dispatch_timer_job_queue_size = 1024;
 
+    /**
+     * The number of threads used to consume insert tasks.
+     * if you have a lot of insert jobs,and the average execution frequency is relatively high you need to increase
+     * this value or increase the number of {@code @job_insert_task_queue_size}
+     * The value should be greater than 0, if it is 0 or <=0, set it to 5
+     */
+    @ConfField(description = {"用于执行 Insert 任务的线程数", "The number of threads used to consume insert tasks."})
+    public static int job_insert_task_consumer_thread_num = 10;
+
+    /*---------------------- JOB CONFIG END------------------------*/
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor
      * if consumer is slow, the queue will be full, and the producer will be blocked.
@@ -2253,4 +2270,18 @@ public class Config extends ConfigBase {
                     + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."
     })
     public static int max_auto_partition_num = 2000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Partition rebalance 方式下各个 BE 的 tablet 数最大差值，小于该值时，会诊断为已均衡",
+            "The maximum difference in the number of tablets of each BE in partition rebalance mode. "
+                    + "If it is less than this value, it will be diagnosed as balanced."
+    })
+    public static int diagnose_balance_max_tablet_num_diff = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Partition rebalance 方式下各个 BE 的 tablet 数的最大比率，小于该值时，会诊断为已均衡",
+            "The maximum ratio of the number of tablets in each BE in partition rebalance mode. "
+                    + "If it is less than this value, it will be diagnosed as balanced."
+    })
+    public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 }

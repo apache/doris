@@ -52,7 +52,7 @@ public:
             _stream_map.emplace(id, stream);
         }
 
-        LOG(INFO) << "put stream load pipe: " << id;
+        VLOG_NOTICE << "put stream load pipe: " << id;
         return Status::OK();
     }
 
@@ -63,7 +63,7 @@ public:
                 return iter->second;
             }
         }
-        LOG(INFO) << "stream load pipe does not exist: " << id;
+        VLOG_NOTICE << "stream load pipe does not exist: " << id;
         return nullptr;
     }
 
@@ -71,7 +71,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
             _stream_map.erase(iter);
-            LOG(INFO) << "remove stream load pipe: " << id;
+            VLOG_NOTICE << "remove stream load pipe: " << id;
         }
     }
 

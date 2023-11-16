@@ -28,8 +28,6 @@ import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
-import org.apache.doris.common.telemetry.ScopedSpan;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -120,10 +118,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.api.trace.SpanKind;
-import io.opentelemetry.context.Context;
-import io.opentelemetry.context.Scope;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -689,7 +683,7 @@ public class Coordinator implements CoordInterface {
             int backendIdx = 0;
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
-            Set<Long> backendsWithOlapTableSink = Sets.newHashSet();
+            Map<Long, Integer> numSinkOnBackend = Maps.newHashMap();
             beToExecStates.clear();
             // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
             // else use exec_plan_fragments directly.
@@ -759,7 +753,7 @@ public class Coordinator implements CoordInterface {
                     states.addState(execState);
                     if (tParam.getFragment().getOutputSink() != null
                             && tParam.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
-                        backendsWithOlapTableSink.add(execState.backend.getId());
+                        numSinkOnBackend.merge(execState.backend.getId(), 1, Integer::sum);
                     }
                     ++backendIdx;
                 }
@@ -771,7 +765,10 @@ public class Coordinator implements CoordInterface {
                     if (tParam.getFragment().getOutputSink() != null
                             && tParam.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
                         tParam.setLoadStreamPerNode(loadStreamPerNode);
-                        tParam.setTotalLoadStreams(backendsWithOlapTableSink.size() * loadStreamPerNode);
+                        tParam.setTotalLoadStreams(numSinkOnBackend.size() * loadStreamPerNode);
+                        tParam.setNumLocalSink(numSinkOnBackend.get(tParam.getBackendId()));
+                        LOG.info("num local sink for backend {} is {}", tParam.getBackendId(),
+                                numSinkOnBackend.get(tParam.getBackendId()));
                     }
                 }
                 profileFragmentId += 1;
@@ -780,14 +777,8 @@ public class Coordinator implements CoordInterface {
             // 4. send and wait fragments rpc
             List<Triple<BackendExecStates, BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>
                     futures = Lists.newArrayList();
-            Context parentSpanContext = Context.current();
+
             for (BackendExecStates states : beToExecStates.values()) {
-                Span span = Telemetry.getNoopSpan();
-                if (ConnectContext.get() != null) {
-                    span = ConnectContext.get().getTracer().spanBuilder("execRemoteFragmentsAsync")
-                            .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
-                }
-                states.scopedSpan = new ScopedSpan(span);
                 states.unsetFields();
                 BackendServiceProxy proxy = BackendServiceProxy.getInstance();
                 futures.add(ImmutableTriple.of(states, proxy, states.execRemoteFragmentsAsync(proxy)));
@@ -798,12 +789,6 @@ public class Coordinator implements CoordInterface {
                 // 5. send and wait execution start rpc
                 futures.clear();
                 for (BackendExecStates states : beToExecStates.values()) {
-                    Span span = Telemetry.getNoopSpan();
-                    if (ConnectContext.get() != null) {
-                        span = ConnectContext.get().getTracer().spanBuilder("execPlanFragmentStartAsync")
-                                .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
-                    }
-                    states.scopedSpan = new ScopedSpan(span);
                     BackendServiceProxy proxy = BackendServiceProxy.getInstance();
                     futures.add(ImmutableTriple.of(states, proxy, states.execPlanFragmentStartAsync(proxy)));
                 }
@@ -862,7 +847,7 @@ public class Coordinator implements CoordInterface {
                     }
                 }
 
-                Set<Long> backendsWithOlapTableSink = Sets.newHashSet();
+                int numBackendsWithSink = 0;
                 // 3. group PipelineExecContext by BE.
                 // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
@@ -899,7 +884,7 @@ public class Coordinator implements CoordInterface {
                     if (entry.getValue().getFragment().getOutputSink() != null
                             && entry.getValue().getFragment().getOutputSink().getType()
                             == TDataSinkType.OLAP_TABLE_SINK) {
-                        backendsWithOlapTableSink.add(backendId);
+                        numBackendsWithSink++;
                     }
                     ++backendIdx;
                 }
@@ -912,7 +897,10 @@ public class Coordinator implements CoordInterface {
                             && entry.getValue().getFragment().getOutputSink().getType()
                             == TDataSinkType.OLAP_TABLE_SINK) {
                         entry.getValue().setLoadStreamPerNode(loadStreamPerNode);
-                        entry.getValue().setTotalLoadStreams(backendsWithOlapTableSink.size() * loadStreamPerNode);
+                        entry.getValue().setTotalLoadStreams(numBackendsWithSink * loadStreamPerNode);
+                        entry.getValue().setNumLocalSink(entry.getValue().getLocalParams().size());
+                        LOG.info("num local sink for backend {} is {}", entry.getValue().getBackendId(),
+                                entry.getValue().getNumLocalSink());
                     }
                 }
 
@@ -922,14 +910,8 @@ public class Coordinator implements CoordInterface {
             // 4. send and wait fragments rpc
             List<Triple<PipelineExecContexts, BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>
                     futures = Lists.newArrayList();
-            Context parentSpanContext = Context.current();
-            for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                Span span = Telemetry.getNoopSpan();
-                if (ConnectContext.get() != null) {
-                    span = ConnectContext.get().getTracer().spanBuilder("execRemoteFragmentsAsync")
-                            .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
-                }
 
+            for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
                 if (LOG.isDebugEnabled()) {
                     String infos = "";
                     for (PipelineExecContext pec : ctxs.ctxs) {
@@ -939,7 +921,6 @@ public class Coordinator implements CoordInterface {
                             DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
                 }
 
-                ctxs.scopedSpan = new ScopedSpan(span);
                 ctxs.unsetFields();
                 BackendServiceProxy proxy = BackendServiceProxy.getInstance();
                 futures.add(ImmutableTriple.of(ctxs, proxy, ctxs.execRemoteFragmentsAsync(proxy)));
@@ -950,12 +931,6 @@ public class Coordinator implements CoordInterface {
                 // 5. send and wait execution start rpc
                 futures.clear();
                 for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                    Span span = Telemetry.getNoopSpan();
-                    if (ConnectContext.get() != null) {
-                        span = ConnectContext.get().getTracer().spanBuilder("execPlanFragmentStartAsync")
-                                .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
-                    }
-                    ctxs.scopedSpan = new ScopedSpan(span);
                     BackendServiceProxy proxy = BackendServiceProxy.getInstance();
                     futures.add(ImmutableTriple.of(ctxs, proxy, ctxs.execPlanFragmentStartAsync(proxy)));
                 }
@@ -981,7 +956,7 @@ public class Coordinator implements CoordInterface {
             TStatusCode code;
             String errMsg = null;
             Exception exception = null;
-            Span span = triple.getLeft().scopedSpan.getSpan();
+
             try {
                 PExecPlanFragmentResult result = triple.getRight().get(timeoutMs, TimeUnit.MILLISECONDS);
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
@@ -1005,32 +980,25 @@ public class Coordinator implements CoordInterface {
                 code = TStatusCode.TIMEOUT;
             }
 
-            try {
-                if (code != TStatusCode.OK) {
-                    if (exception != null && errMsg == null) {
-                        errMsg = operation + " failed. " + exception.getMessage();
-                    }
-                    queryStatus.setStatus(errMsg);
-                    cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
-                    switch (code) {
-                        case TIMEOUT:
-                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
-                                    .increase(1L);
-                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
-                        case THRIFT_RPC_ERROR:
-                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
-                                    .increase(1L);
-                            SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
-                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
-                        default:
-                            throw new UserException(errMsg, exception);
-                    }
+            if (code != TStatusCode.OK) {
+                if (exception != null && errMsg == null) {
+                    errMsg = operation + " failed. " + exception.getMessage();
                 }
-            } catch (Exception e) {
-                span.recordException(e);
-                throw e;
-            } finally {
-                triple.getLeft().scopedSpan.endSpan();
+                queryStatus.setStatus(errMsg);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                switch (code) {
+                    case TIMEOUT:
+                        MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                .increase(1L);
+                        throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
+                    case THRIFT_RPC_ERROR:
+                        MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                .increase(1L);
+                        SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
+                        throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
+                    default:
+                        throw new UserException(errMsg, exception);
+                }
             }
         }
     }
@@ -1048,7 +1016,7 @@ public class Coordinator implements CoordInterface {
             TStatusCode code;
             String errMsg = null;
             Exception exception = null;
-            Span span = triple.getLeft().scopedSpan.getSpan();
+
             try {
                 PExecPlanFragmentResult result = triple.getRight().get(timeoutMs, TimeUnit.MILLISECONDS);
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
@@ -1072,32 +1040,25 @@ public class Coordinator implements CoordInterface {
                 code = TStatusCode.TIMEOUT;
             }
 
-            try {
-                if (code != TStatusCode.OK) {
-                    if (exception != null && errMsg == null) {
-                        errMsg = operation + " failed. " + exception.getMessage();
-                    }
-                    queryStatus.setStatus(errMsg);
-                    cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
-                    switch (code) {
-                        case TIMEOUT:
-                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
-                                    .increase(1L);
-                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
-                        case THRIFT_RPC_ERROR:
-                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
-                                    .increase(1L);
-                            SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
-                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
-                        default:
-                            throw new UserException(errMsg, exception);
-                    }
+            if (code != TStatusCode.OK) {
+                if (exception != null && errMsg == null) {
+                    errMsg = operation + " failed. " + exception.getMessage();
                 }
-            } catch (Exception e) {
-                span.recordException(e);
-                throw e;
-            } finally {
-                triple.getLeft().scopedSpan.endSpan();
+                queryStatus.setStatus(errMsg);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                switch (code) {
+                    case TIMEOUT:
+                        MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                .increase(1L);
+                        throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
+                    case THRIFT_RPC_ERROR:
+                        MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                .increase(1L);
+                        SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
+                        throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
+                    default:
+                        throw new UserException(errMsg, exception);
+                }
             }
         }
     }
@@ -2490,7 +2451,7 @@ public class Coordinator implements CoordInterface {
             // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
             if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
                 LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
-                                  + " error message: {}",
+                                + " error message: {}",
                         DebugUtil.printId(queryId), params.getFragmentId(),
                         DebugUtil.printId(params.getFragmentInstanceId()),
                         params.getBackendId(), status.getErrorMsg());
@@ -2516,11 +2477,11 @@ public class Coordinator implements CoordInterface {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
                 LOG.debug("Query {} instance {} is marked done",
-                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             } else {
                 LOG.debug("Query {} instance {} is not marked done",
-                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
             }
         } else {
             if (params.backend_num >= backendExecStates.size()) {
@@ -2998,20 +2959,13 @@ public class Coordinator implements CoordInterface {
                     return false;
                 }
 
-                Span span = ConnectContext.get() != null
-                        ? ConnectContext.get().getTracer().spanBuilder("cancelPlanFragmentAsync")
-                        .setParent(Context.current()).setSpanKind(SpanKind.CLIENT).startSpan()
-                        : Telemetry.getNoopSpan();
-                try (Scope scope = span.makeCurrent()) {
+                try {
                     BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
                             fragmentInstanceId(), cancelReason);
                 } catch (RpcException e) {
-                    span.recordException(e);
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
                     SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
-                } finally {
-                    span.end();
                 }
 
                 this.hasCanceled = true;
@@ -3194,20 +3148,13 @@ public class Coordinator implements CoordInterface {
 
                 this.hasCanceled = true;
                 try {
-                    Span span = ConnectContext.get() != null
-                            ? ConnectContext.get().getTracer().spanBuilder("cancelPlanFragmentAsync")
-                            .setParent(Context.current()).setSpanKind(SpanKind.CLIENT).startSpan()
-                            : Telemetry.getNoopSpan();
-                    try (Scope scope = span.makeCurrent()) {
+                    try {
                         BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
                                 localParam.fragment_instance_id, cancelReason);
                     } catch (RpcException e) {
-                        span.recordException(e);
                         LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                                 brpcAddress.getPort());
                         SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
-                    } finally {
-                        span.end();
                     }
                 } catch (Exception e) {
                     LOG.warn("catch a exception", e);
@@ -3258,7 +3205,6 @@ public class Coordinator implements CoordInterface {
         TNetworkAddress brpcAddr;
         List<BackendExecState> states = Lists.newArrayList();
         boolean twoPhaseExecution = false;
-        ScopedSpan scopedSpan = new ScopedSpan();
         long beProcessEpoch = 0;
 
         public BackendExecStates(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution, long beProcessEpoch) {
@@ -3357,7 +3303,6 @@ public class Coordinator implements CoordInterface {
         TNetworkAddress brpcAddr;
         List<PipelineExecContext> ctxs = Lists.newArrayList();
         boolean twoPhaseExecution = false;
-        ScopedSpan scopedSpan = new ScopedSpan();
         int instanceNumber;
 
         public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,

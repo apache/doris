@@ -21,7 +21,6 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <algorithm>
 #include <array>
@@ -34,7 +33,6 @@
 #include <type_traits>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/object_pool.h"
@@ -52,7 +50,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
-#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"

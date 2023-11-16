@@ -68,28 +68,31 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalDistribute
-----------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
-------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
+--------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[catalog_sales]
 --------------------PhysicalDistribute
-----------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
-------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
+--------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[web_sales]
 --------------------PhysicalDistribute
-----------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
-------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
+--------------------------PhysicalOlapScan[date_dim]
 ----PhysicalResultSink
-------PhysicalTopN
+------PhysicalTopN[MERGE_SORT]
 --------PhysicalDistribute
-----------PhysicalTopN
+----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute
@@ -107,14 +110,17 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((store_sales.ss_item_sk = cross_items.ss_item_sk))otherCondition=()
 ------------------------------------------PhysicalDistribute
 --------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
-----------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------------PhysicalProject
+------------------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------------------------PhysicalDistribute
-------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2001))
---------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------PhysicalProject
+--------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2001))
+----------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalOlapScan[item]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalAssertNumRows
 --------------------------------PhysicalDistribute
@@ -130,14 +136,17 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((catalog_sales.cs_item_sk = cross_items.ss_item_sk))otherCondition=()
 ------------------------------------------PhysicalDistribute
 --------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
-----------------------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------------------------PhysicalProject
+------------------------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------------------------PhysicalDistribute
-------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2001))
---------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------PhysicalProject
+--------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2001))
+----------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalOlapScan[item]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalAssertNumRows
 --------------------------------PhysicalDistribute
@@ -153,14 +162,17 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((web_sales.ws_item_sk = cross_items.ss_item_sk))otherCondition=()
 ------------------------------------------PhysicalDistribute
 --------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
-----------------------------------------------PhysicalOlapScan[web_sales]
+----------------------------------------------PhysicalProject
+------------------------------------------------PhysicalOlapScan[web_sales]
 ----------------------------------------------PhysicalDistribute
-------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2001))
---------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------PhysicalProject
+--------------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2001))
+----------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalOlapScan[item]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalAssertNumRows
 --------------------------------PhysicalDistribute
@@ -235,28 +247,31 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalDistribute
-----------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
-------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
+--------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[catalog_sales]
 --------------------PhysicalDistribute
-----------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
-------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
+--------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[web_sales]
 --------------------PhysicalDistribute
-----------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
-------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
+--------------------------PhysicalOlapScan[date_dim]
 ----PhysicalResultSink
-------PhysicalTopN
+------PhysicalTopN[MERGE_SORT]
 --------PhysicalDistribute
-----------PhysicalTopN
+----------PhysicalTopN[LOCAL_SORT]
 ------------hashJoin[INNER_JOIN] hashCondition=((ty_brand = ly_brand) and (ty_category = ly_category) and (ty_class = ly_class))otherCondition=()
 --------------PhysicalProject
 ----------------NestedLoopJoin[INNER_JOIN](cast(ty_sales as DOUBLE) > cast(average_sales as DOUBLE))

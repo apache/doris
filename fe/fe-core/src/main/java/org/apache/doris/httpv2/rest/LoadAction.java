@@ -356,7 +356,8 @@ public class LoadAction extends RestBaseController {
             if (!Strings.isNullOrEmpty(request.getQueryString())) {
                 redirectUrl += request.getQueryString();
             }
-            LOG.info("Redirect url: {}", redirectUrl);
+            LOG.info("Redirect url: {}", "http://" + redirectAddr.getHostname() + ":"
+                    + redirectAddr.getPort() + urlObj.getPath());
             RedirectView redirectView = new RedirectView(redirectUrl);
             redirectView.setContentType("text/html;charset=utf-8");
             redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);

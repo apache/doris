@@ -91,10 +91,10 @@ public abstract class LoadTask extends MasterTask {
             failMsg.setMsg(e.getMessage() == null ? "" : e.getMessage());
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                     .add("error_msg", "Failed to execute load task").build(), e);
-        } catch (Exception e) {
-            failMsg.setMsg(e.getMessage() == null ? "" : e.getMessage());
+        } catch (Throwable t) {
+            failMsg.setMsg(t.getMessage() == null ? "" : t.getMessage());
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                    .add("error_msg", "Unexpected failed to execute load task").build(), e);
+                    .add("error_msg", "Unexpected failed to execute load task").build(), t);
         } finally {
             if (!isFinished) {
                 // callback on pending task failed

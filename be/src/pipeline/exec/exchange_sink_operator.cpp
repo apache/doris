@@ -200,8 +200,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
                 DCHECK(_local_channels_dependency[dep_id] != nullptr);
                 deps_for_channels->add_child(_local_channels_dependency[dep_id]);
-                _wait_channel_timer[dep_id] =
-                        ADD_CHILD_TIMER(_profile, "WaitForLocalExchangeBuffer", timer_name);
+                _wait_channel_timer[dep_id] = ADD_CHILD_TIMER(
+                        _profile, fmt::format("WaitForLocalExchangeBuffer{}", dep_id), timer_name);
                 dep_id++;
             }
         }
@@ -213,12 +213,16 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 new vectorized::XXHashPartitioner<vectorized::ShuffleChannelIds>(channels.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
+        _profile->add_info_string("Partitioner",
+                                  fmt::format("XXHashPartitioner({})", _partition_count));
     } else if (p._part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channel_shared_ptrs.size();
         _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
                 channel_shared_ptrs.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
+        _profile->add_info_string("Partitioner",
+                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
     }
 
     return Status::OK();

@@ -61,7 +61,7 @@ public class BooleanLiteral extends Literal {
 
     @Override
     public String toString() {
-        return Boolean.valueOf(value).toString().toUpperCase();
+        return Boolean.toString(value).toUpperCase();
     }
 
     @Override

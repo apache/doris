@@ -19,7 +19,6 @@
 
 #include <new>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/exception.h"
@@ -218,9 +217,11 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
 void OlapBlockDataConvertor::set_source_content_with_specifid_columns(
         const vectorized::Block* block, size_t row_pos, size_t num_rows,
         std::vector<uint32_t> cids) {
-    DCHECK(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
-           block->columns() <= _convertors.size());
+    DCHECK(block != nullptr);
+    DCHECK(num_rows > 0);
+    DCHECK(row_pos + num_rows <= block->rows());
     for (auto i : cids) {
+        DCHECK(i < _convertors.size());
         _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
     }
 }

@@ -26,12 +26,10 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.scheduler.constants.JobCategory;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import lombok.Getter;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 
@@ -52,7 +50,7 @@ public class ShowJobStmt extends ShowStmt {
                     .add("ExecuteType")
                     .add("RecurringStrategy")
                     .add("Status")
-                    .add("lastExecuteTaskStatus")
+                    .add("ExecuteSql")
                     .add("CreateTime")
                     .add("Comment")
                     .build();
@@ -64,9 +62,6 @@ public class ShowJobStmt extends ShowStmt {
 
     @Getter
     private String dbFullName; // optional
-
-    @Getter
-    private JobCategory jobCategory; // optional
 
     private String jobCategoryName; // optional
 
@@ -86,11 +81,6 @@ public class ShowJobStmt extends ShowStmt {
         super.analyze(analyzer);
         checkAuth();
         checkLabelName(analyzer);
-        if (StringUtils.isBlank(jobCategoryName)) {
-            this.jobCategory = JobCategory.SQL;
-        } else {
-            this.jobCategory = JobCategory.valueOf(jobCategoryName.toUpperCase());
-        }
     }
 
     private void checkAuth() throws AnalysisException {
@@ -122,9 +112,6 @@ public class ShowJobStmt extends ShowStmt {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
         for (String title : TITLE_NAMES) {
-            if (this.jobCategory.equals(JobCategory.MTMV) && title.equals(NAME_TITLE)) {
-                builder.addColumn(new Column(MTMV_NAME_TITLE, ScalarType.createVarchar(30)));
-            }
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
