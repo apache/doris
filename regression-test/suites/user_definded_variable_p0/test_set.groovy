@@ -22,13 +22,13 @@ suite("test_set", "p0") {
             set @a=4;
         """
 
-        // 执行SQL脚本
+        // execute sql scripts
         sql sqlScript
 
-        // 检查变量赋值结果
+        // check the result of variable assignment
         def result = sql "select @a=@A as comparison_result"
 
-        // 断言变量比较结果符合预期
+        // assert that the variable comparison results are as expected
         assertTrue(result.size() == 1)
         assertTrue(result[0].size() == 1)
         assertTrue(result[0][0] == 1, "Variable comparison should be equal")
