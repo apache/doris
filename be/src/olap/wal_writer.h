@@ -56,8 +56,6 @@ private:
     static constexpr size_t MAX_WAL_WRITE_WAIT_TIME = 1000;
     std::string _file_name;
     io::FileWriterPtr _file_writer;
-    int64_t _count;
-    int64_t _batch;
     std::atomic_size_t _disk_bytes;
     std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
     doris::Mutex _mutex;
