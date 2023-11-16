@@ -59,7 +59,6 @@ public:
     Status get_one_batch(uint8_t** data, int* length);
 
 private:
-    void _init();
     Status _get_batch_size();
     static uint32_t _convert_to_length(const uint8_t* data);
     Status _get_batch_value();

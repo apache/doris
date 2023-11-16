@@ -60,7 +60,6 @@ BatchWithLengthReader::~BatchWithLengthReader() {
 }
 
 Status BatchWithLengthReader::get_one_batch(uint8_t** data, int* length) {
-    _init();
     RETURN_IF_ERROR(_get_batch_size());
     RETURN_IF_ERROR(_get_batch_value());
 
@@ -69,16 +68,11 @@ Status BatchWithLengthReader::get_one_batch(uint8_t** data, int* length) {
         *length = 0;
     } else {
         *length = _batch_size;
-    }
-    return Status::OK();
-}
-
-void BatchWithLengthReader::_init() {
-    if (_batch_size > 0) {
         _read_buf_pos += _batch_size;
         _read_buf_len -= _batch_size;
     }
     _batch_size = -1;
+    return Status::OK();
 }
 
 Status BatchWithLengthReader::_get_batch_size() {
