@@ -46,7 +46,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MTMV extends OlapTable {
     private static final Logger LOG = LogManager.getLogger(MTMV.class);
-    private ReentrantReadWriteLock mvRwLock = new ReentrantReadWriteLock(true);
+    private ReentrantReadWriteLock mvRwLock;
 
     @SerializedName("ri")
     private MTMVRefreshInfo refreshInfo;
@@ -66,6 +66,7 @@ public class MTMV extends OlapTable {
     // For deserialization
     public MTMV() {
         type = TableType.MATERIALIZED_VIEW;
+        mvRwLock = new ReentrantReadWriteLock(true);
     }
 
     MTMV(MTMVParams params) {
@@ -84,6 +85,7 @@ public class MTMV extends OlapTable {
         this.status = new MTMVStatus();
         this.jobInfo = new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + params.tableId);
         this.mvProperties = params.mvProperties;
+        mvRwLock = new ReentrantReadWriteLock(true);
     }
 
     public MTMVRefreshInfo getRefreshInfo() {
@@ -96,10 +98,10 @@ public class MTMV extends OlapTable {
 
     public MTMVStatus getStatus() {
         try {
-            readLock();
+            readMvLock();
             return status;
         } finally {
-            readUnlock();
+            readMvUnlock();
         }
     }
 
@@ -121,16 +123,16 @@ public class MTMV extends OlapTable {
 
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         try {
-            writeLock();
+            writeMvLock();
             return this.status.updateNotNull(newStatus);
         } finally {
-            writeUnlock();
+            writeMvUnlock();
         }
     }
 
     public void addTaskResult(MTMVTask task, MTMVCache cache) {
         try {
-            writeLock();
+            writeMvLock();
             if (task.getStatus() == TaskStatus.SUCCESS) {
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
@@ -142,7 +144,7 @@ public class MTMV extends OlapTable {
             }
             this.jobInfo.addHistoryTask(task);
         } finally {
-            writeUnlock();
+            writeMvUnlock();
         }
     }
 
@@ -163,19 +165,19 @@ public class MTMV extends OlapTable {
         return mvProperties;
     }
 
-    public void readLock() {
+    public void readMvLock() {
         this.mvRwLock.readLock().lock();
     }
 
-    public void readUnlock() {
+    public void readMvUnlock() {
         this.mvRwLock.readLock().unlock();
     }
 
-    public void writeLock() {
+    public void writeMvLock() {
         this.mvRwLock.writeLock().lock();
     }
 
-    public void writeUnlock() {
+    public void writeMvUnlock() {
         this.mvRwLock.writeLock().unlock();
     }
 
