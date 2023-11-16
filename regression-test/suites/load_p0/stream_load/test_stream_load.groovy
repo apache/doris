@@ -198,6 +198,8 @@ suite("test_stream_load", "p0") {
     def tableName11 = "test_map"
     def tableName12 = "test_num_as_string"
     def tableName17 = "test_trim_double_quotes"
+    def tableName18 = "test_temporary_partitions"
+
 
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
@@ -209,6 +211,7 @@ suite("test_stream_load", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName11} """
     sql """ DROP TABLE IF EXISTS ${tableName12} """
     sql """ DROP TABLE IF EXISTS ${tableName17} """
+    sql """ DROP TABLE IF EXISTS ${tableName18} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
@@ -363,6 +366,20 @@ suite("test_stream_load", "p0") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName18} (
+      `k1` int(11) NULL,
+      `k2` float NULL,
+      `k3` double NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql """ ALTER TABLE ${tableName18} ADD TEMPORARY PARTITION test; """
 
     // test num_as_string
     streamLoad {
@@ -1419,5 +1436,26 @@ suite("test_stream_load", "p0") {
             assertEquals("success", json.Status.toLowerCase())
         }
     }
+
+    // test temporary_partitions
+    streamLoad {
+        table "${tableName18}"
+
+        set 'format', 'JSON'
+        set 'strip_outer_array', 'true'
+        set 'temporary_partitions', 'test'
+        file 'num_as_string.json'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    order_qt_temporary_partitions "SELECT * FROM ${tableName18} TEMPORARY PARTITION(test) order by k1"
 }
 

@@ -2666,8 +2666,7 @@ public class StmtExecutor {
                         planner = new NereidsPlanner(statementContext);
                         planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                     } catch (Exception e) {
-                        LOG.warn("Arrow Flight SQL fall back to legacy planner, because: {}",
-                                e.getMessage(), e);
+                        LOG.warn("Fall back to legacy planner, because: {}", e.getMessage(), e);
                         parsedStmt = null;
                         planner = null;
                         context.getState().setNereids(false);
