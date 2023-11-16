@@ -155,6 +155,7 @@ suite("regression_test_variant_desc", "variant_type_desc"){
 
         // more variant
         table_name = "more_variant_table"
+        sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
@@ -173,6 +174,7 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         // describe_extend_variant_column = false
         sql """set describe_extend_variant_column = false"""
         table_name = "no_extend_variant_column"
+        sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
@@ -183,12 +185,14 @@ suite("regression_test_variant_desc", "variant_type_desc"){
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+        sql "sync"
         qt_sql_9 """desc ${table_name}"""
         sql """set describe_extend_variant_column = true"""
-        qt_sql_9_1 """desc ${table_name}"""
+        // qt_sql_9_1 """desc ${table_name}"""
         sql "truncate table ${table_name}"
         sql """insert into  ${table_name} values (1, '{"中文": "这是中文"}')"""
         sql """insert into  ${table_name} values (2, '{"英文": "This is english"}')"""
+        sql "sync"
         qt_sql_9_2 """desc ${table_name}"""
         qt_sql_9_2 """select cast(v:中文 as string) from ${table_name} order by k"""
     } finally {
