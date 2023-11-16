@@ -122,6 +122,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
@@ -518,6 +519,13 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        // when we in transaction mode, we only support insert into command and transaction command
+        if (context.isTxnModel()) {
+            if (!(logicalPlan instanceof BatchInsertIntoTableCommand)) {
+                String errMsg = "This is in a transaction, only insert, commit, rollback is acceptable.";
+                throw new NereidsException(errMsg, new AnalysisException(errMsg));
+            }
+        }
         if (logicalPlan instanceof Command) {
             if (logicalPlan instanceof Forward) {
                 redirectStatus = ((Forward) logicalPlan).toRedirectStatus();

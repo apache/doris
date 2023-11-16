@@ -103,6 +103,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
+import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
@@ -263,6 +264,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new MergeSetOperations()),
                     bottomUp(new PushProjectIntoOneRowRelation()),
                     topDown(new MergeOneRowRelationIntoUnion()),
+                    topDown(new PushProjectIntoUnion()),
                     costBased(topDown(new InferSetOperatorDistinct())),
                     topDown(new BuildAggForUnion())
             ),
