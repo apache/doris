@@ -339,7 +339,7 @@ std::string PipelineXTask::debug_string() {
                    "_wake_up_by = {}, "
                    "dry run = {}]\noperators: ",
                    (void*)this, get_state_name(_cur_state), (int)_data_state, _stack_msg,
-                   _wake_up_by ? _wake_up_by->debug_string() : "None", _dry_run);
+                   (_wake_up_by ? _wake_up_by->debug_string() : "None"), _dry_run);
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(
                 debug_string_buffer, "\n{}",

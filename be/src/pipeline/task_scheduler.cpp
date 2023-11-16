@@ -126,10 +126,6 @@ void BlockedTaskScheduler::_schedule() {
                     _make_task_run(local_blocked_tasks, iter, PipelineTaskState::PENDING_FINISH);
                 }
             } else if (task->query_context()->is_cancelled()) {
-                LOG(WARNING) << "Cancelled, query_id="
-                             << print_id(task->query_context()->query_id())
-                             << ", instance_id=" << print_id(task->instance_id())
-                             << ", task info: " << task->debug_string();
                 _make_task_run(local_blocked_tasks, iter);
             } else if (task->query_context()->is_timeout(now)) {
                 LOG(WARNING) << "Timeout, query_id=" << print_id(task->query_context()->query_id())
@@ -361,22 +357,18 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
         cancel();
         // Call `close` if `try_close` failed to make sure allocated resources are released
         static_cast<void>(task->close(exec_status));
-    } else if (!task->is_pipelineX() && !task->is_pending_finish()) {
-        status = task->close(exec_status);
-        if (!status.ok() && state != PipelineTaskState::CANCELED) {
-            cancel();
+    } else if (!task->is_pipelineX()) {
+        if (task->is_pending_finish()) {
+            task->set_state(PipelineTaskState::PENDING_FINISH);
+            static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
+            return;
         }
-    } else if (!task->is_pipelineX() && task->is_pending_finish()) {
-        task->set_state(PipelineTaskState::PENDING_FINISH);
-        static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
-        return;
     } else if (task->is_pending_finish()) {
         return;
-    } else {
-        status = task->close(exec_status);
-        if (!status.ok() && state != PipelineTaskState::CANCELED) {
-            cancel();
-        }
+    }
+    status = task->close(exec_status);
+    if (!status.ok() && state != PipelineTaskState::CANCELED) {
+        cancel();
     }
     task->set_state(state);
     task->set_close_pipeline_time();

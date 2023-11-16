@@ -378,8 +378,8 @@ protected:
     std::shared_ptr<QueryStatistics> _query_statistics;
     Status _collect_query_statistics();
     bool _collect_query_statistics_with_every_batch = false;
-    std::string _stack_msg;
-    Dependency* _wake_up_by;
+    std::string _stack_msg = "";
+    Dependency* _wake_up_by = nullptr;
 
 private:
     Operators _operators; // left is _source, right is _root
