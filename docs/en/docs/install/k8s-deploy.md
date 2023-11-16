@@ -108,13 +108,14 @@ Service created by Doris-Operator have two types, suffix is `-internal` or `-ser
 
 - In Kubernetes  
 In kubernetes, Using `CLUSTER-IP`  is recommended. For example, the fe service's `CLUSTER-IP`  is `10.152.183.37` that displayed by above command. Using below command to access fe service.
- ```shell
-mysql -h 10.152.183.37 -uroot -P9030
-```
+
+  ```shell
+  mysql -h 10.152.183.37 -uroot -P9030
+  ```
 
 - Out Kubernetes  
 Using `EXTERNAL-IP` to access fe from Kubernetes external. In default, Doris-Operator not provided `EXTERNAL-IP` mode. If you want to use `EXTERNAL-IP`, should custom resource `Service` field, reference the doc [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) to deploy.
 
-:::Tip
+:::tip
 If the doc not cover your requirements, Pleaser reference the docs [Doris-Operator](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) and the api document to custom [DorisCluster](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) resource to deploy.
 :::
