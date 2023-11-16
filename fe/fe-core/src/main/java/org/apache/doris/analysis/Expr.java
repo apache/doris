@@ -2559,7 +2559,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     private MapType getActualMapType(MapType originMapType) {
-        return new MapType(getActualType(originMapType.getKeyType()), getActualType(originMapType.getValueType()));
+        return new MapType(originMapType.getKeyType(), originMapType.getValueType());
     }
 
     private ArrayType getActualArrayType(ArrayType originArrayType) {
