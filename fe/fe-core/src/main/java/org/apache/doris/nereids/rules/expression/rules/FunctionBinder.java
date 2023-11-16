@@ -123,7 +123,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     && context.cascadesContext.getOuterScope().isPresent()
                     && !context.cascadesContext.getOuterScope().get().getCorrelatedSlots()
                             .isEmpty()) {
-                // consider sql: SELECT * FROM t1 WHERE t1.a <= (SELECT COUNT(t2.a) FROM t2 WHERE (t1.b = t2.b)); 
+                // consider sql: SELECT * FROM t1 WHERE t1.a <= (SELECT COUNT(t2.a) FROM t2 WHERE (t1.b = t2.b));
                 // when unnest correlated subquery, we create a left join node.
                 // outer query is left table and subquery is right one
                 // if there is no match, the row from right table is filled with nulls
