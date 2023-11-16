@@ -14,12 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionHash.h
-// and modified by Doris
 
-#pragma once
+package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
-#include "vec/core/types.h"
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
+import org.apache.doris.nereids.trees.plans.Plan;
 
-namespace doris::vectorized {} // namespace doris::vectorized
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * HyperGraph Node.
+ */
+public class StructInfoNode extends AbstractNode {
+    public StructInfoNode(int index, Plan plan, List<Edge> edges) {
+        super(plan, index, edges);
+    }
+
+    public StructInfoNode(int index, Plan plan) {
+        this(index, plan, new ArrayList<>());
+    }
+}

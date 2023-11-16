@@ -14,12 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionHash.h
-// and modified by Doris
 
-#pragma once
+package org.apache.doris.nereids.rules.rewrite;
 
-#include "vec/core/types.h"
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
 
-namespace doris::vectorized {} // namespace doris::vectorized
+/**
+ * SELECT * FROM lineorder ORDER BY 'f' -> SELECT * FROM lineorder
+ */
+public class EliminateSortUnderSubquery extends OneRewriteRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalSubQueryAlias(logicalSort())
+                .then(subq -> subq.withChildren(subq.child().child(0)))
+                .toRule(RuleType.ELIMINATE_ORDER_BY_CONSTANT);
+    }
+}
