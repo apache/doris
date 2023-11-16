@@ -691,6 +691,7 @@ suite("test_http_stream", "p0") {
         )
         """
 
+        // TODO Wait until http_stream function is perfected.
         streamLoad {
             set 'version', '1'
             set 'timezone', 'Test'
