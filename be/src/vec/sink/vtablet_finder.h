@@ -30,12 +30,13 @@ namespace doris::vectorized {
 
 class OlapTabletFinder {
 public:
-    // FIND_TABLET_EVERY_ROW is used for both hash and random distribution info, which indicates that we
+    // FIND_TABLET_EVERY_ROW is used for hash distribution info, which indicates that we
     // should compute tablet index for every row
-    // FIND_TABLET_EVERY_BATCH is only used for random distribution info, which indicates that we should
+    // FIND_TABLET_EVERY_BATCH is used for random distribution info, which indicates that we should
     // compute tablet index for every row batch
-    // FIND_TABLET_EVERY_SINK is only used for random distribution info, which indicates that we should
-    // only compute tablet index in the corresponding partition once for the whole time in olap table sink
+    // FIND_TABLET_EVERY_SINK is used for random distribution info when load_to_single_tablet set to true,
+    // which indicates that we should only compute tablet index in the corresponding partition once for the
+    // whole time in olap table sink
     enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
 
     OlapTabletFinder(VOlapTablePartitionParam* vpartition, FindTabletMode mode)
@@ -48,12 +49,6 @@ public:
 
     bool is_find_tablet_every_sink() {
         return _find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_SINK;
-    }
-
-    void clear_for_new_batch() {
-        if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
-            _partition_to_tablet_map.clear();
-        }
     }
 
     bool is_single_tablet() { return _partition_to_tablet_map.size() == 1; }
@@ -71,7 +66,7 @@ public:
 private:
     VOlapTablePartitionParam* _vpartition;
     FindTabletMode _find_tablet_mode;
-    std::map<int64_t, int64_t> _partition_to_tablet_map;
+    std::map<VOlapTablePartition*, int64_t> _partition_to_tablet_map;
     vectorized::flat_hash_set<int64_t> _partition_ids;
 
     int64_t _num_filtered_rows = 0;
