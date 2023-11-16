@@ -24,10 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+Doris-Operator 是按照 Kubernetes 原则构建的在 Kubernetes 平台之上管理运维 Doris 集群的管理软件，允许用户按照资源定义的方式在 Kubernetes 平台之上部署管理 Doris 服务。Doris-Operator 能够管理 Doris 的所有部署形态，能够实现 Doris 大规模形态下智能化和并行化管理。
+
 ## Kubernetes 上部署 Doris 集群
 
-<version since="dev"></version>
-Doris-Operator 是按照 Kubernetes 原则构建的在 Kubernetes 平台之上管理运维 Doris 集群的管理软件，允许用户按照资源定义的方式在 Kubernetes 平台之上部署管理 Doris 服务。Doris-Operator 能够管理 Doris 的所有部署形态，能够实现 Doris 大规模形态下智能化和并行化管理。
 ### 环境准备
 使用 Doris-Operator 部署 Doris 前提需要一个 Kubernetes (简称 K8S)集群，如果已拥有可直接跳过环境准备阶段。  
   
