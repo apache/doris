@@ -583,7 +583,8 @@ public class NativeInsertStmt extends InsertStmt {
 
         // check if size of select item equal with columns mentioned in statement
         if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT,
+                    mentionedColumns.size(), queryStmt.getResultExprs().size());
         }
 
         if (analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
