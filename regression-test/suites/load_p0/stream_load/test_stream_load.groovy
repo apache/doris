@@ -95,6 +95,34 @@ suite("test_stream_load", "p0") {
         }
     }
 
+    sql "truncate table ${tableName}"
+    sql "sync"
+
+    streamLoad {
+        table "${tableName}"
+
+        set 'column_separator', '\t'
+        set 'columns', 'k1, k2, v2, v10, v11'
+        set 'partitions', 'partition_a, partition_b, partition_c, partition_d'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.5'
+
+        file 'test_strict_mode_fail.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(1, json.NumberFilteredRows)
+        }
+    }
+    qt_sql_strict_mode_ratio "select * from ${tableName} order by k1, k2"
+
     sql "sync"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
