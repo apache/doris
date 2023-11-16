@@ -113,6 +113,27 @@ suite("test_json_load", "p0") {
         assertTrue(result1[0].size() == 1)
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
     }
+
+    def create_iterate_read_json = { testTablex ->
+                    sql """
+                        CREATE TABLE `${testTablex}` (
+                            `name` varchar(48) NULL,
+                            `age` bigint(20) NULL,
+                            `agent_id` varchar(256) NULL
+                            ) ENGINE=OLAP
+                            DUPLICATE KEY(`name`)
+                            COMMENT 'OLAP'
+                            DISTRIBUTED BY RANDOM BUCKETS 10
+                            PROPERTIES (
+                            "replication_allocation" = "tag.location.default: 1",
+                            "is_being_synced" = "false",
+                            "storage_format" = "V2",
+                            "light_schema_change" = "true",
+                            "disable_auto_compaction" = "false",
+                            "enable_single_replica_compaction" = "false"
+                            ); 
+                        """
+    }
     
     def load_json_data = {table_name, label, strip_flag, read_flag, format_flag, exprs, json_paths, 
                         json_root, where_expr, fuzzy_flag, file_name, ignore_failure=false,
@@ -654,5 +675,20 @@ suite("test_json_load", "p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+    }
+
+    // case20: iterate read json when read_json_by_line = false
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_iterate_read_json.call(testTable)
+        def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+        load_json_data.call("${testTable}", test_load_label, 'false', 'false', 'json', '', '', '', '', '', 'iterate_read_json.json')
+
+        sql "sync" 
+        qt_iterate_read_json "select * from ${testTable} order by name"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 }
