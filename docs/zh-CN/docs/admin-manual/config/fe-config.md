@@ -2046,11 +2046,17 @@ balance 时每个路径的默认 slot 数量
 
 数据大小阈值，用来判断副本的数据量是否太大
 
-#### `schedule_slot_num_per_path`
+#### `schedule_slot_num_per_hdd_path`
 
-默认值：2
+默认值：4
 
-tablet 调度程序中每个路径的默认 slot 数量
+对于hdd盘, tablet 调度程序中每个路径的默认 slot 数量
+
+#### `schedule_slot_num_per_ssd_path`
+
+默认值：8
+
+对于ssd盘, tablet 调度程序中每个路径的默认 slot 数量
 
 #### `tablet_repair_delay_factor_second`
 

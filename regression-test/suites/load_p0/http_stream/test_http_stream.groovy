@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.util.Random;
-
 suite("test_http_stream", "p0") {
 
     // csv desc
@@ -639,6 +637,81 @@ suite("test_http_stream", "p0") {
         qt_sql14 "select id, name from ${tableName14} order by id"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName14}"
+    }
+
+    // 15. test timezone
+    def tableName15 = "test_http_stream_timezone"
+
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName15} (
+            id int,
+            name CHAR(10),
+            cc int
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        streamLoad {
+            set 'version', '1'
+            set 'timezone', 'America/Los_Angeles'
+            set 'sql', """
+                    insert into ${db}.${tableName15} select c1, c2 , UNIX_TIMESTAMP('1970-01-01 08:00:00') from http_stream("format"="csv", "column_separator"="--")
+                    """
+            time 10000
+            file 'test_http_stream_column_separator.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+
+        qt_sql15 "select id, name, cc from ${tableName15} order by id"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName15}"
+    }
+
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName15} (
+            id int,
+            name CHAR(10),
+            cc int
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        // TODO Wait until http_stream function is perfected.
+        streamLoad {
+            set 'version', '1'
+            set 'timezone', 'Test'
+            set 'sql', """
+                    insert into ${db}.${tableName15} select c1, c2 , UNIX_TIMESTAMP('1970-01-01 08:00:00') from http_stream("format"="csv", "column_separator"="--")
+                    """
+            time 10000
+            file 'test_http_stream_column_separator.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+            qt_sql15_1 "select id, name, cc from ${tableName15} order by id"
+        }
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName15}"
     }
 }
 

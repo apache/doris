@@ -95,6 +95,34 @@ suite("test_stream_load", "p0") {
         }
     }
 
+    sql "truncate table ${tableName}"
+    sql "sync"
+
+    streamLoad {
+        table "${tableName}"
+
+        set 'column_separator', '\t'
+        set 'columns', 'k1, k2, v2, v10, v11'
+        set 'partitions', 'partition_a, partition_b, partition_c, partition_d'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.5'
+
+        file 'test_strict_mode_fail.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(1, json.NumberFilteredRows)
+        }
+    }
+    qt_sql_strict_mode_ratio "select * from ${tableName} order by k1, k2"
+
     sql "sync"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -198,6 +226,8 @@ suite("test_stream_load", "p0") {
     def tableName11 = "test_map"
     def tableName12 = "test_num_as_string"
     def tableName17 = "test_trim_double_quotes"
+    def tableName18 = "test_temporary_partitions"
+
 
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
@@ -209,6 +239,7 @@ suite("test_stream_load", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName11} """
     sql """ DROP TABLE IF EXISTS ${tableName12} """
     sql """ DROP TABLE IF EXISTS ${tableName17} """
+    sql """ DROP TABLE IF EXISTS ${tableName18} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
@@ -363,6 +394,20 @@ suite("test_stream_load", "p0") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName18} (
+      `k1` int(11) NULL,
+      `k2` float NULL,
+      `k3` double NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql """ ALTER TABLE ${tableName18} ADD TEMPORARY PARTITION test; """
 
     // test num_as_string
     streamLoad {
@@ -1313,9 +1358,7 @@ suite("test_stream_load", "p0") {
     streamLoad {
         table "${tableName17}"
         set 'column_separator', '|'
-        set 'trim_double_quotes' +
-                '' +
-                '', 'true'
+        set 'trim_double_quotes', 'true'
         file 'trim_double_quotes.csv'
 
         check { result, exception, startTime, endTime ->
@@ -1351,5 +1394,96 @@ suite("test_stream_load", "p0") {
     sql "sync"
     order_qt_trim_double_quotes_false "SELECT * FROM ${tableName17} order by k1"
 
+
+
+    // test send_batch_parallelism
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', 'a'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi", json.Message)
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '21474836471'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism out of range, stoi", json.Message)
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '-1'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+
+    streamLoad {
+        table "${tableName8}"
+
+        set 'send_batch_parallelism', '1'
+        set 'column_separator', '|'
+        file 'array_malformat.csv'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+
+    // test temporary_partitions
+    streamLoad {
+        table "${tableName18}"
+
+        set 'format', 'JSON'
+        set 'strip_outer_array', 'true'
+        set 'temporary_partitions', 'test'
+        file 'num_as_string.json'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    sql "sync"
+    order_qt_temporary_partitions "SELECT * FROM ${tableName18} TEMPORARY PARTITION(test) order by k1"
 }
 
