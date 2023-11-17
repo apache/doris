@@ -251,6 +251,11 @@ public:
 
     void set_parent_profile(RuntimeProfile* profile) { _parent_profile = profile; }
 
+    virtual bool is_pipelineX() const { return false; }
+
+    bool is_running() { return _running.load(); }
+    void set_running(bool running) { _running = running; }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -359,5 +364,7 @@ private:
     OperatorPtr _source;
     OperatorPtr _root;
     OperatorPtr _sink;
+
+    std::atomic<bool> _running {false};
 };
 } // namespace doris::pipeline

@@ -67,7 +67,8 @@ private:
 class ExchangeSinkQueueDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
-    ExchangeSinkQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
+    ExchangeSinkQueueDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "ResultQueueDependency") {}
     ~ExchangeSinkQueueDependency() override = default;
 
     void* shared_state() override { return nullptr; }
@@ -76,23 +77,23 @@ public:
 class BroadcastDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastDependency);
-    BroadcastDependency(int id) : WriteDependency(id, "BroadcastDependency"), _available_block(0) {}
+    BroadcastDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "BroadcastDependency"), _available_block(0) {}
     ~BroadcastDependency() override = default;
-
-    [[nodiscard]] WriteDependency* write_blocked_by() override {
-        if (config::enable_fuzzy_mode && _available_block == 0 &&
-            _should_log(_write_dependency_watcher.elapsed_time())) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _available_block > 0 ? nullptr : this;
-    }
 
     void set_available_block(int available_block) { _available_block = available_block; }
 
-    void return_available_block() { _available_block++; }
+    void return_available_block() {
+        _available_block++;
+        WriteDependency::set_ready_for_write();
+    }
 
-    void take_available_block() { _available_block--; }
+    void take_available_block() {
+        auto old_vale = _available_block.fetch_sub(1);
+        if (old_vale == 1) {
+            WriteDependency::block_writing();
+        }
+    }
 
     void* shared_state() override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
@@ -134,25 +135,11 @@ private:
 class LocalExchangeChannelDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
-    LocalExchangeChannelDependency(int id, std::shared_ptr<bool> mem_available)
-            : WriteDependency(id, "LocalExchangeChannelDependency"),
-              _mem_available(mem_available) {}
+    LocalExchangeChannelDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "LocalExchangeChannelDependency") {}
     ~LocalExchangeChannelDependency() override = default;
-
-    WriteDependency* write_blocked_by() override {
-        if (config::enable_fuzzy_mode && !_is_runnable() &&
-            _should_log(_write_dependency_watcher.elapsed_time())) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _is_runnable() ? nullptr : this;
-    }
-
     void* shared_state() override { return nullptr; }
-
-private:
-    bool _is_runnable() const { return _ready_for_write || *_mem_available; }
-    std::shared_ptr<bool> _mem_available;
+    // TODO(gabriel): blocked by memory
 };
 
 class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {

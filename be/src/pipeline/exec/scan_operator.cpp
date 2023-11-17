@@ -122,11 +122,11 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
 
-    _source_dependency = OrDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
+    _source_dependency = OrDependency::create_shared(PipelineXLocalState<>::_parent->operator_id(),
+                                                     PipelineXLocalState<>::_parent->node_id());
 
-    _open_dependency = OpenDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
-    _source_dependency->add_child(_open_dependency);
-    _eos_dependency = EosDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
+    _eos_dependency = EosDependency::create_shared(PipelineXLocalState<>::_parent->operator_id(),
+                                                   PipelineXLocalState<>::_parent->node_id());
     _source_dependency->add_child(_eos_dependency);
     auto& p = _parent->cast<typename Derived::Parent>();
     set_scan_ranges(state, info.scan_ranges);
@@ -168,7 +168,7 @@ template <typename Derived>
 Status ScanLocalState<Derived>::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    if (_open_dependency == nullptr) {
+    if (_opened) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_acquire_runtime_filter());
@@ -177,12 +177,12 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     auto status =
             _eos_dependency->read_blocked_by() == nullptr ? Status::OK() : _prepare_scanners();
     if (_scanner_ctx) {
+        _finish_dependency->should_finish_after_check();
         DCHECK(_eos_dependency->read_blocked_by() != nullptr && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
         RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
     }
-    _source_dependency->remove_first_child();
-    _open_dependency = nullptr;
+    _opened = true;
     return status;
 }
 
@@ -1181,11 +1181,10 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
                                                     p._col_distribute_ids, 1);
-    _scanner_done_dependency =
-            ScannerDoneDependency::create_shared(p.operator_id(), _scanner_ctx.get());
+    _scanner_done_dependency = ScannerDoneDependency::create_shared(p.operator_id(), p.node_id());
     _source_dependency->add_child(_scanner_done_dependency);
     _data_ready_dependency =
-            DataReadyDependency::create_shared(p.operator_id(), _scanner_ctx.get());
+            DataReadyDependency::create_shared(p.operator_id(), p.node_id(), _scanner_ctx.get());
     _source_dependency->add_child(_data_ready_dependency);
 
     _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency,

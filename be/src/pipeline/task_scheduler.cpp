@@ -34,6 +34,8 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "pipeline/pipeline_task.h"
+#include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
 #include "runtime/query_context.h"
@@ -75,6 +77,11 @@ Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
         return Status::InternalError("BlockedTaskScheduler shutdown");
     }
     std::unique_lock<std::mutex> lock(_task_mutex);
+    if (task->is_pipelineX() && !static_cast<PipelineXTask*>(task)->push_blocked_task_to_queue()) {
+        // put this task into current dependency's blocking queue and wait for event notification
+        // instead of using a separate BlockedTaskScheduler.
+        return Status::OK();
+    }
     _blocked_tasks.push_back(task);
     _task_cond.notify_one();
     return Status::OK();
@@ -222,24 +229,30 @@ void TaskScheduler::_do_work(size_t index) {
         if (!task) {
             continue;
         }
+        if (task->is_pipelineX() && task->is_running()) {
+            static_cast<void>(_task_queue->push_back(task, index));
+            continue;
+        }
+        task->set_running(true);
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
         signal::query_id_hi = fragment_ctx->get_query_id().hi;
         signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
 
-        auto check_state = task->get_state();
-        if (check_state == PipelineTaskState::PENDING_FINISH) {
-            DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();
+        auto state = task->get_state();
+        if (state == PipelineTaskState::PENDING_FINISH) {
+            DCHECK(task->is_pipelineX() || !task->is_pending_finish())
+                    << "must not pending close " << task->debug_string();
             Status exec_status = fragment_ctx->get_query_context()->exec_status();
             _try_close_task(task,
                             canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
                             exec_status);
             continue;
         }
-        DCHECK(check_state != PipelineTaskState::FINISHED &&
-               check_state != PipelineTaskState::CANCELED)
-                << "task already finish";
+
+        DCHECK(state != PipelineTaskState::FINISHED && state != PipelineTaskState::CANCELED)
+                << "task already finish: " << task->debug_string();
 
         if (canceled) {
             // may change from pending FINISH，should called cancel
@@ -253,7 +266,13 @@ void TaskScheduler::_do_work(size_t index) {
             continue;
         }
 
-        DCHECK(check_state == PipelineTaskState::RUNNABLE);
+        if (task->is_pipelineX()) {
+            task->set_state(PipelineTaskState::RUNNABLE);
+        }
+
+        DCHECK(task->is_pipelineX() || task->get_state() == PipelineTaskState::RUNNABLE)
+                << "state:" << get_state_name(task->get_state())
+                << " task: " << task->debug_string();
         // task exec
         bool eos = false;
         auto status = Status::OK();
@@ -313,6 +332,7 @@ void TaskScheduler::_do_work(size_t index) {
         }
 
         auto pipeline_state = task->get_state();
+        task->set_running(false);
         switch (pipeline_state) {
         case PipelineTaskState::BLOCKED_FOR_SOURCE:
         case PipelineTaskState::BLOCKED_FOR_SINK:
@@ -324,7 +344,8 @@ void TaskScheduler::_do_work(size_t index) {
             static_cast<void>(_task_queue->push_back(task, index));
             break;
         default:
-            DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state);
+            DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state)
+                          << " task: " << task->debug_string();
             break;
         }
     }
@@ -344,21 +365,24 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
         cancel();
         // Call `close` if `try_close` failed to make sure allocated resources are released
         static_cast<void>(task->close(exec_status));
-    } else if (!task->is_pending_finish()) {
-        status = task->close(exec_status);
-        if (!status.ok() && state != PipelineTaskState::CANCELED) {
-            cancel();
-        }
-    }
-
-    if (task->is_pending_finish()) {
+    } else if (!task->is_pipelineX() && task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
         static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
+        task->set_running(false);
         return;
+    } else if (task->is_pending_finish()) {
+        task->set_state(PipelineTaskState::PENDING_FINISH);
+        task->set_running(false);
+        return;
+    }
+    status = task->close(exec_status);
+    if (!status.ok() && state != PipelineTaskState::CANCELED) {
+        cancel();
     }
     task->set_state(state);
     task->set_close_pipeline_time();
     task->release_dependency();
+    task->set_running(false);
     task->fragment_context()->close_a_pipeline();
 }
 

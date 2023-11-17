@@ -74,51 +74,21 @@ public:
         if (_dry_run) {
             return true;
         }
-        for (auto* op_dep : _read_dependencies) {
-            auto* dep = op_dep->read_blocked_by();
-            if (dep != nullptr) {
-                dep->start_read_watcher();
-                push_blocked_task_to_dependency(dep);
-                return false;
-            }
-        }
-        return true;
+        return _read_blocked_dependency() == nullptr;
     }
 
     bool runtime_filters_are_ready_or_timeout() override {
-        auto* dep = _filter_dependency->filter_blocked_by();
-        if (dep != nullptr) {
-            push_blocked_task_to_dependency(dep);
-            return false;
-        }
-        return true;
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
+        return false;
     }
 
-    bool sink_can_write() override {
-        auto* dep = _write_dependencies->write_blocked_by();
-        if (dep != nullptr) {
-            dep->start_write_watcher();
-            push_blocked_task_to_dependency(dep);
-            return false;
-        }
-        return true;
-    }
+    bool sink_can_write() override { return _write_blocked_dependency() == nullptr; }
 
     Status finalize() override;
 
     std::string debug_string() override;
 
-    bool is_pending_finish() override {
-        for (auto* fin_dep : _finish_dependencies) {
-            auto* dep = fin_dep->finish_blocked_by();
-            if (dep != nullptr) {
-                dep->start_finish_watcher();
-                push_blocked_task_to_dependency(dep);
-                return true;
-            }
-        }
-        return false;
-    }
+    bool is_pending_finish() override { return _finish_blocked_dependency() != nullptr; }
 
     std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
 
@@ -147,9 +117,9 @@ public:
         return _upstream_dependency[id];
     }
 
-    Status extract_dependencies();
+    bool is_pipelineX() const override { return true; }
 
-    void push_blocked_task_to_dependency(Dependency* dep) {}
+    void try_wake_up(Dependency* wake_up_dep);
 
     DataSinkOperatorXPtr sink() const { return _sink; }
 
@@ -157,7 +127,60 @@ public:
 
     OperatorXs operatorXs() { return _operators; }
 
+    bool push_blocked_task_to_queue() {
+        /**
+         * Push task into blocking queue if:
+         * 1. `_use_blocking_queue` is true.
+         * 2. Or this task is blocked by FE two phase execution (BLOCKED_FOR_DEPENDENCY).
+         */
+        return _use_blocking_queue || get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
+    }
+    void set_use_blocking_queue(bool use_blocking_queue) {
+        if (_blocked_dep->is_or_dep()) {
+            _use_blocking_queue = true;
+            return;
+        }
+        _use_blocking_queue = use_blocking_queue;
+    }
+
 private:
+    Dependency* _write_blocked_dependency() {
+        _blocked_dep = _write_dependencies->write_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            set_use_blocking_queue(false);
+            static_cast<WriteDependency*>(_blocked_dep)->start_write_watcher();
+            return _blocked_dep;
+        }
+        return nullptr;
+    }
+
+    Dependency* _finish_blocked_dependency() {
+        for (auto* fin_dep : _finish_dependencies) {
+            _blocked_dep = fin_dep->finish_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                set_use_blocking_queue(false);
+                static_cast<FinishDependency*>(_blocked_dep)->start_finish_watcher();
+                return _blocked_dep;
+            }
+        }
+        return nullptr;
+    }
+
+    Dependency* _read_blocked_dependency() {
+        for (auto* op_dep : _read_dependencies) {
+            _blocked_dep = op_dep->read_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                // TODO(gabriel):
+                set_use_blocking_queue(true);
+                _blocked_dep->start_read_watcher();
+                return _blocked_dep;
+            }
+        }
+        return nullptr;
+    }
+
+    Status _extract_dependencies();
+    void _make_run();
     void set_close_pipeline_time() override {}
     void _init_profile() override;
     void _fresh_profile_counter() override;
@@ -180,6 +203,10 @@ private:
     std::shared_ptr<LocalExchangeSharedState> _local_exchange_state;
     int _task_idx;
     bool _dry_run = false;
+
+    Dependency* _blocked_dep {nullptr};
+
+    std::atomic<bool> _use_blocking_queue {true};
 };
 
 } // namespace doris::pipeline

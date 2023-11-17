@@ -173,13 +173,16 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     register_channels(_sink_buffer.get());
 
-    _exchange_sink_dependency = AndDependency::create_shared(_parent->operator_id());
-    _queue_dependency = ExchangeSinkQueueDependency::create_shared(_parent->operator_id());
+    _exchange_sink_dependency =
+            AndDependency::create_shared(_parent->operator_id(), _parent->node_id());
+    _queue_dependency =
+            ExchangeSinkQueueDependency::create_shared(_parent->operator_id(), _parent->node_id());
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     _exchange_sink_dependency->add_child(_queue_dependency);
     if ((p._part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
-        _broadcast_dependency = BroadcastDependency::create_shared(_parent->operator_id());
+        _broadcast_dependency =
+                BroadcastDependency::create_shared(_parent->operator_id(), _parent->node_id());
         _broadcast_dependency->set_available_block(config::num_broadcast_buffer);
         _broadcast_pb_blocks.reserve(config::num_broadcast_buffer);
         for (size_t i = 0; i < config::num_broadcast_buffer; i++) {
@@ -194,7 +197,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         size_t dep_id = 0;
         _local_channels_dependency.resize(local_size);
         _wait_channel_timer.resize(local_size);
-        auto deps_for_channels = AndDependency::create_shared(_parent->operator_id());
+        auto deps_for_channels =
+                AndDependency::create_shared(_parent->operator_id(), _parent->node_id());
         for (auto channel : channels) {
             if (channel->is_local()) {
                 _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
@@ -224,6 +228,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         _profile->add_info_string("Partitioner",
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     }
+
+    _finish_dependency->should_finish_after_check();
 
     return Status::OK();
 }
@@ -506,6 +512,7 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status)
             final_st = st;
         }
     }
+    local_state._sink_buffer->set_should_stop();
     return final_st;
 }
 
