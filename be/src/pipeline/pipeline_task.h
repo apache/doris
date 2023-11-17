@@ -280,6 +280,9 @@ public:
 
     void wake_up_by_queue() { _wake_up_by = nullptr; }
 
+    bool is_running() { return _running.load(); }
+    void set_running(bool running) { _running = running; }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -397,5 +400,7 @@ private:
 
     bool _blocked {false};
     std::mutex _blocked_lock;
+
+    std::atomic<bool> _running {false};
 };
 } // namespace doris::pipeline

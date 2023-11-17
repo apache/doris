@@ -232,6 +232,11 @@ void TaskScheduler::_do_work(size_t index) {
         if (!task) {
             continue;
         }
+        if (task->is_pipelineX() && task->is_running()) {
+            static_cast<void>(_task_queue->push_back(task, index));
+            continue;
+        }
+        task->set_running(true);
         DCHECK(!task->is_blocked()) << task->debug_string();
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
@@ -246,6 +251,7 @@ void TaskScheduler::_do_work(size_t index) {
             _try_close_task(task,
                             canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
                             exec_status);
+            task->set_running(false);
             continue;
         }
 
@@ -262,6 +268,7 @@ void TaskScheduler::_do_work(size_t index) {
             // fragment_ctx->send_report(true);
             Status cancel_status = fragment_ctx->get_query_context()->exec_status();
             _try_close_task(task, PipelineTaskState::CANCELED, cancel_status);
+            task->set_running(false);
             continue;
         }
 
@@ -297,6 +304,7 @@ void TaskScheduler::_do_work(size_t index) {
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.msg());
             _try_close_task(task, PipelineTaskState::CANCELED, status);
+            task->set_running(false);
             continue;
         }
         fragment_ctx->trigger_report_if_necessary();
@@ -327,10 +335,12 @@ void TaskScheduler::_do_work(size_t index) {
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
                                               task->fragment_context()->get_fragment_instance_id()),
                     get_state_name(task->get_state()));
+            task->set_running(false);
             continue;
         }
 
         auto pipeline_state = task->get_state();
+        task->set_running(false);
         switch (pipeline_state) {
         case PipelineTaskState::BLOCKED_FOR_SOURCE:
         case PipelineTaskState::BLOCKED_FOR_SINK:
