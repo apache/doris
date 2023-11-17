@@ -72,8 +72,9 @@ private:
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     io::FileReaderSPtr _file_reader;
-    uint8_t* _file_buf;
-    std::unique_ptr<doris::vectorized::BatchWithLengthReader> _arrow_batch_reader;
+    // uint8_t* _file_buf;
+    // std::unique_ptr<doris::vectorized::BatchWithLengthReader> _arrow_batch_reader;
+    std::unique_ptr<doris::vectorized::PipStream> _pip_stream;
 };
 } // namespace vectorized
 } // namespace doris

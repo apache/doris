@@ -28,6 +28,8 @@
 #include "io/fs/stream_load_pipe.h"
 #include "olap/wal_manager.h"
 #include "runtime/runtime_state.h"
+#include "arrow/result.h"
+#include "arrow/buffer.h"
 
 #define DEFAULT_READ_BUF_CAP (4 * 1024 * 1024)
 #define BATCH_SIZE_LENGTH (4)
@@ -151,6 +153,74 @@ Status BatchWithLengthReader::_get_batch_value() {
 
     RETURN_IF_ERROR(_get_data_from_reader(_batch_size));
     return Status::OK();
+}
+
+
+PipStream::PipStream(io::FileReaderSPtr file_reader) : _file_reader(file_reader), pos_(0) 
+{
+    _begin = true;
+    _read_buf = new uint8_t[4];
+    set_mode(arrow::io::FileMode::READ);
+}
+
+arrow::Status PipStream::Close() { return arrow::Status::OK(); }
+
+bool PipStream::closed() const { return false; }
+
+arrow::Result<int64_t> PipStream::Tell() const { return pos_; }
+
+arrow::Result<std::string_view> PipStream::Peek(int64_t nbytes) {
+  return arrow::Status::NotImplemented("Peek not implemented");
+}
+
+Status PipStream::HasNext(bool *get) {
+    Slice file_slice(_read_buf, 4);
+    size_t read_length = 0;
+    RETURN_IF_ERROR(_file_reader->read_at(0, file_slice, &read_length, NULL));
+    if (read_length == 0) {
+        *get = false;
+    } else {
+        *get = true;
+    }
+    return Status::OK();
+}
+
+
+arrow::Result<int64_t> PipStream::Read(int64_t nbytes, void* out) {
+//   std::cin.read(reinterpret_cast<char*>(out), nbytes);
+//   nbytes = std::cin.gcount();
+//   pos_ += nbytes;
+//   return nbytes;
+
+    uint8_t* out_ptr = (uint8_t*)out;
+    if (_begin) {
+        memmove(out_ptr, _read_buf, 4);
+        out_ptr += 4;
+        nbytes -= 4;
+    }
+
+    Slice file_slice(out_ptr, nbytes);
+    size_t read_length = 0;
+    Status status = _file_reader->read_at(0, file_slice, &read_length, NULL);
+    if (UNLIKELY(!status.ok())) {
+        return arrow::Status::IOError("Copying buffer from");
+    }
+    // pos_ += (int64_t)read_length;
+
+    if (_begin) {
+        read_length += 4;
+        _begin = false;
+    }
+    return (int64_t)read_length;
+
+}
+
+arrow::Result<std::shared_ptr<arrow::Buffer>> PipStream::Read(int64_t nbytes) {
+  ARROW_ASSIGN_OR_RAISE(auto buffer, arrow::AllocateResizableBuffer(nbytes));
+  ARROW_ASSIGN_OR_RAISE(int64_t bytes_read, Read(nbytes, buffer->mutable_data()));
+  ARROW_RETURN_NOT_OK(buffer->Resize(bytes_read, false));
+  buffer->ZeroPadding();
+  return std::move(buffer);
 }
 
 } // namespace doris::vectorized

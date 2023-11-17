@@ -48,27 +48,41 @@ ArrowReader::~ArrowReader() = default;
 Status ArrowReader::init_reader() {
     RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, false));
 
-    _arrow_batch_reader = BatchWithLengthReader::create_unique(_file_reader);
+    // _arrow_batch_reader = BatchWithLengthReader::create_unique(_file_reader);
+    _pip_stream = PipStream::create_unique(_file_reader);
 
     return Status::OK();
 }
 
 Status ArrowReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    int read_size;
-    RETURN_IF_ERROR(_arrow_batch_reader->get_one_batch(&_file_buf, &read_size));
+    // int read_size;
+    // RETURN_IF_ERROR(_arrow_batch_reader->get_one_batch(&_file_buf, &read_size));
 
-    if (read_size == 0) {
+    // if (read_size == 0) {
+    //     *read_rows = 0;
+    //     *eof = true;
+    //     return Status::OK();
+    // }
+
+    bool has_next = false;
+    RETURN_IF_ERROR(_pip_stream->HasNext(&has_next));
+    if (!has_next) {
         *read_rows = 0;
         *eof = true;
-        return Status::OK();
+        return Status::OK(); 
     }
 
-    auto buf_reader = std::make_shared<arrow::io::BufferReader>(_file_buf, (int64_t)read_size);
+    // auto buf_reader = std::make_shared<arrow::io::BufferReader>(_file_buf, (int64_t)read_size);
     std::vector<std::shared_ptr<arrow::RecordBatch>> out_batches;
     arrow::Result<std::shared_ptr<arrow::ipc::RecordBatchStreamReader>> tRet =
-            arrow::ipc::RecordBatchStreamReader::Open(buf_reader,
+            arrow::ipc::RecordBatchStreamReader::Open(_pip_stream.get(),
                                                       arrow::ipc::IpcReadOptions::Defaults());
     if (!tRet.ok()) {
+        // if (tRet.status().code() == arrow::StatusCode::Invalid) {
+        //     *read_rows = 0;
+        //     *eof = true;
+        //     return Status::OK();
+        // }
         LOG(ERROR) << "open stream reader Open failed";
         return Status::InternalError("open stream reader Open failed");
     }

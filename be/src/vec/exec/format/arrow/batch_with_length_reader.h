@@ -35,6 +35,9 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/format/generic_reader.h"
+#include "arrow/buffer.h"
+#include "arrow/io/interfaces.h"
+#include "arrow/status.h"
 
 namespace doris {
 
@@ -72,5 +75,33 @@ private:
     int _read_buf_len;
     int _batch_size;
 };
+
+class ARROW_EXPORT PipStream : public arrow::io::InputStream {
+ENABLE_FACTORY_CREATOR(PipStream);
+
+ public:
+  PipStream(io::FileReaderSPtr file_reader);
+  ~PipStream() override {}
+
+  arrow::Status Close() override;
+  bool closed() const override;
+
+  arrow::Result<std::string_view> Peek(int64_t nbytes) override;
+
+  arrow::Result<int64_t> Tell() const override;
+
+  arrow::Result<int64_t> Read(int64_t nbytes, void* out) override;
+
+  arrow::Result<std::shared_ptr<arrow::Buffer>> Read(int64_t nbytes) override;
+
+  Status HasNext(bool *get);
+
+ private:
+  io::FileReaderSPtr _file_reader;
+  int64_t pos_;
+  bool _begin;
+  uint8_t* _read_buf;
+};
+
 } // namespace vectorized
 } // namespace doris
