@@ -394,8 +394,10 @@ DorisCompoundDirectory::FSIndexOutput::~FSIndexOutput() {
             FSIndexOutput::close();
         } catch (CLuceneError& err) {
             //ignore errors...
+            writer.reset(nullptr);
             LOG(WARNING) << "FSIndexOutput deconstruct error: " << err.what();
         }
+        writer.reset(nullptr);
     }
 }
 
@@ -426,23 +428,26 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
             LOG(WARNING) << "FSIndexOutput close, BufferedIndexOutput close IO error: "
                          << err.what();
         }
+        writer.reset(nullptr);
         _CLTHROWA(err.number(), err.what());
     }
     if (writer) {
         Status ret = writer->finalize();
         if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer finalize error: " << ret.to_string();
+            writer.reset(nullptr);
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }
         ret = writer->close();
         if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer close error: " << ret.to_string();
+            writer.reset(nullptr);
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }
     } else {
         LOG(WARNING) << "File writer is nullptr, ignore finalize and close.";
     }
-    writer = nullptr;
+    writer.reset(nullptr);
 }
 
 int64_t DorisCompoundDirectory::FSIndexOutput::length() const {
