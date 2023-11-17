@@ -229,6 +229,7 @@ public:
         std::unique_lock<std::mutex> lc(_task_lock);
         if (*_blocked_by_rf) {
             if (LIKELY(task)) {
+                task->set_use_blocking_queue(false);
                 add_block_task(task);
             }
             return this;
