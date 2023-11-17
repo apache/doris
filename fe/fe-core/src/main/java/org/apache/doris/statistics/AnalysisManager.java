@@ -175,9 +175,9 @@ public class AnalysisManager implements Writable {
             }
             if (allFinished) {
                 if (hasFailure) {
-                    job.state = AnalysisState.FAILED;
+                    job.markFailed();
                 } else {
-                    job.state = AnalysisState.FINISHED;
+                    job.markFinished();
                     try {
                         updateTableStats(job);
                     } catch (Throwable e) {
@@ -224,9 +224,9 @@ public class AnalysisManager implements Writable {
                     taskMap.size() - failedCount, failedCount, 0, taskMap.size());
             if (failedCount > 0) {
                 job.message = reason.toString();
-                job.state = AnalysisState.FAILED;
+                job.markFailed();
             } else {
-                job.state = AnalysisState.FINISHED;
+                job.markFinished();
             }
             autoJobs.offer(job);
             systemJobInfoMap.remove(info.jobId);

@@ -37,7 +37,9 @@ import org.apache.doris.statistics.TableStatsMeta;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.sql.Date;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -131,6 +133,7 @@ public class ShowTableStatsStmt extends ShowStmt {
     }
 
     public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         if (tableStatistic == null) {
             return new ShowResultSet(getMetaData(), new ArrayList<>());
         }
@@ -139,7 +142,11 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(String.valueOf(tableStatistic.updatedRows));
         row.add(String.valueOf(tableStatistic.queriedTimes.get()));
         row.add(String.valueOf(tableStatistic.rowCount));
-        row.add(new Date(tableStatistic.updatedTime).toString());
+        LocalDateTime dateTime =
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
+                        java.time.ZoneId.systemDefault());
+        String formattedDateTime = dateTime.format(formatter);
+        row.add(formattedDateTime);
         row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());
         result.add(row);
