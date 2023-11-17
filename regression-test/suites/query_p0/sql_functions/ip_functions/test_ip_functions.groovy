@@ -26,4 +26,11 @@ suite("test_ip_functions") {
     qt_sql "SELECT ipv4stringtonumornull('');"
     qt_sql "SELECT ipv4stringtonumordefault('');"
     qt_sql "SELECT inet_aton('192.168.0.1');"
+
+    qt_sql "SELECT ipv6numtostring(unhex('0A000509'));"
+    qt_sql "SELECT ipv6numtostring(unhex('2A0206B8000000000000000000000011'));"
+    qt_sql "SELECT ipv6numtostring(unhex('FDFE0000000000005A55CAFFFEFA9089'));"
+    qt_sql "SELECT ipv6numtostring(unhex(''));"
+    qt_sql "SELECT inet6_ntoa(unhex('0A000509'));"
+    qt_sql "SELECT inet6_ntoa(unhex('2A0206B8000000000000000000000011'));"
 }
