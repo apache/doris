@@ -218,7 +218,7 @@ suite("test_single_replica_compaction", "p2") {
         // check rowsets
         checkCompactionResult.call()
 
-        // trigger master be to do base compaction with delete
+        // trigger master be to do base compaction
         assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
                     "base", tablet_id).contains("Success")); 
         waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
@@ -233,6 +233,9 @@ suite("test_single_replica_compaction", "p2") {
         // check rowsets
         checkCompactionResult.call()
 
+        qt_sql """
+        select * from  ${tableName} order by id
+        """
   
     } finally {
         if (has_update_be_config) {
