@@ -66,11 +66,11 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                             // remove literal partition by and order by keys
                             return windowExpression.withPartitionKeysOrderKeys(
                                     windowExpression.getPartitionKeys().stream()
-                                            .filter(expression -> !(expression instanceof Literal))
+                                            .filter(expression -> !expression.isConstant())
                                             .collect(Collectors.toList()),
                                     windowExpression.getOrderKeys().stream()
-                                            .filter(orderExpression -> !(orderExpression
-                                                    .getOrderKey().getExpr() instanceof Literal))
+                                            .filter(orderExpression -> !orderExpression
+                                                    .getOrderKey().getExpr().isConstant())
                                             .collect(Collectors.toList()));
                         }
                         return output;
