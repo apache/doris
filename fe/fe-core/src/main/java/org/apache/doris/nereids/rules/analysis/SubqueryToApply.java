@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Exists;
@@ -74,8 +75,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     LogicalFilter<Plan> filter = ctx.root;
 
                     ImmutableList<Set<SubqueryExpr>> subqueryExprsList = filter.getConjuncts().stream()
-                            .<Set<SubqueryExpr>>map(e ->
-                                    e.collect(subq -> subq instanceof SubqueryExpr && !(subq instanceof ListQuery)))
+                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryToApply::canConvertToSupply))
                             .collect(ImmutableList.toImmutableList());
                     if (subqueryExprsList.stream()
                             .flatMap(Collection::stream).noneMatch(SubqueryExpr.class::isInstance)) {
@@ -124,7 +124,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {
                 LogicalProject<Plan> project = ctx.root;
                 ImmutableList<Set<SubqueryExpr>> subqueryExprsList = project.getProjects().stream()
-                        .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
+                        .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryToApply::canConvertToSupply))
                         .collect(ImmutableList.toImmutableList());
                 if (subqueryExprsList.stream().flatMap(Collection::stream).count() == 0) {
                     return project;
@@ -193,7 +193,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     }
 
                     ImmutableList<Set<SubqueryExpr>> subqueryExprsList = subqueryConjuncts.stream()
-                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
+                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryToApply::canConvertToSupply))
                             .collect(ImmutableList.toImmutableList());
                     ImmutableList.Builder<Expression> newConjuncts = new ImmutableList.Builder<>();
                     LogicalPlan applyPlan;
@@ -237,10 +237,17 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         );
     }
 
+    private static boolean canConvertToSupply(TreeNode<Expression> expression) {
+        // The subquery except ListQuery can be converted to Supply
+        return expression instanceof SubqueryExpr && !(expression instanceof ListQuery);
+    }
+
     private static boolean isValidSubqueryConjunct(Expression expression) {
         // only support 1 subquery expr in the expression
         // don't support expression like subquery1 or subquery2
-        return expression.collectToList(SubqueryExpr.class::isInstance).size() == 1;
+        return expression
+                .collectToList(SubqueryToApply::canConvertToSupply)
+                .size() == 1;
     }
 
     private enum RelatedInfo {
@@ -266,7 +273,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         Set<Slot> rightOutputSlots = rightChild.getOutputSet();
         for (int i = 0; i < size; ++i) {
             Expression expression = subqueryConjuncts.get(i);
-            List<SubqueryExpr> subqueryExprs = expression.collectToList(SubqueryExpr.class::isInstance);
+            List<SubqueryExpr> subqueryExprs = expression.collectToList(SubqueryToApply::canConvertToSupply);
             RelatedInfo relatedInfo = RelatedInfo.UnSupported;
             if (subqueryExprs.size() == 1) {
                 SubqueryExpr subqueryExpr = subqueryExprs.get(0);
