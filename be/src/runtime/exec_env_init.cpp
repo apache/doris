@@ -65,6 +65,7 @@
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
@@ -147,6 +148,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .build(&_join_node_thread_pool);
 
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
+    _task_group_manager = new taskgroup::TaskGroupManager();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -389,6 +391,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_load_path_mgr);
     SAFE_DELETE(_pipeline_task_scheduler);
     SAFE_DELETE(_pipeline_task_group_scheduler);
+    SAFE_DELETE(_task_group_manager);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);

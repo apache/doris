@@ -105,7 +105,8 @@ public class RestBaseController extends BaseController {
         if (!Strings.isNullOrEmpty(request.getQueryString())) {
             redirectUrl += request.getQueryString();
         }
-        LOG.info("redirect url: {}", redirectUrl);
+        LOG.info("Redirect url: {}", "http://" + addr.getHostname() + ":"
+                    + addr.getPort() + urlObj.getPath());
         RedirectView redirectView = new RedirectView(redirectUrl);
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);

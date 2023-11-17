@@ -30,6 +30,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.ReplaceExpressions;
 import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -940,23 +941,32 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
         public CheckContext(LogicalOlapScan scan, long indexId) {
             this.scan = scan;
+            boolean isBaseIndex = indexId == scan.getTable().getBaseIndexId();
 
             Supplier<Map<String, Column>> supplier = () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
             // map<is_key, map<column_name, column>>
-            Map<Boolean, Map<String, Column>> baseNameToColumnGroupingByIsKey = scan.getTable()
-                    .getSchemaByIndexId(indexId).stream()
-                    .collect(Collectors.groupingBy(Column::isKey,
-                            Collectors.toMap(c -> normalizeName(parseMvColumnToSql(c.getName())), Function.identity(),
-                                    (v1, v2) -> v1, supplier)));
-            Map<Boolean, Map<String, Column>> mvNameToColumnGroupingByIsKey = scan.getTable()
-                    .getSchemaByIndexId(indexId).stream()
-                    .collect(Collectors.groupingBy(Column::isKey,
-                            Collectors.toMap(
-                                    c -> normalizeName(parseMvColumnToMvName(c.getNameWithoutMvPrefix(),
-                                            c.isAggregated() ? Optional.of(c.getAggregationType().name())
-                                                    : Optional.empty())),
-                                    Function.identity(), (v1, v2) -> v1, supplier)));
+            Map<Boolean, Map<String, Column>> baseNameToColumnGroupingByIsKey =
+                    scan.getTable().getSchemaByIndexId(indexId).stream()
+                            .collect(
+                                    Collectors.groupingBy(Column::isKey,
+                                            Collectors.toMap(
+                                                    c -> isBaseIndex ? c.getName()
+                                                            : normalizeName(parseMvColumnToSql(
+                                                                    c.getName())),
+                                                    Function.identity(), (v1, v2) -> v1,
+                                                    supplier)));
+            Map<Boolean, Map<String, Column>> mvNameToColumnGroupingByIsKey =
+                    scan.getTable().getSchemaByIndexId(indexId).stream()
+                            .collect(Collectors.groupingBy(Column::isKey,
+                                    Collectors.toMap(
+                                            c -> isBaseIndex ? c.getName()
+                                                    : normalizeName(parseMvColumnToMvName(
+                                                            c.getNameWithoutMvPrefix(),
+                                                            c.isAggregated() ? Optional.of(
+                                                                    c.getAggregationType().name())
+                                                                    : Optional.empty())),
+                                            Function.identity(), (v1, v2) -> v1, supplier)));
 
             this.keyNameToColumn = mvNameToColumnGroupingByIsKey.getOrDefault(true,
                     Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER));

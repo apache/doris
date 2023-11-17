@@ -150,7 +150,9 @@ suite("ds_rf14") {
         }
     }
     
-    // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.14"
-    // File file = new File(outFile)
-     assertEquals("RF3[i_item_sk->[ss_item_sk],RF2[d_date_sk->[ss_sold_date_sk],RF5[i_item_sk->[cs_item_sk],RF4[d_date_sk->[cs_sold_date_sk],RF7[i_item_sk->[ws_item_sk],RF6[d_date_sk->[ws_sold_date_sk],RF1[i_item_sk->[ss_item_sk],RF0[d_date_sk->[ss_sold_date_sk],RF9[i_item_sk->[cs_item_sk],RF8[d_date_sk->[cs_sold_date_sk],RF11[i_item_sk->[ws_item_sk],RF10[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
+    //def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.14"
+    //File file = new File(outFile)
+    //file.write(getRuntimeFilters(plan))
+    
+    assertEquals("RF3[i_item_sk->[ss_item_sk],RF2[d_date_sk->[ss_sold_date_sk],RF5[i_item_sk->[cs_item_sk],RF4[d_date_sk->[cs_sold_date_sk],RF7[i_item_sk->[ws_item_sk],RF6[d_date_sk->[ws_sold_date_sk],RF1[i_item_sk->[ss_item_sk],RF0[d_date_sk->[ss_sold_date_sk],RF9[i_item_sk->[cs_item_sk],RF8[d_date_sk->[cs_sold_date_sk],RF11[i_item_sk->[ws_item_sk],RF10[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
 }

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-AVG",
+    "title": "WINDOW_FUNCTION_AVG",
     "language": "en"
 }
 ---

@@ -51,11 +51,9 @@ void DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, int 
     bw.write(value.data, value.size);
 }
 
-Status DataTypeStringSerDe::deserialize_column_from_json_vector(IColumn& column,
-                                                                std::vector<Slice>& slices,
-                                                                int* num_deserialized,
-                                                                const FormatOptions& options,
-                                                                int nesting_level) const {
+Status DataTypeStringSerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
@@ -83,8 +81,7 @@ static void escape_string(const char* src, size_t& len, char escape_char) {
 }
 
 Status DataTypeStringSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options,
-                                                           int nesting_level) const {
+                                                           const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnString&>(column);
 
     /*
@@ -98,7 +95,7 @@ Status DataTypeStringSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
      * remove the double quotes to display { "abc" : 1, "hello",2 }.
      *
      */
-    if (nesting_level >= 2) {
+    if (_nesting_level >= 2) {
         slice.trim_quote();
     }
     if (options.escape_char != 0) {

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.SystemInfoService;
 
 import java.util.ArrayList;
@@ -68,7 +69,8 @@ public class StatisticConstants {
 
     public static final String DB_NAME = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
 
-    public static final String FULL_QUALIFIED_STATS_TBL_NAME = FeConstants.INTERNAL_DB_NAME + "." + STATISTIC_TBL_NAME;
+    public static final String FULL_QUALIFIED_STATS_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
+            + "." + FeConstants.INTERNAL_DB_NAME + "." + STATISTIC_TBL_NAME;
 
     public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
 
@@ -78,11 +80,19 @@ public class StatisticConstants {
 
     public static final int LOAD_RETRY_TIMES = 3;
 
-    // union more relation than 512 may cause StackOverFlowException in the future.
-    public static final int UNION_ALL_LIMIT = 512;
-
     public static final String FULL_AUTO_ANALYZE_START_TIME = "00:00:00";
     public static final String FULL_AUTO_ANALYZE_END_TIME = "23:59:59";
+
+    public static final int INSERT_MERGE_ITEM_COUNT = 200;
+
+    public static final long HUGE_TABLE_DEFAULT_SAMPLE_ROWS = 4194304;
+    public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 5L * 1024 * 1024 * 1024;
+
+    public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(12);
+
+    public static final int TABLE_STATS_HEALTH_THRESHOLD = 60;
+
+    public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
 
     static {
         SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER

@@ -24,6 +24,8 @@
 #include "http/http_handler.h"
 #include "util/threadpool.h"
 
+struct bufferevent_rate_limit_group;
+
 namespace doris {
 
 class ExecEnv;
@@ -36,8 +38,9 @@ class HttpRequest;
 // We use parameter named 'file' to specify the static resource path, it is an absolute path.
 class DownloadAction : public HttpHandler {
 public:
-    DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs,
-                   int32_t num_workers = 0);
+    DownloadAction(ExecEnv* exec_env,
+                   std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group,
+                   const std::vector<std::string>& allow_dirs, int32_t num_workers = 0);
 
     // for load error
     DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir);
@@ -67,6 +70,8 @@ private:
     std::string _error_log_root_dir;
     int32_t _num_workers;
     std::unique_ptr<ThreadPool> _download_workers;
+
+    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group {nullptr};
 }; // end class DownloadAction
 
 } // end namespace doris

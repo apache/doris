@@ -41,7 +41,6 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "util/stack_util.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -206,7 +205,7 @@ Status ExecNode::close(RuntimeState* state) {
                   << " already closed";
         return Status::OK();
     }
-    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << " closed. ";
+    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << " closed";
     _is_closed = true;
 
     Status result;
@@ -559,7 +558,14 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        DCHECK(mutable_columns.size() == _projections.size());
+
+        if (mutable_columns.size() != _projections.size()) {
+            return Status::InternalError(
+                    "Logical error during processing {}, output of projections {} mismatches with "
+                    "exec node output {}",
+                    this->get_name(), _projections.size(), mutable_columns.size());
+        }
+
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));

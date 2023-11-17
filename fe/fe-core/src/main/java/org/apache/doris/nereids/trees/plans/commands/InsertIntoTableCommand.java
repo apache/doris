@@ -136,6 +136,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             throw new DdlException("txn does not exist: " + txn.getTxnId());
         }
         state.addTableIndexes(physicalOlapTableSink.getTargetTable());
+        if (physicalOlapTableSink.isFromNativeInsertStmt() && physicalOlapTableSink.isPartialUpdate()) {
+            state.setSchemaForPartialUpdate(physicalOlapTableSink.getTargetTable());
+        }
 
         executor.setProfileType(ProfileType.LOAD);
 
