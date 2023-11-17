@@ -52,7 +52,7 @@ PROPERTIES ("key"="value", ...)
 | `driver_url `             | Yes             |               | JDBC Driver Jar                                                                                                          |
 | `driver_class `           | Yes             |               | JDBC Driver Class                                                                                                        |
 | `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                                                  |
-| `lower_case_table_names`  | No              | "false"       | Whether to synchronize jdbc external data source table names in lower case.                                              |
+| `lower_case_table_names`  | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
 | `include_database_list`   | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
 | `exclude_database_list`   | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
 
@@ -68,7 +68,7 @@ PROPERTIES ("key"="value", ...)
 
 ### Lowercase table name synchronization
 
-When `lower_case_table_names` is set to `true`, Doris is able to query non-lowercase databases and tables by maintaining a mapping of lowercase names to actual names on the remote system
+When `lower_case_table_names` is set to `true`, Doris is able to query non-lowercase databases and tables and columns by maintaining a mapping of lowercase names to actual names on the remote system
 
 **Notice:**
 
@@ -78,9 +78,9 @@ When `lower_case_table_names` is set to `true`, Doris is able to query non-lower
 
    For other databases, you still need to specify the real library name and table name when querying.
 
-2. In Doris 2.0.3 and later versions, it is valid for all databases. When querying, all library names and table names will be converted into real names and then queried. If you upgrade from an old version to 2.0. 3, `Refresh <catalog_name>` is required to take effect.
+2. In Doris 2.0.3 and later versions, it is valid for all databases. When querying, all database names and table names and columns will be converted into real names and then queried. If you upgrade from an old version to 2.0. 3, `Refresh <catalog_name>` is required to take effect.
 
-   However, if the database or table names differ only in case, such as `Doris` and `doris`, Doris cannot query them due to ambiguity.
+   However, if the database or table or column names differ only in case, such as `Doris` and `doris`, Doris cannot query them due to ambiguity.
 
 3. When the FE parameter's `lower_case_table_names` is set to `1` or `2`, the JDBC Catalog's `lower_case_table_names` parameter must be set to `true`. If the FE parameter's `lower_case_table_names` is set to `0`, the JDBC Catalog parameter can be `true` or `false` and defaults to `false`. This ensures consistency and predictability in how Doris handles internal and external table configurations.
 
@@ -113,8 +113,8 @@ In some cases, the keywords in the database might be used as the field names. Fo
 ### Predicate Pushdown
 
 1. When executing a query like `where dt = '2022-01-01'`, Doris can push down these filtering conditions to the external data source, thereby directly excluding data that does not meet the conditions at the data source level, reducing the number of unqualified Necessary data acquisition and transfer. This greatly improves query performance while also reducing the load on external data sources.
-   
-2. When `enable_func_pushdown` is set to true, the function condition after where will also be pushed down to the external data source. Currently, only MySQL is supported. If you encounter a function that MySQL does not support, you can set this parameter to false, at present, Doris will automatically identify some functions not supported by MySQL to filter the push-down conditions, which can be checked by explain sql.
+
+2. When `enable_func_pushdown` is set to true, the function conditions after where will also be pushed down to the external data source. Currently, only MySQL and ClickHouse are supported. If you encounter a function that is not supported by MySQL or ClickHouse, you can set this parameter to false. , currently Doris will automatically identify some functions not supported by MySQL and functions supported by CLickHouse for push-down condition filtering, which can be viewed through explain sql.
 
 Functions that are currently not pushed down include:
 
@@ -122,6 +122,13 @@ Functions that are currently not pushed down include:
 |:------------:|
 |  DATE_TRUNC  |
 | MONEY_FORMAT |
+
+Functions that are currently pushed down include:
+
+|  ClickHouse    |
+|:--------------:|
+| FROM_UNIXTIME  |
+| UNIX_TIMESTAMP |
 
 ### Line Limit
 
