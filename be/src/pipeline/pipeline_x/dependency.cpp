@@ -48,9 +48,6 @@ void FinishDependency::add_block_task(PipelineXTask* task) {
     DCHECK(_finish_blocked_task.empty() ||
            _finish_blocked_task[_finish_blocked_task.size() - 1] != task)
             << "Duplicate task: " << task->debug_string();
-    DCHECK(!_ready_to_finish) << "It is not allowed: task: " << task->debug_string()
-                              << " \n dependency: " << debug_string()
-                              << " \n state: " << get_state_name(task->get_state());
     task->set_blocked(true);
     _finish_blocked_task.push_back(task);
 }

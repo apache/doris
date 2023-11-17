@@ -370,6 +370,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
             return;
         }
     } else if (task->is_pending_finish()) {
+        task->set_state(PipelineTaskState::PENDING_FINISH);
         return;
     }
     status = task->close(exec_status);
