@@ -267,7 +267,7 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
             for (int i = 0; i < desc.children.size() - 1; ++i) {
                 ret += _type_to_string(desc.children[i]) + ",";
             }
-            ret += _type_to_string(desc.children[desc.children.size()-1]);
+            ret += _type_to_string(desc.children[desc.children.size() - 1]);
         }
         ret += ">";
         return ret;
