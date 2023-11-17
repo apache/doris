@@ -680,7 +680,7 @@ Connector1.1.0版本以前，是攒批写入的，写入均是由数据驱动，
 
 9. **tablet writer write failed, tablet_id=190958, txn_id=3505530, err=-235**
 
-通常发生在Connector1.1.0之前，是由于写入频率过快，导致版本过多。可以通过设置sink.batch.size 和 sink.batch.interval参数来降低Streamload的频率。
+通常发生在Connector1.1.0之前，是由于写入频率过快，导致版本过多。可以通过设置sink.buffer-size 和 sink.buffer-count参数来降低Streamload的频率。
 
 10. **Flink导入有脏数据，如何跳过？**
 
