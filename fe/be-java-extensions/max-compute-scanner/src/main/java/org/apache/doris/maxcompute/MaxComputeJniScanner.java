@@ -24,13 +24,11 @@ import org.apache.doris.common.jni.vec.ScanPredicate;
 import com.aliyun.odps.Column;
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.PartitionSpec;
-import com.aliyun.odps.TableSchema;
 import com.aliyun.odps.data.ArrowRecordReader;
 import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.tunnel.TunnelException;
 import com.aliyun.odps.type.TypeInfo;
 import com.aliyun.odps.type.TypeInfoFactory;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
@@ -40,6 +38,7 @@ import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +61,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private static final String START_OFFSET = "start_offset";
     private static final String SPLIT_SIZE = "split_size";
     private static final String PUBLIC_ACCESS = "public_access";
+    private final RootAllocator arrowAllocator = new RootAllocator(Integer.MAX_VALUE);
     private final Map<String, MaxComputeTableScan> tableScans = new ConcurrentHashMap<>();
     private final String region;
     private final String project;
@@ -72,7 +72,6 @@ public class MaxComputeJniScanner extends JniScanner {
     private MaxComputeColumnValue columnValue;
     private long remainBatchRows = 0;
     private long totalRows = 0;
-    private RootAllocator arrowAllocator;
     private ArrowRecordReader curReader;
     private List<Column> readColumns;
     private Map<String, Integer> readColumnsToId;
@@ -142,11 +141,16 @@ public class MaxComputeJniScanner extends JniScanner {
                 readColumnsToId.put(fields[i], i);
             }
         }
-    }
-
-    @VisibleForTesting
-    protected TableSchema getSchema() {
-        return curTableScan.getSchema();
+        // reorder columns
+        List<Column> columnList = curTableScan.getSchema().getColumns();
+        columnList.addAll(curTableScan.getSchema().getPartitionColumns());
+        Map<String, Integer> columnRank = new HashMap<>();
+        for (int i = 0; i < columnList.size(); i++) {
+            columnRank.put(columnList.get(i).getName(), i);
+        }
+        // Downloading columns data from Max compute only supports the order of table metadata.
+        // We might get an error message if no sort here: Column reorder is not supported in legacy arrow mode.
+        readColumns.sort((Comparator.comparing(o -> columnRank.get(o.getName()))));
     }
 
     @Override
@@ -164,8 +168,6 @@ public class MaxComputeJniScanner extends JniScanner {
             long start = startOffset == -1L ? 0 : startOffset;
             long recordCount = session.getRecordCount();
             totalRows = splitSize > 0 ? Math.min(splitSize, recordCount) : recordCount;
-
-            arrowAllocator = new RootAllocator(Long.MAX_VALUE);
             partitionColumns = session.getSchema().getPartitionColumns().stream()
                     .map(Column::getName)
                     .collect(Collectors.toSet());
@@ -254,7 +256,7 @@ public class MaxComputeJniScanner extends JniScanner {
         startOffset = -1;
         splitSize = -1;
         if (curReader != null) {
-            arrowAllocator.close();
+            arrowAllocator.releaseBytes(arrowAllocator.getAllocatedMemory());
             curReader.close();
             curReader = null;
         }
@@ -296,7 +298,9 @@ public class MaxComputeJniScanner extends JniScanner {
                         Integer readColumnId = readColumnsToId.get(partitionColumn);
                         if (readColumnId != null && partitionValue != null) {
                             MaxComputePartitionValue value = new MaxComputePartitionValue(partitionValue);
-                            appendData(readColumnId, value);
+                            for (int i = 0; i < batchRows; i++) {
+                                appendData(readColumnId, value);
+                            }
                         }
                     }
                 }
