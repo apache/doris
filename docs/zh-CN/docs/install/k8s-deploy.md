@@ -59,7 +59,8 @@ kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/maste
    - 通过如下命令部署 Doris-Operator 服务。
    ```shell
    kubectl apply -f operator.yaml
-   ```
+   ```  
+
 **3. 检查 Doris-Operator 服务部署状态**   
 Operator 服务部署后，可通过如下命令查看服务的状态。当`STATUS`为`Running`状态，且 pod 中所有容器都为`Ready`状态时服务部署成功。
 ```
