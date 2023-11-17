@@ -500,7 +500,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             long recycleTime = 0;
             try {
                 if (!stmt.isForceDrop()) {
-                    if (Env.getCurrentEnv().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
+                    if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
                         throw new DdlException(
                                 "There are still some transactions in the COMMITTED state waiting to be completed. "
                                         + "The database [" + dbName
@@ -885,7 +885,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!stmt.isForceDrop()) {
-                if (Env.getCurrentEnv().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
+                if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
                     throw new DdlException(
                             "There are still some transactions in the COMMITTED state waiting to be completed. "
                                     + "The table [" + tableName
@@ -1734,7 +1734,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!clause.isForceDrop()) {
                 partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
-                    if (Env.getCurrentEnv().getGlobalTransactionMgr()
+                    if (Env.getCurrentGlobalTransactionMgr()
                             .existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
                         throw new DdlException(
                                 "There are still some transactions in the COMMITTED state waiting to be completed."

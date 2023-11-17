@@ -218,7 +218,6 @@ import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -1445,8 +1444,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // if it has multi table, use multi table and update multi table running transaction table ids
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
-            Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
-                    .updateMultiTableRunningTransactionTableIds(request.getTxnId(), multiTableIds);
+            Env.getCurrentGlobalTransactionMgr()
+                    .updateMultiTableRunningTransactionTableIds(db.getId(), request.getTxnId(), multiTableIds);
             LOG.debug("txn {} has multi table {}", request.getTxnId(), request.getTbls());
         }
         return tables;
@@ -1553,8 +1552,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + fullDbName);
         }
 
-        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(database.getId());
         String txnOperation = request.getOperation().trim();
         if (!request.isSetTxnId()) {
             List<TransactionStatus> statusList = new ArrayList<>();
@@ -1562,13 +1559,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (txnOperation.equalsIgnoreCase("abort")) {
                 statusList.add(TransactionStatus.PREPARE);
             }
-            request.setTxnId(dbTransactionMgr.getTransactionIdByLabel(request.getLabel(), statusList));
+            request.setTxnId(Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionIdByLabel(database.getId(), request.getLabel(), statusList));
         }
-        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
-        LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionState(database.getId(), request.getTxnId());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
+        LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         List<Long> tableIdList = transactionState.getTableIdList();
         List<Table> tableList = new ArrayList<>();
         // if table was dropped, stream load must can abort.
@@ -1755,9 +1754,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 2: get tables
-        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(db.getId());
-        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionState(db.getId(), request.getTxnId());
+
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
@@ -1857,8 +1856,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
         }
         long dbId = db.getId();
-        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
-        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionState(dbId, request.getTxnId());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
@@ -1937,9 +1936,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 2: get tables
-        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(db.getId());
-        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionState(db.getId(), request.getTxnId());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
@@ -2094,9 +2092,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
                 multiTableFragmentInstanceIdIndexMap.put(request.getTxnId(), ++index);
             }
-            Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
-                    .putTransactionTableNames(request.getTxnId(),
-                            tableIds);
+            Env.getCurrentGlobalTransactionMgr()
+                    .putTransactionTableNames(db.getId(), request.getTxnId(), tableIds);
             LOG.debug("receive stream load multi table put request result: {}", result);
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
