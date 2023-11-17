@@ -166,20 +166,20 @@ public class DatabaseTransactionMgr {
 
     private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
 
-    protected void readLock() {
+    private void readLock() {
         this.transactionLock.readLock().lock();
     }
 
-    protected void readUnlock() {
+    private void readUnlock() {
         this.transactionLock.readLock().unlock();
     }
 
-    protected void writeLock() {
+    private void writeLock() {
         this.transactionLock.writeLock().lock();
         lockWriteStart = System.currentTimeMillis();
     }
 
-    protected void writeUnlock() {
+    private void writeUnlock() {
         checkAndLogWriteLockDuration(lockWriteStart, System.currentTimeMillis());
         this.transactionLock.writeLock().unlock();
     }
@@ -195,7 +195,7 @@ public class DatabaseTransactionMgr {
         return dbId;
     }
 
-    public TransactionState getTransactionState(Long transactionId) {
+    protected TransactionState getTransactionState(Long transactionId) {
         readLock();
         try {
             TransactionState transactionState = idToRunningTransactionState.get(transactionId);
@@ -223,7 +223,7 @@ public class DatabaseTransactionMgr {
         return labelToTxnIds.get(label);
     }
 
-    public int getRunningTxnNums() {
+    protected int getRunningTxnNums() {
         return runningTxnNums;
     }
 
@@ -863,7 +863,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public Long getTransactionIdByLabel(String label) {
+    protected Long getTransactionIdByLabel(String label) {
         readLock();
         try {
             Set<Long> existingTxnIds = unprotectedGetTxnIdsByLabel(label);
@@ -877,7 +877,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public Long getTransactionIdByLabel(String label, List<TransactionStatus> statusList) throws UserException {
+    protected Long getTransactionIdByLabel(String label, List<TransactionStatus> statusList) throws UserException {
         readLock();
         try {
             TransactionState findTxn = null;
@@ -905,7 +905,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public List<TransactionState> getPreCommittedTxnList() {
+    protected List<TransactionState> getPreCommittedTxnList() {
         readLock();
         try {
             // only send task to preCommitted transaction
@@ -919,7 +919,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public List<TransactionState> getCommittedTxnList() {
+    protected List<TransactionState> getCommittedTxnList() {
         readLock();
         try {
             // only send task to committed transaction
@@ -2027,7 +2027,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public void cleanLabel(String label) {
+    protected void cleanLabel(String label) {
         Set<Long> removedTxnIds = Sets.newHashSet();
         writeLock();
         try {
@@ -2120,7 +2120,7 @@ public class DatabaseTransactionMgr {
         return msgBuilder.toString();
     }
 
-    public void putTransactionTableNames(long transactionId, List<Long> tableIds) {
+    protected void putTransactionTableNames(long transactionId, List<Long> tableIds) {
         if (CollectionUtils.isEmpty(tableIds)) {
             return;
         }
@@ -2135,7 +2135,7 @@ public class DatabaseTransactionMgr {
      * Update transaction table ids by transaction id.
      * it's used for multi table transaction.
      */
-    public void updateMultiTableRunningTransactionTableIds(long transactionId, List<Long> tableIds) {
+    protected void updateMultiTableRunningTransactionTableIds(long transactionId, List<Long> tableIds) {
         if (CollectionUtils.isEmpty(tableIds)) {
             return;
         }

@@ -50,7 +50,6 @@ import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
@@ -764,10 +763,10 @@ public class LoadManager implements Writable {
 
         // 2. Remove from DatabaseTransactionMgr
         try {
-            DatabaseTransactionMgr dbTxnMgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
-            dbTxnMgr.cleanLabel(label);
+            Env.getCurrentGlobalTransactionMgr().cleanLabel(dbId, label);
         } catch (AnalysisException e) {
             // just ignore, because we don't want to throw any exception here.
+            LOG.warn("Exception:", e);
         }
 
         // 3. Log
