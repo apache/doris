@@ -33,7 +33,8 @@ suite("test_alter_table_drop_column") {
         DISTRIBUTED BY HASH(siteid) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "bloom_filter_columns" = "pv"
+            "bloom_filter_columns" = "pv",
+            "enable_unique_key_merge_on_write" = "false"
         );
     """
 
