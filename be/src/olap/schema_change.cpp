@@ -20,6 +20,7 @@
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <exception>
@@ -321,8 +322,9 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 }
             } else {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "rollup job meet invalid ref_column, new_column={}",
-                        _schema_mapping[idx].new_column->name());
+                        "rollup job meet invalid ref_column, new_column={}, reference_expr={}",
+                        _schema_mapping[idx].new_column->name(),
+                        apache::thrift::ThriftDebugString(*_schema_mapping[idx].expr));
             }
         } else {
             // same type, just swap column

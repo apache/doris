@@ -27,14 +27,14 @@ namespace doris {
 class WrapperField;
 
 struct ColumnMapping {
-    ColumnMapping() : ref_column(-1), default_value(nullptr) {}
+    ColumnMapping() = default;
     virtual ~ColumnMapping() = default;
 
     // <0: use default value
     // >=0: use origin column
-    int32_t ref_column;
+    int32_t ref_column {};
     // normally for default value. stores values for filters
-    WrapperField* default_value;
+    WrapperField* default_value {};
     std::shared_ptr<TExpr> expr;
     const TabletColumn* new_column;
 };
