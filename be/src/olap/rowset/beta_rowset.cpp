@@ -263,7 +263,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
         //     use copy? or keep refcount to avoid being delete?
         if (!local_fs->link_file(src_path, dst_path).ok()) {
             status = Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
-                                           src_path, dst_path, Errno::no());
+                                             src_path, dst_path, Errno::no());
             return status;
         }
         linked_success_files.push_back(dst_path);
@@ -289,12 +289,13 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 }
             }
             if (need_to_link) {
-                DBUG_EXECUTE_IF("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file",
-                                {
-                    status = Status::Error<OS_ERROR>("fault_inject link_file error from={}, to={}",
-                             inverted_index_src_file_path, inverted_index_dst_file_path);
-                    return status;
-                });
+                DBUG_EXECUTE_IF(
+                        "fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
+                            status = Status::Error<OS_ERROR>(
+                                    "fault_inject link_file error from={}, to={}",
+                                    inverted_index_src_file_path, inverted_index_dst_file_path);
+                            return status;
+                        });
                 if (!local_fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
                              .ok()) {
                     status = Status::Error<OS_ERROR>(
