@@ -240,7 +240,8 @@ void TaskScheduler::_do_work(size_t index) {
         bool canceled = fragment_ctx->is_canceled();
 
         if (task->pending_finish()) {
-            DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();
+            DCHECK(task->is_pipelineX() || !task->is_pending_finish())
+                    << "must not pending close " << task->debug_string();
             Status exec_status = fragment_ctx->get_query_context()->exec_status();
             _try_close_task(task,
                             canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
