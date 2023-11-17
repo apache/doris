@@ -79,12 +79,6 @@ enum class PipelineTaskState : uint8_t {
     BLOCKED_FOR_RF = 8,
 };
 
-// For pipelineX engine, we try to eliminate the impact of blocking queues.
-inline bool avoid_using_blocked_queue(PipelineTaskState state) {
-    return state == PipelineTaskState::BLOCKED_FOR_SINK ||
-           state == PipelineTaskState::BLOCKED_FOR_RF || state == PipelineTaskState::PENDING_FINISH;
-}
-
 inline const char* get_state_name(PipelineTaskState idx) {
     switch (idx) {
     case PipelineTaskState::NOT_READY:
