@@ -177,23 +177,26 @@ public class LoadAction extends RestBaseController {
     }
 
     private String[] parseDbAndTb(String sql) throws Exception {
-        String[] array1 = sql.split("select");
-        if (array1.length != 2) {
-            throw new Exception("parse db and tb with wrong sql:" + sql);
-        }
-        String[] array2 = array1[0].trim().split("insert into");
-        if (array2.length != 2) {
-            throw new Exception("parse db and tb with wrong sql:" + sql);
-        }
-        String pairStr;
-        if (array2[1].trim().contains("(")) {
-            String[] array3 = array2[1].trim().split("\\(");
-            if (array3.length != 2) {
-                throw new Exception("parse db and tb with wrong sql:" + sql);
+        String[] array = sql.split(" ");
+        String tmp = null;
+        int count = 0;
+        for (String s : array) {
+            if (!s.equals("")) {
+                count++;
+                if (count == 3) {
+                    tmp = s;
+                    break;
+                }
             }
-            pairStr = array3[0].trim();
+        }
+        if (tmp == null) {
+            throw new Exception("parse db and tb with wrong sql:" + sql);
+        }
+        String pairStr = null;
+        if (tmp.contains("(")) {
+            pairStr = tmp.split("\\(")[0];
         } else {
-            pairStr = array2[1].trim();
+            pairStr = tmp;
         }
         String[] pair = pairStr.split("\\.");
         if (pair.length != 2) {
