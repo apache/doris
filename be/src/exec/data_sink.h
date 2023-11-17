@@ -126,6 +126,16 @@ protected:
 
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
+
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _output_rows_counter = nullptr;
+
+    void init_sink_common_profile() {
+        _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
+        _output_rows_counter = ADD_COUNTER_WITH_LEVEL(_profile, "OutputRows", TUnit::UNIT, 1);
+        _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "OutputBlockCount", TUnit::UNIT, 1);
+    }
 };
 
 } // namespace doris

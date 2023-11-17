@@ -1447,7 +1447,7 @@ public class StmtExecutor {
             }
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-            profile.addExecutionProfile(coord.getExecutionProfile());
+            profile.setExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
 
@@ -1949,7 +1949,7 @@ public class StmtExecutor {
                 coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
-                profile.addExecutionProfile(coord.getExecutionProfile());
+                profile.setExecutionProfile(coord.getExecutionProfile());
 
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
@@ -2710,7 +2710,7 @@ public class StmtExecutor {
             }
             RowBatch batch;
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-            profile.addExecutionProfile(coord.getExecutionProfile());
+            profile.setExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
