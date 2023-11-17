@@ -74,7 +74,8 @@ public:
     // called when producer/consumer failed
     virtual void cancel(const std::string& reason) override;
 
-    Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
+    Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length,
+                            size_t* total_length = 0);
 
     FileSystemSPtr fs() const override { return nullptr; }
 

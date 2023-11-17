@@ -945,7 +945,8 @@ std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
     return std::string(buffer.GetString());
 }
 
-Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size) {
+Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size,
+                                        size_t* total_length) {
     switch (_params.file_type) {
     case TFileType::FILE_LOCAL:
         [[fallthrough]];
@@ -961,7 +962,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
     }
     case TFileType::FILE_STREAM: {
         RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
-                                ->read_one_message(file_buf, read_size));
+                                ->read_one_message(file_buf, read_size, total_length));
         break;
     }
     default: {
@@ -1467,7 +1468,7 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof, _io_ctx));
     } else {
         size_t length = 0;
-        RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &length));
+        RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &length, &_total_buffer_length));
         json_str = json_str_ptr.get();
         *size = length;
         if (length == 0) {
@@ -1476,7 +1477,7 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
             _length = length;
         }
 
-        if (_is_json_stream_iterator_init == true) {
+        if (_is_json_stream_iterator_init == true && _total_buffer_length == 0) {
             ++_json_stream_iterator;
             if (_json_stream_iterator != _json_stream.end()) {
                 *eof = false;
@@ -1508,7 +1509,7 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
     memcpy(&_simdjson_ondemand_padding_buffer.front(), json_str, *size);
     _original_doc_size = *size;
     simdjson::error_code error = simdjson::error_code::SUCCESS;
-    if (_line_reader != nullptr || _strip_outer_array) {
+    if (_line_reader != nullptr || _strip_outer_array || _total_buffer_length == -1) {
         error = _ondemand_json_parser
                         ->iterate(std::string_view(_simdjson_ondemand_padding_buffer.data(), *size),
                                   _padded_size)
