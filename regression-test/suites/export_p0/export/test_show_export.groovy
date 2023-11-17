@@ -169,7 +169,7 @@ suite("test_show_export", "p0") {
     def show_export_res1 = sql_return_maparray "show export;"
     assertEquals(2, show_export_res1.size())
 
-    // test show proc
+    // test: show proc
     def show_proc_jobs = sql_return_maparray """show proc "/jobs";"""
     def dbId = ""
     for (def row : show_proc_jobs) {
@@ -178,6 +178,16 @@ suite("test_show_export", "p0") {
             break
         }
     }
+    // test: show proc "/jobs/${dbId}""
+    def show_proc_jobs_DB = sql_return_maparray """show proc "/jobs/${dbId}";"""
+    for (def row : show_proc_jobs) {
+        if (row.JobType == "export") {
+            assertEquals(2, row.Finished)
+            assertEquals(2, row.Total)
+            break
+        }
+    }
+    // test: show proc "/jobs/${dbId}/export"
     def show_proc_jobs_dbid = sql_return_maparray """show proc "/jobs/${dbId}/export";"""
     assertEquals(2, show_proc_jobs_dbid.size())
 
