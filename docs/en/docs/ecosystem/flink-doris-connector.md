@@ -677,7 +677,7 @@ Before Connector1.1.0, it was written in batches, and the writing was driven by 
 
 9. **tablet writer write failed, tablet_id=190958, txn_id=3505530, err=-235**
 
-It usually occurs before Connector1.1.0, because the writing frequency is too fast, resulting in too many versions. The frequency of Streamload can be reduced by setting the sink.batch.size and sink.batch.interval parameters.
+It usually occurs before Connector1.1.0, because the writing frequency is too fast, resulting in too many versions. The frequency of Streamload can be reduced by setting the sink.buffer-size and sink.buffer-count parameters.
 
 10. **Flink imports dirty data, how to skip it? **
 
