@@ -2894,7 +2894,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             ctx.setCluster(cluster);
             ctx.setQualifiedUser(request.getUser());
-            UserIdentity currentUserIdentity = new UserIdentity(request.getUser(), "%");
+            String fullUserName = ClusterNamespace.getFullName(cluster, request.getUser());
+            UserIdentity currentUserIdentity = new UserIdentity(fullUserName, "%");
             currentUserIdentity.setIsAnalyzed();
             ctx.setCurrentUserIdentity(currentUserIdentity);
 
@@ -2902,7 +2903,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             restoreStmt.analyze(analyzer);
             DdlExecutor.execute(Env.getCurrentEnv(), restoreStmt);
         } catch (UserException e) {
-            LOG.warn("failed to get snapshot info: {}", e.getMessage());
+            LOG.warn("failed to restore: {}", e.getMessage(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
