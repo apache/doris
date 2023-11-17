@@ -79,6 +79,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
+#include "olap/wal_manager.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/define_primitive_type.h"
@@ -1848,5 +1849,20 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
         return;
     }
 };
+
+void PInternalServiceImpl::get_wal_queue_size(google::protobuf::RpcController* controller,
+                                              const PGetWalQueueSizeRequest* request,
+                                              PGetWalQueueSizeResponse* response,
+                                              google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = Status::OK();
+        st = _exec_env->wal_mgr()->get_wal_status_queue_size(request, response);
+        response->mutable_status()->set_status_code(st.code());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+    }
+}
 
 } // namespace doris

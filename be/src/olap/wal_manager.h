@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/PaloInternalService_types.h>
+
 #include <memory>
 
 #include "common/config.h"
@@ -33,6 +35,13 @@ class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
 
 public:
+    enum WAL_STATUS {
+        PREPARE = 0,
+        REPLAY,
+        CREATE,
+    };
+
+public:
     WalManager(ExecEnv* exec_env, const std::string& wal_dir);
     ~WalManager();
     Status delete_wal(int64_t wal_id);
@@ -47,7 +56,19 @@ public:
                            std::vector<std::string> wals);
     Status add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id, const std::string& label);
     Status get_wal_path(int64_t wal_id, std::string& wal_path);
+    Status get_wal_status_queue_size(const PGetWalQueueSizeRequest* request,
+                                     PGetWalQueueSizeResponse* response);
+    Status get_all_wal_status_queue_size(const PGetWalQueueSizeRequest* request,
+                                         PGetWalQueueSizeResponse* response);
+    void add_wal_status_queue(int64_t table_id, int64_t wal_id, WAL_STATUS wal_status);
+    Status erase_wal_status_queue(int64_t table_id, int64_t wal_id);
+    void print_wal_status_queue();
     void stop();
+    bool is_running();
+    void stop_relay_wal();
+    void add_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
+    void erase_wal_column_index(int64_t wal_id);
+    Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
 
 private:
     ExecEnv* _exec_env;
@@ -57,9 +78,12 @@ private:
     std::map<std::string, std::shared_ptr<WalTable>> _table_map;
     std::vector<std::string> _wal_dirs;
     std::shared_mutex _wal_lock;
+    std::shared_mutex _wal_status_lock;
     std::unordered_map<int64_t, std::string> _wal_path_map;
     std::unordered_map<int64_t, std::shared_ptr<WalWriter>> _wal_id_to_writer_map;
     std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
-    bool _stop = false;
+    std::unordered_map<int64_t, std::unordered_map<int64_t, WAL_STATUS>> _wal_status_queues;
+    std::atomic<bool> _stop;
+    std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
 };
 } // namespace doris

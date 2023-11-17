@@ -257,8 +257,14 @@ Status GroupCommitTable::_create_group_commit_load(
         _need_plan_fragment = false;
         _cv.notify_all();
     }
-    st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,
-                             pipeline_params);
+    if (_exec_env->wal_mgr()->is_running()) {
+        _exec_env->wal_mgr()->add_wal_status_queue(_table_id, txn_id,
+                                                   WalManager::WAL_STATUS::PREPARE);
+        st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,
+                                 pipeline_params);
+    } else {
+        st = Status::InternalError("be is stopping");
+    }
     if (!st.ok()) {
         static_cast<void>(_finish_group_commit_load(_db_id, _table_id, label, txn_id, instance_id,
                                                     st, true, nullptr));
@@ -336,6 +342,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
             RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(
                     std::to_string(db_id), std::to_string(table_id),
                     std::vector<std::string> {wal_path}));
+            _exec_env->wal_mgr()->add_wal_status_queue(table_id, txn_id,
+                                                       WalManager::WAL_STATUS::REPLAY);
         }
         return st;
     }
@@ -347,8 +355,11 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(std::to_string(db_id),
                                                               std::to_string(table_id),
                                                               std::vector<std::string> {wal_path}));
+        _exec_env->wal_mgr()->add_wal_status_queue(table_id, txn_id,
+                                                   WalManager::WAL_STATUS::REPLAY);
     } else {
         RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(txn_id));
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
     }
     std::stringstream ss;
     ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label

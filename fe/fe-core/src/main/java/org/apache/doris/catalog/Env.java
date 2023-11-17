@@ -155,6 +155,7 @@ import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
+import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
@@ -333,6 +334,7 @@ public class Env {
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
     private RoutineLoadManager routineLoadManager;
+    private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
     private SyncJobManager syncJobManager;
@@ -603,6 +605,7 @@ public class Env {
         this.catalogMgr = new CatalogMgr();
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
+        this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
         this.syncJobManager = new SyncJobManager();
@@ -3776,6 +3779,10 @@ public class Env {
 
     public RoutineLoadManager getRoutineLoadManager() {
         return routineLoadManager;
+    }
+
+    public GroupCommitManager getGroupCommitManager() {
+        return groupCommitManager;
     }
 
     public SqlBlockRuleMgr getSqlBlockRuleMgr() {

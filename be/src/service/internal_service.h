@@ -205,6 +205,11 @@ public:
                              PGroupCommitInsertResponse* response,
                              google::protobuf::Closure* done) override;
 
+    void get_wal_queue_size(google::protobuf::RpcController* controller,
+                            const PGetWalQueueSizeRequest* request,
+                            PGetWalQueueSizeResponse* response,
+                            google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,

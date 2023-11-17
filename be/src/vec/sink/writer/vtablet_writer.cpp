@@ -931,11 +931,6 @@ void VNodeChannel::mark_close() {
 VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
         : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
-    DCHECK(t_sink.__isset.olap_table_sink);
-    auto& table_sink = t_sink.olap_table_sink;
-    _db_id = table_sink.db_id;
-    _tb_id = table_sink.table_id;
-    _wal_id = table_sink.txn_id;
 }
 
 Status VTabletWriter::init_properties(doris::ObjectPool* pool, bool group_commit) {
@@ -1222,9 +1217,9 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     if (_group_commit) {
-        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_path(_db_id, _tb_id, _wal_id,
-                                                                    _state->import_label()));
-        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->create_wal_writer(_wal_id, _wal_writer));
+        _v_wal_writer = std::make_shared<VWalWriter>(table_sink.db_id, table_sink.table_id,
+                                                     table_sink.txn_id, _state, _output_tuple_desc);
+        RETURN_IF_ERROR(_v_wal_writer->init());
     }
 
     RETURN_IF_ERROR(_init_row_distribution());
@@ -1523,8 +1518,8 @@ Status VTabletWriter::close(Status exec_status) {
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->clear_all_blocks(); });
     }
 
-    if (_wal_writer != nullptr) {
-        static_cast<void>(_wal_writer->finalize());
+    if (_v_wal_writer != nullptr) {
+        RETURN_IF_ERROR(_v_wal_writer->close());
     }
     return _close_status;
 }
@@ -1624,9 +1619,10 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         }
     }
 
-    if (_group_commit) {
-        _group_commit_block(&input_block, block->rows(), filtered_rows, _state, block.get(),
-                            _block_convertor.get(), _tablet_finder.get());
+    if (_v_wal_writer != nullptr) {
+        RETURN_IF_ERROR(_v_wal_writer->append_block(&input_block, block->rows(), filtered_rows,
+                                                    block.get(), _block_convertor.get(),
+                                                    _tablet_finder.get()));
     }
     // TODO: Before load, we need to projection unuseful column
     // auto slots = _schema->tuple_desc()->slots();
@@ -1655,50 +1651,6 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     g_sink_write_bytes << bytes;
     g_sink_write_rows << rows;
     return Status::OK();
-}
-
-Status VTabletWriter::write_wal(OlapTableBlockConvertor* block_convertor,
-                                OlapTabletFinder* tablet_finder, vectorized::Block* block,
-                                RuntimeState* state, int64_t num_rows, int64_t filtered_rows) {
-    PBlock pblock;
-    size_t uncompressed_bytes = 0, compressed_bytes = 0;
-    if (filtered_rows == 0) {
-        RETURN_IF_ERROR(block->serialize(state->be_exec_version(), &pblock, &uncompressed_bytes,
-                                         &compressed_bytes, segment_v2::CompressionTypePB::SNAPPY));
-        RETURN_IF_ERROR(_wal_writer->append_blocks(std::vector<PBlock*> {&pblock}));
-    } else {
-        auto cloneBlock = block->clone_without_columns();
-        auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
-        for (int i = 0; i < num_rows; ++i) {
-            if (block_convertor->num_filtered_rows() > 0 && block_convertor->filter_map()[i]) {
-                continue;
-            }
-            if (tablet_finder->num_filtered_rows() > 0 && tablet_finder->filter_bitmap().Get(i)) {
-                continue;
-            }
-            res_block.add_row(block, i);
-        }
-        RETURN_IF_ERROR(res_block.to_block().serialize(state->be_exec_version(), &pblock,
-                                                       &uncompressed_bytes, &compressed_bytes,
-                                                       segment_v2::CompressionTypePB::SNAPPY));
-        RETURN_IF_ERROR(_wal_writer->append_blocks(std::vector<PBlock*> {&pblock}));
-    }
-    return Status::OK();
-}
-
-void VTabletWriter::_group_commit_block(vectorized::Block* input_block, int64_t num_rows,
-                                        int64_t filter_rows, RuntimeState* state,
-                                        vectorized::Block* block,
-                                        OlapTableBlockConvertor* block_convertor,
-                                        OlapTabletFinder* tablet_finder) {
-    static_cast<void>(
-            write_wal(block_convertor, tablet_finder, block, state, num_rows, filter_rows));
-#ifndef BE_TEST
-    auto* future_block = assert_cast<FutureBlock*>(input_block);
-    std::unique_lock<doris::Mutex> l(*(future_block->lock));
-    future_block->set_result(Status::OK(), num_rows, num_rows - filter_rows);
-    future_block->cv->notify_all();
-#endif
 }
 
 } // namespace vectorized
