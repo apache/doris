@@ -27,7 +27,7 @@ suite("test_http_stream_properties", "p0") {
                   "mow_tbl_array",
                  ]
 
-    def columns = [ 
+    def columns = [
                     "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19",
                     "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19",
                     "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19",
@@ -37,7 +37,7 @@ suite("test_http_stream_properties", "p0") {
                     "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18",
                   ]
 
-    def target_columns = [ 
+    def target_columns = [
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -154,7 +154,7 @@ suite("test_http_stream_properties", "p0") {
         for (String tableName in tables) {
             sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
             sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_create.sql""").text
-            
+
             def tableNm = "stream_load_" + tableName
 
             streamLoad {
@@ -184,7 +184,7 @@ suite("test_http_stream_properties", "p0") {
             sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
         }
     }
-    
+
     // TODO timezone
 
     // TODO strict_mode
@@ -259,7 +259,7 @@ suite("test_http_stream_properties", "p0") {
                             assertEquals(0, json.NumberUnselectedRows)
                         }
                     }
-                } 
+                }
             }
             i++
         }
@@ -374,6 +374,39 @@ suite("test_http_stream_properties", "p0") {
                     // assertEquals(0, json.NumberLoadedRows)
                     // assertEquals(1, json.NumberFilteredRows)
                     // assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            i++
+        }
+    } finally {
+        for (String table in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${table}_drop.sql""").text
+        }
+    }
+
+    // invalid_file_format
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_create.sql""").text
+            def tableNm = "stream_load_" + tableName
+            streamLoad {
+                set 'version', '1'
+                set 'sql', """
+                        insert into ${db}.${tableNm}(${target_columns[i]}) select ${columns[i]} from http_stream("format"="TXT", "column_separator"=",", "line_delimiter"=",")
+                        """
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("fail", json.Status.toLowerCase())
+                    assert json.Message.contains("format:txt is not supported.")
                 }
             }
             i++
