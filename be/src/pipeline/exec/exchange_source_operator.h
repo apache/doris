@@ -71,7 +71,7 @@ public:
         if (_always_done) {
             return;
         }
-        _ready_for_read = false;
+        Dependency::block_reading();
     }
 
 private:

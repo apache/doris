@@ -81,7 +81,10 @@ public:
     virtual void set_ready_for_read();
 
     // Notify downstream pipeline tasks this dependency is blocked.
-    virtual void block_reading() { _ready_for_read = false; }
+    virtual void block_reading() {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        _ready_for_read = false;
+    }
 
     void set_parent(std::weak_ptr<Dependency> parent) { _parent = parent; }
 
@@ -147,7 +150,10 @@ public:
 
     virtual void set_ready_for_write();
 
-    virtual void block_writing() { _ready_for_write = false; }
+    virtual void block_writing() {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        _ready_for_write = false;
+    }
 
     std::string debug_string(int indentation_level = 0) override;
     void add_write_block_task(PipelineXTask* task);
@@ -404,19 +410,21 @@ public:
         if (_is_streaming_agg_state()) {
             if (_agg_state.data_queue->_cur_blocks_nums_in_queue[0] == 0 &&
                 !_agg_state.data_queue->_is_finished[0]) {
-                _ready_for_read = false;
+                Dependency::block_reading();
             }
         } else {
-            _ready_for_read = false;
+            Dependency::block_reading();
         }
     }
 
     void block_writing() override {
         if (_is_streaming_agg_state()) {
             if (!_agg_state.data_queue->has_enough_space_to_push()) {
+                std::unique_lock<std::mutex> lc(_task_lock);
                 _ready_for_write = false;
             }
         } else {
+            std::unique_lock<std::mutex> lc(_task_lock);
             _ready_for_write = false;
         }
     }
@@ -719,7 +727,7 @@ public:
         if (_eos) {
             return;
         }
-        _ready_for_read = false;
+        Dependency::block_reading();
     }
 
     void set_eos() {
