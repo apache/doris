@@ -38,7 +38,7 @@
 
 namespace doris {
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
-        : _exec_env(exec_env), _stop_background_threads_latch(1) {
+        : _exec_env(exec_env), _stop_background_threads_latch(1), _stop(false) {
     doris::vectorized::WalReader::string_split(wal_dir_list, ",", _wal_dirs);
     _all_wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
 }
@@ -48,12 +48,15 @@ WalManager::~WalManager() {
 }
 
 void WalManager::stop() {
-    _stop = true;
-    _stop_background_threads_latch.count_down();
-    if (_replay_thread) {
-        _replay_thread->join();
+    if (!this->_stop.load()) {
+        this->_stop.store(true);
+        stop_relay_wal();
+        _stop_background_threads_latch.count_down();
+        if (_replay_thread) {
+            _replay_thread->join();
+        }
+        LOG(INFO) << "WalManager is stopped";
     }
-    LOG(INFO) << "WalManager is stopped";
 }
 
 Status WalManager::init() {
@@ -74,6 +77,78 @@ Status WalManager::init() {
     return Thread::create(
             "WalMgr", "replay_wal", [this]() { static_cast<void>(this->replay()); },
             &_replay_thread);
+}
+
+void WalManager::add_wal_status_queue(int64_t table_id, int64_t wal_id, WAL_STATUS wal_status) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_status_lock);
+    LOG(INFO) << "add wal queue "
+              << ",table_id:" << table_id << ",wal_id:" << wal_id << ",status:" << wal_status;
+    auto it = _wal_status_queues.find(table_id);
+    if (it == _wal_status_queues.end()) {
+        std::unordered_map<int64_t, WAL_STATUS> tmp;
+        tmp.emplace(wal_id, wal_status);
+        _wal_status_queues.emplace(table_id, tmp);
+    } else {
+        it->second.emplace(wal_id, wal_status);
+    }
+}
+
+Status WalManager::erase_wal_status_queue(int64_t table_id, int64_t wal_id) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_status_lock);
+    auto it = _wal_status_queues.find(table_id);
+    LOG(INFO) << "remove wal queue "
+              << ",table_id:" << table_id << ",wal_id:" << wal_id;
+    if (it == _wal_status_queues.end()) {
+        return Status::InternalError("table_id " + std::to_string(table_id) +
+                                     " not found in wal status queue");
+    } else {
+        it->second.erase(wal_id);
+        if (it->second.empty()) {
+            _wal_status_queues.erase(table_id);
+        }
+    }
+    return Status::OK();
+}
+
+Status WalManager::get_wal_status_queue_size(const PGetWalQueueSizeRequest* request,
+                                             PGetWalQueueSizeResponse* response) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_status_lock);
+    size_t count = 0;
+    auto table_id = request->table_id();
+    auto txn_id = request->txn_id();
+    if (table_id > 0 && txn_id > 0) {
+        auto it = _wal_status_queues.find(table_id);
+        if (it == _wal_status_queues.end()) {
+            LOG(INFO) << ("table_id " + std::to_string(table_id) +
+                          " not found in wal status queue");
+        } else {
+            for (auto wal_it = it->second.begin(); wal_it != it->second.end(); ++wal_it) {
+                if (wal_it->first <= txn_id) {
+                    count += 1;
+                }
+            }
+        }
+    } else {
+        for (auto it = _wal_status_queues.begin(); it != _wal_status_queues.end(); it++) {
+            count += it->second.size();
+        }
+    }
+    response->set_size(count);
+    if (count > 0) {
+        print_wal_status_queue();
+    }
+    return Status::OK();
+}
+
+void WalManager::print_wal_status_queue() {
+    std::stringstream ss;
+    for (auto it = _wal_status_queues.begin(); it != _wal_status_queues.end(); ++it) {
+        ss << "table_id:" << it->first << std::endl;
+        for (auto wal_it = it->second.begin(); wal_it != it->second.end(); ++wal_it) {
+            ss << "wal_id:" << wal_it->first << ",status:" << wal_it->second << std::endl;
+        }
+    }
+    LOG(INFO) << ss.str();
 }
 
 Status WalManager::add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
@@ -132,7 +207,6 @@ Status WalManager::create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>&
     }
     return Status::OK();
 }
-
 Status WalManager::scan_wals(const std::string& wal_path) {
     size_t count = 0;
     bool exists = true;
@@ -174,8 +248,16 @@ Status WalManager::scan_wals(const std::string& wal_path) {
                 res.emplace_back(wal_file);
                 {
                     std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
-                    int64_t wal_id = std::strtoll(wal.file_name.c_str(), NULL, 10);
-                    _wal_path_map.emplace(wal_id, wal_file);
+                    auto pos = wal.file_name.find("_");
+                    try {
+                        int64_t wal_id =
+                                std::strtoll(wal.file_name.substr(0, pos).c_str(), NULL, 10);
+                        _wal_path_map.emplace(wal_id, wal_file);
+                        int64_t tb_id = std::strtoll(table_id.file_name.c_str(), NULL, 10);
+                        add_wal_status_queue(tb_id, wal_id, WalManager::WAL_STATUS::REPLAY);
+                    } catch (const std::invalid_argument& e) {
+                        return Status::InvalidArgument("Invalid format, {}", e.what());
+                    }
                 }
             }
             st = add_recover_wal(db_id.file_name, table_id.file_name, res);
@@ -193,11 +275,12 @@ Status WalManager::scan_wals(const std::string& wal_path) {
 
 Status WalManager::replay() {
     do {
-        if (_stop || _exec_env->master_info() == nullptr) {
+        if (_stop.load()) {
             break;
         }
         // port == 0 means not received heartbeat yet
-        if (_exec_env->master_info()->network_address.port == 0) {
+        if (_exec_env->master_info() != nullptr &&
+            _exec_env->master_info()->network_address.port == 0) {
             continue;
         }
         std::vector<std::string> replay_tables;
@@ -272,6 +355,39 @@ Status WalManager::delete_wal(int64_t wal_id) {
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));
         LOG(INFO) << "delete file=" << wal_path;
         _wal_path_map.erase(wal_id);
+    }
+    return Status::OK();
+}
+
+bool WalManager::is_running() {
+    return !_stop.load();
+}
+
+void WalManager::stop_relay_wal() {
+    std::lock_guard<std::shared_mutex> wrlock(_lock);
+    for (auto it = _table_map.begin(); it != _table_map.end(); it++) {
+        it->second->stop();
+    }
+}
+
+void WalManager::add_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index) {
+    _wal_column_id_map.emplace(wal_id, column_index);
+}
+
+void WalManager::erase_wal_column_index(int64_t wal_id) {
+    if (_wal_column_id_map.erase(wal_id)) {
+        LOG(INFO) << "erase " << wal_id << " from wal_column_id_map";
+    } else {
+        LOG(WARNING) << "fail to erase wal " << wal_id << " from wal_column_id_map";
+    }
+}
+
+Status WalManager::get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index) {
+    auto it = _wal_column_id_map.find(wal_id);
+    if (it != _wal_column_id_map.end()) {
+        column_index = it->second;
+    } else {
+        return Status::InternalError("cannot find wal {} in wal_column_id_map", wal_id);
     }
     return Status::OK();
 }

@@ -149,6 +149,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -1854,7 +1855,33 @@ public class StmtExecutor {
             txnId = context.getTxnEntry().getTxnConf().getTxnId();
         } else if (insertStmt instanceof NativeInsertStmt && ((NativeInsertStmt) insertStmt).isGroupCommit()) {
             isGroupCommit = true;
+            if (Env.getCurrentEnv().getGroupCommitManager().isBlock(insertStmt.getTargetTable().getId())) {
+                String msg = "insert table " + insertStmt.getTargetTable().getId() + " is blocked on schema change";
+                LOG.info(msg);
+                throw new DdlException(msg);
+            }
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) insertStmt;
+            Backend backend = context.getInsertGroupCommit(insertStmt.getTargetTable().getId());
+            if (backend == null || !backend.isAlive() || backend.isDecommissioned()) {
+                List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+                if (allBackendIds.isEmpty()) {
+                    throw new DdlException("No alive backend");
+                }
+                Collections.shuffle(allBackendIds);
+                boolean find = false;
+                for (Long beId : allBackendIds) {
+                    backend = Env.getCurrentSystemInfo().getBackend(beId);
+                    if (!backend.isDecommissioned()) {
+                        context.setInsertGroupCommit(insertStmt.getTargetTable().getId(), backend);
+                        find = true;
+                        LOG.debug("choose new be {}", backend.getId());
+                        break;
+                    }
+                }
+                if (!find) {
+                    throw new DdlException("No suitable backend");
+                }
+            }
             int maxRetry = 3;
             for (int i = 0; i < maxRetry; i++) {
                 GroupCommitPlanner groupCommitPlanner = nativeInsertStmt.planForGroupCommit(context.queryId);
