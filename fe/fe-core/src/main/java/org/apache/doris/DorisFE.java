@@ -458,7 +458,7 @@ public class DorisFE {
             releaseFileLockAndCloseFileChannel();
             throw new RuntimeException("Try to lock process failed", e);
         }
-        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the"
+        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the "
                 + "same time");
     }
 
