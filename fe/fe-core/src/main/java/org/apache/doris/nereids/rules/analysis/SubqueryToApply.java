@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -73,7 +74,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     LogicalFilter<Plan> filter = ctx.root;
 
                     ImmutableList<Set<SubqueryExpr>> subqueryExprsList = filter.getConjuncts().stream()
-                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
+                            .<Set<SubqueryExpr>>map(e ->
+                                    e.collect(subq -> subq instanceof SubqueryExpr && !(subq instanceof ListQuery)))
                             .collect(ImmutableList.toImmutableList());
                     if (subqueryExprsList.stream()
                             .flatMap(Collection::stream).noneMatch(SubqueryExpr.class::isInstance)) {
