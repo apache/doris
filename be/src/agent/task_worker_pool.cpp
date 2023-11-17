@@ -1883,9 +1883,10 @@ void CloneTaskPool::_clone_worker_thread_callback() {
             LOG_INFO("successfully clone tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", clone_req.tablet_id);
+            ++_s_report_version;
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
         }
-
+        finish_task_request.__set_report_version(_s_report_version);
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
