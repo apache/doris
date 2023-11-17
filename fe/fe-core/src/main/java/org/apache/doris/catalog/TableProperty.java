@@ -461,6 +461,11 @@ public class TableProperty implements Writable {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
+    // before version 2.1, the unique table uses merge-on-read as the default implemention. That's to say,
+    // if the user doesn't specify the `enable_unique_key_merge_on_write` property when creating the table,
+    // the value of this property will be `false`. However, after since version 2.1, the default implemention
+    // of unique table will be merge-on-write. So for the backward compatibility, we keep the default value here
+    // to `false` if the user doesn't secity this property.
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
