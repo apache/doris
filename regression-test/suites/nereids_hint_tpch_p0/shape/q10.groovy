@@ -31,7 +31,7 @@ suite("q10") {
 
     
 sql 'set be_number_for_test=3'|
-sql "set enable_runtime_filter_prune=false'
+sql "set enable_runtime_filter_prune=false"
 
     qt_select """
     explain shape plan
