@@ -62,6 +62,7 @@ Instead of using the command below, apply your local version of the Operator man
    ```shell
    kubectl apply -f operator.yaml  
    ```  
+
 **3. Validate The Operator is Running**  
 Using the command `kubectl -n {namespace} get pods` get the status of deployed operator. 
 ```shell
