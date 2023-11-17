@@ -237,7 +237,6 @@ void TaskScheduler::_do_work(size_t index) {
             continue;
         }
         task->set_running(true);
-        DCHECK(!task->is_blocked()) << task->debug_string();
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
         signal::query_id_hi = fragment_ctx->get_query_id().hi;

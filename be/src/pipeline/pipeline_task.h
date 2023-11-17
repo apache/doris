@@ -273,11 +273,6 @@ public:
         _blocked = blocked;
     }
 
-    bool is_blocked() {
-        std::unique_lock<std::mutex> lc(_blocked_lock);
-        return _blocked;
-    }
-
     void wake_up_by_queue() { _wake_up_by = nullptr; }
 
     bool is_running() { return _running.load(); }
