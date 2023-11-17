@@ -1491,7 +1491,6 @@ suite("test_stream_load", "p0") {
     }
 
     sql "sync"
-
     qt_test_read_json_by_line1 "SELECT * FROM tbl_read_json_by_line order by id"
 
     // test read_json_by with enable_simdjson_reader=false
@@ -1542,10 +1541,9 @@ suite("test_stream_load", "p0") {
     }
 
     sql "sync"
-
     qt_test_read_json_by_line2 "SELECT * FROM tbl_read_json_by_line order by id"
-
-    set_be_param.call("enable_simdjson_reader", "false")
+    // restore default value
+    set_be_param.call("enable_simdjson_reader", "true")
 
 }
 
