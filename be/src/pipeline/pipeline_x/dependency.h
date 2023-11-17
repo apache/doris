@@ -85,10 +85,7 @@ public:
 
     void set_parent(std::weak_ptr<Dependency> parent) { _parent = parent; }
 
-    void add_child(std::shared_ptr<Dependency> child) {
-        _children.push_back(child);
-        child->set_parent(weak_from_this());
-    }
+    virtual void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
 
     virtual void add_block_task(PipelineXTask* task);
 
@@ -184,6 +181,9 @@ public:
         if (!_ready_to_finish && task) {
             add_block_task(task);
         }
+        if (!_ready_to_finish) {
+            task->set_is_pending_finish();
+        }
         return _ready_to_finish ? nullptr : this;
     }
 
@@ -194,11 +194,9 @@ public:
 
     void add_block_task(PipelineXTask* task) override;
 
-protected:
+private:
     std::atomic<bool> _ready_to_finish {true};
     MonotonicStopWatch _finish_dependency_watcher;
-
-private:
     std::vector<PipelineXTask*> _finish_blocked_task;
 };
 
@@ -351,6 +349,11 @@ public:
             }
         }
         return this;
+    }
+
+    void add_child(std::shared_ptr<Dependency> child) override {
+        WriteDependency::add_child(child);
+        child->set_parent(weak_from_this());
     }
 };
 

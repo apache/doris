@@ -88,7 +88,7 @@ public:
 
     std::string debug_string() override;
 
-    bool is_pending_finish() override { return _finish_blocked_dependency(false) != nullptr; }
+    bool is_pending_finish() override { return _finish_blocked_dependency() != nullptr; }
 
     std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
 
@@ -136,6 +136,7 @@ public:
         return _use_blocking_queue || get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
     }
     bool pending_finish() override { return _is_pending_finish; }
+    bool set_is_pending_finish() { return _is_pending_finish = true; }
 
 private:
     Dependency* _write_blocked_dependency() {
@@ -148,13 +149,8 @@ private:
         return nullptr;
     }
 
-    Dependency* _finish_blocked_dependency(bool skip_current_dep) {
+    Dependency* _finish_blocked_dependency() {
         for (auto* fin_dep : _finish_dependencies) {
-            if (skip_current_dep && fin_dep == _blocked_dep) {
-                // `_blocked_dep` has already been ready.
-                _blocked_dep = nullptr;
-                continue;
-            }
             _blocked_dep = fin_dep->finish_blocked_by(this);
             if (_blocked_dep != nullptr) {
                 _is_pending_finish = true;
