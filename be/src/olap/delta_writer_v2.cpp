@@ -145,6 +145,9 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<in
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
+    while (_memtable_writer->get_flush_token_stats().flush_running_count > 1) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
