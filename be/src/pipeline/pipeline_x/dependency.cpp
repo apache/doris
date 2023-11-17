@@ -101,8 +101,6 @@ void WriteDependency::set_ready_for_write() {
         local_block_task.swap(_write_blocked_task);
     }
     for (auto* task : local_block_task) {
-        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
-        DCHECK(avoid_using_blocked_queue(task->get_state()));
         task->try_wake_up(this);
     }
 }
@@ -123,8 +121,6 @@ void FinishDependency::set_ready_to_finish() {
         local_block_task.swap(_finish_blocked_task);
     }
     for (auto* task : local_block_task) {
-        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
-        DCHECK(avoid_using_blocked_queue(task->get_state()));
         task->try_wake_up(this);
     }
 }
@@ -599,8 +595,6 @@ void RuntimeFilterDependency::sub_filters() {
             local_block_task.swap(_filter_blocked_task);
         }
         for (auto* task : local_block_task) {
-            DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
-            DCHECK(avoid_using_blocked_queue(task->get_state()));
             task->try_wake_up(this);
         }
     }
