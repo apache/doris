@@ -222,20 +222,7 @@ class RuntimeFilterDependency final : public Dependency {
 public:
     RuntimeFilterDependency(int id, int node_id, std::string name)
             : Dependency(id, node_id, name) {}
-    RuntimeFilterDependency* filter_blocked_by(PipelineXTask* task) {
-        if (!_blocked_by_rf) {
-            return nullptr;
-        }
-        std::unique_lock<std::mutex> lc(_task_lock);
-        if (*_blocked_by_rf) {
-            if (LIKELY(task)) {
-                task->set_use_blocking_queue(false);
-                add_block_task(task);
-            }
-            return this;
-        }
-        return nullptr;
-    }
+    RuntimeFilterDependency* filter_blocked_by(PipelineXTask* task);
     void* shared_state() override { return nullptr; }
     void add_filters(IRuntimeFilter* runtime_filter);
     void sub_filters();

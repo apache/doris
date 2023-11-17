@@ -143,6 +143,21 @@ Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
     return ready_for_read ? nullptr : this;
 }
 
+RuntimeFilterDependency* RuntimeFilterDependency::filter_blocked_by(PipelineXTask* task) {
+    if (!_blocked_by_rf) {
+        return nullptr;
+    }
+    std::unique_lock<std::mutex> lc(_task_lock);
+    if (*_blocked_by_rf) {
+        if (LIKELY(task)) {
+            task->set_use_blocking_queue(false);
+            add_block_task(task);
+        }
+        return this;
+    }
+    return nullptr;
+}
+
 FinishDependency* FinishDependency::finish_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     if (!_ready_to_finish && task) {
