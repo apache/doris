@@ -138,7 +138,7 @@ private:
     static std::string _print_json_value(const rapidjson::Value& value);
 
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size,
-                             size_t* total_length = 0);
+                             size_t* total_length = nullptr);
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
