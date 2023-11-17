@@ -48,7 +48,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class RuntimeProfile {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
     public static String ROOT_COUNTER = "";
-    public static int FRAGMENT_DEPTH = 3;
     public static String MAX_TIME_PRE = "max ";
     public static String MIN_TIME_PRE = "min ";
     public static String AVG_TIME_PRE = "avg ";

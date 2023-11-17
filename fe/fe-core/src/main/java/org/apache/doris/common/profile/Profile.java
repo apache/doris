@@ -97,7 +97,7 @@ public class Profile {
         // add summary to builder
         summaryProfile.prettyPrint(builder);
         LOG.info(builder.toString());
-        builder.append("\n MergedProfile");
+        builder.append("\n MergedProfile \n");
         aggregatedProfile.getAggregatedFragmentsProfile(planNodeMap).prettyPrint(builder, "     ");
         try {
             builder.append("\n");
