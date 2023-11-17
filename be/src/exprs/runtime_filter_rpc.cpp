@@ -74,7 +74,7 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     _rpc_context->request.set_filter_id(_filter_id);
     _rpc_context->request.set_opt_remote_rf(opt_remote_rf);
     _rpc_context->request.set_is_pipeline(state->enable_pipeline_exec());
-    _rpc_context->cntl.set_timeout_ms(state->runtime_filter_wait_time_ms());
+    _rpc_context->cntl.set_timeout_ms(wait_time_ms());
     _rpc_context->cid = _rpc_context->cntl.call_id();
 
     Status serialize_status = serialize(&_rpc_context->request, &data, &len);

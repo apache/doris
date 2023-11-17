@@ -95,8 +95,18 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
     if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_ROW) {
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index);
     } else {
+        // for random distribution
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
                                   &_partition_to_tablet_map);
+        if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
+            for (auto it : _partition_to_tablet_map) {
+                // do round-robin for next batch
+                if (it.first->load_tablet_idx != -1) {
+                    it.first->load_tablet_idx++;
+                }
+            }
+            _partition_to_tablet_map.clear();
+        }
     }
 
     return Status::OK();

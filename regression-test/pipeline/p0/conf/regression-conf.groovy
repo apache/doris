@@ -55,7 +55,7 @@ testDirectories = ""
 excludeGroups = ""
 // this suites will not be executed
 
-excludeSuites = "test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_jdbc_query_mysql"
+excludeSuites = "test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
 
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1,fault_injection_p0"

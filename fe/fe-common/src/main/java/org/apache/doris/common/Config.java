@@ -1231,7 +1231,7 @@ public class Config extends ConfigBase {
      *  This parameter distinguishes between offline and real-time updates
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static int cache_last_version_interval_second = 900;
+    public static int cache_last_version_interval_second = 30;
 
     /**
      * Set the maximum number of rows that can be cached

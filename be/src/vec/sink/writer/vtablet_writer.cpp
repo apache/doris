@@ -812,7 +812,7 @@ void VNodeChannel::_add_block_failed_callback(bool is_last_rpc) {
 }
 
 void VNodeChannel::cancel(const std::string& cancel_msg) {
-    if (_is_closed) {
+    if (_is_closed || _cancelled) {
         // skip the channels that have been canceled or close_wait.
         return;
     }
@@ -1603,7 +1603,6 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     _state->update_num_bytes_load_total(bytes);
     DorisMetrics::instance()->load_rows->increment(rows);
     DorisMetrics::instance()->load_bytes->increment(bytes);
-
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
     bool load_block_to_single_tablet =
