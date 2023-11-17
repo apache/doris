@@ -18,12 +18,17 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
@@ -57,6 +62,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Function;
 
 public class CacheTest extends TestWithFeService {
 
@@ -229,19 +235,33 @@ public class CacheTest extends TestWithFeService {
             }
         };
 
+        new MockUp<CatalogMgr>() {
+            @Mock
+            public <E extends Exception> CatalogIf<? extends DatabaseIf<? extends TableIf>>
+                    getCatalogOrException(long id, Function<Long, E> e) throws E {
+                return catalog;
+            }
+        };
+
+        new MockUp<HMSExternalCatalog>() {
+            @Mock
+            public ExternalDatabase<? extends ExternalTable> getDbNullable(long dbId) {
+                return db;
+            }
+        };
+
+        new MockUp<HMSExternalDatabase>() {
+
+            @Mock
+            public HMSExternalTable getTableNullable(long tableId) {
+                return table;
+            }
+        };
+
         new Expectations() {
             {
                 env.getCatalogMgr();
                 result = mgr;
-
-                mgr.getCatalog(1);
-                result = catalog;
-
-                catalog.getDbOrMetaException(1);
-                result = db;
-
-                db.getTableOrMetaException(1);
-                result = table;
 
                 table.getColumnStatistic("col");
                 result = new ColumnStatistic(1, 2,
