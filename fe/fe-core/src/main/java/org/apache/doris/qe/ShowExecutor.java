@@ -179,6 +179,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.MaxComputeExternalCatalog;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
@@ -1669,6 +1670,20 @@ public class ShowExecutor {
             Preconditions.checkNotNull(procNodeI);
             List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
                     showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
+            resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+        } else if (showStmt.getCatalog() instanceof MaxComputeExternalCatalog) {
+            MaxComputeExternalCatalog catalog = (MaxComputeExternalCatalog) (showStmt.getCatalog());
+            List<List<String>> rows = new ArrayList<>();
+            String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
+            List<String> partitionNames = catalog.listPartitionNames(dbName,
+                    showStmt.getTableName().getTbl());
+            for (String partition : partitionNames) {
+                List<String> list = new ArrayList<>();
+                list.add(partition);
+                rows.add(list);
+            }
+            // sort by partition name
+            rows.sort(Comparator.comparing(x -> x.get(0)));
             resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
         } else {
             handleShowHMSTablePartitions(showStmt);

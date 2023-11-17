@@ -36,7 +36,7 @@ import com.google.gson.annotations.SerializedName;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
     private Odps odps;
@@ -95,21 +95,25 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         odps.setDefaultProject(defaultProject);
     }
 
-    public long getTotalRows(String project, String table, Optional<String> partitionSpec) throws TunnelException {
+    public long getTotalRows(String project, String table) throws TunnelException {
+        return getTableTunnel().getDownloadSession(project, table, null).getRecordCount();
+    }
+
+    public long getTotalRows(String project, String table, String partitionSpec) throws TunnelException {
+        return getTableTunnel()
+                .getDownloadSession(project, table, new PartitionSpec(partitionSpec), null)
+                .getRecordCount();
+    }
+
+    private TableTunnel getTableTunnel() {
         makeSureInitialized();
         TableTunnel tunnel = new TableTunnel(odps);
         String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
         if (enablePublicAccess) {
             tunnelUrl = tunnelUrl.replace("-inc", "");
         }
-        TableTunnel.DownloadSession downloadSession;
         tunnel.setEndpoint(tunnelUrl);
-        if (!partitionSpec.isPresent()) {
-            downloadSession = tunnel.getDownloadSession(project, table, null);
-        } else {
-            downloadSession = tunnel.getDownloadSession(project, table, new PartitionSpec(partitionSpec.get()), null);
-        }
-        return downloadSession.getRecordCount();
+        return tunnel;
     }
 
     public Odps getClient() {
@@ -134,6 +138,20 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         try {
             return odps.tables().exists(tblName);
+        } catch (OdpsException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public List<String> listPartitionNames(String dbName, String tbl) {
+        try {
+            if (getClient().projects().exists(dbName)) {
+                return getClient().tables().get(tbl).getPartitions().stream()
+                        .map(p -> p.getPartitionSpec().toString(false, true))
+                        .collect(Collectors.toList());
+            } else {
+                throw new OdpsException("Max compute project: " + dbName + " not exists.");
+            }
         } catch (OdpsException e) {
             throw new RuntimeException(e);
         }
