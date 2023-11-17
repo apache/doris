@@ -873,22 +873,9 @@ public class OlapScanNode extends ScanNode {
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
         } else {
-            selectedPartitionIds = null;
+            selectedPartitionIds = olapTable.getPartitionIds();
         }
-
-        if (selectedPartitionIds == null) {
-            selectedPartitionIds = Lists.newArrayList();
-            for (Partition partition : olapTable.getPartitions()) {
-                if (!partition.hasData()) {
-                    continue;
-                }
-                selectedPartitionIds.add(partition.getId());
-            }
-        } else {
-            selectedPartitionIds = selectedPartitionIds.stream()
-                    .filter(id -> olapTable.getPartition(id).hasData())
-                    .collect(Collectors.toList());
-        }
+        selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);
         selectedPartitionNum = selectedPartitionIds.size();
 
         for (long id : selectedPartitionIds) {
