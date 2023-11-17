@@ -367,34 +367,16 @@ std::string PipelineXTask::debug_string() {
 
 void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
     // call by dependency
-    auto state = get_state();
     VecDateTimeValue now = VecDateTimeValue::local_time();
-    DCHECK(avoid_using_blocked_queue(state));
     set_blocked(false);
-    _wake_up_by = _blocked_dep;
-    if (state == PipelineTaskState::PENDING_FINISH) {
-        _blocked_dep = _finish_blocked_dependency(true);
-        if (_blocked_dep == nullptr) {
-            _make_run();
-        } else {
-            // Blocked by another FinishDependency.
-            DCHECK_NE(_wake_up_by, _blocked_dep)
-                    << "cur_dep: " << _wake_up_by->debug_string()
-                    << " \n_blocked_dep: " << _blocked_dep->debug_string();
-        }
-        return;
-    }
-    _blocked_dep = nullptr;
     // TODO(gabriel): task will never be wake up if canceled / timeout
     if (query_context()->is_cancelled()) {
-        set_state(PipelineTaskState::RUNNABLE);
         _make_run();
         return;
     }
     if (query_context()->is_timeout(now)) {
         query_context()->cancel(true, "", Status::Cancelled(""));
     }
-    set_state(PipelineTaskState::RUNNABLE);
     _use_blocking_queue = true;
     _make_run();
 }

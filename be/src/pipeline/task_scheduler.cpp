@@ -247,7 +247,10 @@ void TaskScheduler::_do_work(size_t index) {
                             canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
                             exec_status);
             continue;
+        } else if (task->is_pipelineX()) {
+            task->set_state(PipelineTaskState::RUNNABLE);
         }
+
         DCHECK(check_state != PipelineTaskState::FINISHED &&
                check_state != PipelineTaskState::CANCELED)
                 << "task already finish: " << task->debug_string();
