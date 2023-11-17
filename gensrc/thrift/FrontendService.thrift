@@ -1071,6 +1071,7 @@ struct TGetBinlogResult {
     3: optional list<TBinlog> binlogs
     4: optional string fe_version
     5: optional i64 fe_meta_version
+    6: optional Types.TNetworkAddress master_address
 }
 
 struct TGetTabletReplicaInfosRequest {
@@ -1149,6 +1150,7 @@ typedef TGetBinlogRequest TGetBinlogLagRequest
 struct TGetBinlogLagResult {
     1: optional Status.TStatus status
     2: optional i64 lag
+    3: optional Types.TNetworkAddress master_address
 }
 
 struct TUpdateFollowerStatsCacheRequest {
@@ -1276,6 +1278,7 @@ struct TGetMetaDBMeta {
 struct TGetMetaResult {
     1: required Status.TStatus status
     2: optional TGetMetaDBMeta db_meta
+    3: optional Types.TNetworkAddress master_address
 }
 
 struct TGetBackendMetaRequest {
@@ -1290,6 +1293,7 @@ struct TGetBackendMetaRequest {
 struct TGetBackendMetaResult {
     1: required Status.TStatus status
     2: optional list<Types.TBackend> backends
+    3: optional Types.TNetworkAddress master_address
 }
 
 struct TGetColumnInfoRequest {
