@@ -20,34 +20,25 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.planner.Planner;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
 /**
- * Profile is a class to record the execution time of a query.
- * It has the following structure:
- * root profile:
- * // summary of this profile, such as start time, end time, query id, etc.
- * [SummaryProfile]
- * // each execution profile is a complete execution of a query, a job may
- * contain multiple queries.
+ * Profile is a class to record the execution time of a query. It has the
+ * following structure: root profile: // summary of this profile, such as start
+ * time, end time, query id, etc. [SummaryProfile] // each execution profile is
+ * a complete execution of a query, a job may contain multiple queries.
  * [List<ExecutionProfile>]
  *
- * SummaryProfile:
- * Summary:
- * Execution Summary:
+ * SummaryProfile: Summary: Execution Summary:
  *
  *
- * ExecutionProfile:
- * Fragment 0:
- * Fragment 1:
- * ...
+ * ExecutionProfile: Fragment 0: Fragment 1: ...
  */
 public class Profile {
     private static final Logger LOG = LogManager.getLogger(Profile.class);
