@@ -14,21 +14,19 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("ip_functions") {
-    sql "set batch_size = 4096;"
 
-    qt_ip1 "SELECT ipv4numtostring(-1);"
-    qt_ip2 "SELECT ipv4numtostring(2130706433);"
-    qt_ip3 "SELECT ipv4numtostring(4294967298);"
-    qt_ip4 "SELECT ipv4numtostring(3232235521);"
-
-    qt_ip5 "SELECT inet_ntoa(-1);"
-    qt_ip6 "SELECT inet_ntoa(2130706433);"
-    qt_ip7 "SELECT inet_ntoa(4294967298);"
-    qt_ip8 "SELECT inet_ntoa(3232235521);"
-
-    qt_ip9  "SELECT ipv4stringtonum('127.0.0.1');"
-    qt_ip10 "SELECT ipv4stringtonumornull('');"
-    qt_ip11 "SELECT ipv4stringtonumordefault('');"
-    qt_ip12 "SELECT inet_aton('192.168.0.1');"
+suite("test_explode_numbers") {
+    sql 'set enable_nereids_planner=true'
+    qt_select1 """
+        select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as e1 order by e1;
+    """
+    qt_select2 """
+        select e1 from (select 1 k1) as t lateral view explode_numbers(0) tmp1 as e1;
+    """
+    qt_select3 """
+        select e1 from (select 1 k1) as t lateral view explode_numbers(null) tmp1 as e1;
+    """    
+    qt_select4 """
+       select e1 from (select 1 k1) as t lateral view explode_numbers(-5) tmp1 as e1;
+    """    
 }
