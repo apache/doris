@@ -751,7 +751,7 @@ suite("test_http_stream", "p0") {
             }
         }
 
-        qt_sql15 "select id, name, tyint1, decimal1 from ${tableName16} order by id"
+        qt_sql16 "select id, name, tyint1, decimal1 from ${tableName16} order by id"
 
         sql """truncate table ${tableName16}"""
         sql """sync"""
@@ -773,7 +773,7 @@ suite("test_http_stream", "p0") {
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
             }
-            qt_sql15_1 "select id, name, tyint1, decimal1 from ${tableName16} order by id"
+            qt_sql16_1 "select id, name, tyint1, decimal1 from ${tableName16} order by id"
         }
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName16}"
