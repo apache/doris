@@ -218,7 +218,7 @@ public class OlapAnalysisTaskTest {
             @Mock
             public void runQuery(String sql, boolean needEncode) {
                 Assertions.assertFalse(needEncode);
-                Assertions.assertEquals(" SELECT CONCAT(30001, '-', -1, '-', 'null') AS `id`, 10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, 'null' AS `col_id`, NULL AS `part_id`, ROUND(COUNT(1) * 5.0) AS `row_count`, ROUND(NDV(`${colName}`) * 5.0)  as `ndv`, ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * 5.0) AS `null_count`, 'MQ==' AS `min`, 'Mg==' AS `max`, SUM(LENGTH(`${colName}`)) * 5.0 AS `data_size`, NOW() FROM `catalogName`.`${dbName}`.`${tblName}`  limit 100", sql);
+                Assertions.assertEquals(" SELECT CONCAT(30001, '-', -1, '-', 'null') AS `id`, 10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, 'null' AS `col_id`, NULL AS `part_id`, 500 AS `row_count`, ROUND(NDV(`${colName}`) * 5.0) as `ndv`, ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * 5.0) AS `null_count`, 'MQ==' AS `min`, 'Mg==' AS `max`, SUM(LENGTH(`${colName}`)) * 5.0 AS `data_size`, NOW() FROM `catalogName`.`${dbName}`.`${tblName}`  limit 100", sql);
                 return;
             }
         };
