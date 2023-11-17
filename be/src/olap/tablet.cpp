@@ -2297,22 +2297,21 @@ Status Tablet::_follow_cooldowned_data() {
         }
 
         for (auto& [v, rs] : _rs_version_map) {
-            if (v.second == cooldowned_version) {
-                version_aligned = true;
-                break;
-            }
-        }
-        if (!version_aligned) {
-            return Status::InternalError<false>("cooldowned version is not aligned");
-        }
-        for (auto& [v, rs] : _rs_version_map) {
             if (v.second <= cooldowned_version) {
                 overlap_rowsets.push_back(rs);
+                if (!version_aligned && v.second == cooldowned_version) {
+                    version_aligned = true;
+                }
             } else if (!rs->is_local()) {
                 return Status::InternalError<false>(
                         "cooldowned version larger than that to follow");
             }
         }
+
+        if (!version_aligned) {
+            return Status::InternalError<false>("cooldowned version is not aligned");
+        }
+
         std::sort(overlap_rowsets.begin(), overlap_rowsets.end(), Rowset::comparator);
         auto rs_pb_it = cooldown_meta_pb.rs_metas().begin();
         auto rs_it = overlap_rowsets.begin();
