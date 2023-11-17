@@ -510,12 +510,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
-            dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
-            return true;
-        }
-
-        return false;
+        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr;
     };
 
     for (const auto& filter : read_params.function_filters) {
@@ -531,8 +527,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             auto gram_bf_size = tablet_index->get_gram_bf_size();
             auto gram_size = tablet_index->get_gram_size();
 
-            static_cast<void>(segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER,
-                                                              &ng_bf, gram_bf_size));
+            RETURN_IF_ERROR(segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf,
+                                                            gram_bf_size));
             NgramTokenExtractor _token_extractor(gram_size);
 
             if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),

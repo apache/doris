@@ -330,7 +330,7 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
             if (need_update) {
-                static_cast<void>(it.second->update_capacity());
+                RETURN_IF_ERROR(it.second->update_capacity());
             }
             path_map.emplace(it.first, it.second->get_dir_info());
         }
@@ -426,7 +426,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
 
     // write cluster id into cluster_id_path if get effective cluster id success
     if (_effective_cluster_id != -1 && !_is_all_cluster_id_exist) {
-        static_cast<void>(set_cluster_id(_effective_cluster_id));
+        RETURN_IF_ERROR(set_cluster_id(_effective_cluster_id));
     }
 
     return Status::OK();
@@ -768,7 +768,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     }
 
     // clear expire incremental rowset, move deleted tablet to trash
-    static_cast<void>(_tablet_manager->start_trash_sweep());
+    RETURN_IF_ERROR(_tablet_manager->start_trash_sweep());
 
     // clean rubbish transactions
     _clean_unused_txns();

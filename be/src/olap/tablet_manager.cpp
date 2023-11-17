@@ -173,14 +173,14 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
     // During restore process, snapshot loader
     // replaced the old tablet's rowset with new rowsets, but the tablet path is reused, if drop files
     // here, the new rowset's file will also be dropped, so use keep files here
-    bool keep_files = force ? true : false;
+    bool keep_files = force;
     if (force ||
         (new_version > old_version || (new_version == old_version && new_time >= old_time))) {
         // check if new tablet's meta is in store and add new tablet's meta to meta store
         res = _add_tablet_to_map_unlocked(tablet_id, tablet, update_meta, keep_files,
                                           true /*drop_old*/, profile);
     } else {
-        static_cast<void>(tablet->set_tablet_state(TABLET_SHUTDOWN));
+        RETURN_IF_ERROR(tablet->set_tablet_state(TABLET_SHUTDOWN));
         tablet->save_meta();
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "SaveMeta", "AddTablet"),
                        static_cast<int64_t>(watch.reset()));
@@ -562,7 +562,7 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
         // If update meta directly here, other thread may override the meta
         // and the tablet will be loaded at restart time.
         // To avoid this exception, we first set the state of the tablet to `SHUTDOWN`.
-        static_cast<void>(to_drop_tablet->set_tablet_state(TABLET_SHUTDOWN));
+        RETURN_IF_ERROR(to_drop_tablet->set_tablet_state(TABLET_SHUTDOWN));
         // We must record unused remote rowsets path info to OlapMeta before tablet state is marked as TABLET_SHUTDOWN in OlapMeta,
         // otherwise if BE shutdown after saving tablet state, these remote rowsets path info will lost.
         if (is_drop_table_or_partition) {
@@ -967,7 +967,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     // should change tablet uid when tablet object changed
     tablet_meta->set_tablet_uid(std::move(tablet_uid));
     std::string meta_binary;
-    static_cast<void>(tablet_meta->serialize(&meta_binary));
+    RETURN_IF_ERROR(tablet_meta->serialize(&meta_binary));
     RETURN_NOT_OK_STATUS_WITH_WARN(
             load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
                                   true),
@@ -1094,7 +1094,7 @@ Status TabletManager::start_trash_sweep() {
                 if (exists) {
                     // take snapshot of tablet meta
                     auto meta_file_path = fmt::format("{}/{}.hdr", tablet_path, (*it)->tablet_id());
-                    static_cast<void>((*it)->tablet_meta()->save(meta_file_path));
+                    RETURN_IF_ERROR((*it)->tablet_meta()->save(meta_file_path));
                     LOG(INFO) << "start to move tablet to trash. " << tablet_path;
                     Status rm_st = (*it)->data_dir()->move_to_trash(tablet_path);
                     if (!rm_st.ok()) {
@@ -1104,8 +1104,8 @@ Status TabletManager::start_trash_sweep() {
                     }
                 }
                 // remove tablet meta
-                static_cast<void>(TabletMetaManager::remove((*it)->data_dir(), (*it)->tablet_id(),
-                                                            (*it)->schema_hash()));
+                RETURN_IF_ERROR(TabletMetaManager::remove((*it)->data_dir(), (*it)->tablet_id(),
+                                                          (*it)->schema_hash()));
                 LOG(INFO) << "successfully move tablet to trash. "
                           << "tablet_id=" << (*it)->tablet_id()
                           << ", schema_hash=" << (*it)->schema_hash()
