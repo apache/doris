@@ -264,6 +264,7 @@ public:
         if (blocked) {
             DCHECK(!_blocked) << debug_string();
         } else {
+            _previous_wake_stack_msg = _wake_stack_msg;
             _wake_stack_msg = get_stack_trace();
             DCHECK(_blocked) << debug_string();
         }
@@ -382,6 +383,9 @@ protected:
     std::string _stack_msg = "";
     std::string _wake_stack_msg = "";
     Dependency* _wake_up_by = nullptr;
+
+    std::string _previous_stack_msg = "";
+    std::string _previous_wake_stack_msg = "";
 
 private:
     Operators _operators; // left is _source, right is _root
