@@ -133,13 +133,12 @@ public class Transaction {
                 filteredRows = Integer.parseInt(coordinator.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
             }
 
-            // if in strict mode, insert will fail if there are filtered rows
-            if (ctx.getSessionVariable().getEnableInsertStrict()) {
-                if (filteredRows > 0) {
-                    ctx.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
-                            "Insert has filtered data in strict mode, tracking_url=" + coordinator.getTrackingUrl());
-                    return;
-                }
+            if (1.0 * filteredRows / (filteredRows + loadedRows) > ctx.getSessionVariable().getMaxFilterRatio()) {
+                ctx.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
+                            "Insert has filtered ratio > max_filter_ratio:"
+                                + ctx.getSessionVariable().getMaxFilterRatio()
+                                + "tracking_url=" + coordinator.getTrackingUrl());
+                return;
             }
 
             if (table.getType() != TableType.OLAP && table.getType() != TableType.MATERIALIZED_VIEW) {
