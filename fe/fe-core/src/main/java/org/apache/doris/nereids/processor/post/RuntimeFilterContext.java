@@ -199,9 +199,9 @@ public class RuntimeFilterContext {
                     for (Slot target : rf.getTargetSlots()) {
                         if (target.getExprId().equals(targetId)) {
                             Pair<PhysicalRelation, Slot> pair = aliasTransferMap.get(target);
-                            Preconditions.checkArgument(pair != null,
-                                    "cannot find slot %s in aliasTransferMap", target);
-                            pair.first.removeAppliedRuntimeFilter(rf);
+                            if(pair != null) {
+                                pair.first.removeAppliedRuntimeFilter(rf);
+                            }
                         }
                     }
                     iter.remove();
