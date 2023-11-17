@@ -144,3 +144,19 @@
 20	4.56	2.71828
 30	7.89	1.61803
 
+-- !test_read_json_by_line1 --
+100	{"name":"beijing","region":"haidian"}	1
+101	{"name":"shanghai","region":"jingan"}	2
+102	{"name":"tianjin","region":"nankai"}	3
+103	{"name":"chongqing","region":"yubei"}	4
+104	{"name":"hangzhou","region":"xihu"}	5
+105	{"name":"guangzhou","region":"huangpu"}	6
+
+-- !test_read_json_by_line2 --
+100	{"name":"beijing","region":"haidian"}	1
+101	{"name":"shanghai","region":"jingan"}	2
+102	{"name":"tianjin","region":"nankai"}	3
+103	{"name":"chongqing","region":"yubei"}	4
+104	{"name":"hangzhou","region":"xihu"}	5
+105	{"name":"guangzhou","region":"huangpu"}	6
+
