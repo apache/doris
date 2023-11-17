@@ -143,6 +143,8 @@ import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
 import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
+import org.apache.doris.thrift.TGetColumnInfoRequest;
+import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
@@ -3477,6 +3479,45 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             throw e;
         }
+    }
+
+
+    @Override
+    public TGetColumnInfoResult getColumnInfo(TGetColumnInfoRequest request) {
+        TGetColumnInfoResult result = new TGetColumnInfoResult();
+        TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
+        long dbId = request.getDbId();
+        long tableId = request.getTableId();
+        if (!Env.getCurrentEnv().isMaster()) {
+            errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
+            errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to getColumnInfo: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            errorStatus.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
+            result.setStatus(errorStatus);
+            return result;
+        }
+
+        Table table = db.getTable(tableId).get();
+        if (table == null) {
+            errorStatus.setErrorMsgs(
+                    (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
+            result.setStatus(errorStatus);
+            return result;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Column column : table.getFullSchema()) {
+            sb.append(column.getName() + ":" + column.getUniqueId() + ",");
+        }
+        String columnInfo = sb.toString();
+        columnInfo = columnInfo.substring(0, columnInfo.length() - 1);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        result.setColumnInfo(columnInfo);
+        return result;
     }
 
     public TGetBackendMetaResult getBackendMeta(TGetBackendMetaRequest request) throws TException {

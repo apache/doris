@@ -1292,6 +1292,16 @@ struct TGetBackendMetaResult {
     2: optional list<Types.TBackend> backends
 }
 
+struct TGetColumnInfoRequest {
+    1: optional i64 db_id
+    2: optional i64 table_id
+}
+
+struct TGetColumnInfoResult {
+    1: optional Status.TStatus status
+    2: optional string column_info
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1367,4 +1377,6 @@ service FrontendService {
     TGetMetaResult getMeta(1: TGetMetaRequest request)
 
     TGetBackendMetaResult getBackendMeta(1: TGetBackendMetaRequest request)
+
+    TGetColumnInfoResult getColumnInfo(1: TGetColumnInfoRequest request)
 }
