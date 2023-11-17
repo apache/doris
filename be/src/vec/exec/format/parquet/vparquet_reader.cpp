@@ -306,6 +306,12 @@ void ParquetReader::_init_file_description() {
     }
 }
 
+void ParquetReader::iceberg_sanitize(const std::vector<std::string>& read_columns) {
+    if (_file_metadata != nullptr) {
+        _file_metadata->iceberg_sanitize(read_columns);
+    }
+}
+
 Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         const std::vector<std::string>& missing_column_names,
