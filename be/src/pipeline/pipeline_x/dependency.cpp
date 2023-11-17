@@ -137,9 +137,58 @@ Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready_for_read = _ready_for_read.load();
     if (!ready_for_read && task) {
+        task->set_use_blocking_queue(false);
         add_block_task(task);
     }
     return ready_for_read ? nullptr : this;
+}
+
+FinishDependency* FinishDependency::finish_blocked_by(PipelineXTask* task) {
+    std::unique_lock<std::mutex> lc(_task_lock);
+    if (!_ready_to_finish && task) {
+        task->set_is_pending_finish();
+        task->set_use_blocking_queue(false);
+        add_block_task(task);
+    }
+    return _ready_to_finish ? nullptr : this;
+}
+
+WriteDependency* WriteDependency::write_blocked_by(PipelineXTask* task) {
+    std::unique_lock<std::mutex> lc(_task_lock);
+    const auto ready_for_write = _ready_for_write.load();
+    if (!ready_for_write && task) {
+        task->set_use_blocking_queue(false);
+        add_write_block_task(task);
+    }
+    return ready_for_write ? nullptr : this;
+}
+
+Dependency* OrDependency::read_blocked_by(PipelineXTask* task) {
+    // TODO(gabriel):
+    for (auto& child : _children) {
+        auto* cur_res = child->read_blocked_by(nullptr);
+        if (cur_res == nullptr) {
+            return nullptr;
+        }
+    }
+    if (task) {
+        task->set_use_blocking_queue(true);
+    }
+    return this;
+}
+
+WriteDependency* OrDependency::write_blocked_by(PipelineXTask* task) {
+    for (auto& child : _children) {
+        CHECK(child->is_write_dependency());
+        auto* cur_res = ((WriteDependency*)child.get())->write_blocked_by(nullptr);
+        if (cur_res == nullptr) {
+            return nullptr;
+        }
+    }
+    if (task) {
+        task->set_use_blocking_queue(true);
+    }
+    return this;
 }
 
 template Status HashJoinDependency::extract_join_column<true>(

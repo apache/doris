@@ -134,14 +134,7 @@ public:
         return _write_dependency_watcher.elapsed_time();
     }
 
-    [[nodiscard]] virtual WriteDependency* write_blocked_by(PipelineXTask* task) {
-        std::unique_lock<std::mutex> lc(_task_lock);
-        const auto ready_for_write = _ready_for_write.load();
-        if (!ready_for_write && task) {
-            add_write_block_task(task);
-        }
-        return ready_for_write ? nullptr : this;
-    }
+    [[nodiscard]] virtual WriteDependency* write_blocked_by(PipelineXTask* task);
 
     virtual void set_ready_for_write();
 
@@ -176,16 +169,7 @@ public:
         return _finish_dependency_watcher.elapsed_time();
     }
 
-    [[nodiscard]] FinishDependency* finish_blocked_by(PipelineXTask* task) {
-        std::unique_lock<std::mutex> lc(_task_lock);
-        if (!_ready_to_finish && task) {
-            add_block_task(task);
-        }
-        if (!_ready_to_finish) {
-            task->set_is_pending_finish();
-        }
-        return _ready_to_finish ? nullptr : this;
-    }
+    [[nodiscard]] FinishDependency* finish_blocked_by(PipelineXTask* task);
 
     void set_ready_to_finish();
 
@@ -329,27 +313,9 @@ public:
 
     bool is_or_dep() override { return true; }
 
-    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
-        // TODO(gabriel):
-        for (auto& child : _children) {
-            auto* cur_res = child->read_blocked_by(nullptr);
-            if (cur_res == nullptr) {
-                return nullptr;
-            }
-        }
-        return this;
-    }
+    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override;
 
-    [[nodiscard]] WriteDependency* write_blocked_by(PipelineXTask* task) override {
-        for (auto& child : _children) {
-            CHECK(child->is_write_dependency());
-            auto* cur_res = ((WriteDependency*)child.get())->write_blocked_by(nullptr);
-            if (cur_res == nullptr) {
-                return nullptr;
-            }
-        }
-        return this;
-    }
+    [[nodiscard]] WriteDependency* write_blocked_by(PipelineXTask* task) override;
 
     void add_child(std::shared_ptr<Dependency> child) override {
         WriteDependency::add_child(child);

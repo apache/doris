@@ -136,13 +136,15 @@ public:
         return _use_blocking_queue || get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
     }
     bool pending_finish() override { return _is_pending_finish; }
-    bool set_is_pending_finish() { return _is_pending_finish = true; }
+    void set_is_pending_finish() { _is_pending_finish = true; }
+    void set_use_blocking_queue(bool use_blocking_queue) {
+        _use_blocking_queue = use_blocking_queue;
+    }
 
 private:
     Dependency* _write_blocked_dependency() {
         _blocked_dep = _write_dependencies->write_blocked_by(this);
         if (_blocked_dep != nullptr) {
-            _push_blocked_task_to_dep();
             static_cast<WriteDependency*>(_blocked_dep)->start_write_watcher();
             return _blocked_dep;
         }
@@ -154,7 +156,6 @@ private:
             _blocked_dep = fin_dep->finish_blocked_by(this);
             if (_blocked_dep != nullptr) {
                 _is_pending_finish = true;
-                _push_blocked_task_to_dep();
                 static_cast<FinishDependency*>(_blocked_dep)->start_finish_watcher();
                 return _blocked_dep;
             }
@@ -173,16 +174,6 @@ private:
             }
         }
         return nullptr;
-    }
-
-    void _push_blocked_task_to_dep() {
-        _use_blocking_queue = true;
-        DCHECK(_blocked_dep) << "state :" << get_state_name(get_state());
-        // TODO(gabriel): process OrDep
-        if (_blocked_dep->is_or_dep()) {
-            return;
-        }
-        _use_blocking_queue = false;
     }
 
     Status _extract_dependencies();
