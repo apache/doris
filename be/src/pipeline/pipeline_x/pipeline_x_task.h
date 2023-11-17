@@ -133,9 +133,9 @@ public:
          * 1. This task is blocked (`_blocked_dep` is not nullptr) and `_use_blocking_queue` is true.
          * 2. Or this task is blocked by FE two phase execution (BLOCKED_FOR_DEPENDENCY).
          */
-        return (_blocked_dep && _use_blocking_queue) ||
-               get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
+        return _use_blocking_queue || get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
     }
+    bool pending_finish() override { return _is_pending_finish; }
 
 private:
     Dependency* _write_blocked_dependency() {
@@ -157,6 +157,7 @@ private:
             }
             _blocked_dep = fin_dep->finish_blocked_by(this);
             if (_blocked_dep != nullptr) {
+                _is_pending_finish = true;
                 _push_blocked_task_to_dep();
                 static_cast<FinishDependency*>(_blocked_dep)->start_finish_watcher();
                 return _blocked_dep;
@@ -179,6 +180,7 @@ private:
     }
 
     void _push_blocked_task_to_dep() {
+        _use_blocking_queue = true;
         DCHECK(_blocked_dep) << "state :" << get_state_name(get_state());
         // TODO(gabriel): process OrDep
         if (_blocked_dep->is_or_dep()) {
@@ -215,6 +217,7 @@ private:
     Dependency* _blocked_dep {nullptr};
 
     std::atomic<bool> _use_blocking_queue {true};
+    std::atomic<bool> _is_pending_finish {false};
 };
 
 } // namespace doris::pipeline

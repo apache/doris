@@ -159,6 +159,8 @@ public:
         return false;
     }
 
+    virtual bool pending_finish() { return _cur_state == PipelineTaskState::PENDING_FINISH; }
+
     virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
 
     virtual bool runtime_filters_are_ready_or_timeout() {

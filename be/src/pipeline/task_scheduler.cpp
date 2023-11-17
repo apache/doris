@@ -239,20 +239,17 @@ void TaskScheduler::_do_work(size_t index) {
         signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
 
-        auto check_state = task->get_state();
-        if (check_state == PipelineTaskState::PENDING_FINISH) {
+        if (task->pending_finish()) {
             DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();
             Status exec_status = fragment_ctx->get_query_context()->exec_status();
             _try_close_task(task,
                             canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
                             exec_status);
             continue;
-        } else if (task->is_pipelineX()) {
-            task->set_state(PipelineTaskState::RUNNABLE);
         }
 
-        DCHECK(check_state != PipelineTaskState::FINISHED &&
-               check_state != PipelineTaskState::CANCELED)
+        DCHECK(task->get_state() != PipelineTaskState::FINISHED &&
+               task->get_state() != PipelineTaskState::CANCELED)
                 << "task already finish: " << task->debug_string();
 
         if (canceled) {
@@ -267,8 +264,12 @@ void TaskScheduler::_do_work(size_t index) {
             continue;
         }
 
-        DCHECK(check_state == PipelineTaskState::RUNNABLE)
-                << "check_state:" << get_state_name(check_state)
+        if (task->is_pipelineX()) {
+            task->set_state(PipelineTaskState::RUNNABLE);
+        }
+
+        DCHECK(task->is_pipelineX() || task->get_state() == PipelineTaskState::RUNNABLE)
+                << "state:" << get_state_name(task->get_state())
                 << " task: " << task->debug_string();
         // task exec
         bool eos = false;

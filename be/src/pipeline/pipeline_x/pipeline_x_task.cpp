@@ -377,7 +377,6 @@ void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
     if (query_context()->is_timeout(now)) {
         query_context()->cancel(true, "", Status::Cancelled(""));
     }
-    _use_blocking_queue = true;
     _make_run();
 }
 
