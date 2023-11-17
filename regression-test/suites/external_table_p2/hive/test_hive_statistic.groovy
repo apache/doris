@@ -293,6 +293,45 @@ suite("test_hive_statistic", "p2,external,hive,external_remote,external_remote_h
         assertEquals(result.size(), 1)
         assertEquals(result[0][6], "N/A")
         assertEquals(result[0][7], "N/A")
+
+	sql """use tpch1_parquet;"""
+	sql """drop stats region"""
+	sql """alter table region modify column r_comment set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='330.0', 'min_value'='ges. thinly even pinto beans ca', 'max_value'='uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl');"""
+	sql """alter table region modify column r_name set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='34.0', 'min_value'='AFRICA', 'max_value'='MIDDLE EAST');"""
+	sql """alter table region modify column r_regionkey set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='20.0', 'min_value'='0', 'max_value'='4');"""
+        result = sql """show column stats region(r_regionkey)"""
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "r_regionkey")
+        assertEquals(result[0][1], "5.0")
+        assertEquals(result[0][2], "5.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "20.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "0")
+        assertEquals(result[0][7], "4")
+
+        result = sql """show column stats region(r_comment)"""
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "r_comment")
+        assertEquals(result[0][1], "5.0")
+        assertEquals(result[0][2], "5.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "330.0")
+        assertEquals(result[0][5], "66.0")
+        assertEquals(result[0][6], "\'ges. thinly even pinto beans ca\'")
+        assertEquals(result[0][7], "\'uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl\'")
+
+        result = sql """show column stats region(r_name)"""
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "r_name")
+        assertEquals(result[0][1], "5.0")
+        assertEquals(result[0][2], "5.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "34.0")
+        assertEquals(result[0][5], "6.8")
+        assertEquals(result[0][6], "\'AFRICA\'")
+        assertEquals(result[0][7], "\'MIDDLE EAST\'")
+
         sql """drop catalog ${catalog_name}"""
     }
 }

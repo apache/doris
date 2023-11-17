@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.persist.OperationType;
@@ -29,6 +28,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.sleepycat.je.rep.ReplicatedEnvironment;
 import mockit.Mock;
 import mockit.MockUp;
 import org.apache.commons.io.FileUtils;
@@ -36,8 +36,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+// import org.junit.jupiter.api.RepeatedTest; only for debug
 
 import java.io.DataOutput;
 import java.io.File;
@@ -48,34 +48,35 @@ import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use uppercase
     private static final Logger LOG = LogManager.getLogger(BDBJEJournalTest.class);
-    private static File tmpDir;
+    private static List<File> tmpDirs = new ArrayList<>();
 
-    @BeforeAll
-    public static void setUp() throws Exception {
+    public static File createTmpDir() throws Exception {
         String dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
             dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
         Path mockDir = Paths.get(dorisHome, "fe", "mocked");
         if (!Files.exists(mockDir)) {
-            try {
-                Files.createDirectories(mockDir);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            Files.createDirectories(mockDir);
         }
         Preconditions.checkArgument(!Strings.isNullOrEmpty(dorisHome));
-        tmpDir = Files.createTempDirectory(mockDir, "BDBJEJournalTest").toFile();
-        LOG.debug("tmpDir path {}", tmpDir.getAbsolutePath());
-        return;
+        File dir = Files.createTempDirectory(Paths.get(dorisHome, "fe", "mocked"), "BDBJEJournalTest").toFile();
+        LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
+        tmpDirs.add(dir);
+        return dir;
     }
 
     @AfterAll
     public static void cleanUp() throws Exception {
-        FileUtils.deleteDirectory(tmpDir);
+        for (File dir : tmpDirs) {
+            LOG.info("deleteTmpDir path {}", dir.getAbsolutePath());
+            FileUtils.deleteDirectory(dir);
+        }
     }
 
     private int findValidPort() {
@@ -97,12 +98,14 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         return port;
     }
 
+    // @RepeatedTest(100) only for debug
     @Test
     public void testNormal() throws Exception {
         int port = findValidPort();
         Preconditions.checkArgument(((port > 0) && (port < 65535)));
         String nodeName = Env.genFeNodeName("127.0.0.1", port, false);
         long replayedJournalId = 0;
+        File tmpDir = createTmpDir();
         new MockUp<Env>() {
             HostInfo selfNode = new HostInfo("127.0.0.1", port);
             @Mock
@@ -134,8 +137,19 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         LOG.info("BdbDir:{}, selfNode:{}, nodeName:{}", Env.getServingEnv().getBdbDir(),
                 Env.getServingEnv().getBdbDir(), nodeName);
         Assertions.assertEquals(tmpDir.getAbsolutePath(), Env.getServingEnv().getBdbDir());
-        Journal journal = new BDBJEJournal(nodeName);
+        BDBJEJournal journal = new BDBJEJournal(nodeName);
         journal.open();
+        // BDBEnvrinment need several seconds election from unknown to master
+        for (int i = 0; i < 10; i++) {
+            if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
+                    .equals(ReplicatedEnvironment.State.MASTER)) {
+                break;
+            }
+            Thread.sleep(1000);
+        }
+        Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
+                journal.getBDBEnvironment().getReplicatedEnvironment().getState());
+
         journal.rollJournal();
         for (int i = 0; i < 10; i++) {
             String data = "OperationType.OP_TIMESTAMP";
@@ -193,8 +207,21 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         }
 
         journal.close();
+        Assertions.assertEquals(null, journal.getBDBEnvironment());
 
         journal.open();
+        Assertions.assertTrue(journal.getBDBEnvironment() != null);
+        // BDBEnvrinment need several seconds election from unknown to master
+        for (int i = 0; i < 10; i++) {
+            if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
+                    .equals(ReplicatedEnvironment.State.MASTER)) {
+                break;
+            }
+            Thread.sleep(1000);
+        }
+
+        Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
+                journal.getBDBEnvironment().getReplicatedEnvironment().getState());
         journal.deleteJournals(21);
         LOG.info("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
         Assertions.assertEquals(3, journal.getDatabaseNames().size());
