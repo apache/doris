@@ -978,43 +978,6 @@ suite("test_stream_load_properties", "p0") {
         }
     }
     
-    // test read_json_by_line with enable_simdjson_read=true (default)
-    try {
-        sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
-        sql """
-            CREATE TABLE IF NOT EXISTS tbl_read_json_by_line (
-                id INT NOT NULL,
-                city VARCHAR(256) NULL,
-                code INT NULL
-            )
-            UNIQUE KEY(id)
-            DISTRIBUTED BY HASH(id) BUCKETS 5
-            PROPERTIES("replication_num" = "1");
-            """
-        streamLoad {
-            table "tbl_read_json_by_line"
-            set 'strict_mode', 'true'
-            set 'format', 'json'
-            set 'read_json_by_line', 'true'
-            file 'test_read_json_by_line.json'
-            time 10000
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-            }
-        }
-
-        sql "sync"
-        qt_test_read_json_by_line1 "SELECT * FROM tbl_read_json_by_line order by id"
-    } finally {
-        sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
-    }
-
     // test read_json_by_line with enable_simdjson_read=false (default)
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -1028,42 +991,53 @@ suite("test_stream_load_properties", "p0") {
             assertTrue(out.contains("OK"))
         }
     }
+
+    i = 0
     try {
-        set_be_param.call("enable_simdjson_reader", "false")  
-       
-        sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
-        sql """
-            CREATE TABLE IF NOT EXISTS tbl_read_json_by_line (
-                id INT NOT NULL,
-                city VARCHAR(256) NULL,
-                code INT NULL
-            )
-            UNIQUE KEY(id)
-            DISTRIBUTED BY HASH(id) BUCKETS 5
-            PROPERTIES("replication_num" = "1");
-            """
-        streamLoad {
-            table "tbl_read_json_by_line"
-            set 'strict_mode', 'true'
-            set 'format', 'json'
-            set 'read_json_by_line', 'true'
-            file 'test_read_json_by_line.json'
-            time 10000
+        set_be_param.call("enable_simdjson_reader", "false")
 
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'columns', columns[i]
+                set 'read_json_by_line', 'true'
+                if (i <= 3) {
+                    file json_by_line_files[0]
+                } else {
+                    file json_by_line_files[1]
                 }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-            }
-        }
+                time 10000 // limit inflight 10s
 
-        sql "sync"
-        qt_test_read_json_by_line2 "SELECT * FROM tbl_read_json_by_line order by id"
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            def tableName1 =  "stream_load_" + tableName
+            if (i <= 3) {
+                qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
     } finally {
-      set_be_param.call("enable_simdjson_reader", "true")
-      sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
+        set_be_param.call("enable_simdjson_reader", "true")
+
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
     }
 }
