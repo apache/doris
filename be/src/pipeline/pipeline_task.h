@@ -264,6 +264,7 @@ public:
         if (blocked) {
             DCHECK(!_blocked) << debug_string();
         } else {
+            _wake_stack_msg = get_stack_trace();
             DCHECK(_blocked) << debug_string();
         }
         _blocked = blocked;
@@ -379,6 +380,7 @@ protected:
     Status _collect_query_statistics();
     bool _collect_query_statistics_with_every_batch = false;
     std::string _stack_msg = "";
+    std::string _wake_stack_msg = "";
     Dependency* _wake_up_by = nullptr;
 
 private:

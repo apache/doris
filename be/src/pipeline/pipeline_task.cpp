@@ -427,9 +427,10 @@ void PipelineTask::set_state(PipelineTaskState state) {
     }
 
     if (state == PipelineTaskState::FINISHED) {
-        _stack_msg = get_stack_trace();
         _finish_p_dependency();
     }
+
+    _stack_msg = get_stack_trace();
 
     _cur_state = state;
 }
