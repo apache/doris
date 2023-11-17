@@ -118,6 +118,11 @@ suite("test_subquery") {
         contains("VAGGREGATE")
     }
 
+    explain {
+        sql """SELECT * FROM table_1000_undef_undef t1 WHERE t1.pk <= (SELECT COUNT(t2.pk) FROM table_1000_undef_undef2 t2 WHERE (t1.col_bigint_undef_signed = t2.col_bigint_undef_signed)); """
+        contains("ifnull")
+    }
+
     sql """DROP TABLE IF EXISTS table_1000_undef_undef"""
     sql """DROP TABLE IF EXISTS table_1000_undef_undef2"""
 
