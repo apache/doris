@@ -1480,6 +1480,9 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
             ++_json_stream_iterator;
             if (_json_stream_iterator != _json_stream.end()) {
                 *eof = false;
+            } else {
+                *eof = true;
+                return Status::OK();
             }
         }
     }
@@ -1505,11 +1508,12 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
     memcpy(&_simdjson_ondemand_padding_buffer.front(), json_str, *size);
     _original_doc_size = *size;
     simdjson::error_code error = simdjson::error_code::SUCCESS;
-    if (_line_reader != nullptr) {
-        error = _ondemand_json_parser->iterate_many(_simdjson_ondemand_padding_buffer)
-                        .get(_json_stream);
-        _json_stream_iterator = _json_stream.begin();
-        _original_json_doc = (*_json_stream_iterator).value();
+    if (_line_reader != nullptr || _strip_outer_array) {
+        error = _ondemand_json_parser
+                        ->iterate(std::string_view(_simdjson_ondemand_padding_buffer.data(), *size),
+                                  _padded_size)
+                        .get(_tmp_original_json_doc);
+        _original_json_doc = _tmp_original_json_doc;
     } else {
         if (!_is_json_stream_iterator_init) {
             error = _ondemand_json_parser->iterate_many(_simdjson_ondemand_padding_buffer)
