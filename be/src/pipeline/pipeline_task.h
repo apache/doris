@@ -159,8 +159,6 @@ public:
         return false;
     }
 
-    virtual bool pending_finish() { return _cur_state == PipelineTaskState::PENDING_FINISH; }
-
     virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
 
     virtual bool runtime_filters_are_ready_or_timeout() {
@@ -260,20 +258,6 @@ public:
     void set_parent_profile(RuntimeProfile* profile) { _parent_profile = profile; }
 
     virtual bool is_pipelineX() const { return false; }
-
-    void set_blocked(bool blocked) {
-        std::unique_lock<std::mutex> lc(_blocked_lock);
-        if (blocked) {
-            DCHECK(!_blocked) << debug_string();
-        } else {
-            _previous_wake_stack_msg = _wake_stack_msg;
-            _wake_stack_msg = get_stack_trace();
-            DCHECK(_blocked) << debug_string();
-        }
-        _blocked = blocked;
-    }
-
-    void wake_up_by_queue() { _wake_up_by = nullptr; }
 
     bool is_running() { return _running.load(); }
     void set_running(bool running) { _running = running; }
@@ -380,21 +364,12 @@ protected:
     std::shared_ptr<QueryStatistics> _query_statistics;
     Status _collect_query_statistics();
     bool _collect_query_statistics_with_every_batch = false;
-    std::string _stack_msg = "";
-    std::string _wake_stack_msg = "";
-    Dependency* _wake_up_by = nullptr;
-
-    std::string _previous_stack_msg = "";
-    std::string _previous_wake_stack_msg = "";
 
 private:
     Operators _operators; // left is _source, right is _root
     OperatorPtr _source;
     OperatorPtr _root;
     OperatorPtr _sink;
-
-    bool _blocked {false};
-    std::mutex _blocked_lock;
 
     std::atomic<bool> _running {false};
 };

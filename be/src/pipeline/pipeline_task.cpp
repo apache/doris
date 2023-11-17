@@ -391,7 +391,7 @@ QueryContext* PipelineTask::query_context() {
 
 // The FSM see PipelineTaskState's comment
 void PipelineTask::set_state(PipelineTaskState state) {
-    DCHECK(_cur_state != PipelineTaskState::FINISHED) << _stack_msg;
+    DCHECK(_cur_state != PipelineTaskState::FINISHED);
 
     if (_cur_state == state) {
         return;
@@ -429,9 +429,6 @@ void PipelineTask::set_state(PipelineTaskState state) {
     if (state == PipelineTaskState::FINISHED) {
         _finish_p_dependency();
     }
-
-    _previous_stack_msg = _stack_msg;
-    _stack_msg = get_stack_trace();
 
     _cur_state = state;
 }

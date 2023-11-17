@@ -40,7 +40,6 @@ void WriteDependency::add_write_block_task(PipelineXTask* task) {
     DCHECK(_write_blocked_task.empty() ||
            _write_blocked_task[_write_blocked_task.size() - 1] != task)
             << "Duplicate task: " << task->debug_string();
-    task->set_blocked(true);
     _write_blocked_task.push_back(task);
 }
 
@@ -48,7 +47,6 @@ void FinishDependency::add_block_task(PipelineXTask* task) {
     DCHECK(_finish_blocked_task.empty() ||
            _finish_blocked_task[_finish_blocked_task.size() - 1] != task)
             << "Duplicate task: " << task->debug_string();
-    task->set_blocked(true);
     _finish_blocked_task.push_back(task);
 }
 
@@ -59,7 +57,6 @@ void RuntimeFilterDependency::add_block_task(PipelineXTask* task) {
     DCHECK(_blocked_by_rf) << "It is not allowed: task: " << task->debug_string()
                            << " \n dependency: " << debug_string()
                            << " \n state: " << get_state_name(task->get_state());
-    task->set_blocked(true);
     _filter_blocked_task.push_back(task);
 }
 
@@ -137,7 +134,6 @@ Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready_for_read = _ready_for_read.load();
     if (!ready_for_read && task) {
-        task->set_use_blocking_queue(false);
         add_block_task(task);
     }
     return ready_for_read ? nullptr : this;
@@ -150,7 +146,6 @@ RuntimeFilterDependency* RuntimeFilterDependency::filter_blocked_by(PipelineXTas
     std::unique_lock<std::mutex> lc(_task_lock);
     if (*_blocked_by_rf) {
         if (LIKELY(task)) {
-            task->set_use_blocking_queue(false);
             add_block_task(task);
         }
         return this;
@@ -161,8 +156,6 @@ RuntimeFilterDependency* RuntimeFilterDependency::filter_blocked_by(PipelineXTas
 FinishDependency* FinishDependency::finish_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     if (!_ready_to_finish && task) {
-        task->set_is_pending_finish();
-        task->set_use_blocking_queue(false);
         add_block_task(task);
     }
     return _ready_to_finish ? nullptr : this;
@@ -172,7 +165,6 @@ WriteDependency* WriteDependency::write_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     const auto ready_for_write = _ready_for_write.load();
     if (!ready_for_write && task) {
-        task->set_use_blocking_queue(false);
         add_write_block_task(task);
     }
     return ready_for_write ? nullptr : this;
@@ -186,9 +178,6 @@ Dependency* OrDependency::read_blocked_by(PipelineXTask* task) {
             return nullptr;
         }
     }
-    if (task) {
-        task->set_use_blocking_queue(true);
-    }
     return this;
 }
 
@@ -199,9 +188,6 @@ WriteDependency* OrDependency::write_blocked_by(PipelineXTask* task) {
         if (cur_res == nullptr) {
             return nullptr;
         }
-    }
-    if (task) {
-        task->set_use_blocking_queue(true);
     }
     return this;
 }

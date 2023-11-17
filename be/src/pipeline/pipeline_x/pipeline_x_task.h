@@ -130,14 +130,16 @@ public:
     bool push_blocked_task_to_queue() {
         /**
          * Push task into blocking queue if:
-         * 1. This task is blocked (`_blocked_dep` is not nullptr) and `_use_blocking_queue` is true.
+         * 1. `_use_blocking_queue` is true.
          * 2. Or this task is blocked by FE two phase execution (BLOCKED_FOR_DEPENDENCY).
          */
         return _use_blocking_queue || get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
     }
-    bool pending_finish() override { return _is_pending_finish; }
-    void set_is_pending_finish() { _is_pending_finish = true; }
     void set_use_blocking_queue(bool use_blocking_queue) {
+        if (_blocked_dep->is_or_dep()) {
+            _use_blocking_queue = true;
+            return;
+        }
         _use_blocking_queue = use_blocking_queue;
     }
 
@@ -145,6 +147,7 @@ private:
     Dependency* _write_blocked_dependency() {
         _blocked_dep = _write_dependencies->write_blocked_by(this);
         if (_blocked_dep != nullptr) {
+            set_use_blocking_queue(false);
             static_cast<WriteDependency*>(_blocked_dep)->start_write_watcher();
             return _blocked_dep;
         }
@@ -155,7 +158,7 @@ private:
         for (auto* fin_dep : _finish_dependencies) {
             _blocked_dep = fin_dep->finish_blocked_by(this);
             if (_blocked_dep != nullptr) {
-                _is_pending_finish = true;
+                set_use_blocking_queue(false);
                 static_cast<FinishDependency*>(_blocked_dep)->start_finish_watcher();
                 return _blocked_dep;
             }
@@ -168,7 +171,7 @@ private:
             _blocked_dep = op_dep->read_blocked_by(this);
             if (_blocked_dep != nullptr) {
                 // TODO(gabriel):
-                _use_blocking_queue = true;
+                set_use_blocking_queue(true);
                 _blocked_dep->start_read_watcher();
                 return _blocked_dep;
             }
@@ -204,7 +207,6 @@ private:
     Dependency* _blocked_dep {nullptr};
 
     std::atomic<bool> _use_blocking_queue {true};
-    std::atomic<bool> _is_pending_finish {false};
 };
 
 } // namespace doris::pipeline

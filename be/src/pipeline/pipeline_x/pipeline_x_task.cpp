@@ -186,6 +186,7 @@ Status PipelineXTask::_open() {
                 _blocked_dep = _filter_dependency->filter_blocked_by(this);
                 if (_blocked_dep) {
                     set_state(PipelineTaskState::BLOCKED_FOR_RF);
+                    set_use_blocking_queue(false);
                     RETURN_IF_ERROR(st);
                 } else if (i == 1) {
                     CHECK(false) << debug_string();
@@ -336,46 +337,41 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
-    fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, state = {}, data state = {},\nstack : {},\n previous "
-                   "stack : {},\n wake stack : {},\n,previous wake stack : {},\n "
-                   "_wake_up_by = {}, "
-                   "dry run = {}]\noperators: ",
-                   (void*)this, get_state_name(_cur_state), (int)_data_state, _stack_msg,
-                   _previous_stack_msg, _wake_stack_msg, _previous_wake_stack_msg,
-                   (_wake_up_by ? _wake_up_by->debug_string() : "None"), _dry_run);
-    //    for (size_t i = 0; i < _operators.size(); i++) {
-    //        fmt::format_to(
-    //                debug_string_buffer, "\n{}",
-    //                _opened ? _operators[i]->debug_string(_state, i) : _operators[i]->debug_string(i));
-    //    }
-    //    fmt::format_to(debug_string_buffer, "\n{}",
-    //                   _opened ? _sink->debug_string(_state, _operators.size())
-    //                           : _sink->debug_string(_operators.size()));
-    //    fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
-    //    for (size_t i = 0; i < _read_dependencies.size(); i++) {
-    //        fmt::format_to(debug_string_buffer, "{}{}\n", std::string(i * 2, ' '),
-    //                       _read_dependencies[i]->debug_string());
-    //    }
-    //
-    //    fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");
-    //    fmt::format_to(debug_string_buffer, "{}\n", _write_dependencies->debug_string());
-    //
-    //    fmt::format_to(debug_string_buffer, "Runtime Filter Dependency Information: \n");
-    //    fmt::format_to(debug_string_buffer, "{}\n", _filter_dependency->debug_string());
-    //
-    //    fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
-    //    for (size_t i = 0; i < _finish_dependencies.size(); i++) {
-    //        fmt::format_to(debug_string_buffer, "{}{}\n", std::string(i * 2, ' '),
-    //                       _finish_dependencies[i]->debug_string());
-    //    }
+    fmt::format_to(
+            debug_string_buffer,
+            "PipelineTask[this = {}, state = {}, data state = {}, dry run = {}]\noperators: ",
+            (void*)this, get_state_name(_cur_state), (int)_data_state, _dry_run);
+    for (size_t i = 0; i < _operators.size(); i++) {
+        fmt::format_to(
+                debug_string_buffer, "\n{}",
+                _opened ? _operators[i]->debug_string(_state, i) : _operators[i]->debug_string(i));
+    }
+    fmt::format_to(debug_string_buffer, "\n{}",
+                   _opened ? _sink->debug_string(_state, _operators.size())
+                           : _sink->debug_string(_operators.size()));
+    fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
+    for (size_t i = 0; i < _read_dependencies.size(); i++) {
+        fmt::format_to(debug_string_buffer, "{}{}\n", std::string(i * 2, ' '),
+                       _read_dependencies[i]->debug_string());
+    }
+
+    fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");
+    fmt::format_to(debug_string_buffer, "{}\n", _write_dependencies->debug_string());
+
+    fmt::format_to(debug_string_buffer, "Runtime Filter Dependency Information: \n");
+    fmt::format_to(debug_string_buffer, "{}\n", _filter_dependency->debug_string());
+
+    fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
+    for (size_t i = 0; i < _finish_dependencies.size(); i++) {
+        fmt::format_to(debug_string_buffer, "{}{}\n", std::string(i * 2, ' '),
+                       _finish_dependencies[i]->debug_string());
+    }
     return fmt::to_string(debug_string_buffer);
 }
 
 void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
     // call by dependency
     VecDateTimeValue now = VecDateTimeValue::local_time();
-    set_blocked(false);
     // TODO(gabriel): task will never be wake up if canceled / timeout
     if (query_context()->is_cancelled()) {
         _make_run();

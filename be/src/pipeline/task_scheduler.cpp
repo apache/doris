@@ -82,7 +82,6 @@ Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
         // instead of using a separate BlockedTaskScheduler.
         return Status::OK();
     }
-    task->set_blocked(true);
     _blocked_tasks.push_back(task);
     _task_cond.notify_one();
     return Status::OK();
@@ -192,8 +191,6 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     auto task = *task_itr;
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
-    task->set_blocked(false);
-    task->wake_up_by_queue();
     static_cast<void>(task->get_task_queue()->push_back(task));
 }
 
@@ -243,7 +240,8 @@ void TaskScheduler::_do_work(size_t index) {
         signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
 
-        if (task->pending_finish()) {
+        auto state = task->get_state();
+        if (state == PipelineTaskState::PENDING_FINISH) {
             DCHECK(task->is_pipelineX() || !task->is_pending_finish())
                     << "must not pending close " << task->debug_string();
             Status exec_status = fragment_ctx->get_query_context()->exec_status();
@@ -253,8 +251,7 @@ void TaskScheduler::_do_work(size_t index) {
             continue;
         }
 
-        DCHECK(task->get_state() != PipelineTaskState::FINISHED &&
-               task->get_state() != PipelineTaskState::CANCELED)
+        DCHECK(state != PipelineTaskState::FINISHED && state != PipelineTaskState::CANCELED)
                 << "task already finish: " << task->debug_string();
 
         if (canceled) {
