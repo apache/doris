@@ -33,7 +33,6 @@ void Dependency::add_block_task(PipelineXTask* task) {
     if (!_blocked_task.empty() && _blocked_task[_blocked_task.size() - 1] == task) {
         return;
     }
-    task->set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
     _blocked_task.push_back(task);
 }
 
@@ -44,7 +43,6 @@ void WriteDependency::add_write_block_task(PipelineXTask* task) {
     DCHECK(!_ready_for_write) << "It is not allowed: task: " << task->debug_string()
                               << " \n dependency: " << debug_string()
                               << " \n state: " << get_state_name(task->get_state());
-    task->set_state(PipelineTaskState::BLOCKED_FOR_SINK);
     task->set_blocked(true);
     _write_blocked_task.push_back(task);
 }
@@ -56,7 +54,6 @@ void FinishDependency::add_block_task(PipelineXTask* task) {
     DCHECK(!_ready_to_finish) << "It is not allowed: task: " << task->debug_string()
                               << " \n dependency: " << debug_string()
                               << " \n state: " << get_state_name(task->get_state());
-    task->set_state(PipelineTaskState::PENDING_FINISH);
     task->set_blocked(true);
     _finish_blocked_task.push_back(task);
 }
@@ -68,7 +65,6 @@ void RuntimeFilterDependency::add_block_task(PipelineXTask* task) {
     DCHECK(_blocked_by_rf) << "It is not allowed: task: " << task->debug_string()
                            << " \n dependency: " << debug_string()
                            << " \n state: " << get_state_name(task->get_state());
-    task->set_state(PipelineTaskState::BLOCKED_FOR_RF);
     task->set_blocked(true);
     _filter_blocked_task.push_back(task);
 }

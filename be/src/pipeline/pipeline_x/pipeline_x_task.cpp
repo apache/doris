@@ -183,6 +183,7 @@ Status PipelineXTask::_open() {
         auto st = local_state->open(_state);
         if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
             _blocked_dep = _filter_dependency->filter_blocked_by(this);
+            set_state(PipelineTaskState::BLOCKED_FOR_RF);
             _push_blocked_task_to_dep();
         }
         RETURN_IF_ERROR(st);
@@ -223,6 +224,7 @@ Status PipelineXTask::execute(bool* eos) {
             return Status::OK();
         }
         if (!sink_can_write()) {
+            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             return Status::OK();
         }
     }
@@ -234,6 +236,7 @@ Status PipelineXTask::execute(bool* eos) {
             break;
         }
         if (!sink_can_write()) {
+            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
         if (time_spent > THREAD_TIME_SLICE) {

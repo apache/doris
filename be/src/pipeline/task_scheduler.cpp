@@ -193,6 +193,7 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
     task->set_blocked(false);
+    task->wake_up_by_queue();
     static_cast<void>(task->get_task_queue()->push_back(task));
 }
 
