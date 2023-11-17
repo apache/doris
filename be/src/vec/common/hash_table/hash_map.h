@@ -425,15 +425,15 @@ private:
         auto do_the_probe = [&]() {
             auto matched_cnt_old = matched_cnt;
             while (build_idx && matched_cnt < batch_size) {
-                bool mathced = false;
                 if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
                               JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
-                    mathced = !visited[build_idx] && keys[probe_idx] == build_keys[build_idx];
+                    if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
+                        build_idxs[matched_cnt++] = build_idx;
+                    }
                 } else {
-                    mathced = keys[probe_idx] == build_keys[build_idx];
+                    build_idxs[matched_cnt++] = build_idx;
+                    matched_cnt += keys[probe_idx] == build_keys[build_idx];
                 }
-                build_idxs[matched_cnt] = build_idx;
-                matched_cnt += mathced;
                 build_idx = next[build_idx];
             }
 
