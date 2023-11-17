@@ -37,6 +37,7 @@
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/data_dir.h"
+#include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer_v2.h"
