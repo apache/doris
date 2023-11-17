@@ -81,10 +81,7 @@ public:
     virtual void set_ready_for_read();
 
     // Notify downstream pipeline tasks this dependency is blocked.
-    virtual void block_reading() {
-        std::unique_lock<std::mutex> lc(_task_lock);
-        _ready_for_read = false;
-    }
+    virtual void block_reading() { _ready_for_read = false; }
 
     void set_parent(std::weak_ptr<Dependency> parent) { _parent = parent; }
 
@@ -142,18 +139,16 @@ public:
 
     [[nodiscard]] virtual WriteDependency* write_blocked_by(PipelineXTask* task) {
         std::unique_lock<std::mutex> lc(_task_lock);
-        if (!_ready_for_write && task) {
+        const auto ready_for_write = _ready_for_write.load();
+        if (!ready_for_write && task) {
             add_write_block_task(task);
         }
-        return _ready_for_write ? nullptr : this;
+        return ready_for_write ? nullptr : this;
     }
 
     virtual void set_ready_for_write();
 
-    virtual void block_writing() {
-        std::unique_lock<std::mutex> lc(_task_lock);
-        _ready_for_write = false;
-    }
+    virtual void block_writing() { _ready_for_write = false; }
 
     std::string debug_string(int indentation_level = 0) override;
     void add_write_block_task(PipelineXTask* task);
@@ -420,12 +415,10 @@ public:
     void block_writing() override {
         if (_is_streaming_agg_state()) {
             if (!_agg_state.data_queue->has_enough_space_to_push()) {
-                std::unique_lock<std::mutex> lc(_task_lock);
-                _ready_for_write = false;
+                WriteDependency::block_writing();
             }
         } else {
-            std::unique_lock<std::mutex> lc(_task_lock);
-            _ready_for_write = false;
+            WriteDependency::block_writing();
         }
     }
 

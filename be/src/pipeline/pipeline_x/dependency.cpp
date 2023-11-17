@@ -40,9 +40,6 @@ void WriteDependency::add_write_block_task(PipelineXTask* task) {
     DCHECK(_write_blocked_task.empty() ||
            _write_blocked_task[_write_blocked_task.size() - 1] != task)
             << "Duplicate task: " << task->debug_string();
-    DCHECK(!_ready_for_write) << "It is not allowed: task: " << task->debug_string()
-                              << " \n dependency: " << debug_string()
-                              << " \n state: " << get_state_name(task->get_state());
     task->set_blocked(true);
     _write_blocked_task.push_back(task);
 }
@@ -141,10 +138,11 @@ Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
     }
 
     std::unique_lock<std::mutex> lc(_task_lock);
-    if (!_ready_for_read && task) {
+    auto ready_for_read = _ready_for_read.load();
+    if (!ready_for_read && task) {
         add_block_task(task);
     }
-    return _ready_for_read ? nullptr : this;
+    return ready_for_read ? nullptr : this;
 }
 
 template Status HashJoinDependency::extract_join_column<true>(
