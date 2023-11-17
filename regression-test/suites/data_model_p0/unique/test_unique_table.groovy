@@ -34,7 +34,7 @@ suite("test_unique_table") {
                 date_value date
             )
             UNIQUE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
         """
     sql "insert into ${tbName} values(0, 1, 'test char', '2000-01-01')"
     sql "insert into ${tbName} values(0, 2, 'test int', '2000-02-02')"
@@ -55,7 +55,8 @@ suite("test_unique_table") {
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(`k1`) BUCKETS 3
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_merge_on_write" = "false"
         );
     """
     sql "SET show_hidden_columns=true"
