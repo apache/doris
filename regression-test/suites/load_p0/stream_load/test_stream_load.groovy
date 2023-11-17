@@ -1460,7 +1460,6 @@ suite("test_stream_load", "p0") {
 
     // test read_json_by_line
     sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
-
     sql """
         CREATE TABLE IF NOT EXISTS tbl_read_json_by_line (
             id INT NOT NULL,
@@ -1473,7 +1472,6 @@ suite("test_stream_load", "p0") {
         """
     streamLoad {
         table "tbl_read_json_by_line"
-
         set 'strict_mode', 'true'
         set 'format', 'json'
         set 'read_json_by_line', 'true'
@@ -1510,7 +1508,6 @@ suite("test_stream_load", "p0") {
     set_be_param.call("enable_simdjson_reader", "false")
 
     sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
-
     sql """
         CREATE TABLE IF NOT EXISTS tbl_read_json_by_line (
             id INT NOT NULL,
@@ -1523,7 +1520,6 @@ suite("test_stream_load", "p0") {
         """
     streamLoad {
         table "tbl_read_json_by_line"
-
         set 'strict_mode', 'true'
         set 'format', 'json'
         set 'read_json_by_line', 'true'
@@ -1542,7 +1538,7 @@ suite("test_stream_load", "p0") {
 
     sql "sync"
     qt_test_read_json_by_line2 "SELECT * FROM tbl_read_json_by_line order by id"
-    // restore default value
+    // restore to default value
     set_be_param.call("enable_simdjson_reader", "true")
 
 }
