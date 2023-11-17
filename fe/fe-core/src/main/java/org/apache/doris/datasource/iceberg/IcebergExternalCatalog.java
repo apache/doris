@@ -73,6 +73,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return icebergCatalogType;
     }
 
+    @Override
+    public void replayInitCatalog(InitCatalogLog log) {
+        super.replayInitCatalog(log);
+    }
+
     protected List<String> listDatabaseNames() {
         return nsCatalog.listNamespaces().stream()
             .map(e -> {
