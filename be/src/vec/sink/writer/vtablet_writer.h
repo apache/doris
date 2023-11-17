@@ -574,7 +574,6 @@ private:
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 
-
     TDataSink _t_sink;
 
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -679,6 +678,5 @@ private:
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
     std::shared_ptr<VWalWriter> _v_wal_writer = nullptr;
-
 };
 } // namespace doris::vectorized
