@@ -260,7 +260,7 @@ public class StringLiteral extends LiteralExpr {
                         return res;
                     } catch (Exception e) {
                         throw new AnalysisException(String.format(
-                                "input value can't parse to decimal, value=%s, reason=%s", value));
+                                "input value can't parse to decimal, value=%s", value));
                     }
                 default:
                     break;
