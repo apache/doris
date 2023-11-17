@@ -529,7 +529,7 @@ public:
         _union_state = union_state;
     }
 
-    [[nodiscard]] Dependency* read_blocked_by() override {
+    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
         if (_union_state->child_count() == 0) {
             return nullptr;
         }
