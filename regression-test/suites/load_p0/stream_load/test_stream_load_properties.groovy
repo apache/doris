@@ -977,4 +977,93 @@ suite("test_stream_load_properties", "p0") {
             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
         }
     }
+    
+    // test read_json_by_line with enable_simdjson_read=true (default)
+    try {
+        sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
+        sql """
+            CREATE TABLE IF NOT EXISTS tbl_read_json_by_line (
+                id INT NOT NULL,
+                city VARCHAR(256) NULL,
+                code INT NULL
+            )
+            UNIQUE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 5
+            PROPERTIES("replication_num" = "1");
+            """
+        streamLoad {
+            table "tbl_read_json_by_line"
+            set 'strict_mode', 'true'
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            file 'test_read_json_by_line.json'
+            time 10000
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+
+        sql "sync"
+        qt_test_read_json_by_line1 "SELECT * FROM tbl_read_json_by_line order by id"
+    } finally {
+        sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
+    }
+
+    // test read_json_by_line with enable_simdjson_read=false (default)
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    def set_be_param = { paramName, paramValue ->
+        // for eache be node, set paramName=paramValue
+        for (String id in backendId_to_backendIP.keySet()) {
+            def beIp = backendId_to_backendIP.get(id)
+            def bePort = backendId_to_backendHttpPort.get(id)
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assertTrue(out.contains("OK"))
+        }
+    }
+    try {
+        set_be_param.call("enable_simdjson_reader", "false")  
+       
+        sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
+        sql """
+            CREATE TABLE IF NOT EXISTS tbl_read_json_by_line (
+                id INT NOT NULL,
+                city VARCHAR(256) NULL,
+                code INT NULL
+            )
+            UNIQUE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 5
+            PROPERTIES("replication_num" = "1");
+            """
+        streamLoad {
+            table "tbl_read_json_by_line"
+            set 'strict_mode', 'true'
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            file 'test_read_json_by_line.json'
+            time 10000
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+
+        sql "sync"
+        qt_test_read_json_by_line2 "SELECT * FROM tbl_read_json_by_line order by id"
+    } finally {
+      set_be_param.call("enable_simdjson_reader", "true")
+      sql "DROP TABLE IF EXISTS tbl_read_json_by_line"
+    }
 }
