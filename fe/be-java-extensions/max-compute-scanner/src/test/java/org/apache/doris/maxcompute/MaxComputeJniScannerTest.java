@@ -53,10 +53,10 @@ public class MaxComputeJniScannerTest {
             put("partition_spec", "p1=2022-06");
             put("required_fields", "boolean,tinyint,smallint,int,bigint,float,double,"
                     + "date,timestamp,char,varchar,string,decimalv2,decimal64,"
-                    + "decimal18,timestamp4,datev1,datev2,datetimev1,datetimev2");
+                    + "decimal18,timestamp4,date");
             put("columns_types", "boolean#tinyint#smallint#int#bigint#float#double#"
                     + "date#timestamp#char(10)#varchar(10)#string#decimalv2(12,4)#decimal64(10,3)#"
-                    + "decimal(18,5)#timestamp(4)#datev1#datev2#datetimev1#datetimev2(4)");
+                    + "decimal(18,5)#timestamp(4)#date");
         }
     };
     private MaxComputeJniScanner scanner = new MaxComputeJniScanner(32, paramsMc);
