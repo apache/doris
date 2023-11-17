@@ -186,7 +186,6 @@ Status PipelineXTask::_open() {
                 _blocked_dep = _filter_dependency->filter_blocked_by(this);
                 if (_blocked_dep) {
                     set_state(PipelineTaskState::BLOCKED_FOR_RF);
-                    _push_blocked_task_to_dep();
                     RETURN_IF_ERROR(st);
                 } else if (i == 1) {
                     CHECK(false) << debug_string();
