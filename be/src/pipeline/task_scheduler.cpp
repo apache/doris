@@ -251,7 +251,6 @@ void TaskScheduler::_do_work(size_t index) {
             _try_close_task(task,
                             canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
                             exec_status);
-            task->set_running(false);
             continue;
         }
 
@@ -268,7 +267,6 @@ void TaskScheduler::_do_work(size_t index) {
             // fragment_ctx->send_report(true);
             Status cancel_status = fragment_ctx->get_query_context()->exec_status();
             _try_close_task(task, PipelineTaskState::CANCELED, cancel_status);
-            task->set_running(false);
             continue;
         }
 
@@ -304,7 +302,6 @@ void TaskScheduler::_do_work(size_t index) {
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.msg());
             _try_close_task(task, PipelineTaskState::CANCELED, status);
-            task->set_running(false);
             continue;
         }
         fragment_ctx->trigger_report_if_necessary();
@@ -335,7 +332,6 @@ void TaskScheduler::_do_work(size_t index) {
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
                                               task->fragment_context()->get_fragment_instance_id()),
                     get_state_name(task->get_state()));
-            task->set_running(false);
             continue;
         }
 
@@ -376,9 +372,11 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     } else if (!task->is_pipelineX() && task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
         static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
+        task->set_running(false);
         return;
     } else if (task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
+        task->set_running(false);
         return;
     }
     status = task->close(exec_status);
@@ -388,6 +386,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     task->set_state(state);
     task->set_close_pipeline_time();
     task->release_dependency();
+    task->set_running(false);
     task->fragment_context()->close_a_pipeline();
 }
 
