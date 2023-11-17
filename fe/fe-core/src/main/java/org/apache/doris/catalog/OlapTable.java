@@ -53,7 +53,6 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
-import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -620,6 +619,10 @@ public class OlapTable extends Table {
         return Status.OK;
     }
 
+    public int getIndexNumber() {
+        return indexIdToMeta.size();
+    }
+
     public Map<Long, MaterializedIndexMeta> getIndexIdToMeta() {
         return indexIdToMeta;
     }
@@ -766,6 +769,7 @@ public class OlapTable extends Table {
         defaultDistributionInfo.markAutoBucket();
     }
 
+    @Override
     public Set<String> getDistributionColumnNames() {
         Set<String> distributionColumnNames = Sets.newHashSet();
         if (defaultDistributionInfo instanceof RandomDistributionInfo) {
@@ -1098,11 +1102,29 @@ public class OlapTable extends Table {
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         if (info.analysisType.equals(AnalysisType.HISTOGRAM)) {
             return new HistogramTask(info);
-        }
-        if (info.analysisType.equals(AnalysisType.FUNDAMENTALS)) {
+        } else {
             return new OlapAnalysisTask(info);
         }
-        return new MVAnalysisTask(info);
+    }
+
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        if (tblStats == null) {
+            return true;
+        }
+        long rowCount = getRowCount();
+        // TODO: Do we need to analyze an empty table?
+        if (rowCount == 0) {
+            return false;
+        }
+        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toSet()))) {
+            return true;
+        }
+        long updateRows = tblStats.updatedRows.get();
+        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
+        return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
     }
 
     @Override
@@ -2283,23 +2305,15 @@ public class OlapTable extends Table {
         return dataSize;
     }
 
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        if (tblStats == null) {
-            return true;
-        }
-        long rowCount = getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
-        }
-        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
-                .stream()
-                .map(Column::getName)
-                .collect(Collectors.toSet()))) {
-            return true;
-        }
-        long updateRows = tblStats.updatedRows.get();
-        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < Config.table_stats_health_threshold;
+    public boolean isDistributionColumn(String columnName) {
+        Set<String> distributeColumns = getDistributionColumnNames()
+                .stream().map(String::toLowerCase).collect(Collectors.toSet());
+        return distributeColumns.contains(columnName.toLowerCase());
+    }
+
+    @Override
+    public boolean isPartitionColumn(String columnName) {
+        return getPartitionInfo().getPartitionColumns().stream()
+            .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
     }
 }

@@ -903,8 +903,6 @@ visible_functions = {
         [['datediff'], 'INT', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
         [['timediff'], 'TIME', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
 
-        [['str_to_date'], 'DATETIME', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['str_to_date'], 'DATETIME', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date', 'to_date'], 'DATE', ['DATETIME'], 'ALWAYS_NULLABLE'],
@@ -1068,6 +1066,8 @@ visible_functions = {
         [['datediff'], 'INT', ['DATEV2', 'DATEV2'], ''],
         [['timediff'], 'TIMEV2', ['DATEV2', 'DATEV2'], ''],
 
+        [['str_to_date'], 'DATETIMEV2', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['str_to_date'], 'DATETIMEV2', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date', 'to_date', 'datev2', 'to_datev2'], 'DATEV2', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
@@ -1778,7 +1778,8 @@ visible_functions = {
         [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_unquote'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
+        [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], 'ALWAYS_NULLABLE'],
+        [['json_extract'], 'STRING', ['STRING', 'STRING', '...'], 'ALWAYS_NULLABLE'],
         [['json_insert'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
         [['json_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
         [['json_set'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], '']
@@ -1848,10 +1849,7 @@ visible_functions = {
 
     # quantile_function
     "quantile" : [
-        [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
         [['to_quantile_state'], 'QUANTILE_STATE', ['DOUBLE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_quantile_state'], 'QUANTILE_STATE', ['FLOAT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_quantile_state'], 'QUANTILE_STATE', ['BIGINT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
         [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE']
     ],
 
@@ -1898,6 +1896,13 @@ visible_functions = {
         [['sm3sum'], 'VARCHAR', ['VARCHAR', '...'], ''],
         [['sm3'], 'VARCHAR', ['STRING'], ''],
         [['sm3sum'], 'VARCHAR', ['STRING', '...'], ''],
+
+        [['sha'], 'VARCHAR', ['VARCHAR'], ''],
+        [['sha'], 'VARCHAR', ['STRING'], ''],
+        [['sha1'], 'VARCHAR', ['VARCHAR'], ''],
+        [['sha1'], 'VARCHAR', ['STRING'], ''],
+        [['sha2'], 'VARCHAR', ['VARCHAR', 'INT'], ''],
+        [['sha2'], 'VARCHAR', ['STRING', 'INT'], ''],
     ],
 
     # geo functions

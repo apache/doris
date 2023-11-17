@@ -1,0 +1,9 @@
+-- https://github.com/apache/incubator-doris/issues/5188
+DROP DATABASE IF EXISTS issue_5188
+CREATE DATABASE issue_5188
+USE issue_5188
+create table tbl5 (k1 int, v1 varchar(32) max, v2 varchar(32) min) distributed by hash(k1) buckets 1 properties("replication_num" = "1")
+insert into tbl5 values(1, null, null)
+insert into tbl5 values(1, "a", "b")
+select max(v1), min(v2) from tbl5
+DROP DATABASE issue_5188

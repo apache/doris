@@ -73,8 +73,8 @@ suite("test_export_max_file_size", "p2") {
             insert into ${table_export_name}
             select * from hdfs(
             "uri" = "hdfs://${nameNodeHost}:${hdfsPort}${load_data_path}",
-            "fs.defaultFS" = "${fs}",
             "hadoop.username" = "${user_name}",
+            "column_separator" = ",",
             "format" = "csv");
         """
 
@@ -126,8 +126,8 @@ suite("test_export_max_file_size", "p2") {
                 insert into ${table_load_name}
                 select * from hdfs(
                 "uri" = "${outfile_url}${j}.csv",
-                "fs.defaultFS" = "${fs}",
                 "hadoop.username" = "${user_name}",
+                "column_separator" = ",",
                 "format" = "csv");
             """
         }

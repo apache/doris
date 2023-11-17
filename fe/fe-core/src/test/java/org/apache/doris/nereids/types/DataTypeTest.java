@@ -61,7 +61,6 @@ public class DataTypeTest {
     @Test
     void testConvertFromString() {
         // boolean
-        Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("bool"));
         Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("boolean"));
         // tinyint
         Assertions.assertEquals(TinyIntType.INSTANCE, DataType.convertFromString("tinyint"));
@@ -93,9 +92,6 @@ public class DataTypeTest {
 
         // varchar
         Assertions.assertEquals(VarcharType.createVarcharType(10), DataType.convertFromString("varchar(10)"));
-        // null
-        Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null"));
-        Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null_type"));
         // date
         Assertions.assertEquals(DateType.INSTANCE, DataType.convertFromString("date"));
         // datev2

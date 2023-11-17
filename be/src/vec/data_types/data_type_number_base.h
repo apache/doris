@@ -65,33 +65,39 @@ public:
 
     const char* get_family_name() const override { return TypeName<T>::get(); }
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
-    PrimitiveType get_type_as_primitive_type() const override {
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        // Doris does not support uint8 at present, use uint8 as boolean type
         if constexpr (std::is_same_v<TypeId<T>, TypeId<UInt8>>) {
-            return TYPE_BOOLEAN;
+            return TypeDescriptor(TYPE_BOOLEAN);
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
-            return TYPE_TINYINT;
+            return TypeDescriptor(TYPE_TINYINT);
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>>) {
-            return TYPE_SMALLINT;
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>> ||
+                      std::is_same_v<TypeId<T>, TypeId<UInt16>>) {
+            return TypeDescriptor(TYPE_SMALLINT);
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>>) {
-            return TYPE_INT;
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>> ||
+                      std::is_same_v<TypeId<T>, TypeId<UInt32>>) {
+            return TypeDescriptor(TYPE_INT);
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>>) {
-            return TYPE_BIGINT;
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>> ||
+                      std::is_same_v<TypeId<T>, TypeId<UInt64>>) {
+            return TypeDescriptor(TYPE_BIGINT);
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
-            return TYPE_LARGEINT;
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>> ||
+                      std::is_same_v<TypeId<T>, TypeId<Int128>>) {
+            return TypeDescriptor(TYPE_LARGEINT);
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
-            return TYPE_FLOAT;
+            return TypeDescriptor(TYPE_FLOAT);
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
-            return TYPE_DOUBLE;
+            return TypeDescriptor(TYPE_DOUBLE);
         }
-        return INVALID_TYPE;
+        return TypeDescriptor(INVALID_TYPE);
     }
+
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
             return TPrimitiveType::TINYINT;
@@ -148,8 +154,8 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeNumberSerDe<T>>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeNumberSerDe<T>>(nesting_level);
     };
 
 private:

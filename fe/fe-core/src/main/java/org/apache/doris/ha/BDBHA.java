@@ -163,6 +163,7 @@ public class BDBHA implements HAProtocol {
             return false;
         }
         try {
+            LOG.info("remove electable node: {}", nodeName);
             replicationGroupAdmin.removeMember(nodeName);
         } catch (MemberNotFoundException e) {
             LOG.error("the deleting electable node is not found {}", nodeName, e);
@@ -180,6 +181,7 @@ public class BDBHA implements HAProtocol {
             return false;
         }
         try {
+            LOG.info("update electable node {} with new host name: {}, port: {}", nodeName, newHostName, port);
             replicationGroupAdmin.updateAddress(nodeName, newHostName, port);
         } catch (MemberNotFoundException e) {
             LOG.error("the updating electable node is not found {}", nodeName, e);
@@ -214,8 +216,11 @@ public class BDBHA implements HAProtocol {
         unReadyElectableNodes.add(nodeName);
         ReplicatedEnvironment replicatedEnvironment = environment.getReplicatedEnvironment();
         if (replicatedEnvironment != null) {
+            int override = totalFollowerCount - unReadyElectableNodes.size();
+            LOG.info("set electable group size override to {}, total follower count: {}, add unready node: {}",
+                    override, totalFollowerCount, nodeName);
             replicatedEnvironment.setRepMutableConfig(new ReplicationMutableConfig()
-                    .setElectableGroupSizeOverride(totalFollowerCount - unReadyElectableNodes.size()));
+                    .setElectableGroupSizeOverride(override));
         }
     }
 
@@ -226,11 +231,16 @@ public class BDBHA implements HAProtocol {
             if (unReadyElectableNodes.isEmpty()) {
                 // Setting ElectableGroupSizeOverride to 0 means remove this config,
                 // and bdb will use the normal electable group size.
+                LOG.info("remove electable group size override, total follower count: {}, remove unready node: {}",
+                        totalFollowerCount, nodeName);
                 replicatedEnvironment.setRepMutableConfig(
                         new ReplicationMutableConfig().setElectableGroupSizeOverride(0));
             } else {
+                int override = totalFollowerCount - unReadyElectableNodes.size();
+                LOG.info("set electable group size override to {}, total follower count: {}, remove unready node: {}",
+                        override, totalFollowerCount, nodeName);
                 replicatedEnvironment.setRepMutableConfig(new ReplicationMutableConfig()
-                        .setElectableGroupSizeOverride(totalFollowerCount - unReadyElectableNodes.size()));
+                        .setElectableGroupSizeOverride(override));
             }
         }
     }

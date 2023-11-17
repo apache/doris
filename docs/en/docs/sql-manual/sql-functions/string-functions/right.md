@@ -1,6 +1,6 @@
 ---
 {
-    "title": "right",
+    "title": "RIGHT",
     "language": "en"
 }
 ---

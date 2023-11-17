@@ -53,6 +53,31 @@ suite("test_date_function") {
 
     sql """ truncate table ${tableName} """
 
+    // test convert_tz for datetimev2
+    def tableScale6 = "dtv2s6"
+    sql """ DROP TABLE IF EXISTS ${tableScale6} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableScale6} (
+                k1 datetimev2(6) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(k1)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(k1) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into ${tableScale6} values ("2019-08-01 13:21:03.000123"),("2019-08-01 13:21:03.123") """
+    // convert_tz
+    qt_sql """ SELECT k1, convert_tz(k1, 'Asia/Shanghai', 'America/Los_Angeles') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, '+08:00', 'America/Los_Angeles') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, 'Asia/Shanghai', 'Europe/London') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, '+08:00', 'Europe/London') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, '+08:00', 'America/London') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT convert_tz('2019-08-01 01:01:02.123' , '+00:00', '+07:00') """
+
     def timezoneCachedTableName = "test_convert_tz_with_timezone_cache"
     sql """ DROP TABLE IF EXISTS ${timezoneCachedTableName} """
     sql """
@@ -304,6 +329,7 @@ suite("test_date_function") {
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
     qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
+    qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
     qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2020-09-01")  """

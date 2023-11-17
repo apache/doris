@@ -177,5 +177,4 @@ public interface CatalogIf<T extends DatabaseIf> {
     public ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
 
     public boolean enableAutoAnalyze();
-
 }

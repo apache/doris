@@ -1528,14 +1528,17 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         std::map<TTabletId, TVersion> succ_tablets;
         // partition_id, tablet_id, publish_version
         std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
+        std::map<TTableId, int64_t> table_id_to_num_delta_rows;
         uint32_t retry_time = 0;
         Status status;
         bool is_task_timeout = false;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             succ_tablets.clear();
             error_tablet_ids.clear();
+            table_id_to_num_delta_rows.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
-                                                 &succ_tablets, &discontinuous_version_tablets);
+                                                 &succ_tablets, &discontinuous_version_tablets,
+                                                 &table_id_to_num_delta_rows);
             status = StorageEngine::instance()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
@@ -1620,7 +1623,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         finish_task_request.__set_succ_tablets(succ_tablets);
         finish_task_request.__set_error_tablet_ids(
                 std::vector<TTabletId>(error_tablet_ids.begin(), error_tablet_ids.end()));
-
+        finish_task_request.__set_table_id_to_delta_num_rows(table_id_to_num_delta_rows);
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
@@ -1880,9 +1883,10 @@ void CloneTaskPool::_clone_worker_thread_callback() {
             LOG_INFO("successfully clone tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", clone_req.tablet_id);
+            ++_s_report_version;
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
         }
-
+        finish_task_request.__set_report_version(_s_report_version);
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
@@ -1920,6 +1924,10 @@ void StorageMediumMigrateTaskPool::_storage_medium_migrate_worker_thread_callbac
         if (status.ok()) {
             EngineStorageMigrationTask engine_task(tablet, dest_store);
             status = _env->storage_engine()->execute_task(&engine_task);
+        }
+        // fe should ignore this err
+        if (status.is<FILE_ALREADY_EXIST>()) {
+            status = Status::OK();
         }
         if (!status.ok()) {
             LOG_WARNING("failed to migrate storage medium")
@@ -1983,8 +1991,9 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         *dest_store = stores[0];
     }
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
-        return Status::InternalError("tablet is already on specified path {}",
-                                     tablet->data_dir()->path());
+        LOG_WARNING("tablet is already on specified path").tag("path", tablet->data_dir()->path());
+        return Status::Error<FILE_ALREADY_EXIST, false>("tablet is already on specified path: {}",
+                                                        tablet->data_dir()->path());
     }
 
     // check local disk capacity
@@ -1993,7 +2002,6 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         return Status::InternalError("reach the capacity limit of path {}, tablet_size={}",
                                      (*dest_store)->path(), tablet_size);
     }
-
     return Status::OK();
 }
 

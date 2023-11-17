@@ -24,6 +24,7 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
+import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.tunnel.TableTunnel;
@@ -35,6 +36,7 @@ import com.google.gson.annotations.SerializedName;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
     private Odps odps;
@@ -93,15 +95,21 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         odps.setDefaultProject(defaultProject);
     }
 
-    public long getTotalRows(String project, String table) throws TunnelException {
+    public long getTotalRows(String project, String table, Optional<String> partitionSpec) throws TunnelException {
         makeSureInitialized();
         TableTunnel tunnel = new TableTunnel(odps);
         String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
         if (enablePublicAccess) {
             tunnelUrl = tunnelUrl.replace("-inc", "");
         }
+        TableTunnel.DownloadSession downloadSession;
         tunnel.setEndpoint(tunnelUrl);
-        return tunnel.createDownloadSession(project, table).getRecordCount();
+        if (!partitionSpec.isPresent()) {
+            downloadSession = tunnel.getDownloadSession(project, table, null);
+        } else {
+            downloadSession = tunnel.getDownloadSession(project, table, new PartitionSpec(partitionSpec.get()), null);
+        }
+        return downloadSession.getRecordCount();
     }
 
     public Odps getClient() {

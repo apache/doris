@@ -27,6 +27,7 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -138,6 +139,14 @@ public interface TableIf {
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
 
+    boolean needReAnalyzeTable(TableStatsMeta tblStats);
+
+    Map<String, Set<String>> findReAnalyzeNeededPartitions();
+
+    // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
+    // For HMS external table, the return result is a list of all the files' size.
+    List<Long> getChunkSizes();
+
     void write(DataOutput out) throws IOException;
 
     /**
@@ -239,15 +248,21 @@ public interface TableIf {
         return -1L;
     }
 
-    Map<String, Set<String>> findReAnalyzeNeededPartitions();
-
     default long getDataSize(boolean singleReplica) {
         // TODO: Each tableIf should impl it by itself.
         return 0;
     }
 
-    boolean needReAnalyzeTable(TableStatsMeta tblStats);
+    default boolean isDistributionColumn(String columnName) {
+        return false;
+    }
 
+    default boolean isPartitionColumn(String columnName) {
+        return false;
+    }
 
+    default Set<String> getDistributionColumnNames() {
+        return Sets.newHashSet();
+    }
 }
 

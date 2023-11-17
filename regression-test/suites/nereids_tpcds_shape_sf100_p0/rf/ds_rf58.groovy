@@ -97,7 +97,7 @@ suite("ds_rf58") {
 
     '''
     String plan = sql "${stmt}"
-    log.info(plan)
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -111,9 +111,9 @@ suite("ds_rf58") {
         }
     }
     
-    // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.58"
-    // File file = new File(outFile)
-    // file.write(getRuntimeFilters(plan))
+    //def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.58"
+    //File file = new File(outFile)
+    //file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF13[item_id->[i_item_id],RF12[i_item_sk->[cs_item_sk],RF11[d_date_sk->[cs_sold_date_sk],RF10[d_date->[d_date],RF9[d_week_seq->[d_week_seq],RF8[item_id->[i_item_id],RF7[i_item_sk->[ws_item_sk],RF6[d_date_sk->[ws_sold_date_sk],RF5[d_date->[d_date],RF4[d_week_seq->[d_week_seq],RF3[i_item_sk->[ss_item_sk],RF2[d_date_sk->[ss_sold_date_sk],RF1[d_date->[d_date],RF0[d_week_seq->[d_week_seq]", getRuntimeFilters(plan))
+    assertEquals("RF13[item_id->[i_item_id],RF12[cs_item_sk->[i_item_sk],RF11[d_date_sk->[cs_sold_date_sk],RF10[d_date->[d_date],RF9[d_week_seq->[d_week_seq],RF8[item_id->[i_item_id],RF7[ss_item_sk->[i_item_sk],RF6[d_date_sk->[ss_sold_date_sk],RF5[d_date->[d_date],RF4[d_week_seq->[d_week_seq],RF3[ws_item_sk->[i_item_sk],RF2[d_date_sk->[ws_sold_date_sk],RF1[d_date->[d_date],RF0[d_week_seq->[d_week_seq]", getRuntimeFilters(plan))
 }

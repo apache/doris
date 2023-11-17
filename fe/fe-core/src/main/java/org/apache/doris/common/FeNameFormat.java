@@ -30,12 +30,14 @@ import com.google.common.base.Strings;
 public class FeNameFormat {
     private static final String LABEL_REGEX = "^[-_A-Za-z0-9:]{1,128}$";
     private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]{0,63}$";
+    private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9-_]{0,63}$";
     private static final String TABLE_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]*$";
     private static final String USER_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9.-_]*$";
     private static final String COLUMN_NAME_REGEX = "^[_a-zA-Z@0-9\\s<>/][.a-zA-Z0-9_+-/><?@#$%^&*\"\\s,:]{0,255}$";
 
     private static final String UNICODE_LABEL_REGEX = "^[-_A-Za-z0-9:\\p{L}]{1,128}$";
     private static final String UNICODE_COMMON_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9-_\\p{L}]{0,63}$";
+    private static final String UNICODE_UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z\\p{L}][a-zA-Z0-9-_\\p{L}]{0,63}$";
     private static final String UNICODE_TABLE_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9-_\\p{L}]*$";
     private static final String UNICODE_USER_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9.-_\\p{L}]*$";
     private static final String UNICODE_COLUMN_NAME_REGEX
@@ -138,6 +140,12 @@ public class FeNameFormat {
         }
     }
 
+    public static void checkOutfileSuccessFileName(String type, String name) throws AnalysisException {
+        if (Strings.isNullOrEmpty(name) || !name.matches(getOutfileSuccessFileNameRegex())) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
+        }
+    }
+
     private static boolean isEnableUnicodeNameSupport() {
         boolean unicodeSupport;
         if (ConnectContext.get() != null) {
@@ -185,6 +193,14 @@ public class FeNameFormat {
             return UNICODE_COMMON_NAME_REGEX;
         } else {
             return COMMON_NAME_REGEX;
+        }
+    }
+
+    public static String getOutfileSuccessFileNameRegex() {
+        if (FeNameFormat.isEnableUnicodeNameSupport()) {
+            return UNICODE_UNDERSCORE_COMMON_NAME_REGEX;
+        } else {
+            return UNDERSCORE_COMMON_NAME_REGEX;
         }
     }
 }

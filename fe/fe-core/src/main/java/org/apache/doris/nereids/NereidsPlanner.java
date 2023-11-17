@@ -240,7 +240,7 @@ public class NereidsPlanner extends Planner {
             // if chooseNthPlan failed, we could get memo to debug
             if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
                 String memo = cascadesContext.getMemo().toString();
-                LOG.info(memo);
+                LOG.info(ConnectContext.get().getQueryIdentifier() + "\n" + memo);
             }
 
             int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
@@ -249,7 +249,7 @@ public class NereidsPlanner extends Planner {
             physicalPlan = postProcess(physicalPlan);
             if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
                 String tree = physicalPlan.treeString();
-                LOG.info(tree);
+                LOG.info(ConnectContext.get().getQueryIdentifier() + "\n" + tree);
             }
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
                     || explainLevel == ExplainLevel.ALL_PLAN
@@ -280,22 +280,28 @@ public class NereidsPlanner extends Planner {
     }
 
     private void analyze() {
+        LOG.info("Start analyze plan");
         cascadesContext.newAnalyzer().analyze();
         NereidsTracer.logImportantTime("EndAnalyzePlan");
+        LOG.info("End analyze plan");
     }
 
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
+        LOG.info("Start rewrite plan");
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndRewritePlan");
+        LOG.info("End rewrite plan");
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
     private void optimize() {
+        LOG.info("Start optimize plan");
         new Optimizer(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndOptimizePlan");
+        LOG.info("End optimize plan");
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
@@ -468,10 +474,11 @@ public class NereidsPlanner extends Planner {
         List<String> data = Lists.newArrayList();
         for (int i = 0; i < physicalOneRowRelation.getProjects().size(); i++) {
             NamedExpression item = physicalOneRowRelation.getProjects().get(i);
+            NamedExpression output = physicalPlan.getOutput().get(i);
             Expression expr = item.child(0);
             if (expr instanceof Literal) {
                 LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
-                columns.add(new Column(item.getName(), item.getDataType().toCatalogDataType()));
+                columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
                 super.handleLiteralInFe(legacyExpr, data);
             } else {
                 return Optional.empty();

@@ -147,8 +147,7 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
     std::vector<RowsetSharedPtr> tmp_rowsets {};
 
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+    if (_tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
                   << _tablet->tablet_id();
         return Status::OK();

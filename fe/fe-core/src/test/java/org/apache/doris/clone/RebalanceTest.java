@@ -90,6 +90,7 @@ public class RebalanceTest {
 
     @Before
     public void setUp() throws Exception {
+        FeConstants.runningUnitTest = true;
         db = new Database(1, "test db");
         db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         new Expectations() {

@@ -106,7 +106,7 @@ public class JoinExchangeBothProject extends OneExplorationRuleFactory {
                     JoinExchange.setNewTopJoinReorder(newTopJoin, topJoin);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
-                }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
+                }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE_BOTH_PROJECT);
     }
 
     /**

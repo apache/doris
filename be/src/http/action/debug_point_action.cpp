@@ -21,6 +21,7 @@
 #include "http/http_channel.h"
 #include "http/http_status.h"
 #include "util/debug_points.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -43,17 +44,16 @@ void BaseDebugPointAction::handle(HttpRequest* req) {
 }
 
 Status AddDebugPointAction::_handle(HttpRequest* req) {
-    std::string debug_point = req->param("debug_point");
+    std::string name = req->param("debug_point");
     std::string execute = req->param("execute");
     std::string timeout = req->param("timeout");
-    if (debug_point.empty()) {
+    if (name.empty()) {
         return Status::InternalError("Empty debug point name");
     }
-    int64_t execute_limit = -1;
-    int64_t timeout_second = -1;
+    auto debug_point = std::make_shared<DebugPoint>();
     try {
         if (!execute.empty()) {
-            execute_limit = std::stol(execute);
+            debug_point->execute_limit = std::stol(execute);
         }
     } catch (const std::exception& e) {
         return Status::InternalError("Invalid execute limit format, execute {}, err {}", execute,
@@ -61,14 +61,19 @@ Status AddDebugPointAction::_handle(HttpRequest* req) {
     }
     try {
         if (!timeout.empty()) {
-            timeout_second = std::stol(timeout);
+            int64_t timeout_second = std::stol(timeout);
+            if (timeout_second > 0) {
+                debug_point->expire_ms = MonotonicMillis() + timeout_second * MILLIS_PER_SEC;
+            }
         }
     } catch (const std::exception& e) {
         return Status::InternalError("Invalid timeout format, timeout {}, err {}", timeout,
                                      e.what());
     }
 
-    DebugPoints::instance()->add(debug_point, execute_limit, timeout_second);
+    debug_point->params = *(req->params());
+
+    DebugPoints::instance()->add(name, debug_point);
 
     return Status::OK();
 }

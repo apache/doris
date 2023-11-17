@@ -556,7 +556,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return Optional.empty();
     }
 
-    public void analyze(String dbName) {
+    public void analyze(String dbName) {}
+
+    @Override
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        return true;
     }
 
     @Override
@@ -565,7 +569,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        return true;
+    public List<Long> getChunkSizes() {
+        throw new NotImplementedException("getChunkSized not implemented");
     }
 }

@@ -453,7 +453,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
                    << ", schema_hash=" << schema_hash();
     }
     auto t3 = MonotonicMicros();
-    auto cost =  t3 - t1;
+    auto cost = t3 - t1;
     if (cost > 1 * 1000 * 1000) {
         LOG(INFO) << "save tablet(" << full_name() << ") meta too slow. serialize cost " << t2 - t1
                   << "(us), serialized binary size: " << meta_binary.length()
@@ -765,11 +765,6 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
                 ++it;
             }
         }
-        // delete delete_bitmap of to_delete's rowsets if not added to _stale_rs_metas.
-        if (same_version && _enable_unique_key_merge_on_write) {
-            delete_bitmap().remove({rs_to_del->rowset_id(), 0, 0},
-                                   {rs_to_del->rowset_id(), UINT32_MAX, 0});
-        }
     }
     if (!same_version) {
         // put to_delete rowsets in _stale_rs_metas.
@@ -842,30 +837,6 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
         }
     }
     return nullptr;
-}
-
-const std::vector<RowsetMetaSharedPtr> TabletMeta::delete_predicates() const {
-    std::vector<RowsetMetaSharedPtr> res;
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->has_delete_predicate()) {
-            res.push_back(del_pred);
-        }
-    }
-    return res;
-}
-
-bool TabletMeta::version_for_delete_predicate(const Version& version) {
-    if (version.first != version.second) {
-        return false;
-    }
-
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->version().first == version.first && del_pred->has_delete_predicate()) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 std::string TabletMeta::full_name() const {

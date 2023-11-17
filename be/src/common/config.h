@@ -80,7 +80,7 @@
 namespace doris {
 class Status;
 
-// If you want to modify the value of config, please go to common/config.cpp to modify.
+// If you want to modify the value of the config, please go to common/config.cpp to modify.
 namespace config {
 // Dir of custom config file
 DECLARE_String(custom_config_dir);
@@ -326,7 +326,7 @@ DECLARE_mString(broken_storage_path);
 // and exit. When config is false, process will only log warning.
 DECLARE_Bool(storage_strict_check_incompatible_old_format);
 
-// BE process will exit if the percentage of error disk reach this value.
+// BE process will exit if the percentage of error disk reaches this value.
 DECLARE_mInt32(max_percentage_of_error_disk);
 DECLARE_mInt32(default_num_rows_per_column_file_block);
 // pending data policy
@@ -348,6 +348,7 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // minimum file descriptor number
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
+DECLARE_mBool(disable_segment_cache);
 DECLARE_Int64(index_stream_cache_capacity);
 DECLARE_String(row_cache_mem_limit);
 
@@ -362,7 +363,7 @@ DECLARE_Int32(index_page_cache_percentage);
 // whether to disable page cache feature in storage
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
-DECLARE_Bool(disable_storage_row_cache);
+DECLARE_mBool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
@@ -941,7 +942,7 @@ DECLARE_mInt64(file_cache_max_size_per_disk); // zero for no limit
 DECLARE_Int32(s3_transfer_executor_pool_size);
 
 DECLARE_Bool(enable_time_lut);
-DECLARE_Bool(enable_simdjson_reader);
+DECLARE_mBool(enable_simdjson_reader);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
 // number of s3 scanner thread pool size
@@ -996,7 +997,7 @@ DECLARE_Bool(enable_fuzzy_mode);
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
-DECLARE_mInt16(pipeline_short_query_timeout_s);
+DECLARE_mBool(enable_workload_group_for_scan);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -1140,6 +1141,21 @@ DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 
 // Use `LOG(FATAL)` to replace `throw` when true
 DECLARE_mBool(exit_on_exception);
+
+// Remove predicate that is always true for a segment.
+DECLARE_Bool(ignore_always_true_predicate_for_segment);
+
+// Dir of default timezone files
+DECLARE_String(default_tzfiles_path);
+
+// the max package bytes be thrift server can receive
+// avoid accepting error or too large package causing OOM,default 20000000(20M)
+DECLARE_Int32(be_thrift_max_pkg_bytes);
+// Ingest binlog work pool size
+DECLARE_Int32(ingest_binlog_work_pool_size);
+
+// Download binlog rate limit, unit is KB/s
+DECLARE_Int32(download_binlog_rate_limit_kbs);
 
 #ifdef BE_TEST
 // test s3

@@ -16,13 +16,14 @@ PhysicalResultSink
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN](store.s_store_sk = store_sales.ss_store_sk)
---------------------------------hashJoin[INNER_JOIN](d1.d_date_sk = store_sales.ss_sold_date_sk)
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales]
-----------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN](d1.d_date_sk = store_sales.ss_sold_date_sk)
 ------------------------------------PhysicalProject
---------------------------------------filter((d1.d_month_seq <= 1224)(d1.d_month_seq >= 1213))
-----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------filter((d1.d_month_seq <= 1224)(d1.d_month_seq >= 1213))
+------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[LEFT_SEMI_JOIN](store.s_state = tmp1.s_state)
 ------------------------------------PhysicalDistribute

@@ -23,10 +23,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
@@ -242,11 +242,11 @@ public class OutFileClause {
                 fileFormatType = TFileFormatType.FORMAT_ORC;
                 break;
             case "csv_with_names":
-                headerType = FeConstants.csv_with_names;
+                headerType = FileFormatConstants.FORMAT_CSV_WITH_NAMES;
                 fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;
             case "csv_with_names_and_types":
-                headerType = FeConstants.csv_with_names_and_types;
+                headerType = FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES;
                 fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;
             default:
@@ -653,7 +653,7 @@ public class OutFileClause {
 
         if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
             successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
-            FeNameFormat.checkCommonName("file name", successFileName);
+            FeNameFormat.checkOutfileSuccessFileName("file name", successFileName);
             processedPropKeys.add(PROP_SUCCESS_FILE_NAME);
         }
 
