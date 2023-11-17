@@ -69,10 +69,6 @@ class VExprContext;
 struct SharedRuntimeFilterContext;
 } // namespace vectorized
 
-namespace pipeline {
-class RuntimeFilterTimer;
-} // namespace pipeline
-
 enum class RuntimeFilterType {
     UNKNOWN_FILTER = -1,
     IN_FILTER = 0,
@@ -409,8 +405,6 @@ public:
 
     int64_t registration_time() const { return registration_time_; }
 
-    void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
-
 protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
@@ -505,8 +499,6 @@ protected:
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
     bool _opt_remote_rf;
-
-    std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 };
 
 // avoid expose RuntimePredicateWrapper
