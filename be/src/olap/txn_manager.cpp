@@ -44,6 +44,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_publish_version_task.h"
+#include "util/debug_points.h"
 #include "util/time.h"
 
 namespace doris {
