@@ -781,7 +781,11 @@
                             "label": "IP Functions",
                             "items": [
                                 "sql-manual/sql-functions/ip-functions/ipv4-num-to-string",
-                                "sql-manual/sql-functions/ip-functions/inet-ntoa"
+                                "sql-manual/sql-functions/ip-functions/inet-ntoa",
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num",
+                                "sql-manual/sql-functions/ip-functions/inet-aton",
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-default",
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-null"
                             ]
                         },
                         {
