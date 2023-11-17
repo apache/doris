@@ -18,6 +18,7 @@
 #include "dependency.h"
 
 #include "runtime/memory/mem_tracker.h"
+#include "vec/exec/runtime_filter_consumer.h"
 
 namespace doris::pipeline {
 
@@ -324,6 +325,16 @@ Status HashJoinDependency::extract_join_column(vectorized::Block& block,
         }
     }
     return Status::OK();
+}
+
+FilterDependency* FilterDependency::filter_blocked_by() {
+    if (!_runtimeFilterConsumer) {
+        return nullptr;
+    }
+    if (!_runtimeFilterConsumer->runtime_filters_are_ready_or_timeout()) {
+        return this;
+    }
+    return nullptr;
 }
 
 } // namespace doris::pipeline
