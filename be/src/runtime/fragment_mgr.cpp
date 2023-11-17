@@ -797,6 +797,24 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     return Status::OK();
 }
 
+std::string FragmentMgr::dump_pipeline_tasks() {
+    fmt::memory_buffer debug_string_buffer;
+    auto t = MonotonicNanos();
+    size_t i = 0;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
+                       _pipeline_map.size());
+        for (auto& it : _pipeline_map) {
+            fmt::format_to(debug_string_buffer, "No.{} (elapse time = {}, InstanceId = {}) : {}\n",
+                           i, t - it.second->create_time(), print_id(it.first),
+                           it.second->debug_string());
+            i++;
+        }
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const FinishCallback& cb) {
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
