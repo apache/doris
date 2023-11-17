@@ -44,16 +44,16 @@ PROPERTIES ("key"="value", ...)
 
 ## 参数说明
 
-| 参数                      | 必须 | 默认值  | 说明                                                                                          |
-|---------------------------|-----|---------|---------------------------------------------------------------------------------------------|
-| `user`                    | 是   |         | 对应数据库的用户名                                                                            |
-| `password`                | 是   |         | 对应数据库的密码                                                                              |
-| `jdbc_url`                | 是   |         | JDBC 连接串                                                                                   |
-| `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                                        |
-| `driver_class`            | 是   |         | JDBC Driver Class 名称                                                                        |
-| `lower_case_table_names`  | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名                                                |
-| `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                                 |
-| `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。         |
+| 参数                      | 必须 | 默认值  | 说明                                                                    |
+|---------------------------|-----|---------|-----------------------------------------------------------------------|
+| `user`                    | 是   |         | 对应数据库的用户名                                                             |
+| `password`                | 是   |         | 对应数据库的密码                                                              |
+| `jdbc_url`                | 是   |         | JDBC 连接串                                                              |
+| `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                   |
+| `driver_class`            | 是   |         | JDBC Driver Class 名称                                                  |
+| `lower_case_table_names`  | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名以及列名                                         |
+| `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                   |
+| `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。     |
 | `exclude_database_list`   | 否   | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
 
 ### 驱动包路径
@@ -68,7 +68,7 @@ PROPERTIES ("key"="value", ...)
 
 ### 小写表名同步
 
-当 `lower_case_table_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，能够查询非小写的数据库和表
+当 `lower_case_table_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，能够查询非小写的数据库和表以及列
 
 **注意：**
 
@@ -78,9 +78,9 @@ PROPERTIES ("key"="value", ...)
 
     对于其他数据库，仍需要在查询时指定真实的库名和表名。
 
-2. 在 Doris 2.0.3 及之后的版本，对所有的数据库都有效，在查询时，会将所有的库名和表名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
+2. 在 Doris 2.0.3 及之后的版本，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
 
-    但是，如果数据库或者表名只有大小写不同，例如 `Doris` 和 `doris`，则 Doris 由于歧义而无法查询它们。
+    但是，如果库名、表名或列名只有大小写不同，例如 `Doris` 和 `doris`，则 Doris 由于歧义而无法查询它们。
 
 3. 当 FE 参数的 `lower_case_table_names` 设置为 `1` 或 `2` 时，JDBC Catalog 的 `lower_case_table_names` 参数必须设置为 `true`。如果 FE 参数的 `lower_case_table_names` 设置为 `0`，则 JDBC Catalog 的参数可以为 `true` 或 `false`，默认为 `false`。这确保了 Doris 在处理内部和外部表配置时的一致性和可预测性。
 
@@ -114,7 +114,7 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 
 1. 当执行类似于 `where dt = '2022-01-01'` 这样的查询时，Doris 能够将这些过滤条件下推到外部数据源，从而直接在数据源层面排除不符合条件的数据，减少了不必要的数据获取和传输。这大大提高了查询性能，同时也降低了对外部数据源的负载。
    
-2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL，如遇到 MySQL 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数进行下推条件过滤，可通过 explain sql 查看。
+2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL 以及 ClickHouse，如遇到 MySQL 或 ClickHouse 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数以及 CLickHouse 支持的函数进行下推条件过滤，可通过 explain sql 查看。
 
 目前不会下推的函数有：
 
@@ -122,6 +122,13 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 |:------------:|
 |  DATE_TRUNC  |
 | MONEY_FORMAT |
+
+目前会下推的函数有：
+
+|   ClickHouse   |
+|:--------------:|
+| FROM_UNIXTIME  |
+| UNIX_TIMESTAMP |
 
 ### 行数限制
 
