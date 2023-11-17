@@ -2670,8 +2670,9 @@ public class SessionVariable implements Serializable, Writable {
      **/
     public void setForwardedSessionVariables(Map<String, String> variables) {
         try {
-            Field[] fields = SessionVariable.class.getFields();
+            Field[] fields = SessionVariable.class.getDeclaredFields();
             for (Field f : fields) {
+                f.setAccessible(true);
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
                 if (varAttr == null || !varAttr.needForward()) {
                     continue;
