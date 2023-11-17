@@ -30,7 +30,8 @@ suite("q12") {
 
 
     
-sql 'set be_number_for_test=3'
+sql 'set be_number_for_test=3'|
+sql "set enable_runtime_filter_prune=false'
     
     qt_select """
     explain shape plan
