@@ -24,6 +24,8 @@ const static std::string AGG_MERGE_SUFFIX = "_merge";
 
 class AggregateStateMerge : public AggregateStateUnion {
 public:
+    using AggregateStateUnion::create;
+
     AggregateStateMerge(AggregateFunctionPtr function, const DataTypes& argument_types,
                         const DataTypePtr& return_type)
             : AggregateStateUnion(function, argument_types, return_type) {}

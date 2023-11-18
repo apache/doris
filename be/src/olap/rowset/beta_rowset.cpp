@@ -245,7 +245,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
         //     use copy? or keep refcount to avoid being delete?
         if (!local_fs->link_file(src_path, dst_path).ok()) {
             return Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
-                                           src_path, dst_path);
+                                           src_path, dst_path, Errno::no());
         }
         for (auto& index : _schema->indexes()) {
             if (index.index_type() != IndexType::INVERTED) {
@@ -286,7 +286,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
 }
 
 Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
-    if (is_local() && num_segments() > 0) [[unlikely]] {
+    if (!is_local() && num_segments() > 0) [[unlikely]] {
         DCHECK(false) << rowset_id();
         return Status::NotSupported("cannot copy remote files, rowset_id={}",
                                     rowset_id().to_string());

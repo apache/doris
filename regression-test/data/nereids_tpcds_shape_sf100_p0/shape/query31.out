@@ -8,14 +8,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store_sales]
---------------------PhysicalDistribute
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
 ----------------------PhysicalProject
-------------------------filter(d_qoy IN (1, 2, 3)(ss.d_year = 2000))
---------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalOlapScan[store_sales]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter(d_qoy IN (1, 2, 3)(ss.d_year = 2000))
+----------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[customer_address]

@@ -85,9 +85,9 @@ public:
                 "RowsetWriter not support flush_single_memtable");
     }
 
-    // finish building and return pointer to the built rowset (guaranteed to be inited).
-    // return nullptr when failed
-    virtual RowsetSharedPtr build() = 0;
+    // finish building and set rowset pointer to the built rowset (guaranteed to be inited).
+    // rowset is invalid if returned Status is not OK
+    virtual Status build(RowsetSharedPtr& rowset) = 0;
 
     // we have to load segment data to build delete_bitmap for current segment,
     // so we  build a tmp rowset ptr to load segment data.
@@ -121,6 +121,10 @@ public:
 
     virtual vectorized::schema_util::LocalSchemaChangeRecorder*
     mutable_schema_change_recorder() = 0;
+
+    virtual std::shared_ptr<PartialUpdateInfo> get_partial_update_info() = 0;
+
+    virtual bool is_partial_update() = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

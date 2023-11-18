@@ -232,8 +232,8 @@ message TabletSchemaPB {
     optional int32 version_col_idx = 17 [default = -1];
     optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
     optional bool is_dynamic_schema = 19 [default=false];
-    optional bool is_partial_update = 20 [default=false];
-    repeated string partial_update_input_columns = 21;
+    optional bool is_partial_update = 20 [default=false]; // deprecated
+    repeated string partial_update_input_columns = 21; // deprecated
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
 }

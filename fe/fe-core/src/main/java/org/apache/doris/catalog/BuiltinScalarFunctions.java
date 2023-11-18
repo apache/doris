@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
@@ -279,6 +281,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondTimesta
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Size;
@@ -459,7 +463,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(CurrentDate.class, "curdate", "current_date"),
             scalar(CurrentTime.class, "curtime", "current_time"),
             scalar(CurrentUser.class, "current_user"),
-            scalar(Database.class, "database"),
+            scalar(Database.class, "database", "schema"),
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),
             scalar(DateFormat.class, "date_format"),
@@ -558,6 +562,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Least.class, "least"),
             scalar(Left.class, "left"),
             scalar(Length.class, "length"),
+            scalar(Like.class, "like"),
             scalar(Ln.class, "ln"),
             scalar(Locate.class, "locate"),
             scalar(Log.class, "log"),
@@ -614,6 +619,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Quarter.class, "quarter"),
             scalar(Radians.class, "radians"),
             scalar(Random.class, "rand", "random"),
+            scalar(Regexp.class, "regexp"),
             scalar(RegexpExtract.class, "regexp_extract"),
             scalar(RegexpExtractAll.class, "regexp_extract_all"),
             scalar(RegexpReplace.class, "regexp_replace"),
@@ -640,6 +646,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SecondTimestamp.class, "second_timestamp"),
             scalar(MilliSecondTimestamp.class, "millisecond_timestamp"),
             scalar(MicroSecondTimestamp.class, "microsecond_timestamp"),
+            scalar(Sha1.class, "sha1", "sha"),
+            scalar(Sha2.class, "sha2"),
             scalar(Sign.class, "sign"),
             scalar(Sin.class, "sin"),
             scalar(Size.class, "size"),

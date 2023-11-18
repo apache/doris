@@ -191,8 +191,6 @@ public:
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
-    const std::vector<RowsetMetaSharedPtr> delete_predicates() const;
-    bool version_for_delete_predicate(const Version& version);
 
     std::string full_name() const;
 

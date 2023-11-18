@@ -71,7 +71,7 @@ struct DecodeParams {
     static const cctz::time_zone utc0;
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set the time zone
     cctz::time_zone* ctz = nullptr;
-    size_t offset_days = 0;
+    int32_t offset_days = 0;
     int64_t second_mask = 1;
     int64_t scale_to_nano_factor = 1;
     DecimalScaleParams decimal_scale;

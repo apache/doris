@@ -30,6 +30,7 @@
 #include "io/fs/file_reader.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
+#include "olap/comparison_predicate.h"
 #include "olap/decimal12.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
@@ -86,6 +87,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
             // not support empty struct
             DCHECK(meta.children_columns_size() >= 1);
+            num_rows = meta.children_columns(0).num_rows();
             // create struct column reader
             std::unique_ptr<ColumnReader> struct_reader(
                     new ColumnReader(opts, meta, num_rows, file_reader));
@@ -337,6 +339,31 @@ bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates
 
     return _zone_map_match_condition(*_segment_zone_map, min_value.get(), max_value.get(),
                                      col_predicates);
+}
+
+bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                                const int column_id) const {
+    if (_zone_map_index == nullptr) {
+        return false;
+    }
+
+    FieldType type = _type_info->type();
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    _parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get());
+
+    auto pruned = false;
+    for (auto it = predicates.begin(); it != predicates.end();) {
+        auto predicate = *it;
+        if (predicate->column_id() == column_id &&
+            predicate->is_always_true({min_value.get(), max_value.get()})) {
+            pruned = true;
+            it = predicates.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    return pruned;
 }
 
 void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,

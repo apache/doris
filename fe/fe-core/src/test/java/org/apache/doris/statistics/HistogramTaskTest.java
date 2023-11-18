@@ -17,14 +17,21 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.util.DBObjects;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -42,9 +49,6 @@ import java.util.concurrent.ConcurrentMap;
 
 @FixMethodOrder(value = MethodSorters.NAME_ASCENDING)
 public class HistogramTaskTest extends TestWithFeService {
-
-    @Mocked
-    AnalysisTaskScheduler analysisTaskScheduler;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -88,18 +92,33 @@ public class HistogramTaskTest extends TestWithFeService {
             for (Entry<Long, BaseAnalysisTask> infoEntry : taskInfo.entrySet()) {
                 BaseAnalysisTask task = infoEntry.getValue();
                 Assertions.assertEquals(AnalysisType.HISTOGRAM, task.info.analysisType);
-                Assertions.assertEquals("t1", task.info.tblName);
                 Assertions.assertEquals("col1", task.info.colName);
             }
         }
     }
 
     @Test
-    public void test2TaskExecution() throws Exception {
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
+    public void test2TaskExecution(@Mocked InternalCatalog catalog, @Mocked Database database,
+            @Mocked OlapTable olapTable) throws Exception {
+        new MockUp<StatisticsUtil>() {
+
+            @Mock
+            public DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
+                return new DBObjects(catalog, database, olapTable);
+            }
+        };
+        new MockUp<OlapTable>() {
+
+            @Mock
+            public Column getColumn(String name) {
+                return new Column("col1", PrimitiveType.INT);
+            }
+        };
+        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder()
-                .setJobId(0).setTaskId(0).setCatalogName("internal")
-                .setDbName(SystemInfoService.DEFAULT_CLUSTER + ":" + "histogram_task_test").setTblName("t1")
+                .setJobId(0).setTaskId(0).setCatalogId(0)
+                .setDBId(0)
+                .setTblId(0)
                 .setColName("col1").setJobType(JobType.MANUAL)
                 .setAnalysisMode(AnalysisMode.FULL)
                 .setAnalysisMethod(AnalysisMethod.FULL)
@@ -107,17 +126,11 @@ public class HistogramTaskTest extends TestWithFeService {
                 .build();
         HistogramTask task = new HistogramTask(analysisInfo);
 
-        new MockUp<AnalysisTaskScheduler>() {
-            @Mock
-            public synchronized BaseAnalysisTask getPendingTasks() {
-                return task;
-            }
-        };
         new MockUp<AnalysisManager>() {
             @Mock
             public void updateTaskStatus(AnalysisInfo info, AnalysisState jobState, String message, long time) {}
         };
 
-        Deencapsulation.invoke(analysisTaskExecutor, "doFetchAndExecute");
+        Deencapsulation.invoke(analysisTaskExecutor, "submitTask", task);
     }
 }

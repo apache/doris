@@ -1,0 +1,20 @@
+drop database if exists sample1
+()
+create database sample1
+()
+use sample1
+create table baseall(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double max, k9 float sum) engine=olap distributed by hash(k1) buckets 5 properties("storage_type"="column")
+()
+SELECT * FROM baseall
+()
+select * from baseall
+()#IGNORE CHECK
+create table t(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double max, k9 float sum) engine=olap distributed by hash(k1) buckets 5 properties("storage_type"="column")
+()
+select * from t
+()
+create table t1(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double max, k9 float sum) engine=olap distributed by hash(k1) buckets 5 properties("storage_type"="column")
+()
+curl --location-trusted -u root: -T ./data/baseall.txt http://{FE_HOST}:{HTTP_PORT}/api/sample1/t1/_load?label=label12
+select * from t1
+(['1', '1989', '1001', '11011902', '123.123', 'true', '1989-03-21', '1989-03-21 13:00:00', 'wangjuoo4', '0.1', '6.333'], ['2', '1986', '1001', '11011903', '1243.5', 'false', '1901-12-31', '1989-03-21 13:00:00', 'wangynnsf', '20.268', '789.25'], ['3', '1989', '1002', '11011905', '24453.325', 'false', '2012-03-14', '2000-01-01 00:00:00', 'yunlj8@nk', '78945.0', '3654.0'], ['4', '1991', '3021', '-11011907', '243243.325', 'false', '3124-10-10', '2015-03-13 10:30:00', 'yanvjldjlll', '2.06', '-0.001'], ['5', '1985', '5014', '-11011903', '243.325', 'true', '2015-01-01', '2015-03-13 12:36:38', 'du3lnvl', '-0.0', '-365.0'])

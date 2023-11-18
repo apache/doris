@@ -605,7 +605,7 @@ public class VectorColumn {
             childColumns[1].appendValue(v);
         }
         reserve(appendIndex + 1);
-        OffHeap.putInt(null, offsets + 8L * appendIndex, startOffset + length);
+        OffHeap.putLong(null, offsets + 8L * appendIndex, startOffset + length);
         return appendIndex++;
     }
 

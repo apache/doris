@@ -254,18 +254,19 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
                                           simdjson::ondemand::value* value) noexcept {
 // Return DataQualityError when it's a malformed json.
 // Otherwise the path was not found, due to array out of bound or not exist
-#define HANDLE_SIMDJSON_ERROR(err, msg)                                                        \
-    do {                                                                                       \
-        const simdjson::error_code& _err = err;                                                \
-        const std::string& _msg = msg;                                                         \
-        if (UNLIKELY(_err)) {                                                                  \
-            if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS) {    \
-                return Status::NotFound(                                                       \
-                        fmt::format("err: {}, msg: {}", simdjson::error_message(_err), _msg)); \
-            }                                                                                  \
-            return Status::DataQualityError(                                                   \
-                    fmt::format("err: {}, msg: {}", simdjson::error_message(_err), _msg));     \
-        }                                                                                      \
+#define HANDLE_SIMDJSON_ERROR(err, msg)                                                     \
+    do {                                                                                    \
+        const simdjson::error_code& _err = err;                                             \
+        const std::string& _msg = msg;                                                      \
+        if (UNLIKELY(_err)) {                                                               \
+            if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS) { \
+                return Status::DataQualityError(                                            \
+                        fmt::format("Not found target filed, err: {}, msg: {}",             \
+                                    simdjson::error_message(_err), _msg));                  \
+            }                                                                               \
+            return Status::DataQualityError(                                                \
+                    fmt::format("err: {}, msg: {}", simdjson::error_message(_err), _msg));  \
+        }                                                                                   \
     } while (false);
 
     if (jsonpath.size() <= 1) {

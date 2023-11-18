@@ -9,8 +9,8 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
---------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
+------------------hashJoin[INNER_JOIN](dt.d_date_sk = store_sales.ss_sold_date_sk)
+--------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store_sales]
 ----------------------PhysicalDistribute
@@ -19,6 +19,6 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[item]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((dt.d_moy = 12) and (dt.d_year = 2002))
+------------------------filter((dt.d_moy = 12)(dt.d_year = 2002))
 --------------------------PhysicalOlapScan[date_dim]
 

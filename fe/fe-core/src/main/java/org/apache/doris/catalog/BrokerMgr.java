@@ -27,6 +27,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -219,7 +220,8 @@ public class BrokerMgr {
                 List<FsBroker> addressList = brokerAddrsMap.get(pair.first);
                 for (FsBroker addr : addressList) {
                     if (addr.port == pair.second) {
-                        throw new DdlException("Broker(" + pair.first + ":" + pair.second
+                        throw new DdlException("Broker(" + NetUtils
+                                .getHostPortInAccessibleFormat(pair.first, pair.second)
                                 + ") has already in brokers.");
                     }
                 }
@@ -274,7 +276,8 @@ public class BrokerMgr {
                     }
                 }
                 if (!found) {
-                    throw new DdlException("Broker(" + pair.first + ":" + pair.second + ") has not in brokers.");
+                    throw new DdlException("Broker(" + NetUtils
+                            .getHostPortInAccessibleFormat(pair.first, pair.second) + ") has not in brokers.");
                 }
             }
             Env.getCurrentEnv().getEditLog().logDropBroker(new ModifyBrokerInfo(name, droppedAddressList));

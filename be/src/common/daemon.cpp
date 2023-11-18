@@ -237,7 +237,7 @@ void Daemon::memory_gc_thread() {
         auto proc_mem_no_allocator_cache = doris::MemInfo::proc_mem_no_allocator_cache();
 
         // GC excess memory for resource groups that not enable overcommit
-        auto tg_free_mem = doris::MemInfo::tg_hard_memory_limit_gc();
+        auto tg_free_mem = doris::MemInfo::tg_not_enable_overcommit_group_gc();
         sys_mem_available += tg_free_mem;
         proc_mem_no_allocator_cache -= tg_free_mem;
 
@@ -247,7 +247,7 @@ void Daemon::memory_gc_thread() {
             // No longer full gc and minor gc during sleep.
             memory_full_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
-            LOG(INFO) << fmt::format("Start Full GC, {}.",
+            LOG(INFO) << fmt::format("[MemoryGC] start full GC, {}.",
                                      MemTrackerLimiter::process_limit_exceeded_errmsg_str());
             doris::MemTrackerLimiter::print_log_process_usage();
             if (doris::MemInfo::process_full_gc()) {
@@ -259,7 +259,7 @@ void Daemon::memory_gc_thread() {
                     proc_mem_no_allocator_cache >= doris::MemInfo::soft_mem_limit())) {
             // No minor gc during sleep, but full gc is possible.
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
-            LOG(INFO) << fmt::format("Start Minor GC, {}.",
+            LOG(INFO) << fmt::format("[MemoryGC] start minor GC, {}.",
                                      MemTrackerLimiter::process_soft_limit_exceeded_errmsg_str());
             doris::MemTrackerLimiter::print_log_process_usage();
             if (doris::MemInfo::process_minor_gc()) {

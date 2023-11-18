@@ -28,7 +28,9 @@ under the License.
 
 This document describes how to use the  [SELECT INTO OUTFILE](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md)  command to export query results.
 
-## Example
+`SELECT INTO OUTFILE` is a synchronous command, which means that the operation is completed when the command returns. It also returns a row of results to show the execution result of the export.
+
+## Examples
 
 ### Export to HDFS
 
@@ -46,7 +48,7 @@ PROPERTIES
 );
 ```
 
-### Export to local file
+### Export to Local Files
 
 When exporting to a local file, you need to configure `enable_outfile_to_local=true` in fe.conf first
 
@@ -57,7 +59,7 @@ INTO OUTFILE "file:///home/work/path/result_";
 
 For more usage, see [OUTFILE documentation](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md).
 
-## Concurrent export
+## Concurrent Export
 
 By default, the export of the query result set is non-concurrent, that is, a single point of export. If the user wants the query result set to be exported concurrently, the following conditions need to be met:
 
@@ -67,7 +69,7 @@ By default, the export of the query result set is non-concurrent, that is, a sin
 
 If the above three conditions are met, the concurrent export query result set can be triggered. Concurrency = ```be_instacne_num * parallel_fragment_exec_instance_num```
 
-### How to verify that the result set is exported concurrently
+### How to Verify that the Result Set is Exported Concurrently
 
 After the user enables concurrent export through the session variable setting, if you want to verify whether the current query can be exported concurrently, you can use the following method.
 
@@ -104,11 +106,11 @@ Planning example for concurrent export:
 +-----------------------------------------------------------------------------+
 ```
 
-## Usage example
+## Usage Examples
 
 For details, please refer to [OUTFILE Document](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md).
 
-## Return result
+## Return Results
 
 The command is a synchronization command. The command returns, which means the operation is over.
 At the same time, a row of results will be returned to show the exported execution result.

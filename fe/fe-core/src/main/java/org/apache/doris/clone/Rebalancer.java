@@ -100,6 +100,9 @@ public abstract class Rebalancer {
         return -1L;
     }
 
+    public void onTabletFailed(TabletSchedCtx tabletCtx) {
+    }
+
     public void updateLoadStatistic(Map<Tag, LoadStatisticForTag> statisticMap) {
         this.statisticMap = statisticMap;
     }

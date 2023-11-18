@@ -15,43 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_es_query", "p0") {
-
+suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
     String enabled = context.config.otherConfigs.get("enableEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String es_6_port = context.config.otherConfigs.get("es_6_port")
         String es_7_port = context.config.otherConfigs.get("es_7_port")
         String es_8_port = context.config.otherConfigs.get("es_8_port")
 
-        sql """drop catalog if exists es6;"""
-        sql """drop catalog if exists es7;"""
-        sql """drop catalog if exists es8;"""
+        sql """drop catalog if exists test_es_query_es6;"""
+        sql """drop catalog if exists test_es_query_es7;"""
+        sql """drop catalog if exists test_es_query_es8;"""
         sql """drop table if exists test_v1;"""
         sql """drop table if exists test_v2;"""
 
         // test old create-catalog syntax for compatibility
         sql """
-            create catalog es6
+            create catalog test_es_query_es6
             properties (
                 "type"="es",
-                "elasticsearch.hosts"="http://127.0.0.1:$es_6_port",
+                "elasticsearch.hosts"="http://${externalEnvIp}:$es_6_port",
                 "elasticsearch.nodes_discovery"="false",
                 "elasticsearch.keyword_sniff"="true"
             );
         """
 
         // test new create catalog syntax
-        sql """create catalog if not exists es7 properties(
+        sql """create catalog if not exists test_es_query_es7 properties(
             "type"="es",
-            "hosts"="http://127.0.0.1:$es_7_port",
+            "hosts"="http://${externalEnvIp}:$es_7_port",
             "nodes_discovery"="false",
             "enable_keyword_sniff"="true"
         );
         """
 
-        sql """create catalog if not exists es8 properties(
+        sql """create catalog if not exists test_es_query_es8 properties(
             "type"="es",
-            "hosts"="http://127.0.0.1:$es_8_port",
+            "hosts"="http://${externalEnvIp}:$es_8_port",
             "nodes_discovery"="false",
             "enable_keyword_sniff"="true"
         );
@@ -105,7 +105,7 @@ suite("test_es_query", "p0") {
             ) ENGINE=ELASTICSEARCH
             COMMENT 'ELASTICSEARCH'
             PROPERTIES (
-                "hosts" = "http://127.0.0.1:$es_8_port",
+                "hosts" = "http://${externalEnvIp}:$es_8_port",
                 "index" = "test1",
                 "nodes_discovery"="false",
                 "enable_keyword_sniff"="true",
@@ -145,7 +145,7 @@ suite("test_es_query", "p0") {
             ) ENGINE=ELASTICSEARCH
             COMMENT 'ELASTICSEARCH'
             PROPERTIES (
-                "hosts" = "http://127.0.0.1:$es_8_port",
+                "hosts" = "http://${externalEnvIp}:$es_8_port",
                 "index" = "test1",
                 "nodes_discovery"="false",
                 "enable_keyword_sniff"="true",
@@ -156,7 +156,7 @@ suite("test_es_query", "p0") {
         order_qt_sql05 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
         order_qt_sql06 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
 
-        sql """switch es6"""
+        sql """switch test_es_query_es6"""
         // order_qt_sql_6_01 """show tables"""
         order_qt_sql_6_02 """select * from test1 where test2='text#1'"""
         order_qt_sql_6_03 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
@@ -192,7 +192,7 @@ suite("test_es_query", "p0") {
         }
         assertTrue(containHide)
 
-        sql """switch es7"""
+        sql """switch test_es_query_es7"""
         // order_qt_sql_7_01 """show tables"""
         order_qt_sql_7_02 """select * from test1 where test2='text#1'"""
         order_qt_sql_7_03 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
@@ -233,7 +233,7 @@ suite("test_es_query", "p0") {
 
         order_qt_sql_7_19 """select * from test3_20231005"""
 
-        sql """switch es8"""
+        sql """switch test_es_query_es8"""
         order_qt_sql_8_01 """select * from test1 where test2='text#1'"""
         order_qt_sql_8_02 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
         order_qt_sql_8_03 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""

@@ -186,8 +186,6 @@ public class RuleSet {
 
     public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.BUSHY)
-            .add(InnerJoinLAsscom.INSTANCE)
-            .add(InnerJoinLAsscomProject.INSTANCE)
             .add(InnerJoinLeftAssociate.INSTANCE)
             .add(InnerJoinLeftAssociateProject.INSTANCE)
             .add(InnerJoinRightAssociate.INSTANCE)

@@ -326,8 +326,11 @@ terminal String
     KW_DATETIME,
     KW_DATETIMEV2,
     KW_DATEV2,
+    KW_DATETIMEV1,
+    KW_DATEV1,
     KW_DAY,
     KW_DECIMAL,
+    KW_DECIMALV2,
     KW_DECIMALV3,
     KW_DECOMMISSION,
     KW_DEFAULT,
@@ -523,6 +526,7 @@ terminal String
     KW_QUOTA,
     KW_RANDOM,
     KW_RANGE,
+    KW_RECENT,
     KW_READ,
     KW_REBALANCE,
     KW_RECOVER,
@@ -569,6 +573,7 @@ terminal String
     KW_SNAPSHOT,
     KW_SONAME,
     KW_SPLIT,
+    KW_SQL,
     KW_SQL_BLOCK_RULE,
     KW_START,
     KW_STATS,
@@ -1318,6 +1323,10 @@ alter_stmt ::=
     | KW_ALTER KW_CATALOG ident:catalogName KW_SET KW_PROPERTIES LPAREN key_value_map:map RPAREN
     {:
         RESULT = new AlterCatalogPropertyStmt(catalogName, map);
+    :}
+    | KW_ALTER KW_CATALOG ident:catalogName KW_MODIFY KW_COMMENT STRING_LITERAL:comment
+    {:
+        RESULT = new AlterCatalogCommentStmt(catalogName, comment);
     :}
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
@@ -3989,7 +3998,11 @@ show_param ::=
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:
-        RESULT = new ShowUserPropertyStmt(user, parser.wild);
+        RESULT = new ShowUserPropertyStmt(user, parser.wild, false);
+    :}
+    | KW_ALL KW_PROPERTIES opt_wild_where
+    {:
+        RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
     | KW_BACKUP opt_db:db opt_wild_where
     {:
@@ -4130,13 +4143,17 @@ show_param ::=
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
     /* show analyze job */
-    | KW_ANALYZE opt_table_name:tbl opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_ANALYZE opt_table_name:tbl opt_wild_where
     {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, false);
     :}
-    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where
     {:
-        RESULT = new ShowAnalyzeStmt(jobId, parser.where, orderByClause, limitClause);
+        RESULT = new ShowAnalyzeStmt(jobId, parser.where);
+    :}
+    | KW_AUTO KW_ANALYZE opt_table_name:tbl opt_wild_where
+    {:
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
     | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
     {:
@@ -4171,7 +4188,7 @@ show_param ::=
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
-    | KW_CONVERT_LSC KW_FROM opt_db:db
+    | KW_CONVERT_LSC opt_db:db
     {:
         RESULT = new ShowConvertLSCStmt(db);
     :}
@@ -5764,6 +5781,14 @@ partition_names ::=
     {:
         RESULT = new PartitionNames(true, Lists.newArrayList(partName));
     :}
+    | KW_PARTITIONS LPAREN STAR RPAREN
+    {:
+        RESULT = new PartitionNames(true);
+    :}
+    | KW_PARTITIONS KW_WITH KW_RECENT INTEGER_LITERAL:count
+    {:
+        RESULT = new PartitionNames(count);
+    :}
     ;
 
 opt_table_sample ::=
@@ -5972,6 +5997,19 @@ with_analysis_properties ::=
             put("analysis.type", "HISTOGRAM");
         }};
     :}
+    | KW_FULL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
+        }};
+    :}
+    | KW_SQL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+        }};
+    :}
+
     ;
 
 opt_with_analysis_properties ::=
@@ -6178,6 +6216,10 @@ type ::=
   {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIME
   {: RESULT = ScalarType.createDatetimeType(); :}
+  | KW_DATEV1
+  {: RESULT = ScalarType.createDateV1Type(); :}
+  | KW_DATETIMEV1
+  {: RESULT = ScalarType.createDatetimeV1Type(); :}
   | KW_TIME LPAREN INTEGER_LITERAL:precision RPAREN
   {: RESULT = ScalarType.createTimeV2Type(precision.intValue()); :}
   | KW_TIME
@@ -6250,6 +6292,16 @@ type ::=
   {: RESULT = ScalarType.createDecimalV3Type(precision); :}
   | KW_DECIMALV3 LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
   {: RESULT = ScalarType.createDecimalV3Type(precision, scale); :}
+  | KW_DECIMALV2 LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue()); :}
+  | KW_DECIMALV2 LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue(), scale.intValue()); :}
+  | KW_DECIMALV2
+  {: RESULT = ScalarType.createDecimalV2Type(); :}
+  | KW_DECIMALV2 LPAREN ident_or_text:precision RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision); :}
+  | KW_DECIMALV2 LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
      RESULT = type;
@@ -6561,6 +6613,8 @@ non_pred_expr ::=
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATE), new StringLiteral(l)); :}
+  | KW_DATEV1 STRING_LITERAL:l
   {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATE), new StringLiteral(l)); :}
   | KW_DATEV2 STRING_LITERAL:l
   {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATEV2), new StringLiteral(l)); :}
@@ -7361,11 +7415,17 @@ keyword ::=
     {: RESULT = id; :}
     | KW_DATETIMEV2:id
     {: RESULT = id; :}
+    | KW_DATEV1:id
+    {: RESULT = id; :}
+    | KW_DATETIMEV1:id
+    {: RESULT = id; :}
     | KW_DECIMAL:id
     {: RESULT = id; :}
     | KW_DEFERRED:id
     {: RESULT = id; :}
     | KW_DEMAND:id
+    {: RESULT = id; :}
+    | KW_DECIMALV2:id
     {: RESULT = id; :}
     | KW_DECIMALV3:id
     {: RESULT = id; :}

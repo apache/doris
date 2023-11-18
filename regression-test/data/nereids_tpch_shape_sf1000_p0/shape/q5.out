@@ -22,14 +22,15 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[supplier]
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[INNER_JOIN](nation.n_regionkey = region.r_regionkey)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[nation]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[nation]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((region.r_name = 'ASIA'))
 ------------------------------------------PhysicalOlapScan[region]
 ------------------------PhysicalProject
---------------------------filter((orders.o_orderdate < 1995-01-01)(orders.o_orderdate >= 1994-01-01))
+--------------------------filter((orders.o_orderdate < '1995-01-01')(orders.o_orderdate >= '1994-01-01'))
 ----------------------------PhysicalOlapScan[orders]
 ------------------PhysicalDistribute
 --------------------PhysicalProject

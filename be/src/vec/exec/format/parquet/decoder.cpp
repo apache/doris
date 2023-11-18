@@ -181,7 +181,7 @@ void Decoder::init(FieldSchema* field_schema, cctz::time_zone* ctz) {
     if (_decode_params->ctz) {
         VecDateTimeValue t;
         t.from_unixtime(0, *_decode_params->ctz);
-        _decode_params->offset_days = t.day() == 31 ? 0 : 1;
+        _decode_params->offset_days = t.day() == 31 ? -1 : 0; // If 1969-12-31, then returns -1.
     }
 }
 } // namespace doris::vectorized

@@ -32,7 +32,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -139,7 +138,7 @@ public class JdbcScanNode extends ExternalScanNode {
         List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors);
 
         for (Expr individualConjunct : pushDownConjuncts) {
-            String filter = conjunctExprToString(jdbcType, individualConjunct);
+            String filter = conjunctExprToString(jdbcType, individualConjunct, tbl);
             filters.add(filter);
             conjuncts.remove(individualConjunct);
         }
@@ -170,9 +169,9 @@ public class JdbcScanNode extends ExternalScanNode {
                 continue;
             }
             Column col = slot.getColumn();
-            columns.add(JdbcTable.databaseProperName(jdbcType, col.getName()));
+            columns.add(tbl.getProperRealColumnName(jdbcType, col.getName()));
         }
-        if (0 == columns.size()) {
+        if (columns.isEmpty()) {
             columns.add("*");
         }
     }
@@ -325,12 +324,12 @@ public class JdbcScanNode extends ExternalScanNode {
         return !fnExprList.isEmpty();
     }
 
-    public static String conjunctExprToString(TOdbcTableType tableType, Expr expr) {
+    public static String conjunctExprToString(TOdbcTableType tableType, Expr expr, JdbcTable tbl) {
         if (expr instanceof CompoundPredicate) {
             StringBuilder result = new StringBuilder();
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             for (Expr child : compoundPredicate.getChildren()) {
-                result.append(conjunctExprToString(tableType, child));
+                result.append(conjunctExprToString(tableType, child, tbl));
                 result.append(" ").append(compoundPredicate.getOp().toString()).append(" ");
             }
             // Remove the last operator
@@ -354,6 +353,23 @@ public class JdbcScanNode extends ExternalScanNode {
             return filter;
         }
 
+        if (expr.contains(SlotRef.class) && expr instanceof BinaryPredicate) {
+            ArrayList<Expr> children = expr.getChildren();
+            String filter;
+            if (children.get(0) instanceof SlotRef) {
+                if (tbl != null) {
+                    filter = tbl.getProperRealColumnName(tableType, children.get(0).toMySql());
+                } else {
+                    filter = JdbcTable.databaseProperName(tableType, children.get(0).toMySql());
+                }
+            } else {
+                filter = children.get(0).toMySql();
+            }
+            filter += " " + ((BinaryPredicate) expr).getOp().toString() + " ";
+            filter += children.get(1).toMySql();
+            return filter;
+        }
+
         // only for old planner
         if (expr.contains(BoolLiteral.class) && "1".equals(expr.getStringValue()) && expr.getChildren().isEmpty()) {
             return "1 = 1";
@@ -364,7 +380,7 @@ public class JdbcScanNode extends ExternalScanNode {
 
     private static String handleOracleDateFormat(Expr expr) {
         if (expr.isConstant()
-                && (expr.getType().equals(Type.DATETIME) || expr.getType().equals(Type.DATETIMEV2))) {
+                && (expr.getType().isDatetime() || expr.getType().isDatetimeV2())) {
             return "to_date('" + expr.getStringValue() + "', 'yyyy-mm-dd hh24:mi:ss')";
         }
         return expr.toMySql();

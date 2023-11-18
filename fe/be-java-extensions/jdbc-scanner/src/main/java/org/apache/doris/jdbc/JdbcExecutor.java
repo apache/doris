@@ -47,7 +47,6 @@ import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
-import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
@@ -2005,21 +2004,35 @@ public class JdbcExecutor {
     static {
         CK_ARRAY_CONVERTERS.put(String[].class, res -> Arrays.toString((String[]) res));
         CK_ARRAY_CONVERTERS.put(boolean[].class, res -> Arrays.toString((boolean[]) res));
+        CK_ARRAY_CONVERTERS.put(Boolean[].class, res -> Arrays.toString((Boolean[]) res));
         CK_ARRAY_CONVERTERS.put(byte[].class, res -> Arrays.toString((byte[]) res));
         CK_ARRAY_CONVERTERS.put(Byte[].class, res -> Arrays.toString((Byte[]) res));
         CK_ARRAY_CONVERTERS.put(LocalDate[].class, res -> Arrays.toString((LocalDate[]) res));
         CK_ARRAY_CONVERTERS.put(LocalDateTime[].class, res -> Arrays.toString((LocalDateTime[]) res));
         CK_ARRAY_CONVERTERS.put(float[].class, res -> Arrays.toString((float[]) res));
+        CK_ARRAY_CONVERTERS.put(Float[].class, res -> Arrays.toString((Float[]) res));
         CK_ARRAY_CONVERTERS.put(double[].class, res -> Arrays.toString((double[]) res));
+        CK_ARRAY_CONVERTERS.put(Double[].class, res -> Arrays.toString((Double[]) res));
         CK_ARRAY_CONVERTERS.put(short[].class, res -> Arrays.toString((short[]) res));
+        CK_ARRAY_CONVERTERS.put(Short[].class, res -> Arrays.toString((Short[]) res));
         CK_ARRAY_CONVERTERS.put(int[].class, res -> Arrays.toString((int[]) res));
+        CK_ARRAY_CONVERTERS.put(Integer[].class, res -> Arrays.toString((Integer[]) res));
         CK_ARRAY_CONVERTERS.put(long[].class, res -> Arrays.toString((long[]) res));
+        CK_ARRAY_CONVERTERS.put(Long[].class, res -> Arrays.toString((Long[]) res));
         CK_ARRAY_CONVERTERS.put(BigInteger[].class, res -> Arrays.toString((BigInteger[]) res));
         CK_ARRAY_CONVERTERS.put(BigDecimal[].class, res -> Arrays.toString((BigDecimal[]) res));
         CK_ARRAY_CONVERTERS.put(Inet4Address[].class, res -> Arrays.toString(Arrays.stream((Inet4Address[]) res)
-                .map(InetAddress::getHostAddress).toArray(String[]::new)));
+                .map(addr -> addr == null ? null : addr.getHostAddress()).toArray(String[]::new)));
         CK_ARRAY_CONVERTERS.put(Inet6Address[].class, res -> Arrays.toString(Arrays.stream((Inet6Address[]) res)
-                .map(addr -> simplifyIPv6Address(addr.getHostAddress())).toArray(String[]::new)));
+                .map(addr -> addr == null ? null : addr.getHostAddress()).toArray(String[]::new)));
+        CK_ARRAY_CONVERTERS.put(com.clickhouse.data.value.UnsignedByte[].class,
+                res -> Arrays.toString((com.clickhouse.data.value.UnsignedByte[]) res));
+        CK_ARRAY_CONVERTERS.put(com.clickhouse.data.value.UnsignedShort[].class,
+                res -> Arrays.toString((com.clickhouse.data.value.UnsignedShort[]) res));
+        CK_ARRAY_CONVERTERS.put(com.clickhouse.data.value.UnsignedInteger[].class,
+                res -> Arrays.toString((com.clickhouse.data.value.UnsignedInteger[]) res));
+        CK_ARRAY_CONVERTERS.put(com.clickhouse.data.value.UnsignedLong[].class,
+                res -> Arrays.toString((com.clickhouse.data.value.UnsignedLong[]) res));
         CK_ARRAY_CONVERTERS.put(UUID[].class, res -> Arrays.toString((UUID[]) res));
     }
 

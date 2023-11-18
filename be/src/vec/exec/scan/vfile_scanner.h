@@ -137,6 +137,7 @@ protected:
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
+    std::unique_ptr<RowDescriptor> _dest_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
     // owned by scan node
@@ -161,9 +162,9 @@ protected:
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
 
-    std::unique_ptr<std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>>
-            _partition_columns;
-    std::unique_ptr<std::unordered_map<std::string, VExprContextSPtr>> _missing_columns;
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _partition_col_descs;
+    std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
@@ -175,6 +176,7 @@ private:
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
+    RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts
@@ -205,6 +207,7 @@ private:
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
     Status _process_conjuncts_for_dict_filter();
+    Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
 
     void _reset_counter() {

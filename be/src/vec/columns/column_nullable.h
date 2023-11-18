@@ -115,8 +115,6 @@ public:
     UInt64 get64(size_t n) const override { return nested_column->get64(n); }
     StringRef get_data_at(size_t n) const override;
 
-    TypeIndex get_data_type() const override { return TypeIndex::Nullable; }
-
     /// Will insert null value if pos=nullptr
     void insert_data(const char* pos, size_t length) override;
 
@@ -135,6 +133,16 @@ public:
                              const int* indices_end) override;
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
+
+    template <typename ColumnType>
+    void insert_from_with_type(const IColumn& src, size_t n) {
+        const ColumnNullable& src_concrete = assert_cast<const ColumnNullable&>(src);
+        assert_cast<ColumnType*>(nested_column.get())
+                ->insert_from(src_concrete.get_nested_column(), n);
+        auto is_null = src_concrete.get_null_map_data()[n];
+        _has_null |= is_null;
+        _get_null_map_data().push_back(is_null);
+    }
 
     void insert_from_not_nullable(const IColumn& src, size_t n);
     void insert_range_from_not_nullable(const IColumn& src, size_t start, size_t length);
@@ -264,6 +272,8 @@ public:
     bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
     bool is_column_array() const override { return get_nested_column().is_column_array(); }
+    bool is_column_map() const override { return get_nested_column().is_column_map(); }
+    bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
     bool is_fixed_and_contiguous() const override { return false; }
     bool values_have_fixed_size() const override { return nested_column->values_have_fixed_size(); }
 

@@ -259,8 +259,7 @@ protected:
         }
 
         RowsetSharedPtr rowset;
-        rowset = rowset_writer->build();
-        EXPECT_TRUE(rowset != nullptr);
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         EXPECT_EQ(rowset_data.size(), rowset->rowset_meta()->num_segments());
         EXPECT_EQ(num_rows, rowset->rowset_meta()->num_rows());
         return rowset;

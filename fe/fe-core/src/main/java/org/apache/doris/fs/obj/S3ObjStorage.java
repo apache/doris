@@ -37,14 +37,18 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -56,6 +60,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 public class S3ObjStorage implements ObjStorage<S3Client> {
     private static final Logger LOG = LogManager.getLogger(S3ObjStorage.class);
@@ -223,6 +228,52 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
     }
 
+    @Override
+    public Status deleteObjects(String absolutePath) {
+        try {
+            S3URI baseUri = S3URI.create(absolutePath, forceHostedStyle);
+            String continuationToken = "";
+            boolean isTruncated = false;
+            long totalObjects = 0;
+            do {
+                RemoteObjects objects = listObjects(absolutePath, continuationToken);
+                List<RemoteObject> objectList = objects.getObjectList();
+                if (!objectList.isEmpty()) {
+                    Delete delete = Delete.builder()
+                            .objects(objectList.stream()
+                                    .map(RemoteObject::getKey)
+                                    .map(k -> ObjectIdentifier.builder().key(k).build())
+                                    .collect(Collectors.toList()))
+                            .build();
+                    DeleteObjectsRequest req = DeleteObjectsRequest.builder()
+                            .bucket(baseUri.getBucket())
+                            .delete(delete)
+                            .build();
+
+                    DeleteObjectsResponse resp = getClient(baseUri.getVirtualBucket()).deleteObjects(req);
+                    if (resp.errors().size() > 0) {
+                        LOG.warn("{} errors returned while deleting {} objects for dir {}",
+                                resp.errors().size(), objectList.size(), absolutePath);
+                    }
+                    LOG.info("{} of {} objects deleted for dir {}",
+                            resp.deleted().size(), objectList.size(), absolutePath);
+                    totalObjects += objectList.size();
+                }
+
+                isTruncated = objects.isTruncated();
+                continuationToken = objects.getContinuationToken();
+            } while (isTruncated);
+            LOG.info("total delete {} objects for dir {}", totalObjects, absolutePath);
+            return Status.OK;
+        } catch (DdlException e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, "list objects for delete objects failed: " + e.getMessage());
+        } catch (Exception e) {
+            LOG.warn("delete objects {} failed, force visual host style {}", absolutePath, e, forceHostedStyle);
+            return new Status(Status.ErrCode.COMMON_ERROR, "delete objects failed: " + e.getMessage());
+        }
+    }
+
+    @Override
     public Status copyObject(String origFilePath, String destFilePath) {
         try {
             S3URI origUri = S3URI.create(origFilePath);
@@ -249,9 +300,26 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public RemoteObjects listObjects(String absolutePath, String continuationToken) throws DdlException {
         try {
             S3URI uri = S3URI.create(absolutePath, forceHostedStyle);
+            String bucket = uri.getBucket();
             String prefix = uri.getKey();
-            ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder().bucket(uri.getBucket())
-                        .prefix(normalizePrefix(prefix));
+            if (!StringUtils.isEmpty(uri.getVirtualBucket())) {
+                // Support s3 compatible service. The generated HTTP request for list objects likes:
+                //
+                //  GET /<bucket-name>?list-type=2&prefix=<prefix>
+                prefix = bucket + "/" + prefix;
+                String endpoint = properties.get(S3Properties.ENDPOINT);
+                if (endpoint.contains("cos.")) {
+                    bucket = "/";
+                } else if (endpoint.contains("oss-")) {
+                    bucket = uri.getVirtualBucket();
+                } else if (endpoint.contains("obs.")) {
+                    // FIXME: unlike cos and oss, the obs will report 'The specified key does not exist'.
+                    throw new DdlException("obs does not support list objects via s3 sdk. path: " + absolutePath);
+                }
+            }
+            ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .prefix(normalizePrefix(prefix));
             if (!StringUtils.isEmpty(continuationToken)) {
                 requestBuilder.continuationToken(continuationToken);
             }
@@ -263,7 +331,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
             return new RemoteObjects(remoteObjects, response.isTruncated(), response.nextContinuationToken());
         } catch (Exception e) {
-            LOG.warn("Failed to list objects for S3", e);
+            LOG.warn("Failed to list objects for S3: {}", absolutePath, e);
             throw new DdlException("Failed to list objects for S3, Error message: " + e.getMessage(), e);
         }
     }

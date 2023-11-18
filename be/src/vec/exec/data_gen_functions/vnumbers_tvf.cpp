@@ -80,6 +80,9 @@ Status VNumbersTVF::get_next(RuntimeState* state, vectorized::Block* block, bool
 }
 
 Status VNumbersTVF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_range_params) {
+    // Currently we do not support multi-threads numbers function, so there is no need to
+    // use more than one scan_range_param.
+    DCHECK(scan_range_params.size() == 1);
     _total_numbers =
             scan_range_params[0].scan_range.data_gen_scan_range.numbers_params.totalNumbers;
     return Status::OK();

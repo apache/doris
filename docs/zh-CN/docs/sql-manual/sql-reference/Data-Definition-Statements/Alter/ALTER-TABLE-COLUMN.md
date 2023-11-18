@@ -198,6 +198,7 @@ MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
 ALTER TABLE example_db.my_table 
 MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
 ```
+注意：只能修改列的类型，列的其他属性维持原样
 
 9. 重新排序 example_rollup_index 中的列（设原列顺序为：k1,k2,k3,v1,v2）
 

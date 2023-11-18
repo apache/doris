@@ -27,6 +27,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "gutil/bits.h"
+#include "gutil/endian.h"
 #include "util/cpu_info.h"
 #include "util/sse_util.hpp"
 
@@ -184,6 +185,35 @@ public:
     static inline int16_t big_endian(int16_t val) { return val; }
     static inline uint16_t big_endian(uint16_t val) { return val; }
 #endif
+
+    template <typename T>
+    static T big_endian_to_host(T value) {
+        if constexpr (std::is_same_v<T, __int128>) {
+            return BigEndian::ToHost128(value);
+        } else if constexpr (std::is_same_v<T, unsigned __int128>) {
+            return BigEndian::ToHost128(value);
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            return BigEndian::ToHost64(value);
+        } else if constexpr (std::is_same_v<T, uint64_t>) {
+            return BigEndian::ToHost64(value);
+        } else if constexpr (std::is_same_v<T, int32_t>) {
+            return BigEndian::ToHost32(value);
+        } else if constexpr (std::is_same_v<T, uint32_t>) {
+            return BigEndian::ToHost32(value);
+        } else if constexpr (std::is_same_v<T, int16_t>) {
+            return BigEndian::ToHost16(value);
+        } else if constexpr (std::is_same_v<T, uint16_t>) {
+            return BigEndian::ToHost16(value);
+        } else if constexpr (std::is_same_v<T, int8_t>) {
+            return value;
+        } else if constexpr (std::is_same_v<T, uint8_t>) {
+            return value;
+        } else {
+            __builtin_unreachable();
+            LOG(FATAL) << "__builtin_unreachable";
+            return value;
+        }
+    }
 
     /// Returns the smallest power of two that contains v. If v is a power of two, v is
     /// returned. Taken from
