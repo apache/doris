@@ -183,12 +183,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     continue;
                 }
                 Slot scanSlot = aliasTransferMap.get(targetSlot).second;
+                PhysicalRelation scan = aliasTransferMap.get(targetSlot).first;
                 RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                         bitmapContains.child(0), ImmutableList.of(scanSlot),
                         ImmutableList.of(bitmapContains.child(1)), type, i, join, isNot, -1L);
+                scan.addAppliedRuntimeFilter(filter);
                 ctx.addJoinToTargetMap(join, scanSlot.getExprId());
                 ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-                ctx.setTargetsOnScanNode(aliasTransferMap.get(targetSlot).first.getRelationId(),
+                ctx.setTargetsOnScanNode(aliasTransferMap.get(targetSlot).first,
                         scanSlot);
                 join.addBitmapRuntimeFilterCondition(bitmapRuntimeFilterCondition);
             }
@@ -266,9 +268,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         compare.child(1), ImmutableList.of(olapScanSlot), ImmutableList.of(olapScanSlot),
                         TRuntimeFilterType.MIN_MAX, exprOrder, join, true, buildSideNdv,
                         getMinMaxType(compare));
+                scan.addAppliedRuntimeFilter(filter);
                 ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
                 ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-                ctx.setTargetsOnScanNode(scan.getRelationId(), olapScanSlot);
+                ctx.setTargetsOnScanNode(scan, olapScanSlot);
             }
         }
     }
@@ -600,6 +603,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         (SlotReference) targetExpr, aliasTransferMap);
                 if (!pushDownBasicTableInfos.isEmpty()) {
                     List<Slot> targetList = new ArrayList<>();
+                    List<PhysicalRelation> targetNodes = new ArrayList<>();
                     for (Map.Entry<Slot, PhysicalRelation> entry : pushDownBasicTableInfos.entrySet()) {
                         Slot targetSlot = entry.getKey();
                         PhysicalRelation scan = entry.getValue();
@@ -607,13 +611,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                             continue;
                         }
                         targetList.add(targetSlot);
+                        targetNodes.add(scan);
                         ctx.addJoinToTargetMap(join, targetSlot.getExprId());
-                        ctx.setTargetsOnScanNode(scan.getRelationId(), targetSlot);
+                        ctx.setTargetsOnScanNode(scan, targetSlot);
                     }
                     // build multi-target runtime filter
                     // since always on different join, set the expr_order as 0
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                             equalTo.right(), targetList, type, 0, join, buildSideNdv);
+                    targetNodes.forEach(node -> node.addAppliedRuntimeFilter(filter));
                     for (Slot slot : targetList) {
                         ctx.setTargetExprIdToFilter(slot.getExprId(), filter);
                     }

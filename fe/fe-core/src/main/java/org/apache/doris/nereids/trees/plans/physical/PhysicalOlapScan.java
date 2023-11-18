@@ -181,11 +181,6 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     }
 
     @Override
-    public String shapeInfo() {
-        return this.getClass().getSimpleName() + "[" + table.getName() + "]";
-    }
-
-    @Override
     public JSONObject toJson() {
         JSONObject olapScan = super.toJson();
         JSONObject properties = new JSONObject();

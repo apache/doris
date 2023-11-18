@@ -255,7 +255,11 @@ public class PhysicalHashJoin<
         builder.append(hashJoinConjuncts.stream().map(conjunct -> conjunct.shapeInfo())
                 .sorted().collect(Collectors.joining(" and ", " hashCondition=(", ")")));
         builder.append(otherJoinConjuncts.stream().map(cond -> cond.shapeInfo())
-                .sorted().collect(Collectors.joining(" and ", "otherCondition=(", ")")));
+                .sorted().collect(Collectors.joining(" and ", " otherCondition=(", ")")));
+        if (!runtimeFilters.isEmpty()) {
+            builder.append(" build RFs:").append(runtimeFilters.stream()
+                    .map(rf -> rf.shapeInfo()).collect(Collectors.joining(";")));
+        }
         return builder.toString();
     }
 

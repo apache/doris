@@ -8,10 +8,10 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((item.i_manufact = i1.i_manufact))otherCondition=()
+----------------hashJoin[INNER_JOIN] hashCondition=((item.i_manufact = i1.i_manufact)) otherCondition=() build RFs:RF0 i_manufact->[i_manufact]
 ------------------PhysicalProject
 --------------------filter((i1.i_manufact_id <= 788) and (i1.i_manufact_id >= 748))
-----------------------PhysicalOlapScan[item]
+----------------------PhysicalOlapScan[item] apply RFs: RF0
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------filter((item_cnt > 0))
