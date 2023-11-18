@@ -24,6 +24,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -44,7 +49,20 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
     @Override
     public Rule build() {
         return logicalProject().when(project -> containsWindowExpression(project.getProjects())).then(project -> {
-            List<NamedExpression> outputs = project.getProjects();
+            List<NamedExpression> outputs =
+                    ExpressionUtils.rewriteDownShortCircuit(project.getProjects(), output -> {
+                        if (output instanceof WindowExpression) {
+                            Expression expression = ((WindowExpression) output).getFunction();
+                            if (expression instanceof Sum || expression instanceof Max
+                                    || expression instanceof Min || expression instanceof Avg) {
+                                // sum, max, min and avg in window function should be always nullable
+                                return ((WindowExpression) output)
+                                        .withFunction(((NullableAggregateFunction) expression)
+                                                .withAlwaysNullable(true));
+                            }
+                        }
+                        return output;
+                    });
 
             // 1. handle bottom projects
             Set<Alias> existedAlias = ExpressionUtils.collect(outputs, Alias.class::isInstance);
