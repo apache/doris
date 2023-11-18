@@ -109,8 +109,6 @@ public:
 
     void close_a_pipeline();
 
-    std::string to_http_path(const std::string& file_name);
-
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
@@ -144,6 +142,10 @@ public:
         ins_ids[0] = print_id(_fragment_instance_id);
     }
     void refresh_next_report_time();
+
+    virtual std::string debug_string() { return ""; }
+
+    uint64_t create_time() const { return _create_time; }
 
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
@@ -222,6 +224,8 @@ private:
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
     bool _group_commit;
+
+    uint64_t _create_time;
 };
 } // namespace pipeline
 } // namespace doris

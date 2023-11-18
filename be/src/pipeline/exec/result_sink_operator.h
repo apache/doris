@@ -46,7 +46,8 @@ public:
 class ResultBufferDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultBufferDependency);
-    ResultBufferDependency(int id) : WriteDependency(id, "ResultBufferDependency") {}
+    ResultBufferDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "ResultBufferDependency") {}
     ~ResultBufferDependency() override = default;
 
     void* shared_state() override { return nullptr; }
@@ -55,7 +56,8 @@ public:
 class ResultQueueDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultQueueDependency);
-    ResultQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
+    ResultQueueDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "ResultQueueDependency") {}
     ~ResultQueueDependency() override = default;
 
     void* shared_state() override { return nullptr; }
@@ -64,7 +66,9 @@ public:
 class CancelDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(CancelDependency);
-    CancelDependency(int id) : WriteDependency(id, "CancelDependency") { _ready_for_write = false; }
+    CancelDependency(int id, int node_id) : WriteDependency(id, node_id, "CancelDependency") {
+        _ready_for_write = false;
+    }
     ~CancelDependency() override = default;
 
     void* shared_state() override { return nullptr; }

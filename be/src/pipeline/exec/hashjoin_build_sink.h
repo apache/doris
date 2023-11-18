@@ -49,7 +49,8 @@ class HashJoinBuildSinkOperatorX;
 class SharedHashTableDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
-    SharedHashTableDependency(int id) : WriteDependency(id, "SharedHashTableDependency") {}
+    SharedHashTableDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "SharedHashTableDependency") {}
     ~SharedHashTableDependency() override = default;
 
     void* shared_state() override { return nullptr; }

@@ -62,7 +62,6 @@ import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
@@ -557,9 +556,8 @@ public class TabletScheduler extends MasterDaemon {
                 }
 
                 try {
-                    DatabaseTransactionMgr dbTransactionMgr
-                            = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId());
-                    for (TransactionState transactionState : dbTransactionMgr.getPreCommittedTxnList()) {
+                    for (TransactionState transactionState :
+                            Env.getCurrentGlobalTransactionMgr().getPreCommittedTxnList(db.getId())) {
                         if (transactionState.getTableIdList().contains(tbl.getId())) {
                             // If table releate to transaction with precommitted status, do not allow to do balance.
                             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
@@ -568,6 +566,7 @@ public class TabletScheduler extends MasterDaemon {
                     }
                 } catch (AnalysisException e) {
                     // CHECKSTYLE IGNORE THIS LINE
+                    LOG.warn("Exception:", e);
                 }
             }
 
