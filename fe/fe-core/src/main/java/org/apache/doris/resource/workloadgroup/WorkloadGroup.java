@@ -18,6 +18,7 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -25,7 +26,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
-import org.apache.doris.thrift.TTopicInfoType;
+import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Strings;
@@ -311,20 +312,44 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     }
 
     public TPipelineWorkloadGroup toThrift() {
-        //note(wb) we need add a new key-value to properties and then transfer it to be, so need a copy here
-        // see WorkloadGroupMgr.getWorkloadGroup
-        HashMap<String, String> clonedHashMap = new HashMap<>();
-        clonedHashMap.putAll(properties);
-        return new TPipelineWorkloadGroup().setId(id).setName(name).setProperties(clonedHashMap).setVersion(version);
+        return new TPipelineWorkloadGroup().setId(id);
     }
 
     public TopicInfo toTopicInfo() {
-        HashMap<String, String> newHashMap = new HashMap<>();
-        newHashMap.put("id", String.valueOf(id));
+        TWorkloadGroupInfo tWorkloadGroupInfo = new TWorkloadGroupInfo();
+        tWorkloadGroupInfo.setId(id);
+        tWorkloadGroupInfo.setName(name);
+        tWorkloadGroupInfo.setVersion(version);
+
+        String cpuShareStr = properties.get(CPU_SHARE);
+        if (cpuShareStr != null) {
+            tWorkloadGroupInfo.setCpuShare(Long.valueOf(cpuShareStr));
+        }
+
+        String cpuHardLimitStr = properties.get(CPU_HARD_LIMIT);
+        if (cpuHardLimitStr != null) {
+            tWorkloadGroupInfo.setCpuHardLimit(Integer.valueOf(cpuHardLimitStr));
+        }
+
+        String memLimitStr = properties.get(MEMORY_LIMIT);
+        if (memLimitStr != null) {
+            tWorkloadGroupInfo.setMemLimit(memLimitStr);
+        }
+        String memOvercommitStr = properties.get(ENABLE_MEMORY_OVERCOMMIT);
+        if (memOvercommitStr != null) {
+            tWorkloadGroupInfo.setEnableMemoryOvercommit(Boolean.valueOf(memOvercommitStr));
+        }
+        // enable_cpu_hard_limit = true, using cpu hard limit
+        // enable_cpu_hard_limit = false, using cpu soft limit
+        tWorkloadGroupInfo.setEnableCpuHardLimit(Config.enable_cpu_hard_limit);
+
+        if (Config.enable_cpu_hard_limit && cpuHardLimit <= 0) {
+            LOG.warn("enable_cpu_hard_limit=true but cpuHardLimit value not illegal,"
+                    + "id=" + id + ",name=" + name);
+        }
+
         TopicInfo topicInfo = new TopicInfo();
-        topicInfo.setTopicType(TTopicInfoType.WORKLOAD_GROUP);
-        topicInfo.setInfoMap(newHashMap);
-        topicInfo.setTopicKey(name);
+        topicInfo.setWorkloadGroupInfo(tWorkloadGroupInfo);
         return topicInfo;
     }
 
