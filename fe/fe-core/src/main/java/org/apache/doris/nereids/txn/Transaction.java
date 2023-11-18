@@ -89,6 +89,18 @@ public class Transaction {
         return txnId;
     }
 
+    public Database getDatabase() {
+        return database;
+    }
+
+    public String getLabelName() {
+        return labelName;
+    }
+
+    public Table getTable() {
+        return table;
+    }
+
     /**
      * execute insert txn for insert into select command.
      */

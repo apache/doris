@@ -53,6 +53,10 @@ public class TVFScanNode extends FileQueryScanNode {
     private final ExternalFileTableValuedFunction tableValuedFunction;
     private final FunctionGenTable table;
 
+    public ExternalFileTableValuedFunction getTableValuedFunction() {
+        return tableValuedFunction;
+    }
+
     /**
      * External file scan node for table value function
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
