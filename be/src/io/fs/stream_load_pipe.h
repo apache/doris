@@ -75,7 +75,7 @@ public:
     virtual void cancel(const std::string& reason) override;
 
     Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length,
-                            size_t* total_length = nullptr);
+                            int64_t* total_length = nullptr);
 
     FileSystemSPtr fs() const override { return nullptr; }
 

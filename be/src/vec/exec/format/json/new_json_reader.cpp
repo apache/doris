@@ -946,7 +946,7 @@ std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
 }
 
 Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size,
-                                        size_t* total_length) {
+                                        int64_t* total_length) {
     switch (_params.file_type) {
     case TFileType::FILE_LOCAL:
         [[fallthrough]];

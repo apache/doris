@@ -92,7 +92,7 @@ Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* byt
 // just get the next buffer directly from the buffer queue, because one buffer contains a complete piece of data.
 // Otherwise, this should be a stream load task that needs to read the specified amount of data.
 Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length,
-                                        size_t* total_length) {
+                                        int64_t* total_length) {
     if (_total_length < -1) {
         return Status::InternalError("invalid, _total_length is: {}", _total_length);
     } else if (_total_length == 0) {
@@ -102,7 +102,9 @@ Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t
     }
 
     if (_total_length == -1) {
-        *total_length = _total_length;
+        if (total_length != nullptr) {
+            *total_length = _total_length;
+        }
         return _read_next_buffer(data, length);
     }
 

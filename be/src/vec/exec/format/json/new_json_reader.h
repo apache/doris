@@ -138,7 +138,7 @@ private:
     static std::string _print_json_value(const rapidjson::Value& value);
 
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size,
-                             size_t* total_length = nullptr);
+                             int64_t* total_length = nullptr);
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
@@ -260,7 +260,7 @@ private:
     simdjson::ondemand::document_stream::iterator _json_stream_iterator;
     bool _is_json_stream_iterator_init = false;
     size_t _length = 0;
-    size_t _total_buffer_length = 0;
+    int64_t _total_buffer_length = 0;
     // for strip outer array
     // array_iter pointed to _array
     simdjson::ondemand::array_iterator _array_iter;
