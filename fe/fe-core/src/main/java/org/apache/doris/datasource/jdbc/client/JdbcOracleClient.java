@@ -28,7 +28,6 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class JdbcOracleClient extends JdbcClient {
 
@@ -62,8 +61,6 @@ public class JdbcOracleClient extends JdbcClient {
                 if (isLowerCaseTableNames) {
                     lowerDBToRealDB.put(databaseName.toLowerCase(), databaseName);
                     databaseName = databaseName.toLowerCase();
-                } else {
-                    lowerDBToRealDB.put(databaseName, databaseName);
                 }
                 tempDatabaseNames.add(databaseName);
             }
@@ -94,8 +91,14 @@ public class JdbcOracleClient extends JdbcClient {
         Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        String finalDbName = getRealDatabaseName(dbName);
-        String finalTableName = getRealTableName(dbName, tableName);
+        String currentDbName = dbName;
+        String currentTableName = tableName;
+        if (isLowerCaseTableNames) {
+            currentDbName = getRealDatabaseName(dbName);
+            currentTableName = getRealTableName(dbName, tableName);
+        }
+        String finalDbName = currentDbName;
+        String finalTableName = currentTableName;
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
@@ -116,18 +119,8 @@ public class JdbcOracleClient extends JdbcClient {
                 if (isModify && isTableModified(rs.getString("TABLE_NAME"), finalTableName)) {
                     continue;
                 }
-                lowerColumnToRealColumn.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
-                lowerColumnToRealColumn.get(finalDbName).putIfAbsent(finalTableName, new ConcurrentHashMap<>());
                 JdbcFieldSchema field = new JdbcFieldSchema();
-                String columnName = rs.getString("COLUMN_NAME");
-                if (isLowerCaseTableNames) {
-                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName)
-                            .put(columnName.toLowerCase(), columnName);
-                    columnName = columnName.toLowerCase();
-                } else {
-                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName).put(columnName, columnName);
-                }
-                field.setColumnName(columnName);
+                field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
                 /*
