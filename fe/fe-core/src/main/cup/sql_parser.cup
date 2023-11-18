@@ -849,7 +849,6 @@ nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
-nonterminal KeysDesc opt_mv_keys;
 nonterminal List<String> opt_cluster_keys;
 nonterminal Long opt_id;
 

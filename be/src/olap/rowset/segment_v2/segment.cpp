@@ -469,8 +469,7 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, bool with_ro
             return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>(
                     "key with higher sequence id exists");
         }
-    }
-    if (!has_seq_col && has_rowid) {
+    } else if (has_rowid) {
         Slice sought_key_without_rowid =
                 Slice(sought_key.get_data(), sought_key.get_size() - rowid_length);
         // compare key
