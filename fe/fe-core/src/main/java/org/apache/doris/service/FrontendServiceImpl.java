@@ -1013,20 +1013,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     try {
                         List<Column> baseSchema = table.getBaseSchemaOrEmpty();
                         for (Column column : baseSchema) {
-                            final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
-                            final Integer precision = column.getOriginType().getPrecision();
-                            if (precision != null) {
-                                desc.setColumnPrecision(precision);
-                            }
-                            final Integer columnLength = column.getOriginType().getColumnSize();
-                            if (columnLength != null) {
-                                desc.setColumnLength(columnLength);
-                            }
-                            final Integer decimalDigits = column.getOriginType().getDecimalDigits();
-                            if (decimalDigits != null) {
-                                desc.setColumnScale(decimalDigits);
-                            }
-                            desc.setIsAllowNull(column.isAllowNull());
+                            final TColumnDesc desc = getColumnDesc(column);
                             final TColumnDef colDef = new TColumnDef(desc);
                             final String comment = column.getComment();
                             if (comment != null) {
@@ -1047,6 +1034,31 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         return result;
+    }
+
+    public TColumnDesc getColumnDesc(Column column) {
+        final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
+        final Integer precision = column.getOriginType().getPrecision();
+        if (precision != null) {
+            desc.setColumnPrecision(precision);
+        }
+        final Integer columnLength = column.getOriginType().getColumnSize();
+        if (columnLength != null) {
+            desc.setColumnLength(columnLength);
+        }
+        final Integer decimalDigits = column.getOriginType().getDecimalDigits();
+        if (decimalDigits != null) {
+            desc.setColumnScale(decimalDigits);
+        }
+        desc.setIsAllowNull(column.isAllowNull());
+        if (column.getChildren().size() > 0) {
+            ArrayList<TColumnDesc> children = new ArrayList<>();
+            for (Column child : column.getChildren()) {
+                children.add(getColumnDesc(child));
+            }
+            desc.setChildren(children);
+        }
+        return desc;
     }
 
     @Override
