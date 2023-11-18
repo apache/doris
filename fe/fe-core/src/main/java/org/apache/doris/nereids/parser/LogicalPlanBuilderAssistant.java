@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.nereids.parser.trino.TrinoLogicalPlanBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -31,7 +32,7 @@ import java.math.BigInteger;
 /**
  * Logical plan builder assistant for buildIn dialect and other dialect.
  * The same logical in {@link org.apache.doris.nereids.parser.LogicalPlanBuilder}
- * and {@link org.apache.doris.nereids.parser.trino.LogicalPlanTrinoBuilder} can be
+ * and {@link TrinoLogicalPlanBuilder} can be
  * extracted to here.
  */
 public class LogicalPlanBuilderAssistant {

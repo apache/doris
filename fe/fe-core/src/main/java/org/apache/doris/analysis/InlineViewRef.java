@@ -27,6 +27,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.parser.ParseDialect;
+import org.apache.doris.nereids.parser.hive.HiveLogicalPlanBuilder;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TNullSide;
 
@@ -186,7 +189,13 @@ public class InlineViewRef extends TableRef {
         }
 
         if (view == null && !hasExplicitAlias()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
+            String dialect = ConnectContext.get().getSessionVariable().getSqlDialect();
+            ParseDialect.Dialect sqlDialect = ParseDialect.Dialect.getByName(dialect);
+            if (ParseDialect.Dialect.HIVE != sqlDialect) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
+            }
+            hasExplicitAlias = true;
+            aliases = new String[]{HiveLogicalPlanBuilder.DEFAULT_TABLE_ALIAS};
         }
 
         // Analyze the inline view query statement with its own analyzer
@@ -201,7 +210,7 @@ public class InlineViewRef extends TableRef {
         queryStmt.getMaterializedTupleIds(materializedTupleIds);
         if (view != null && !hasExplicitAlias() && !view.isLocalView()) {
             name = analyzer.getFqTableName(name);
-            aliases = new String[] { name.toString(), view.getName() };
+            aliases = new String[]{name.toString(), view.getName()};
         }
         //TODO(chenhao16): fix TableName in Db.Table style
         // name.analyze(analyzer);
@@ -357,7 +366,6 @@ public class InlineViewRef extends TableRef {
     //         sMap.rhs.set(i, ifExpr);
     //     }
     // }
-
     protected void makeOutputNullable(Analyzer analyzer) throws AnalysisException, UserException {
         try {
             makeOutputNullableHelper(analyzer, sMap);
@@ -488,7 +496,7 @@ public class InlineViewRef extends TableRef {
         }
         StringBuilder sb = new StringBuilder();
         sb.append("(").append(queryStmt.toSql()).append(") ")
-            .append(aliasSql);
+                .append(aliasSql);
 
         return sb.toString();
     }

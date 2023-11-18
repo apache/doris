@@ -37,7 +37,7 @@ public class TrinoDialectPlanParseChecker extends ParseChecker {
     public TrinoDialectPlanParseChecker(String sql) {
         super(sql);
         this.parsedPlanSupplier =
-                Suppliers.memoize(() -> PARSER.parseSingleWithDialect(sql, new ParserContext(ParseDialect.TRINO_395)));
+                Suppliers.memoize(() -> PARSER.parseSingleWithTrinoDialect(sql, new ParserContext(ParseDialect.TRINO_395)));
     }
 
     public TrinoDialectPlanParseChecker assertEquals(LogicalPlan plan) {

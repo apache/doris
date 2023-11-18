@@ -55,7 +55,7 @@ import java.util.stream.Collectors;
  * The actually planBuilder for Trino SQL to Doris logical plan.
  * It depends on {@link io.trino.sql.tree.AstVisitor}
  */
-public class LogicalPlanTrinoBuilder extends io.trino.sql.tree.AstVisitor<Object, ParserContext> {
+public class TrinoLogicalPlanBuilder extends io.trino.sql.tree.AstVisitor<Object, ParserContext> {
 
     public Object visit(io.trino.sql.tree.Node node, ParserContext context) {
         return this.process(node, context);

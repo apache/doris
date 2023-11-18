@@ -188,7 +188,7 @@ public abstract class ConnectProcessor {
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
-                stmts = new NereidsParser().parseSQL(originStmt);
+                stmts = new NereidsParser().parseSQL(originStmt, ctx.getSessionVariable());
             } catch (NotSupportedException e) {
                 // Parse sql failed, audit it and return
                 handleQueryException(e, originStmt, null, null);

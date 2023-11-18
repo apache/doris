@@ -29,7 +29,11 @@ public enum ParseDialect {
     /**
      * Doris parser and it's version is 2.0.0.
      */
-    DORIS_2_ALL(Dialect.DORIS, Version.DORIS_2_ALL);
+    DORIS_2_ALL(Dialect.DORIS, Version.DORIS_2_ALL),
+    /**
+     * Hive parser.
+     */
+    HIVE_ALL(Dialect.HIVE, Version.HIVE_ALL);
 
     private final Dialect dialect;
     private final Version version;
@@ -58,7 +62,9 @@ public enum ParseDialect {
         /**
          * Doris parser and it's version is 2.0.0.
          */
-        DORIS_2_ALL("2.*");
+        DORIS_2_ALL("2.*"),
+
+        HIVE_ALL("*");
         private final String version;
 
         Version(String version) {
@@ -81,7 +87,9 @@ public enum ParseDialect {
         /**
          * Doris parser dialect
          */
-        DORIS("doris");
+        DORIS("doris"),
+
+        HIVE("hive");
 
         private String dialectName;
 
