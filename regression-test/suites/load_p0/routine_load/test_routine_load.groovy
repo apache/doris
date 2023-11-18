@@ -1274,4 +1274,52 @@ suite("test_routine_load","p0") {
         }
     }
 
+    // partial
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+
+            sql new File("""${context.file.parent}/ddl/uniq_tbl_partial_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/uniq_tbl_partial_create.sql""").text
+            sql new File("""${context.file.parent}/ddl/uniq_tbl_partial_init.sql""").text
+
+            sql """
+                CREATE ROUTINE LOAD job_uniq_tbl_partial ON routine_load_uniq_tbl_partial
+                COLUMNS(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18),
+                COLUMNS TERMINATED BY "|"
+                PROPERTIES
+                (
+                    "max_batch_interval" = "1",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200",
+                    "partial_columns" = "true"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "basic_data",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            sql "sync"
+
+            while (true) {
+                sleep(1000)
+                def res = sql "show routine load for job_uniq_tbl_partial"
+                def state = res[8].toString()
+                if (state != "NEED_SCHEDULE") {
+                    break;
+                }
+            }
+
+            sleep(10000)
+
+            qt_sql_column_partial "select * from routine_load_uniq_tbl_partial order by k00,k01"
+
+            sql "stop routine load for job_uniq_tbl_partial"
+        } finally {
+            sql new File("""${context.file.parent}/ddl/uniq_tbl_partial_drop.sql""").text
+
+        }
+    }
+
 }
