@@ -228,6 +228,8 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     public void canNotPruneComplexPredicate() {
         test("test_range_parts", "(part = 10) or (part + id = 1)", 4);
         test("test_range_parts", "(part + id = 1) and (part = 4)", 1);
+        test("test_range_parts", "(part = 2) and (part <> id)", 1);
+        test("test_range_parts", "(part = 2) or (part <> id)", 4);
     }
 
     @Test
