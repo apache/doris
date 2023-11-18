@@ -52,7 +52,11 @@ ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent,
           _search_hashtable_timer(parent->_search_hashtable_timer),
           _build_side_output_timer(parent->_build_side_output_timer),
           _probe_side_output_timer(parent->_probe_side_output_timer),
-          _probe_process_hashtable_timer(parent->_probe_process_hashtable_timer) {}
+          _probe_process_hashtable_timer(parent->_probe_process_hashtable_timer),
+          _right_col_idx((_is_right_semi_anti && !_have_other_join_conjunct)
+                                 ? 0
+                                 : _parent->left_table_data_types().size()),
+          _right_col_len(_parent->right_table_data_types().size()) {}
 
 template <int JoinOpType, typename Parent>
 void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
@@ -122,13 +126,9 @@ template <typename HashTableType>
 typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_probe_side(
         HashTableType& hash_table_ctx, size_t probe_rows, bool with_other_join_conjuncts,
         const uint8_t* null_map) {
-    _right_col_idx = _is_right_semi_anti && !with_other_join_conjuncts
-                             ? 0
-                             : _parent->left_table_data_types().size();
-    _right_col_len = _parent->right_table_data_types().size();
-
-    _probe_indexs.resize(_batch_size);
-    _build_indexs.resize(_batch_size);
+    // may over batch size 1 for some outer join case
+    _probe_indexs.resize(_batch_size + 1);
+    _build_indexs.resize(_batch_size + 1);
 
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
@@ -147,6 +147,10 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                                                              MutableBlock& mutable_block,
                                                              Block* output_block,
                                                              size_t probe_rows) {
+    if (_right_col_len && !_build_block) {
+        return Status::InternalError("build block is nullptr");
+    }
+
     auto& probe_index = _parent->_probe_index;
     auto& build_index = _parent->_build_index;
     auto last_probe_index = probe_index;
@@ -170,10 +174,13 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
-        auto [new_probe_idx, new_build_idx, new_current_offset] =
-                hash_table_ctx.hash_table->template find_batch<JoinOpType, with_other_conjuncts>(
-                        hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index,
-                        build_index, probe_rows, _probe_indexs.data(), _build_indexs.data());
+        auto [new_probe_idx, new_build_idx,
+              new_current_offset] = hash_table_ctx.hash_table->template find_batch < JoinOpType,
+              with_other_conjuncts, is_mark_join,
+              need_null_map_for_probe &&
+                      ignore_null > (hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
+                                     probe_index, build_index, probe_rows, _probe_indexs.data(),
+                                     _build_indexs.data(), mark_column.get());
         probe_index = new_probe_idx;
         build_index = new_build_idx;
         current_offset = new_current_offset;
@@ -236,36 +243,28 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
 
         auto null_map_column = ColumnVector<UInt8>::create(row_count, 0);
         auto* __restrict null_map_data = null_map_column->get_data().data();
-
         // process equal-conjuncts-matched tuples that are newly generated
         // in this run if there are any.
         for (int i = 0; i < row_count; ++i) {
-            auto join_hit = _build_indexs[i];
-            auto other_hit = filter_column_ptr[i];
+            bool join_hit = _build_indexs[i];
+            bool other_hit = filter_column_ptr[i];
 
-            if (!other_hit) {
-                for (size_t j = 0; j < _right_col_len; ++j) {
-                    typeid_cast<ColumnNullable*>(
-                            std::move(*output_block->get_by_position(j + _right_col_idx).column)
-                                    .assume_mutable()
-                                    .get())
-                            ->get_null_map_data()[i] = true;
-                }
-            }
             null_map_data[i] = !join_hit || !other_hit;
 
-            if (join_hit) {
-                filter_map[i] = other_hit;
+            if (!join_hit) {
+                filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
             } else {
-                filter_map[i] = true;
+                filter_map[i] = other_hit;
+            }
+            if (filter_map[i]) {
+                _parent->_last_probe_match = _probe_indexs[i];
             }
         }
 
         for (size_t i = 0; i < row_count; ++i) {
             if (filter_map[i]) {
                 _tuple_is_null_right_flags->emplace_back(null_map_data[i]);
-                if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN ||
-                              JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
+                if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
                     visited[_build_indexs[i]] = 1;
                 }
             }
@@ -275,9 +274,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         auto new_filter_column = ColumnVector<UInt8>::create(row_count);
         auto& filter_map = new_filter_column->get_data();
 
-        size_t start_row_idx = 1;
-        filter_map.emplace_back(filter_column_ptr[0]);
-        for (size_t i = start_row_idx; i < row_count; ++i) {
+        for (size_t i = 0; i < row_count; ++i) {
             filter_map[i] = filter_column_ptr[i];
         }
 
@@ -309,16 +306,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         // equal-conjuncts-matched tuple is output in all sub blocks,
         // if there are none, just pick a tuple and output.
 
-        size_t start_row_idx = 1;
-        // Both equal conjuncts and other conjuncts are true
-        filter_map[0] = filter_column_ptr[0] && _build_indexs[0];
-
-        for (size_t i = start_row_idx; i < row_count; ++i) {
-            if (_build_indexs[i] && filter_column_ptr[i]) {
-                filter_map[i] = _build_indexs[i] && filter_column_ptr[i];
-            } else {
-                filter_map[i] = false;
-            }
+        for (size_t i = 0; i < row_count; ++i) {
+            filter_map[i] = _build_indexs[i] && filter_column_ptr[i];
         }
 
         if (is_mark_join) {
@@ -355,9 +344,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             orig_columns = _right_col_idx;
         }
-        static_cast<void>(
-                Block::filter_block(output_block, result_column_id,
-                                    is_mark_join ? output_block->columns() : orig_columns));
+        RETURN_IF_ERROR(Block::filter_block(output_block, result_column_id,
+                                            is_mark_join ? output_block->columns() : orig_columns));
     }
 
     return Status::OK();
@@ -374,6 +362,11 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
     auto block_size = _build_indexs.size();
 
     if (block_size) {
+        if (mcol.size() < _right_col_len + _right_col_idx) {
+            return Status::InternalError(
+                    "output block invalid, mcol.size()={}, _right_col_len={}, _right_col_idx={}",
+                    mcol.size(), _right_col_len, _right_col_idx);
+        }
         for (size_t j = 0; j < _right_col_len; ++j) {
             const auto& column = *_build_block->safe_get_by_position(j).column;
             mcol[j + _right_col_idx]->insert_indices_from_join(column, _build_indexs.data(),

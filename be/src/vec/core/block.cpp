@@ -330,11 +330,14 @@ size_t Block::get_position_by_name(const std::string& name) const {
 void Block::check_number_of_rows(bool allow_null_columns) const {
     ssize_t rows = -1;
     for (const auto& elem : data) {
-        if (!elem.column && allow_null_columns) continue;
+        if (!elem.column && allow_null_columns) {
+            continue;
+        }
 
         if (!elem.column) {
-            LOG(FATAL) << fmt::format(
-                    "Column {} in block is nullptr, in method check_number_of_rows.", elem.name);
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method check_number_of_rows.",
+                            elem.name);
         }
 
         ssize_t size = elem.column->size();
@@ -342,8 +345,8 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
         if (rows == -1) {
             rows = size;
         } else if (rows != size) {
-            LOG(FATAL) << fmt::format("Sizes of columns doesn't match: {}:{},{}:{}, col size: {}",
-                                      data.front().name, rows, elem.name, size, each_col_size());
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Sizes of columns doesn't match, block={}",
+                            dump_structure());
         }
     }
 }
@@ -1065,7 +1068,7 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size, bool is_rese
         if (is_reserve) {
             column->reserve(size);
         } else {
-            column->resize(size);
+            column->insert_many_defaults(size);
         }
         temp_block->insert({std::move(column), d.type, d.name});
     }
