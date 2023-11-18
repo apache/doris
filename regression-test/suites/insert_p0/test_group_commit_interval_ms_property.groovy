@@ -17,7 +17,6 @@
 
 suite("test_group_commit_interval_ms_property") {
 
-
     def tableName =  "test_group_commit_interval_ms_property_tbl"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -48,7 +47,7 @@ suite("test_group_commit_interval_ms_property") {
 
     qt_3 "select * from ${tableName} order by k"
 
-    Thread.sleep(5000);
+    Thread.sleep(8000);
 
     qt_4 "select * from ${tableName} order by k"
 
