@@ -85,6 +85,7 @@ public class Profile {
             this.isFinished = isFinished;
         } catch (Throwable t) {
             LOG.warn("update profile failed", t);
+            throw t;
         }
     }
 
