@@ -8,14 +8,14 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey))otherCondition=()
+----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey))otherCondition=()
+----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->[lo_suppkey]
 ------------------------PhysicalDistribute
---------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF0 p_partkey->[lo_partkey]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[lineorder]
+------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------filter((part.p_brand = 'MFGR#2239'))
