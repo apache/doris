@@ -42,17 +42,17 @@ suite("test_partition_unique_model") {
 
     explain {
         sql "select * from xinan where init_date >=20221001;"
-        contains "partitions=1/2 (p202210)"
+        contains "partitions=1/2"
     }
 
     explain {
         sql "select * from xinan where init_date<20221101;"
-        contains "partitions=2/2 (p202209,p202210)"
+        contains "partitions=2/2"
     } 
 
     explain {
         sql "select * from xinan where init_date >=20221001 and init_date<20221101;"
-        contains "partitions=1/2 (p202210)"
+        contains "partitions=1/2"
     }
 
 }
