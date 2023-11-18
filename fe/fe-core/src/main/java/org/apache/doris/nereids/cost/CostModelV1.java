@@ -22,6 +22,8 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -42,8 +44,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -299,7 +303,29 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     0
             );
         }
-        return CostV1.of(context.getSessionVariable(), leftRowCount + rightRowCount + outputRowCount,
+        double penaltyForShuffleSingleProbeBucket = 1.0;
+        for (Expression conj : physicalHashJoin.getHashJoinConjuncts()) {
+            EqualTo eq = (EqualTo) JoinUtils.swapEqualToForChildrenOrder(
+                    (EqualTo) conj, physicalHashJoin.left().getOutputSet());
+            ColumnStatistic leftColStats = probeStats.findColumnStatistics(eq.left());
+            if (leftColStats != null) {
+                if (leftColStats.ndv < beNumber) {
+                    penaltyForShuffleSingleProbeBucket = 10;
+                    break;
+                }
+            }
+
+            ColumnStatistic rightColStats = buildStats.findColumnStatistics(eq.right());
+            if (rightColStats != null) {
+                if (rightColStats.ndv < beNumber) {
+                    penaltyForShuffleSingleProbeBucket = 10;
+                    break;
+                }
+            }
+        }
+
+        return CostV1.of(context.getSessionVariable(),
+                (leftRowCount + rightRowCount + outputRowCount) * penaltyForShuffleSingleProbeBucket,
                 rightRowCount,
                 0
         );
