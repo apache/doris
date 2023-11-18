@@ -654,45 +654,28 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
             if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                taskgroup::TaskGroupInfo task_group_info;
-                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
-                                                                         &task_group_info);
-                if (status.ok()) {
-                    auto tg = _exec_env->task_group_manager()->get_or_create_task_group(
-                            task_group_info);
-                    tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    uint64_t tg_id = tg->id();
-                    std::string tg_name = tg->name();
-                    LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                              << " use task group: " << tg->debug_string()
-                              << " cpu_hard_limit: " << task_group_info.cpu_hard_limit
-                              << " cpu_share:" << task_group_info.cpu_share
-                              << " enable cgroup soft cpu:" << config::enable_cgroup_cpu_soft_limit;
-                    if (task_group_info.cpu_hard_limit > 0) {
-                        Status ret = _exec_env->task_group_manager()->create_and_get_task_scheduler(
-                                tg_id, tg_name, task_group_info.cpu_hard_limit,
-                                task_group_info.cpu_share, _exec_env, query_ctx.get());
-                        if (!ret.ok()) {
-                            LOG(INFO) << "workload group init failed "
-                                      << ", name=" << tg_name << ", id=" << tg_id
-                                      << ", reason=" << ret.to_string();
-                        }
+                uint64_t tg_id = params.workload_groups[0].id;
+                auto* tg_mgr = _exec_env->task_group_manager();
+                if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
+                    std::stringstream ss;
+                    ss << "Query/load id: " << print_id(query_ctx->query_id());
+                    ss << " use task group " << task_group_ptr->debug_string();
+                    if (tg_mgr->enable_cpu_soft_limit() && !config::enable_cgroup_cpu_soft_limit) {
+                        query_ctx->set_task_group(task_group_ptr);
+                        ss << ", cpu soft limit based doris sche";
                     } else {
-                        if (!config::enable_cgroup_cpu_soft_limit) {
-                            query_ctx->set_task_group(tg);
+                        bool ret = tg_mgr->set_task_sche_for_query_ctx(tg_id, query_ctx.get());
+                        if (tg_mgr->enable_cpu_hard_limit()) {
+                            ss << ", cpu hard limit based cgroup";
                         } else {
-                            Status ret =
-                                    _exec_env->task_group_manager()->create_and_get_task_scheduler(
-                                            tg_id, tg_name, task_group_info.cpu_hard_limit,
-                                            task_group_info.cpu_share, _exec_env, query_ctx.get());
-                            if (!ret.ok()) {
-                                LOG(INFO) << "workload group cpu soft limit init failed "
-                                          << ", name=" << tg_name << ", id=" << tg_id
-                                          << ", reason=" << ret.to_string();
-                            }
+                            ss << ", cpu soft limit based cgroup";
+                        }
+                        if (!ret) {
+                            ss << ", but cgroup init failed, scan or exec fallback to no group";
                         }
                     }
-                }
+                    LOG(INFO) << ss.str();
+                } // else, query run with no group
             } else {
                 VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
                            << " does not use task group.";
