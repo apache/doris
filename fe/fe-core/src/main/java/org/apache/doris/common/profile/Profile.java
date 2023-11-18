@@ -68,20 +68,24 @@ public class Profile {
 
     public synchronized void update(long startTime, Map<String, String> summaryInfo, boolean isFinished,
             int profileLevel, Planner planner, boolean isPipelineX) {
-        if (this.isFinished) {
-            return;
+        try {
+            if (this.isFinished) {
+                return;
+            }
+            if (executionProfile == null) {
+                // Sometimes execution profile is not set
+                return;
+            }
+            summaryProfile.update(summaryInfo);
+            executionProfile.update(startTime, isFinished);
+            rootProfile.computeTimeInProfile();
+            this.planNodeMap = planner.getExplainStringMap();
+            rootProfile.setIsPipelineX(isPipelineX);
+            ProfileManager.getInstance().pushProfile(this);
+            this.isFinished = isFinished;
+        } catch (Throwable t) {
+            LOG.warn("update profile failed", t);
         }
-        if (executionProfile == null) {
-            // Sometimes execution profile is not set
-            return;
-        }
-        summaryProfile.update(summaryInfo);
-        executionProfile.update(startTime, isFinished);
-        rootProfile.computeTimeInProfile();
-        this.planNodeMap = planner.getExplainStringMap();
-        rootProfile.setIsPipelineX(isPipelineX);
-        ProfileManager.getInstance().pushProfile(this);
-        this.isFinished = isFinished;
     }
 
     public RuntimeProfile getRootProfile() {
