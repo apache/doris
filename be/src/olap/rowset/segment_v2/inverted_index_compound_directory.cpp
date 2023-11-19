@@ -22,6 +22,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 
 #ifdef _CL_HAVE_IO_H
@@ -392,6 +393,9 @@ DorisCompoundDirectory::FSIndexOutput::~FSIndexOutput() {
     if (writer) {
         try {
             FSIndexOutput::close();
+            DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor", {
+                _CLTHROWA(CL_ERR_IO, "debug point: test throw error in fsindexoutput destructor");
+            })
         } catch (CLuceneError& err) {
             //ignore errors...
             writer.reset(nullptr);
@@ -422,6 +426,9 @@ void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const 
 void DorisCompoundDirectory::FSIndexOutput::close() {
     try {
         BufferedIndexOutput::close();
+        DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close", {
+        _CLTHROWA(CL_ERR_IO, "debug point: test throw error in bufferedindexoutput close");
+        })
     } catch (CLuceneError& err) {
         LOG(WARNING) << "FSIndexOutput close, BufferedIndexOutput close error: " << err.what();
         if (err.number() == CL_ERR_IO) {
@@ -433,12 +440,16 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
     }
     if (writer) {
         Status ret = writer->finalize();
+        DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._set_writer_finalize_status_error",
+                        { ret = Status::Error<INTERNAL_ERROR>("writer finalize status error"); })
         if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer finalize error: " << ret.to_string();
             writer.reset(nullptr);
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }
         ret = writer->close();
+        DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._set_writer_close_status_error",
+                        { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
         if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer close error: " << ret.to_string();
             writer.reset(nullptr);
