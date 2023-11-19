@@ -22,30 +22,26 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.UnsupportedDialectException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.hive.HiveLogicalPlanBuilder;
-import org.apache.doris.nereids.parser.trino.TrinoLogicalPlanBuilder;
 import org.apache.doris.nereids.parser.trino.TrinoParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -87,30 +83,16 @@ public class NereidsParser {
 
     private List<StatementBase> parseSQLWithDialect(String sql, ParseDialect.Dialect sqlDialect,
                                                     SessionVariable sessionVariable) {
-        final List<StatementBase> logicalPlans = new ArrayList<>();
         switch (sqlDialect) {
             case TRINO:
-                try {
-                    io.trino.sql.parser.StatementSplitter splitter = new io.trino.sql.parser.StatementSplitter(sql);
-                    ParserContext parserContext = new ParserContext(ParseDialect.TRINO_395);
-                    StatementContext statementContext = new StatementContext();
-                    for (io.trino.sql.parser.StatementSplitter.Statement statement : splitter.getCompleteStatements()) {
-                        Object parsedPlan = parseSingleWithTrinoDialect(statement.statement(), parserContext);
-                        logicalPlans.add(parsedPlan == null
-                                    ? null : new LogicalPlanAdapter((LogicalPlan) parsedPlan, statementContext));
-                    }
-                    if (logicalPlans.isEmpty() || logicalPlans.stream().anyMatch(Objects::isNull)) {
-                        return parseSQL(sql);
-                    }
-                    return logicalPlans;
-                } catch (io.trino.sql.parser.ParsingException | UnsupportedDialectException e) {
-                    LOG.debug("Failed to parse logical plan from trino, sql is :{}", sql, e);
+                final List<StatementBase> logicalPlans = TrinoParser.parse(sql, sessionVariable);
+                if (CollectionUtils.isEmpty(logicalPlans)) {
                     return parseSQL(sql);
                 }
+                return logicalPlans;
 
             case HIVE:
-                ParserContext parserContext = new ParserContext(ParseDialect.HIVE_ALL);
-                return parseSQL(sql, new HiveLogicalPlanBuilder(parserContext));
+                return parseSQL(sql, new HiveLogicalPlanBuilder());
 
             default:
                 return parseSQL(sql);
@@ -168,19 +150,6 @@ public class NereidsParser {
         LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
                     ? new LogicalPlanBuilder() : logicalPlanBuilder;
         return (T) realLogicalPlanBuilder.visit(tree);
-    }
-
-    /**
-     * Parse trino dialect sql.
-     *
-     * @param sql sql string
-     * @param parserContext parse context
-     * @return logical plan
-     */
-    public <T> T parseSingleWithTrinoDialect(String sql, ParserContext parserContext) {
-        Preconditions.checkArgument(parserContext.getParserDialect() == ParseDialect.TRINO_395);
-        io.trino.sql.tree.Statement statement = TrinoParser.parse(sql);
-        return (T) new TrinoLogicalPlanBuilder().visit(statement, parserContext);
     }
 
     private ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {

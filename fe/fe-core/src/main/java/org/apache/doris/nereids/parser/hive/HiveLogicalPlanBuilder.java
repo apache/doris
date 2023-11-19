@@ -21,6 +21,7 @@ import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilder;
+import org.apache.doris.nereids.parser.ParseDialect;
 import org.apache.doris.nereids.parser.ParserContext;
 import org.apache.doris.nereids.parser.ParserUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,8 +41,8 @@ public class HiveLogicalPlanBuilder extends LogicalPlanBuilder {
 
     private final ParserContext parserContext;
 
-    public HiveLogicalPlanBuilder(ParserContext parserContext) {
-        this.parserContext = parserContext;
+    public HiveLogicalPlanBuilder() {
+        this.parserContext = new ParserContext(ParseDialect.HIVE_ALL);
     }
 
     @Override
