@@ -39,10 +39,10 @@
 namespace doris {
 namespace taskgroup {
 
-const static std::string CPU_SHARE = "cpu_share";
-const static std::string MEMORY_LIMIT = "memory_limit";
-const static std::string ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
-const static std::string CPU_HARD_LIMIT = "cpu_hard_limit";
+const static uint64_t CPU_SHARE_DEFAULT_VALUE = 1024;
+const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
+const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
+const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 
 template <typename QueueType>
 TaskGroupEntity<QueueType>::TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type)
@@ -215,40 +215,31 @@ Status TaskGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_
     task_group_info->version = version;
 
     // 4 cpu_share
-    uint64_t cpu_share = 1024;
+    uint64_t cpu_share = CPU_SHARE_DEFAULT_VALUE;
     if (workload_group_info.__isset.cpu_share) {
         cpu_share = workload_group_info.cpu_share;
     }
     task_group_info->cpu_share = cpu_share;
 
     // 5 cpu hard limit
-    int cpu_hard_limit = -1;
+    int cpu_hard_limit = CPU_HARD_LIMIT_DEFAULT_VALUE;
     if (workload_group_info.__isset.cpu_hard_limit) {
         cpu_hard_limit = workload_group_info.cpu_hard_limit;
     }
     task_group_info->cpu_hard_limit = cpu_hard_limit;
 
     // 6 mem_limit
-    bool is_percent = true;
-    std::string mem_limit_str;
+    std::string mem_limit_str = MEMORY_LIMIT_DEFAULT_VALUE;
     if (workload_group_info.__isset.mem_limit) {
         mem_limit_str = workload_group_info.mem_limit;
-    } else {
-        return Status::InternalError<false>("workload group mem_limit is required");
     }
+    bool is_percent = true;
     int64_t mem_limit =
             ParseUtil::parse_mem_spec(mem_limit_str, -1, MemInfo::mem_limit(), &is_percent);
-    if (UNLIKELY(mem_limit <= 0)) {
-        std::stringstream ss;
-        ss << "parse memory limit error, " << MEMORY_LIMIT << ": " << mem_limit_str;
-        LOG(WARNING) << ss.str();
-        return Status::InternalError<false>("invalid value for {}, val={}", MEMORY_LIMIT,
-                                            mem_limit);
-    }
     task_group_info->memory_limit = mem_limit;
 
     // 7 mem overcommit
-    bool enable_memory_overcommit = true;
+    bool enable_memory_overcommit = ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE;
     if (workload_group_info.__isset.enable_memory_overcommit) {
         enable_memory_overcommit = workload_group_info.enable_memory_overcommit;
     }
@@ -262,13 +253,6 @@ Status TaskGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_
     task_group_info->enable_cpu_hard_limit = enable_cpu_hard_limit;
 
     return Status::OK();
-}
-
-bool TaskGroupInfo::check_group_info(const TPipelineWorkloadGroup& resource_group) {
-    return resource_group.__isset.id && resource_group.__isset.version &&
-           resource_group.__isset.name && resource_group.__isset.properties &&
-           resource_group.properties.count(CPU_SHARE) > 0 &&
-           resource_group.properties.count(MEMORY_LIMIT) > 0;
 }
 
 } // namespace taskgroup
