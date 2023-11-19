@@ -433,3 +433,10 @@ false	true	true	false	false
 5	\N	null	\N	2019-09-09T00:00	8.9	2	\N	2	\N	\N	8.9
 5	\N	null	\N	2019-09-09T00:00	8.9	3	\N	null	2019-09-09	\N	8.9
 
+-- !left_join_with_other_conjunct --
+1	\N	null	\N	\N	8.9	3	\N	null	2019-09-09	\N	8.9
+1	\N	null	\N	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+2	\N	2	\N	\N	8.9	\N	\N	\N	\N	\N	\N
+3	\N	null	2019-09-09	\N	8.9	5	\N	null	\N	2019-09-09T00:00	8.9
+5	\N	null	\N	2019-09-09T00:00	8.9	\N	\N	\N	\N	\N	\N
+
