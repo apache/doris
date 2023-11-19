@@ -893,10 +893,16 @@ public class StmtExecutor {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-
-        profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
-                context.getSessionVariable().profileLevel, this.planner,
-                context.getSessionVariable().getEnablePipelineXEngine());
+        // If any error happends in update profile, we should ignore this error
+        // and ensure the sql is finished normally. For example, if update profile
+        // failed, the insert stmt should be success
+        try {
+            profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
+                    context.getSessionVariable().profileLevel, this.planner,
+                    context.getSessionVariable().getEnablePipelineXEngine());
+        } catch (Throwable t) {
+            LOG.warn("failed to update profile, ingore this error", t);
+        }
     }
 
     // Analyze one statement to structure in memory.
