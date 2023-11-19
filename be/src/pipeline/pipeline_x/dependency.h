@@ -55,7 +55,6 @@ public:
             : _id(id), _node_id(node_id), _name(std::move(name)), _ready_for_read(false) {}
     virtual ~Dependency() = default;
 
-    virtual bool is_or_dep() { return false; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     virtual void* shared_state() = 0;
@@ -277,37 +276,6 @@ public:
             }
         }
         return nullptr;
-    }
-};
-
-class OrDependency final : public WriteDependency {
-public:
-    ENABLE_FACTORY_CREATOR(OrDependency);
-    OrDependency(int id, int node_id) : WriteDependency(id, node_id, "OrDependency") {}
-
-    [[nodiscard]] std::string name() const override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "{}[", _name);
-        for (auto& child : _children) {
-            fmt::format_to(debug_string_buffer, "{}, ", child->name());
-        }
-        fmt::format_to(debug_string_buffer, "]");
-        return fmt::to_string(debug_string_buffer);
-    }
-
-    void* shared_state() override { return nullptr; }
-
-    std::string debug_string(int indentation_level = 0) override;
-
-    bool is_or_dep() override { return true; }
-
-    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override;
-
-    [[nodiscard]] WriteDependency* write_blocked_by(PipelineXTask* task) override;
-
-    void add_child(std::shared_ptr<Dependency> child) override {
-        WriteDependency::add_child(child);
-        child->set_parent(weak_from_this());
     }
 };
 
@@ -681,6 +649,9 @@ public:
     }
 
     void set_eos() {
+        if (_eos) {
+            return;
+        }
         _eos = true;
         WriteDependency::set_ready_for_read();
     }

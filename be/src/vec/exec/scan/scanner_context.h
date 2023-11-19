@@ -43,9 +43,8 @@ class TupleDescriptor;
 
 namespace pipeline {
 class ScanLocalStateBase;
-class ScannerDoneDependency;
+class ScanDependency;
 class FinishDependency;
-class DataReadyDependency;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -106,10 +105,11 @@ public:
         return _process_status;
     }
 
-    virtual void set_dependency(
-            std::shared_ptr<pipeline::DataReadyDependency> dependency,
-            std::shared_ptr<pipeline::ScannerDoneDependency> scanner_done_dependency,
-            std::shared_ptr<pipeline::FinishDependency> finish_dependency) {}
+    void set_dependency(std::shared_ptr<pipeline::ScanDependency> dependency,
+                        std::shared_ptr<pipeline::FinishDependency> finish_dependency) {
+        _dependency = dependency;
+        _finish_dependency = finish_dependency;
+    }
 
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
@@ -283,7 +283,7 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
-    std::shared_ptr<pipeline::ScannerDoneDependency> _scanner_done_dependency = nullptr;
+    std::shared_ptr<pipeline::ScanDependency> _dependency = nullptr;
     std::shared_ptr<pipeline::FinishDependency> _finish_dependency = nullptr;
 };
 } // namespace vectorized
