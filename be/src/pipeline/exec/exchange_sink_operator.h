@@ -223,8 +223,7 @@ private:
 
     RuntimeProfile::Counter* _wait_queue_timer = nullptr;
     RuntimeProfile::Counter* _wait_broadcast_buffer_timer = nullptr;
-
-
+    
     std::vector<RuntimeProfile::Counter*> _wait_channel_timer;
 
     // Sender instance id, unique within a fragment.
