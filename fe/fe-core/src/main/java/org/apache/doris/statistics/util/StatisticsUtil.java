@@ -702,7 +702,8 @@ public class StatisticsUtil {
                     table.getRemoteTable().getSd().getLocation(), null));
         }
         // Get files for all partitions.
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions, true);
+        String bindBrokerName = table.getCatalog().bindBrokerName();
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions, true, bindBrokerName);
     }
 
     /**
