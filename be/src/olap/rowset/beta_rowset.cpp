@@ -256,15 +256,9 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                     InvertedIndexDescriptor::get_index_file_name(src_path, index_id);
             std::string inverted_index_dst_file_path =
                     InvertedIndexDescriptor::get_index_file_name(dst_path, index_id);
-            bool need_to_link = true;
-            if (_schema->skip_write_index_on_load()) {
-                RETURN_IF_ERROR(local_fs->exists(inverted_index_src_file_path, &need_to_link));
-                if (!need_to_link) {
-                    LOG(INFO) << "skip create hard link to not existed file="
-                              << inverted_index_src_file_path;
-                }
-            }
-            if (need_to_link) {
+            bool index_file_exists = false;
+            RETURN_IF_ERROR(local_fs->exists(inverted_index_src_file_path, &index_file_exists));
+            if (index_file_exists) {
                 DBUG_EXECUTE_IF(
                         "fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
                             status = Status::Error<OS_ERROR>(
@@ -284,6 +278,9 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 LOG(INFO) << "success to create hard link. from=" << inverted_index_src_file_path
                           << ", "
                           << "to=" << inverted_index_dst_file_path;
+            } else {
+                LOG(WARNING) << "skip create hard link to not existed index file="
+                             << inverted_index_src_file_path;
             }
         }
     }
