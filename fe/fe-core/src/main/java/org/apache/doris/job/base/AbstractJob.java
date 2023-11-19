@@ -26,7 +26,6 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.job.task.Task;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -76,8 +75,9 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         if (CollectionUtils.isEmpty(runningTasks)) {
             return;
         }
-        runningTasks.forEach(Task::cancel);
-
+        for (T task : runningTasks) {
+            task.cancel();
+        }
     }
 
     @Override

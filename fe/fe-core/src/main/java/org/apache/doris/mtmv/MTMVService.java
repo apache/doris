@@ -17,31 +17,30 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 public class MTMVService {
+    private static final Logger LOG = LogManager.getLogger(MTMVService.class);
+
     private Map<String, MTMVHookService> hooks = Maps.newConcurrentMap();
     private MTMVCacheManager cacheManager = new MTMVCacheManager();
     private MTMVJobManager jobManager = new MTMVJobManager();
 
     public MTMVService() {
-        //        registerHook("MTMVCacheManager", cacheManager);
         registerHook("MTMVJobManager", jobManager);
     }
 
@@ -53,49 +52,65 @@ public class MTMVService {
         Objects.requireNonNull(name);
         Objects.requireNonNull(mtmvHookService);
         hooks.put(name, mtmvHookService);
+        LOG.info("registerHook: " + name);
     }
 
     public void deregisterHook(String name) {
         hooks.remove(name);
+        LOG.info("deregisterHook: " + name);
     }
 
     // when create mtmv,triggered when playing back logs
-    public void registerMTMV(MTMV materializedView) {
+    // when replay, db not create finish, so use dbId as param
+    public void registerMTMV(MTMV mtmv, Long dbId) {
+        Objects.requireNonNull(mtmv);
+        LOG.info("registerMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.registerMTMV(materializedView);
+            mtmvHookService.registerMTMV(mtmv, dbId);
         }
     }
 
     // when drop mtmv,triggered when playing back logs
-    public void deregisterMTMV(MTMV materializedView) {
+    public void deregisterMTMV(MTMV mtmv) {
+        Objects.requireNonNull(mtmv);
+        LOG.info("deregisterMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.deregisterMTMV(materializedView);
+            mtmvHookService.deregisterMTMV(mtmv);
         }
     }
 
     // when create mtmv,only trigger once
-    public void createMTMV(MTMV materializedView) throws DdlException {
+    public void createMTMV(MTMV mtmv) throws DdlException {
+        Objects.requireNonNull(mtmv);
+        LOG.info("createMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.createMTMV(materializedView);
+            mtmvHookService.createMTMV(mtmv);
         }
     }
 
     // when drop mtmv,only trigger once
-    public void dropMTMV(MTMV materializedView) throws DdlException {
+    public void dropMTMV(MTMV mtmv) throws DdlException {
+        Objects.requireNonNull(mtmv);
+        LOG.info("dropMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.dropMTMV(materializedView);
+            mtmvHookService.dropMTMV(mtmv);
         }
     }
 
     // when alter mtmv,only trigger once
-    public void alterMTMV(MTMV materializedView, AlterMTMV alterMTMV) throws DdlException {
+    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
+        Objects.requireNonNull(mtmv);
+        Objects.requireNonNull(alterMTMV);
+        LOG.info("alterMTMV, mtmvName: {}, AlterMTMV: {}", mtmv.getName(), alterMTMV);
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterMTMV(materializedView, alterMTMV);
+            mtmvHookService.alterMTMV(mtmv, alterMTMV);
         }
     }
 
     // when refresh mtmv,only trigger once
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
+        Objects.requireNonNull(info);
+        LOG.info("refreshMTMV, RefreshMTMVInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.refreshMTMV(info);
         }
@@ -103,28 +118,30 @@ public class MTMVService {
 
     // when base table is dropped,only trigger once
     public void dropTable(Table table) throws UserException {
-        processBaseTableChange(table, "The base table has been deleted:");
+        Objects.requireNonNull(table);
+        LOG.info("dropTable, tableName: {}", table.getName());
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.dropTable(table);
+        }
     }
 
     // when base table is Modified,only trigger once
     public void alterTable(Table table) throws UserException {
-        processBaseTableChange(table, "The base table has been updated:");
+        Objects.requireNonNull(table);
+        LOG.info("alterTable, tableName: {}", table.getName());
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.alterTable(table);
+        }
     }
 
-    private void processBaseTableChange(Table table, String msgPrefix) throws UserException {
-        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
-        Set<BaseTableInfo> mtmvsByBaseTable = cacheManager.getMtmvsByBaseTable(baseTableInfo);
-        if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
-            return;
-        }
-        for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
-            Table mtmv = Env.getCurrentEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(mtmvInfo.getDbId()).getTableOrAnalysisException(mtmvInfo.getTableId());
-            TableNameInfo tableNameInfo = new TableNameInfo(mtmv.getQualifiedDbName(),
-                    mtmv.getName());
-            MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE,
-                    msgPrefix + baseTableInfo);
-            Env.getCurrentEnv().alterMTMVStatus(tableNameInfo, status);
+    //when task finished, triggered when playing back logs
+    public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
+        Objects.requireNonNull(mtmv);
+        Objects.requireNonNull(cache);
+        Objects.requireNonNull(task);
+        LOG.info("refreshComplete: " + mtmv.getName());
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.refreshComplete(mtmv, cache, task);
         }
     }
 }

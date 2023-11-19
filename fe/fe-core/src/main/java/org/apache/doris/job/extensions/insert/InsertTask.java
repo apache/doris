@@ -111,17 +111,17 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public void onFail() {
+    public void onFail() throws JobException {
         super.onFail();
     }
 
     @Override
-    public void onSuccess() {
+    public void onSuccess() throws JobException {
         super.onSuccess();
     }
 
     @Override
-    public void cancel() {
+    public void cancel() throws JobException {
         super.cancel();
     }
 

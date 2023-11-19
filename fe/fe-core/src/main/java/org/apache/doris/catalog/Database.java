@@ -30,7 +30,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -398,7 +397,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
                 } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
-                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table);
+                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
                 }
             }
             return Pair.of(result, isTableExist);
@@ -632,8 +631,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             Table table = Table.read(in);
             table.setQualifiedDbName(fullQualifiedName);
             if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().getCacheManager()
-                        .refreshMTMVCache(((MTMV) table).getCache(), new BaseTableInfo(table.getId(), id));
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
             }
             String tableName = table.getName();
             nameToTable.put(tableName, table);

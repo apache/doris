@@ -20,9 +20,11 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
@@ -31,6 +33,7 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -114,12 +117,12 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void registerMTMV(MTMV materializedView) {
+    public void registerMTMV(MTMV mtmv, Long dbId) {
 
     }
 
     @Override
-    public void deregisterMTMV(MTMV materializedView) {
+    public void deregisterMTMV(MTMV mtmv) {
 
     }
 
@@ -146,6 +149,21 @@ public class MTMVJobManager implements MTMVHookService {
             e.printStackTrace();
             throw new DdlException(e.getMessage());
         }
+    }
+
+    @Override
+    public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
+
+    }
+
+    @Override
+    public void dropTable(Table table) throws UserException {
+
+    }
+
+    @Override
+    public void alterTable(Table table) throws UserException{
+
     }
 
 }
