@@ -139,6 +139,13 @@ public:
         return _mem_tracker_limiter_pool;
     }
 
+    // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
+    // because mem_limit is not a required property
+    bool is_mem_limit_valid() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _memory_limit > 0;
+    }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
@@ -170,9 +177,6 @@ struct TaskGroupInfo {
 
     static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
                                    taskgroup::TaskGroupInfo* task_group_info);
-
-private:
-    static bool check_group_info(const TPipelineWorkloadGroup& resource_group);
 };
 
 } // namespace taskgroup
