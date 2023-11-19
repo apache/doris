@@ -54,6 +54,8 @@ suite("test_base_mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
+
+    // alter table
     sql """
         alter table ${tableName} add COLUMN new_col INT AFTER username;
     """
@@ -64,9 +66,31 @@ suite("test_base_mtmv") {
     sql """
         REFRESH MATERIALIZED VIEW ${mvName}
     """
+    waitingMTMVTaskFinished(jobName)
+    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
+
+    // drop table
+    sql """
+        drop table ${tableName}
+    """
+    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
+    sql """
+        CREATE TABLE IF NOT EXISTS `${tableName}` (
+            event_day DATE,
+            id BIGINT,
+            username VARCHAR(20)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 10
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName}
+    """
+    waitingMTMVTaskFinished(jobName)
     order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-    assertEquals(0, 0);
 }
