@@ -634,7 +634,7 @@ public class RuntimeProfile {
             childLock.writeLock().unlock();
         }
         // insert plan node info to profile strinfo
-        if (!planNodeMap.containsKey(child.nodeId())) {
+        if (planNodeMap == null || !planNodeMap.containsKey(child.nodeId())) {
             return;
         }
         child.addPlanNodeInfos(planNodeMap.get(child.nodeId()));

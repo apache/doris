@@ -79,7 +79,10 @@ public class Profile {
             summaryProfile.update(summaryInfo);
             executionProfile.update(startTime, isFinished);
             rootProfile.computeTimeInProfile();
-            this.planNodeMap = planner.getExplainStringMap();
+            // Nerids native insert not set planner, so it is null
+            if (planner != null) {
+                this.planNodeMap = planner.getExplainStringMap();
+            }
             rootProfile.setIsPipelineX(isPipelineX);
             ProfileManager.getInstance().pushProfile(this);
             this.isFinished = isFinished;
