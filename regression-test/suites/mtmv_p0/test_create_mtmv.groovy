@@ -81,7 +81,7 @@ suite("test_create_mtmv") {
         AS
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
-    def jobName = getJobName("regression_test_mtmv_p0", mvName);
+    jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"
@@ -98,7 +98,7 @@ suite("test_create_mtmv") {
         AS
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
-    def jobName = getJobName("regression_test_mtmv_p0", mvName);
+    jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"
