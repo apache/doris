@@ -154,6 +154,9 @@ suite("test_build_index_fault", "inverted_index"){
 
     sql "sync"
 
+    // check data
+    qt_count1 """ SELECT COUNT() from ${tableName}; """
+
     // ADD INDEX
     sql """ ALTER TABLE ${tableName} ADD INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("parser" = "english") """
 
@@ -174,11 +177,15 @@ suite("test_build_index_fault", "inverted_index"){
     assertTrue(result[result.size()-1][3].contains("ADD INDEX"))
     assertEquals(result[result.size()-1][7], "CANCELLED")
     assertEquals(result[result.size()-1][8], "user cancelled")
+    // check data
+    qt_count2 """ SELECT COUNT() from ${tableName}; """
 
     // BUILD INDEX and expect state is FINISHED
     sql """ BUILD INDEX idx_comment ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
     assertEquals(state, "FINISHED")
+    // check data
+    qt_count3 """ SELECT COUNT() from ${tableName}; """
 
     // CANCEL BUILD INDEX in FINISHED state and expect exception
     def success = false;
@@ -194,6 +201,8 @@ suite("test_build_index_fault", "inverted_index"){
     sql """ BUILD INDEX idx_comment ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
     assertEquals(state, "FINISHED")
+    // check data
+    qt_count4 """ SELECT COUNT() from ${tableName}; """
 
     // BUILD INDEX with error injection
     sql """ ALTER TABLE ${tableName} ADD INDEX idx_title (`title`) USING INVERTED """
@@ -202,8 +211,14 @@ suite("test_build_index_fault", "inverted_index"){
     sql """ BUILD INDEX idx_title ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
     assertEquals(state, "wait_timeout")
+    // check data
+    qt_count5 """ SELECT COUNT() from ${tableName}; """
+
     // disable error_inject for BetaRowset link inverted index file and expect state is FINISHED
     GetDebugPoint().disableDebugPointForAllBEs("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file")
-    state = wait_for_last_build_index_on_table_finish(tableName, timeout)
+    // timeout * 10 for possible fe schedule delay
+    state = wait_for_last_build_index_on_table_finish(tableName, timeout * 10)
     assertEquals(state, "FINISHED")
+    // check data
+    qt_count6 """ SELECT COUNT() from ${tableName}; """
 }
