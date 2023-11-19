@@ -20,6 +20,7 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris::pipeline {
 
@@ -173,6 +174,10 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
                 _fn_place_ptr +
                         _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i],
                 agg_columns.data(), nullptr);
+
+        // If the end is not greater than the start, the current window should be empty.
+        _current_window_empty =
+                std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
     }
 }
 
@@ -198,12 +203,26 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
         _shared_state->current_row_position++;
     }
 
+    const auto& offsets_of_aggregate_states =
+            _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states;
     for (int i = 0; i < _agg_functions_size; ++i) {
         for (int j = get_result_start; j < _window_end_position; ++j) {
-            _agg_functions[i]->insert_result_info(
-                    _fn_place_ptr + _parent->cast<AnalyticSourceOperatorX>()
-                                            ._offsets_of_aggregate_states[i],
-                    _result_window_columns[i].get());
+            if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
+                _result_window_columns[i]->is_nullable()) {
+                if (_current_window_empty) {
+                    _result_window_columns[i]->insert_default();
+                } else {
+                    auto* dst = assert_cast<vectorized::ColumnNullable*>(
+                            _result_window_columns[i].get());
+                    dst->get_null_map_data().push_back(0);
+                    _agg_functions[i]->insert_result_info(
+                            _fn_place_ptr + offsets_of_aggregate_states[i],
+                            &dst->get_nested_column());
+                }
+                continue;
+            }
+            _agg_functions[i]->insert_result_info(_fn_place_ptr + offsets_of_aggregate_states[i],
+                                                  _result_window_columns[i].get());
         }
     }
 }

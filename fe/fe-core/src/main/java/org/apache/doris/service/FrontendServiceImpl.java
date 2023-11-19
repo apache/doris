@@ -143,6 +143,8 @@ import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
 import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
+import org.apache.doris.thrift.TGetColumnInfoRequest;
+import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
@@ -216,7 +218,6 @@ import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -1012,20 +1013,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     try {
                         List<Column> baseSchema = table.getBaseSchemaOrEmpty();
                         for (Column column : baseSchema) {
-                            final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
-                            final Integer precision = column.getOriginType().getPrecision();
-                            if (precision != null) {
-                                desc.setColumnPrecision(precision);
-                            }
-                            final Integer columnLength = column.getOriginType().getColumnSize();
-                            if (columnLength != null) {
-                                desc.setColumnLength(columnLength);
-                            }
-                            final Integer decimalDigits = column.getOriginType().getDecimalDigits();
-                            if (decimalDigits != null) {
-                                desc.setColumnScale(decimalDigits);
-                            }
-                            desc.setIsAllowNull(column.isAllowNull());
+                            final TColumnDesc desc = getColumnDesc(column);
                             final TColumnDef colDef = new TColumnDef(desc);
                             final String comment = column.getComment();
                             if (comment != null) {
@@ -1046,6 +1034,31 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         return result;
+    }
+
+    public TColumnDesc getColumnDesc(Column column) {
+        final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
+        final Integer precision = column.getOriginType().getPrecision();
+        if (precision != null) {
+            desc.setColumnPrecision(precision);
+        }
+        final Integer columnLength = column.getOriginType().getColumnSize();
+        if (columnLength != null) {
+            desc.setColumnLength(columnLength);
+        }
+        final Integer decimalDigits = column.getOriginType().getDecimalDigits();
+        if (decimalDigits != null) {
+            desc.setColumnScale(decimalDigits);
+        }
+        desc.setIsAllowNull(column.isAllowNull());
+        if (column.getChildren().size() > 0) {
+            ArrayList<TColumnDesc> children = new ArrayList<>();
+            for (Column child : column.getChildren()) {
+                children.add(getColumnDesc(child));
+            }
+            desc.setChildren(children);
+        }
+        return desc;
     }
 
     @Override
@@ -1443,8 +1456,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // if it has multi table, use multi table and update multi table running transaction table ids
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
-            Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
-                    .updateMultiTableRunningTransactionTableIds(request.getTxnId(), multiTableIds);
+            Env.getCurrentGlobalTransactionMgr()
+                    .updateMultiTableRunningTransactionTableIds(db.getId(), request.getTxnId(), multiTableIds);
             LOG.debug("txn {} has multi table {}", request.getTxnId(), request.getTbls());
         }
         return tables;
@@ -1551,8 +1564,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + fullDbName);
         }
 
-        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(database.getId());
         String txnOperation = request.getOperation().trim();
         if (!request.isSetTxnId()) {
             List<TransactionStatus> statusList = new ArrayList<>();
@@ -1560,13 +1571,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (txnOperation.equalsIgnoreCase("abort")) {
                 statusList.add(TransactionStatus.PREPARE);
             }
-            request.setTxnId(dbTransactionMgr.getTransactionIdByLabel(request.getLabel(), statusList));
+            request.setTxnId(Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionIdByLabel(database.getId(), request.getLabel(), statusList));
         }
-        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
-        LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionState(database.getId(), request.getTxnId());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
+        LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         List<Long> tableIdList = transactionState.getTableIdList();
         List<Table> tableList = new ArrayList<>();
         // if table was dropped, stream load must can abort.
@@ -1753,9 +1766,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 2: get tables
-        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(db.getId());
-        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionState(db.getId(), request.getTxnId());
+
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
@@ -1855,8 +1868,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
         }
         long dbId = db.getId();
-        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
-        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionState(dbId, request.getTxnId());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
@@ -1935,9 +1948,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 2: get tables
-        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(db.getId());
-        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionState(db.getId(), request.getTxnId());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
@@ -2092,9 +2104,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
                 multiTableFragmentInstanceIdIndexMap.put(request.getTxnId(), ++index);
             }
-            Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
-                    .putTransactionTableNames(request.getTxnId(),
-                            tableIds);
+            Env.getCurrentGlobalTransactionMgr()
+                    .putTransactionTableNames(db.getId(), request.getTxnId(), tableIds);
             LOG.debug("receive stream load multi table put request result: {}", result);
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
@@ -2797,6 +2808,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetBinlogResult result = new TGetBinlogResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             result = getBinlogImpl(request, clientAddr);
         } catch (UserException e) {
@@ -3138,6 +3158,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             result = getBinlogLagImpl(request, clientAddr);
         } catch (UserException e) {
@@ -3386,6 +3414,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetMetaResult result = new TGetMetaResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             result = getMetaImpl(request, clientAddr);
         } catch (UserException e) {
@@ -3479,6 +3516,45 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
+
+    @Override
+    public TGetColumnInfoResult getColumnInfo(TGetColumnInfoRequest request) {
+        TGetColumnInfoResult result = new TGetColumnInfoResult();
+        TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
+        long dbId = request.getDbId();
+        long tableId = request.getTableId();
+        if (!Env.getCurrentEnv().isMaster()) {
+            errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
+            errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to getColumnInfo: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            errorStatus.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
+            result.setStatus(errorStatus);
+            return result;
+        }
+
+        Table table = db.getTable(tableId).get();
+        if (table == null) {
+            errorStatus.setErrorMsgs(
+                    (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
+            result.setStatus(errorStatus);
+            return result;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Column column : table.getFullSchema()) {
+            sb.append(column.getName() + ":" + column.getUniqueId() + ",");
+        }
+        String columnInfo = sb.toString();
+        columnInfo = columnInfo.substring(0, columnInfo.length() - 1);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        result.setColumnInfo(columnInfo);
+        return result;
+    }
+
     public TGetBackendMetaResult getBackendMeta(TGetBackendMetaRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive get backend meta request: {}", request);
@@ -3486,6 +3562,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetBackendMetaResult result = new TGetBackendMetaResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             result = getBackendMetaImpl(request, clientAddr);
         } catch (UserException e) {

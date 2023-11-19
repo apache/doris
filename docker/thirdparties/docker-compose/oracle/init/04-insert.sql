@@ -86,6 +86,8 @@ insert into doris_test."student2" values (2, 'bob', 21, 90.5);
 insert into doris_test."student2" values (3, 'jerry', 23, 88.0);
 insert into doris_test."student2" values (4, 'andy', 21, 93);
 
+insert into doris_test."student3" values(1, 'doris', 3, 1.0);
+
 insert into doris_test.test_all_types values
 (1, 111, 123, 7456123.89, 573, 34, 673.43, 34.1264, 56.2, 23.231,
 99, 9999, 999999999, 999999999999999999, 999, 99999, 9999999999, 9999999999999999999,
