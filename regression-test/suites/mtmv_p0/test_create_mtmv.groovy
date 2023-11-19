@@ -55,6 +55,7 @@ suite("test_create_mtmv") {
 
     sql """drop materialized view if exists ${mvName}"""
 
+    // IMMEDIATE MANUAL
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
@@ -63,15 +64,41 @@ suite("test_create_mtmv") {
         AS 
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
-
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName
     waitingMTMVTaskFinished(jobName)
-
     order_qt_select "SELECT * FROM ${mvName}"
-    
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
+
+    // IMMEDIATE schedule interval
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 1 WEEK
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS
+        SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+    """
+    def jobName = getJobName("regression_test_mtmv_p0", mvName);
+    println jobName
+    waitingMTMVTaskFinished(jobName)
+    order_qt_select "SELECT * FROM ${mvName}"
+
+
+    // IMMEDIATE schedule interval and start
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 1 WEEK STARTS "2023-12-13 21:07:09"
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS
+        SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+    """
+    def jobName = getJobName("regression_test_mtmv_p0", mvName);
+    println jobName
+    waitingMTMVTaskFinished(jobName)
+    order_qt_select "SELECT * FROM ${mvName}"
 
 }

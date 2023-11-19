@@ -790,7 +790,7 @@ class Suite implements GroovyInterceptable {
 
     String getJobName(String dbName, String mtmvName) {
         String showMTMV = "select * from mtmvs('database'='${dbName}') where Name = '${mtmvName}'";
-	println showMTMV
+	    println showMTMV
         List<List<String>> showTaskMetaResult = sql_meta(showMTMV)
         println showTaskMetaResult
         int index = showTaskMetaResult.indexOf(['JobName', 'TINYTEXT'])
