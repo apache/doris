@@ -877,7 +877,7 @@ suite("test_stream_load_move_memtable", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    sql """create USER common_user1@'%' IDENTIFIED BY '123456'"""
+    sql """create USER common_user1@'%' IDENTIFIED BY '123456test!'"""
     sql """GRANT LOAD_PRIV ON *.* TO 'common_user1'@'%';"""
 
     streamLoad {
@@ -886,7 +886,7 @@ suite("test_stream_load_move_memtable", "p0") {
         set 'column_separator', '|'
         set 'columns', 'k1, k2, v1, v2, v3'
         set 'strict_mode', 'true'
-        set 'Authorization', 'Basic  Y29tbW9uX3VzZXIxOjEyMzQ1Ng=='
+        set 'Authorization', 'Basic  Y29tbW9uX3VzZXIxOjEyMzQ1NnRlc3Qh'
         set 'memtable_on_sink_node', 'true'
 
         file 'test_auth.csv'

@@ -25,12 +25,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -54,12 +51,14 @@ import java.util.Set;
 public class RuntimeFilterPruner extends PlanPostProcessor {
 
     @Override
-    public PhysicalQuickSort visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, CascadesContext context) {
-        sort.child().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(sort.child())) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(sort);
+    public Plan visit(Plan plan, CascadesContext context) {
+        if (!plan.children().isEmpty()) {
+            plan.child(0).accept(this, context);
+            if (context.getRuntimeFilterContext().isEffectiveSrcNode(plan.child(0))) {
+                context.getRuntimeFilterContext().addEffectiveSrcNode(plan);
+            }
         }
-        return sort;
+        return plan;
     }
 
     @Override
@@ -97,16 +96,10 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             }
         }
         join.left().accept(this, context);
-        return join;
-    }
-
-    @Override
-    public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
-        project.child().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(project.child())) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(project);
+        if (context.getRuntimeFilterContext().isEffectiveSrcNode(join.left())) {
+            context.getRuntimeFilterContext().addEffectiveSrcNode(join);
         }
-        return project;
+        return join;
     }
 
     @Override
@@ -119,29 +112,15 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalRelation visitPhysicalRelation(PhysicalRelation scan, CascadesContext context) {
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
-        List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(scan.getRelationId());
-        if (slots != null) {
-            for (Slot slot : slots) {
-                //if this scan node is the target of any effective RF, it is effective source
-                if (!rfCtx.getTargetExprIdToFilter().get(slot.getExprId()).isEmpty()) {
-                    context.getRuntimeFilterContext().addEffectiveSrcNode(scan);
-                    break;
-                }
+        List<Slot> slots = rfCtx.getTargetListByScan(scan);
+        for (Slot slot : slots) {
+            //if this scan node is the target of any effective RF, it is effective source
+            if (!rfCtx.getTargetExprIdToFilter().get(slot.getExprId()).isEmpty()) {
+                context.getRuntimeFilterContext().addEffectiveSrcNode(scan);
+                break;
             }
         }
         return scan;
-    }
-
-    // *******************************
-    // Physical enforcer
-    // *******************************
-    public PhysicalDistribute visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
-            CascadesContext context) {
-        distribute.child().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(distribute.child())) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(distribute);
-        }
-        return distribute;
     }
 
     public PhysicalAssertNumRows visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
@@ -185,10 +164,11 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                 return false;
             }
         }
-        //without column statistics, we can not judge if the rf is effective.
+
         if (probeColumnStat.isUnKnown || buildColumnStat.isUnKnown) {
-            return true;
+            return false;
         }
+
         double buildNdvInProbeRange = buildColumnStat.ndvIntersection(probeColumnStat);
         return probeColumnStat.ndv > buildNdvInProbeRange * (1 + ColumnStatistic.STATS_ERROR);
     }

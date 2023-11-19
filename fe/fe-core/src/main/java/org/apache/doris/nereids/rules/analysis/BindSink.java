@@ -52,7 +52,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -226,7 +225,6 @@ public class BindSink implements AnalysisRuleFactory {
                             // we skip it.
                             continue;
                         }
-                        maybeFallbackCastUnsupportedType(expr, ctx.connectContext);
                         DataType inputType = expr.getDataType();
                         DataType targetType = DataType.fromCatalogType(table.getFullSchema().get(i).getType());
                         Expression castExpr = expr;
@@ -307,17 +305,6 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                     return column;
                 }).collect(ImmutableList.toImmutableList());
-    }
-
-    private void maybeFallbackCastUnsupportedType(Expression expression, ConnectContext ctx) {
-        if (expression.getDataType().isMapType()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to try to fall back to original planner");
-            }
-            throw new AnalysisException("failed to cast type when binding sink, type is: " + expression.getDataType());
-        }
     }
 
     private boolean isSourceAndTargetStringLikeType(DataType input, DataType target) {

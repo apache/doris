@@ -127,11 +127,11 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
     _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
-    _rows_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsReturned", TUnit::UNIT, 1);
+    _rows_returned_counter = ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputRows", TUnit::UNIT, 1);
     _output_bytes_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBytes", TUnit::BYTES, 1);
-    _block_count_counter = ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlockCount", TUnit::UNIT, 1);
+    _block_count_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBlockCount", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
@@ -537,7 +537,14 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        DCHECK(mutable_columns.size() == _projections.size());
+
+        if (mutable_columns.size() != _projections.size()) {
+            return Status::InternalError(
+                    "Logical error during processing {}, output of projections {} mismatches with "
+                    "exec node output {}",
+                    this->get_name(), _projections.size(), mutable_columns.size());
+        }
+
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));

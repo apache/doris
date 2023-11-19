@@ -45,9 +45,6 @@ namespace doris::vectorized {
 class DataTypeIPv6 final : public DataTypeNumberBase<IPv6> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::IPv6; }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::IPV6;
-    }
     const char* get_family_name() const override { return "IPv6"; }
     std::string do_get_name() const override { return "IPv6"; }
 

@@ -1231,7 +1231,7 @@ public class Config extends ConfigBase {
      *  This parameter distinguishes between offline and real-time updates
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static int cache_last_version_interval_second = 900;
+    public static int cache_last_version_interval_second = 30;
 
     /**
      * Set the maximum number of rows that can be cached
@@ -1559,10 +1559,38 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean enable_pipeline_load = false;
+    /*---------------------- JOB CONFIG START------------------------*/
+    /**
+     * The number of threads used to dispatch timer job.
+     * If we have a lot of timer jobs, we need more threads to dispatch them.
+     * All timer job will be dispatched to a thread pool, and they will be dispatched to the thread queue of the
+     * corresponding type of job
+     * The value should be greater than 0, if it is 0 or <=0, set it to 5
+     */
+    @ConfField(description = {"用于分发定时任务的线程数",
+            "The number of threads used to dispatch timer job."})
+    public static int job_dispatch_timer_job_thread_num = 5;
 
-    @ConfField
-    public static int scheduler_job_task_max_saved_count = 20;
+    /**
+     * The number of timer jobs that can be queued.
+     * if consumer is slow, the queue will be full, and the producer will be blocked.
+     * if you have a lot of timer jobs, you need to increase this value or increase the number of
+     * {@code @dispatch_timer_job_thread_num}
+     * The value should be greater than 0, if it is 0 or <=0, set it to 1024
+     */
+    @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
+    public static int job_dispatch_timer_job_queue_size = 1024;
 
+    /**
+     * The number of threads used to consume insert tasks.
+     * if you have a lot of insert jobs,and the average execution frequency is relatively high you need to increase
+     * this value or increase the number of {@code @job_insert_task_queue_size}
+     * The value should be greater than 0, if it is 0 or <=0, set it to 5
+     */
+    @ConfField(description = {"用于执行 Insert 任务的线程数", "The number of threads used to consume insert tasks."})
+    public static int job_insert_task_consumer_thread_num = 10;
+
+    /*---------------------- JOB CONFIG END------------------------*/
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor
      * if consumer is slow, the queue will be full, and the producer will be blocked.
@@ -2235,6 +2263,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
+
+    @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
+            "the timeout threshold of checking wal_queue on be(ms)"})
+    public static int check_wal_queue_timeout_threshold = 180000;   // 3 min
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "对于自动分区表，防止用户意外创建大量分区，每个OLAP表允许的分区数量为`max_auto_partition_num`。默认2000。",

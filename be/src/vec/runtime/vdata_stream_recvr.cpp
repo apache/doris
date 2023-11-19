@@ -363,7 +363,7 @@ VDataStreamRecvr::VDataStreamRecvr(
         for (size_t i = 0; i < num_queues; i++) {
             _sender_to_local_channel_dependency[i] =
                     pipeline::LocalExchangeChannelDependency::create_shared(_dest_node_id,
-                                                                            _mem_available);
+                                                                            _dest_node_id);
         }
     }
     _sender_queues.reserve(num_queues);

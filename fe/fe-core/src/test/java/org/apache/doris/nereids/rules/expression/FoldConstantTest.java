@@ -286,7 +286,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         // a + interval 1 day
         Slot a = SlotReference.of("a", DateTimeV2Type.SYSTEM_DEFAULT);
-        TimestampArithmetic arithmetic = new TimestampArithmetic(Operator.ADD, a, Literal.of(1), TimeUnit.DAY, false);
+        TimestampArithmetic arithmetic = new TimestampArithmetic(Operator.ADD, a, Literal.of(1), TimeUnit.DAY);
         Expression process = process(arithmetic);
         assertRewrite(process, process);
     }

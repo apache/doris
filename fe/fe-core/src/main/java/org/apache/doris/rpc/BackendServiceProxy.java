@@ -23,6 +23,8 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
+import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
+import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
@@ -451,4 +453,18 @@ public class BackendServiceProxy {
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
+
+    public Future<PGetWalQueueSizeResponse> getWalQueueSize(TNetworkAddress address,
+            PGetWalQueueSizeRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getWalQueueSize(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to get wal queue size from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+
 }
