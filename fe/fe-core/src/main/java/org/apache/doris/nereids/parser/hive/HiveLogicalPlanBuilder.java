@@ -27,10 +27,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.commons.lang3.StringUtils;
 
 /**
- * Build a logical plan tree with unbounded nodes.
+ * Extends from {@link org.apache.doris.nereids.parser.LogicalPlanBuilder},
+ * just focus on the difference between these query syntax.
  */
 public class HiveLogicalPlanBuilder extends LogicalPlanBuilder {
 
+    // use a default alias name if not exists
     public static final String DEFAULT_TABLE_ALIAS = "_";
 
     @Override

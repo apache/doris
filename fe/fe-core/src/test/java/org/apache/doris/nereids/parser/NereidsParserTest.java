@@ -187,7 +187,7 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testParseSQLWithDialect() {
+    public void testParseSQLWithTrinoDialect() {
         String sql = "select `AD``D` from t1 where a = 1;explain graph select `AD``D` from t1 where a = 1;";
         NereidsParser nereidsParser = new NereidsParser();
         SessionVariable sessionVariable = new SessionVariable();
@@ -201,6 +201,24 @@ public class NereidsParserTest extends ParserTestBase {
         LogicalPlan logicalPlan1 = ((LogicalPlanAdapter) statementBases.get(1)).getLogicalPlan();
         Assertions.assertTrue(logicalPlan0 instanceof UnboundResultSink);
         Assertions.assertTrue(logicalPlan1 instanceof ExplainCommand);
+    }
+
+    @Test
+    public void testParseSQLWithHiveDialect() {
+        // doris parser will throw a ParseException when derived table does not have alias
+        String sql = "select * from (select * from t1);";
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSQL(sql),
+                    "Every derived table must have its own alias");
+
+        // test parse with hive dialect
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setSqlDialect("hive");
+        List<StatementBase> statementBases = nereidsParser.parseSQL(sql, sessionVariable);
+        Assertions.assertEquals(1, statementBases.size());
+        Assertions.assertTrue(statementBases.get(0) instanceof LogicalPlanAdapter);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();
+        Assertions.assertTrue(logicalPlan instanceof UnboundResultSink);
     }
 
     @Test
