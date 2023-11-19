@@ -1,0 +1,66 @@
+name: Auto Reply to PR
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Comment on PR
+      uses: peter-evans/create-or-update-comment@v1
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        body: |
+            Thank you for your contribution to Apache Doris. Here are some **TODOs** after submitting your PR:
+
+            1. Trigger CI Pipeline
+            
+                If your PR is ready, please **reply with `run buildall`**.
+                This command will automatically trigger all CI Pipelines.
+            
+                Currently on the `master branch`, the following admission tests are **`REQUIRED`**:
+            
+                - `License Check`: Check License Header
+                - `Clang Formatter`: Check BE code format
+                - `CheckStyle`: Check FE code format
+                - `P0 Regression (Doris Regression)`: P0 regression test
+                - `P0 Regression PipelineX (Doris Regression)`: P0 (with pipelinex) regression test
+                - `P1 Regression (Doris Regression)`: P1 regression test
+                - `External Regression (Doris External Regression)`: External table regression test
+                - `FE UT (Doris FE UT)`: FE unit test
+                - `BE UT (Doris BE UT)`: BE unit test
+                - `Build Broker`: Broker build
+                - `Build Documents`: Document build
+                - `ShellCheck`: Check Shell script format
+                - `clickbench-new (clickbench)`: Clickbench performance test
+                - `Build Third Party Libraries (Linux)`: Third-party library build (Linux)
+                - `Build Third Party Libraries (macOS)`: Third-party library build (macOS)
+                - `COMPILE (DORIS_COMPILE)`: Full compilation
+                - `Need_2_Approval`: Require approval from at least two reviewers
+                
+                The code can only be merged after all the above pipelines have passed.
+                Besides, there are some other pipelines, but they are **`NOT`** required, meaning their pass or fail does not affect PR merging.
+            
+                You can also reply with the following keywords to trigger specific pipelines individually:
+            
+                - `run compile`: COMPILE (DORIS_COMPILE)
+                - `run p0`: P0 Regression
+                - `run p1`: P1 Regression
+                - `run feut`: FE UT
+                - `run beut`: BE UT
+                - `run external`: External Regression
+                - `run clickbench`: clickbench-new
+                - `run pipelinex_p0`: P0 Regression PipelineX
+                - `run arm`: P0 Regression (ARM pipeline)
+                - `run tpch`: tpch-sf100
+            
+            2. Wait for Review
+            
+                Before merging the code, it requires **`approval from at least two reviewers`**, and one of them must be a Committer of Apache Doris.
+            
+            3. Merge the PR
+            
+                After all pipelines and reviews are passed, a Committer will manually merge the code.          
+
