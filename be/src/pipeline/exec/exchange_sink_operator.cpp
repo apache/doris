@@ -356,7 +356,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     }
                     local_state._broadcast_dependency->take_available_block();
                     block_holder->ref(local_state.channels.size());
-                    Status status;
                     for (auto channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
@@ -466,7 +465,8 @@ Status ExchangeSinkLocalState::get_next_available_buffer(
     return Status::InternalError("No broadcast buffer left! Available blocks: " +
                                  std::to_string(_broadcast_dependency->available_blocks()) +
                                  " and number of buffer is " +
-                                 std::to_string(_broadcast_pb_blocks.size()));
+                                 std::to_string(_broadcast_pb_blocks.size()) +
+                                 " Dependency: " + _broadcast_dependency->debug_string());
 }
 
 template <typename Channels, typename HashValueType>
