@@ -56,9 +56,6 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     SCOPED_TIMER(_open_timer);
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER(_profile, timer_name);
-    _wait_for_queue_timer = ADD_CHILD_TIMER(_profile, "WaitForQueue", timer_name);
-    _wait_for_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBuffer", timer_name);
-    _wait_for_cancel_timer = ADD_CHILD_TIMER(_profile, "WaitForCancel", timer_name);
     auto fragment_instance_id = state->fragment_instance_id();
     // create sender
     std::shared_ptr<BufferControlBlock> sender = nullptr;
@@ -66,19 +63,9 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
             state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
             state->execution_timeout()));
     _result_sink_dependency =
-            OrDependency::create_shared(_parent->operator_id(), _parent->node_id());
-    _buffer_dependency =
-            ResultBufferDependency::create_shared(_parent->operator_id(), _parent->node_id());
-    _cancel_dependency =
-            CancelDependency::create_shared(_parent->operator_id(), _parent->node_id());
-    _result_sink_dependency->add_child(_cancel_dependency);
-    _result_sink_dependency->add_child(_buffer_dependency);
-    _queue_dependency =
-            ResultQueueDependency::create_shared(_parent->operator_id(), _parent->node_id());
-    _result_sink_dependency->add_child(_queue_dependency);
+            ResultSinkDependency::create_shared(_parent->operator_id(), _parent->node_id());
 
-    ((PipBufferControlBlock*)_sender.get())
-            ->set_dependency(_buffer_dependency, _queue_dependency, _cancel_dependency);
+    ((PipBufferControlBlock*)_sender.get())->set_dependency(_result_sink_dependency);
     return Status::OK();
 }
 
@@ -176,13 +163,8 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
     SCOPED_TIMER(_close_timer);
-    COUNTER_UPDATE(_wait_for_queue_timer, _queue_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(exec_time_counter(), _queue_dependency->write_watcher_elapse_time());
-    COUNTER_SET(_wait_for_buffer_timer, _buffer_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(exec_time_counter(), _buffer_dependency->write_watcher_elapse_time());
-    COUNTER_SET(_wait_for_cancel_timer, _cancel_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(exec_time_counter(), _cancel_dependency->write_watcher_elapse_time());
     SCOPED_TIMER(exec_time_counter());
+    COUNTER_SET(_wait_for_dependency_timer, _result_sink_dependency->write_watcher_elapse_time());
     Status final_status = exec_status;
     if (_writer) {
         // close the writer
