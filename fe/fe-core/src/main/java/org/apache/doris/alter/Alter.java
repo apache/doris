@@ -890,6 +890,7 @@ public class Alter {
                 mtmv.alterMvProperties(alterMTMV.getMvProperties());
             } else if (alterMTMV.getTask() != null) {
                 mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getCache());
+                Env.getCurrentEnv().getMtmvService().refreshComplete(mtmv, alterMTMV.getCache(), alterMTMV.getTask());
             }
             // 4. log it and replay it in the follower
             if (!isReplay) {

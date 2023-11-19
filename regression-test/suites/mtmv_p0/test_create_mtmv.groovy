@@ -75,7 +75,7 @@ suite("test_create_mtmv") {
     // IMMEDIATE schedule interval
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
-        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 1 WEEK
+        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
@@ -85,12 +85,14 @@ suite("test_create_mtmv") {
     println jobName
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"
-
+    sql """
+        DROP MATERIALIZED VIEW ${mvName}
+    """
 
     // IMMEDIATE schedule interval and start
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
-        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 1 WEEK STARTS "2023-12-13 21:07:09"
+        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
@@ -100,5 +102,7 @@ suite("test_create_mtmv") {
     println jobName
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"
-
+    sql """
+        DROP MATERIALIZED VIEW ${mvName}
+    """
 }

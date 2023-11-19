@@ -28,7 +28,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mysql.privilege.Auth;
@@ -40,9 +44,12 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -55,7 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class MTMVCacheManager {
+public class MTMVCacheManager implements MTMVHookService {
     private static final Logger LOG = LogManager.getLogger(MTMVCacheManager.class);
     private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
 
@@ -187,7 +194,7 @@ public class MTMVCacheManager {
         return tableMTMVs.get(baseTableInfo);
     }
 
-    public void refreshMTMVCache(MTMVCache cache, BaseTableInfo mtmvInfo) {
+    private void refreshMTMVCache(MTMVCache cache, BaseTableInfo mtmvInfo) {
         LOG.info("refreshMTMVCache,cache: {}, mtmvInfo: {}", cache, mtmvInfo);
         removeMTMV(mtmvInfo);
         addMTMV(cache, mtmvInfo);
@@ -213,6 +220,70 @@ public class MTMVCacheManager {
     private void removeMTMV(BaseTableInfo mtmvInfo) {
         for (Set<BaseTableInfo> sets : tableMTMVs.values()) {
             sets.remove(mtmvInfo);
+        }
+    }
+
+    @Override
+    public void createMTMV(MTMV mtmv) throws DdlException {
+
+    }
+
+    @Override
+    public void dropMTMV(MTMV mtmv) throws DdlException {
+
+    }
+
+    @Override
+    public void registerMTMV(MTMV mtmv, Long dbId) {
+        refreshMTMVCache(mtmv.getCache(), new BaseTableInfo(mtmv.getId(), dbId));
+    }
+
+    @Override
+    public void deregisterMTMV(MTMV mtmv) {
+        removeMTMV(new BaseTableInfo(mtmv));
+    }
+
+    @Override
+    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
+
+    }
+
+    @Override
+    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
+
+    }
+
+    @Override
+    public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
+        if (task.getStatus() == TaskStatus.SUCCESS) {
+            refreshMTMVCache(cache, new BaseTableInfo(mtmv));
+        }
+    }
+
+    @Override
+    public void dropTable(Table table) throws UserException {
+        processBaseTableChange(table, "The base table has been deleted:");
+    }
+
+    @Override
+    public void alterTable(Table table) throws UserException {
+        processBaseTableChange(table, "The base table has been updated:");
+    }
+
+    private void processBaseTableChange(Table table, String msgPrefix) throws UserException {
+        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTable(baseTableInfo);
+        if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
+            return;
+        }
+        for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
+            Table mtmv = Env.getCurrentEnv().getInternalCatalog()
+                    .getDbOrAnalysisException(mtmvInfo.getDbId()).getTableOrAnalysisException(mtmvInfo.getTableId());
+            TableNameInfo tableNameInfo = new TableNameInfo(mtmv.getQualifiedDbName(),
+                    mtmv.getName());
+            MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE,
+                    msgPrefix + baseTableInfo);
+            Env.getCurrentEnv().alterMTMVStatus(tableNameInfo, status);
         }
     }
 }

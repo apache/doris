@@ -17,25 +17,21 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 public class MTMVService {
     private static final Logger LOG = LogManager.getLogger(MTMVService.class);
@@ -65,11 +61,12 @@ public class MTMVService {
     }
 
     // when create mtmv,triggered when playing back logs
-    public void registerMTMV(MTMV mtmv) {
+    // when replay, db not create finish, so use dbId as param
+    public void registerMTMV(MTMV mtmv, Long dbId) {
         Objects.requireNonNull(mtmv);
         LOG.info("registerMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.registerMTMV(mtmv);
+            mtmvHookService.registerMTMV(mtmv, dbId);
         }
     }
 
@@ -123,30 +120,28 @@ public class MTMVService {
     public void dropTable(Table table) throws UserException {
         Objects.requireNonNull(table);
         LOG.info("dropTable, tableName: {}", table.getName());
-        processBaseTableChange(table, "The base table has been deleted:");
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.dropTable(table);
+        }
     }
 
     // when base table is Modified,only trigger once
     public void alterTable(Table table) throws UserException {
         Objects.requireNonNull(table);
         LOG.info("alterTable, tableName: {}", table.getName());
-        processBaseTableChange(table, "The base table has been updated:");
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.alterTable(table);
+        }
     }
 
-    private void processBaseTableChange(Table table, String msgPrefix) throws UserException {
-        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
-        Set<BaseTableInfo> mtmvsByBaseTable = cacheManager.getMtmvsByBaseTable(baseTableInfo);
-        if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
-            return;
-        }
-        for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
-            Table mtmv = Env.getCurrentEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(mtmvInfo.getDbId()).getTableOrAnalysisException(mtmvInfo.getTableId());
-            TableNameInfo tableNameInfo = new TableNameInfo(mtmv.getQualifiedDbName(),
-                    mtmv.getName());
-            MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE,
-                    msgPrefix + baseTableInfo);
-            Env.getCurrentEnv().alterMTMVStatus(tableNameInfo, status);
+    //when task finished, triggered when playing back logs
+    public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
+        Objects.requireNonNull(mtmv);
+        Objects.requireNonNull(cache);
+        Objects.requireNonNull(task);
+        LOG.info("refreshComplete: " + mtmv.getName());
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.refreshComplete(mtmv, cache, task);
         }
     }
 }
