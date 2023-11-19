@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.mysql.privilege.Auth;
@@ -100,13 +101,17 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public void run() throws Exception {
+    public void run() throws JobException {
         if (getJobId().equals(888L)) {
             System.out.println("InsertTask run" + getJobId() + TimeUtils.longToTimeString(System.currentTimeMillis()));
         }
         //just for test
 
-        command.run(ctx, stmtExecutor);
+        try {
+            command.run(ctx, stmtExecutor);
+        } catch (Exception e) {
+            throw new JobException(e);
+        }
         log.info(getJobId() + "InsertTask run" + TimeUtils.longToTimeString(System.currentTimeMillis()));
     }
 
