@@ -393,9 +393,13 @@ DorisCompoundDirectory::FSIndexOutput::~FSIndexOutput() {
     if (writer) {
         try {
             FSIndexOutput::close();
-            DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor", {
-                _CLTHROWA(CL_ERR_IO, "debug point: test throw error in fsindexoutput destructor");
-            })
+            DBUG_EXECUTE_IF(
+                    "DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
+                    "destructor",
+                    {
+                        _CLTHROWA(CL_ERR_IO,
+                                  "debug point: test throw error in fsindexoutput destructor");
+                    })
         } catch (CLuceneError& err) {
             //ignore errors...
             writer.reset(nullptr);
@@ -426,9 +430,13 @@ void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const 
 void DorisCompoundDirectory::FSIndexOutput::close() {
     try {
         BufferedIndexOutput::close();
-        DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close", {
-        _CLTHROWA(CL_ERR_IO, "debug point: test throw error in bufferedindexoutput close");
-        })
+        DBUG_EXECUTE_IF(
+                "DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_"
+                "close",
+                {
+                    _CLTHROWA(CL_ERR_IO,
+                              "debug point: test throw error in bufferedindexoutput close");
+                })
     } catch (CLuceneError& err) {
         LOG(WARNING) << "FSIndexOutput close, BufferedIndexOutput close error: " << err.what();
         if (err.number() == CL_ERR_IO) {
