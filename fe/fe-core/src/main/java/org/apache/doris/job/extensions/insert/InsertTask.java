@@ -18,9 +18,7 @@
 package org.apache.doris.job.extensions.insert;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
@@ -30,11 +28,14 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -61,6 +62,8 @@ public class InsertTask extends AbstractTask {
     private String currentDb;
 
 
+    @Getter
+    @Setter
     private LoadJob loadJob;
 
 
@@ -135,38 +138,42 @@ public class InsertTask extends AbstractTask {
         if (null == loadJob) {
             return new ArrayList<>();
         }
-        List<String> taskInfos = new ArrayList<>();
-        taskInfos.add(loadJob.getLabel());
-        taskInfos.add(loadJob.getState().name());
-        // create time
-        taskInfos.add(TimeUtils.longToTimeString(loadJob.getCreateTimestamp()));
-        // etl end time
-        taskInfos.add(TimeUtils.longToTimeString(loadJob.getFinishTimestamp()));
+        List<String> jobInfo = Lists.newArrayList();
+        // jobId
+        jobInfo.add(String.valueOf(loadJob.getId()));
+        // label
+        jobInfo.add(loadJob.getLabel());
+        // state
+        jobInfo.add(loadJob.getState().name());
 
-        if (loadJob.getFailMsg() == null) {
-            taskInfos.add(FeConstants.null_string);
+        // etl info
+        if (loadJob.getLoadingStatus().getCounters().isEmpty()) {
+            jobInfo.add(FeConstants.null_string);
         } else {
-            taskInfos.add("type:" + loadJob.getFailMsg().getCancelType() + "; msg:" + loadJob.getFailMsg().getMsg());
+            jobInfo.add(Joiner.on("; ").withKeyValueSeparator("=").join(loadJob.getLoadingStatus().getCounters()));
         }
 
-        // tracking url
-        taskInfos.add(loadJob.getLoadingStatus().getTrackingUrl());
-        taskInfos.add(loadJob.getLoadStatistic().toJson());
-        // transaction id
-        taskInfos.add(String.valueOf(loadJob.getTransactionId()));
-        // error tablets
-        return taskInfos;
-    }
+        // task info
+        jobInfo.add("cluster:" + loadJob.getResourceName() + "; timeout(s):" + loadJob.getTimeout()
+                + "; max_filter_ratio:" + loadJob.getMaxFilterRatio() + "; priority:" + loadJob.getPriority());
+        // error msg
+        if (loadJob.getFailMsg() == null) {
+            jobInfo.add(FeConstants.null_string);
+        } else {
+            jobInfo.add("type:" + loadJob.getFailMsg().getCancelType() + "; msg:" + loadJob.getFailMsg().getMsg());
+        }
 
-    private static final ShowResultSetMetaData TASK_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("JobId", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Label", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Status", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("CreateTimeMs", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("FinishTimeMs", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Duration", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("ExecuteSql", ScalarType.createVarchar(20)))
-                    .build();
+        // create time
+        jobInfo.add(TimeUtils.longToTimeString(loadJob.getCreateTimestamp()));
+
+        // load end time
+        jobInfo.add(TimeUtils.longToTimeString(loadJob.getFinishTimestamp()));
+        // tracking url
+        jobInfo.add(loadJob.getLoadingStatus().getTrackingUrl());
+        jobInfo.add(loadJob.getLoadStatistic().toJson());
+        // user
+        jobInfo.add(loadJob.getUserInfo().getQualifiedUser());
+        return jobInfo;
+    }
 
 }

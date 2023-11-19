@@ -18,7 +18,9 @@
 package org.apache.doris.job.base;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -27,7 +29,9 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.collections.CollectionUtils;
@@ -79,6 +83,19 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
             task.cancel();
         }
     }
+
+    private static final ImmutableList<String> TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+                    .add("Id")
+                    .add("Name")
+                    .add("Definer")
+                    .add("ExecuteType")
+                    .add("RecurringStrategy")
+                    .add("Status")
+                    .add("ExecuteSql")
+                    .add("CreateTime")
+                    .add("Comment")
+                    .build();
 
     @Override
     public void cancelTaskById(long taskId) throws JobException {
@@ -198,6 +215,21 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         commonShowInfo.add(TimeUtils.longToTimeString(createTimeMs));
         commonShowInfo.add(comment);
         return commonShowInfo;
+    }
+
+    @Override
+    public List<String> getShowInfo() {
+        return getCommonShowInfo();
+    }
+
+    @Override
+    public ShowResultSetMetaData getJobMetaData() {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+
+        for (String title : TITLE_NAMES) {
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+        }
+        return builder.build();
     }
 
     private static long getNextId() {
