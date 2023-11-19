@@ -137,7 +137,6 @@ public class MTMVService {
     //when task finished, triggered when playing back logs
     public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
         Objects.requireNonNull(mtmv);
-        Objects.requireNonNull(cache);
         Objects.requireNonNull(task);
         LOG.info("refreshComplete: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {

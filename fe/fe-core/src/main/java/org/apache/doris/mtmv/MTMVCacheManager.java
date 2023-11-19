@@ -60,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public class MTMVCacheManager implements MTMVHookService {
@@ -256,6 +257,7 @@ public class MTMVCacheManager implements MTMVHookService {
     @Override
     public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
         if (task.getStatus() == TaskStatus.SUCCESS) {
+            Objects.requireNonNull(cache);
             refreshMTMVCache(cache, new BaseTableInfo(mtmv));
         }
     }

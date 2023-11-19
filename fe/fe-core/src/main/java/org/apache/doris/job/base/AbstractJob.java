@@ -145,6 +145,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     @Override
     public void onTaskFail(T task) {
         updateJobStatusIfEnd();
+        runningTasks.remove(task);
     }
 
     @Override

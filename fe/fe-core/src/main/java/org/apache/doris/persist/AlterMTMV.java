@@ -117,6 +117,19 @@ public class AlterMTMV implements Writable {
     }
 
     @Override
+    public String toString() {
+        return "AlterMTMV{"
+                + "mvName=" + mvName
+                + ", refreshInfo=" + refreshInfo
+                + ", status=" + status
+                + ", needRebuildJob=" + needRebuildJob
+                + ", mvProperties=" + mvProperties
+                + ", task=" + task
+                + ", cache=" + cache
+                + '}';
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
