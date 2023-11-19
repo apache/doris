@@ -53,10 +53,10 @@ public class MaxComputeJniScannerTest {
             put("partition_spec", "p1=2022-06");
             put("required_fields", "boolean,tinyint,smallint,int,bigint,float,double,"
                     + "date,timestamp,char,varchar,string,decimalv2,decimal64,"
-                    + "decimal18,timestamp4,date");
+                    + "decimal18,timestamp4");
             put("columns_types", "boolean#tinyint#smallint#int#bigint#float#double#"
                     + "date#timestamp#char(10)#varchar(10)#string#decimalv2(12,4)#decimal64(10,3)#"
-                    + "decimal(18,5)#timestamp(4)#date");
+                    + "decimal(18,5)#timestamp(4)");
         }
     };
     private MaxComputeJniScanner scanner = new MaxComputeJniScanner(32, paramsMc);
@@ -70,6 +70,11 @@ public class MaxComputeJniScannerTest {
             }
         };
         new MockUp<MaxComputeTableScan>(MaxComputeTableScan.class) {
+            @Mock
+            public TableSchema getSchema() {
+                return getTestSchema();
+            }
+
             @Mock
             public TableTunnel.DownloadSession openDownLoadSession() throws IOException {
                 return session;
@@ -102,8 +107,25 @@ public class MaxComputeJniScannerTest {
 
     private TableSchema getTestSchema() {
         TableSchema schema = new TableSchema();
+        schema.addColumn(new Column("boolean", TypeInfoFactory.BOOLEAN));
         schema.addColumn(new Column("bigint", TypeInfoFactory.BIGINT));
         schema.addPartitionColumn(new Column("date", TypeInfoFactory.DATE));
+        schema.addPartitionColumn(new Column("tinyint", TypeInfoFactory.TINYINT));
+        schema.addPartitionColumn(new Column("smallint", TypeInfoFactory.SMALLINT));
+        schema.addPartitionColumn(new Column("int", TypeInfoFactory.INT));
+        schema.addPartitionColumn(new Column("timestamp", TypeInfoFactory.TIMESTAMP));
+        schema.addPartitionColumn(new Column("char", TypeInfoFactory.getCharTypeInfo(10)));
+        schema.addPartitionColumn(new Column("varchar", TypeInfoFactory.getVarcharTypeInfo(10)));
+        schema.addPartitionColumn(new Column("string", TypeInfoFactory.STRING));
+        schema.addPartitionColumn(new Column("float", TypeInfoFactory.FLOAT));
+        schema.addPartitionColumn(new Column("double", TypeInfoFactory.DOUBLE));
+        schema.addPartitionColumn(new Column("decimalv2",
+                TypeInfoFactory.getDecimalTypeInfo(12, 4)));
+        schema.addPartitionColumn(new Column("decimal64",
+                TypeInfoFactory.getDecimalTypeInfo(10, 3)));
+        schema.addPartitionColumn(new Column("decimal18",
+                TypeInfoFactory.getDecimalTypeInfo(18, 5)));
+        schema.addPartitionColumn(new Column("timestamp4", TypeInfoFactory.TIMESTAMP));
         return schema;
     }
 
