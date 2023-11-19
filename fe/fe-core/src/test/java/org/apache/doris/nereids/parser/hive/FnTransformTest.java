@@ -52,7 +52,7 @@ public class FnTransformTest extends ParserTestBase {
                 new HiveLogicalPlanBuilder(parserContext));
         Assertions.assertEquals(dialectLogicalPlan2, logicalPlan2);
         Assertions.assertTrue(dialectLogicalPlan2.child(0).toString().toLowerCase()
-                    .contains("json_extract(a, '$.a')"));
+                    .contains("json_extract('a, '$.a')"));
     }
 
 }
