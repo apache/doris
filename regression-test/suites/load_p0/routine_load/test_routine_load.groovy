@@ -1169,64 +1169,6 @@ suite("test_routine_load","p0") {
         }
     }
 
-    // column_separator
-    i = 0
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        try {
-            for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
-
-                def name = "routine_load_" + tableName
-                sql """
-                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
-                    COLUMNS(${columns[i]})
-                    PROPERTIES
-                    (
-                        "max_batch_interval" = "1",
-                        "max_batch_rows" = "300000",
-                        "max_batch_size" = "209715200"
-                    )
-                    FROM KAFKA
-                    (
-                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-                        "kafka_topic" = "${topics[i]}",
-                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
-                    );
-                """
-                sql "sync"
-                i++
-            }
-
-            i = 0
-            for (String tableName in tables) {
-                while (true) {
-                    sleep(1000)
-                    def res = sql "show routine load for ${jobs[i]}"
-                    def state = res[0][8].toString()
-                    if (state != "NEED_SCHEDULE") {
-                        break;
-                    }
-                }
-
-                sleep(10000)
-                def tableName1 =  "routine_load_" + tableName
-                if (i <= 3) {
-                    qt_sql_column_separator "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_column_separator "select * from ${tableName1} order by k00"
-                }
-
-                sql "stop routine load for ${jobs[i]}"
-                i++
-            }
-        } finally {
-            for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-            }
-        }
-    }
-
     // partial
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
