@@ -197,27 +197,27 @@ private:
     friend class vectorized::BlockSerializer<ExchangeSinkLocalState>;
 
     std::unique_ptr<ExchangeSinkBuffer<ExchangeSinkLocalState>> _sink_buffer;
-    RuntimeProfile::Counter* _serialize_batch_timer;
-    RuntimeProfile::Counter* _compress_timer;
-    RuntimeProfile::Counter* _brpc_send_timer;
-    RuntimeProfile::Counter* _brpc_wait_timer;
-    RuntimeProfile::Counter* _bytes_sent_counter;
-    RuntimeProfile::Counter* _uncompressed_bytes_counter;
-    RuntimeProfile::Counter* _local_sent_rows;
-    RuntimeProfile::Counter* _local_send_timer;
-    RuntimeProfile::Counter* _split_block_hash_compute_timer;
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
-    RuntimeProfile::Counter* _blocks_sent_counter;
+    RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
+    RuntimeProfile::Counter* _compress_timer = nullptr;
+    RuntimeProfile::Counter* _brpc_send_timer = nullptr;
+    RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
+    RuntimeProfile::Counter* _bytes_sent_counter = nullptr;
+    RuntimeProfile::Counter* _uncompressed_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _local_sent_rows = nullptr;
+    RuntimeProfile::Counter* _local_send_timer = nullptr;
+    RuntimeProfile::Counter* _split_block_hash_compute_timer = nullptr;
+    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
     // Throughput per total time spent in sender
-    RuntimeProfile::Counter* _overall_throughput;
+    RuntimeProfile::Counter* _overall_throughput = nullptr;
     // Used to counter send bytes under local data exchange
-    RuntimeProfile::Counter* _local_bytes_send_counter;
-    RuntimeProfile::Counter* _merge_block_timer;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
+    RuntimeProfile::Counter* _local_bytes_send_counter = nullptr;
+    RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
-    RuntimeProfile::Counter* _wait_queue_timer;
-    RuntimeProfile::Counter* _wait_broadcast_buffer_timer;
+    RuntimeProfile::Counter* _wait_queue_timer = nullptr;
+    RuntimeProfile::Counter* _wait_broadcast_buffer_timer = nullptr;
     std::vector<RuntimeProfile::Counter*> _wait_channel_timer;
 
     // Sender instance id, unique within a fragment.

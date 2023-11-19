@@ -893,10 +893,16 @@ public class StmtExecutor {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-
-        profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
-                context.getSessionVariable().profileLevel, this.planner,
-                context.getSessionVariable().getEnablePipelineXEngine());
+        // If any error happends in update profile, we should ignore this error
+        // and ensure the sql is finished normally. For example, if update profile
+        // failed, the insert stmt should be success
+        try {
+            profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
+                    context.getSessionVariable().profileLevel, this.planner,
+                    context.getSessionVariable().getEnablePipelineXEngine());
+        } catch (Throwable t) {
+            LOG.warn("failed to update profile, ingore this error", t);
+        }
     }
 
     // Analyze one statement to structure in memory.
@@ -1447,7 +1453,7 @@ public class StmtExecutor {
             }
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-            profile.addExecutionProfile(coord.getExecutionProfile());
+            profile.setExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
 
@@ -1949,7 +1955,7 @@ public class StmtExecutor {
                 coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
-                profile.addExecutionProfile(coord.getExecutionProfile());
+                profile.setExecutionProfile(coord.getExecutionProfile());
 
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
@@ -2710,7 +2716,7 @@ public class StmtExecutor {
             }
             RowBatch batch;
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-            profile.addExecutionProfile(coord.getExecutionProfile());
+            profile.setExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));

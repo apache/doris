@@ -99,7 +99,7 @@ public class Transaction {
         try {
             coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
             coordinator.setQueryType(TQueryType.LOAD);
-            executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
+            executor.getProfile().setExecutionProfile(coordinator.getExecutionProfile());
 
             QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), coordinator);
 
