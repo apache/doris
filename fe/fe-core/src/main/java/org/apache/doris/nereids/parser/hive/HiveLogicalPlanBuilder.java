@@ -18,9 +18,13 @@
 package org.apache.doris.nereids.parser.hive;
 
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilder;
+import org.apache.doris.nereids.parser.ParserContext;
 import org.apache.doris.nereids.parser.ParserUtils;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
@@ -31,9 +35,14 @@ import org.apache.commons.lang3.StringUtils;
  * just focus on the difference between these query syntax.
  */
 public class HiveLogicalPlanBuilder extends LogicalPlanBuilder {
-
     // use a default alias name if not exists
     public static final String DEFAULT_TABLE_ALIAS = "_";
+
+    private final ParserContext parserContext;
+
+    public HiveLogicalPlanBuilder(ParserContext parserContext) {
+        this.parserContext = parserContext;
+    }
 
     @Override
     public LogicalPlan visitAliasedQuery(DorisParser.AliasedQueryContext ctx) {
@@ -42,6 +51,24 @@ public class HiveLogicalPlanBuilder extends LogicalPlanBuilder {
             plan = withGenerate(plan, lateralViewContext);
         }
         return plan;
+    }
+
+    @Override
+    public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
+        Expression expression = super.visitFunctionCall(ctx);
+        if (!(expression instanceof UnboundFunction)) {
+            return expression;
+        }
+        UnboundFunction sourceFunction = (UnboundFunction) expression;
+        Function transformedFunction = HiveFnCallTransformers.getSingleton().transform(
+                sourceFunction.getName(),
+                sourceFunction.getArguments(),
+                this.parserContext
+        );
+        if (transformedFunction == null) {
+            return expression;
+        }
+        return transformedFunction;
     }
 
     private LogicalPlan withTableAlias(LogicalPlan plan, DorisParser.TableAliasContext ctx) {

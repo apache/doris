@@ -15,9 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser.trino;
+package org.apache.doris.nereids.parser;
 
-import org.apache.doris.nereids.parser.ParserContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 

@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.parser.trino;
 
+import org.apache.doris.nereids.parser.AbstractFnCallTransformer;
+
 /**
  * Trino complex function transformer
  */

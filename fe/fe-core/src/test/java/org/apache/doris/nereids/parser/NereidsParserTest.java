@@ -206,15 +206,15 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testParseSQLWithHiveDialect() {
         // doris parser will throw a ParseException when derived table does not have alias
-        String sql = "select * from (select * from t1);";
+        String sql1 = "select * from (select * from t1);";
         NereidsParser nereidsParser = new NereidsParser();
-        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSQL(sql),
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSQL(sql1),
                     "Every derived table must have its own alias");
 
         // test parse with hive dialect
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setSqlDialect("hive");
-        List<StatementBase> statementBases = nereidsParser.parseSQL(sql, sessionVariable);
+        List<StatementBase> statementBases = nereidsParser.parseSQL(sql1, sessionVariable);
         Assertions.assertEquals(1, statementBases.size());
         Assertions.assertTrue(statementBases.get(0) instanceof LogicalPlanAdapter);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();

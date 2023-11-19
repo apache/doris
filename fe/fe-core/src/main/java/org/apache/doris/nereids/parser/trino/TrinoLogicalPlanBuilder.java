@@ -145,7 +145,7 @@ public class TrinoLogicalPlanBuilder extends io.trino.sql.tree.AstVisitor<Object
     protected Function visitFunctionCall(io.trino.sql.tree.FunctionCall node, ParserContext context) {
         List<Expression> exprs = visit(node.getArguments(), context, Expression.class);
         Function transformedFn =
-                TrinoFnCallTransformers.transform(node.getName().toString(), exprs, context);
+                    TrinoFnCallTransformers.getSingleton().transform(node.getName().toString(), exprs, context);
         if (transformedFn == null) {
             transformedFn = new UnboundFunction(node.getName().toString(), exprs);
 

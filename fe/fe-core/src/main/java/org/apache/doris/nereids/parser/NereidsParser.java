@@ -109,7 +109,8 @@ public class NereidsParser {
                 }
 
             case HIVE:
-                return parseSQL(sql, new HiveLogicalPlanBuilder());
+                ParserContext parserContext = new ParserContext(ParseDialect.HIVE_ALL);
+                return parseSQL(sql, new HiveLogicalPlanBuilder(parserContext));
 
             default:
                 return parseSQL(sql);
@@ -123,7 +124,17 @@ public class NereidsParser {
      * @return logical plan
      */
     public LogicalPlan parseSingle(String sql) {
-        return parse(sql, DorisParser::singleStatement);
+        return parseSingle(sql, null);
+    }
+
+    /**
+     * parse sql DSL string.
+     *
+     * @param sql sql string
+     * @return logical plan
+     */
+    public LogicalPlan parseSingle(String sql, @Nullable LogicalPlanBuilder logicalPlanBuilder) {
+        return parse(sql, logicalPlanBuilder, DorisParser::singleStatement);
     }
 
     public List<Pair<LogicalPlan, StatementContext>> parseMultiple(String sql) {

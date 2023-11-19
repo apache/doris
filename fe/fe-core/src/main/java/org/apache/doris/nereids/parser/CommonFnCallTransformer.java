@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser.trino;
+package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.analyzer.PlaceholderExpression;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.parser.ParserContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -31,7 +30,7 @@ import java.util.stream.Collectors;
 /**
  * Trino function transformer
  */
-public class TrinoFnCallTransformer extends AbstractFnCallTransformer {
+public class CommonFnCallTransformer extends AbstractFnCallTransformer {
     private final UnboundFunction targetFunction;
     private final List<PlaceholderExpression> targetArguments;
     private final boolean variableArgument;
@@ -40,9 +39,9 @@ public class TrinoFnCallTransformer extends AbstractFnCallTransformer {
     /**
      * Trino function transformer, mostly this handle common function.
      */
-    public TrinoFnCallTransformer(UnboundFunction targetFunction,
-            boolean variableArgument,
-            int sourceArgumentsNum) {
+    public CommonFnCallTransformer(UnboundFunction targetFunction,
+                                   boolean variableArgument,
+                                   int sourceArgumentsNum) {
         this.targetFunction = targetFunction;
         this.variableArgument = variableArgument;
         this.sourceArgumentsNum = sourceArgumentsNum;

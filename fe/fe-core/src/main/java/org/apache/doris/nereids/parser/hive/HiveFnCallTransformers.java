@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser.trino;
+package org.apache.doris.nereids.parser.hive;
 
 import org.apache.doris.nereids.analyzer.PlaceholderExpression;
 import org.apache.doris.nereids.parser.AbstractFnCallTransformer;
@@ -25,38 +25,47 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import com.google.common.collect.Lists;
 
 /**
- * The builder and factory for trino {@link AbstractFnCallTransformer},
+ * The builder and factory for hive {@link AbstractFnCallTransformer},
  * and supply transform facade ability.
  */
-public class TrinoFnCallTransformers extends AbstractFnCallTransformers {
+public class HiveFnCallTransformers extends AbstractFnCallTransformers {
 
-    private TrinoFnCallTransformers() {
+    private HiveFnCallTransformers() {
     }
 
     @Override
     protected void registerTransformers() {
-        registerStringFunctionTransformer();
+        doRegister("get_json_object", 2, "json_extract",
+                Lists.newArrayList(
+                        PlaceholderExpression.of(Expression.class, 1),
+                        PlaceholderExpression.of(Expression.class, 2)), true);
+
+        doRegister("get_json_object", 2, "json_extract",
+                Lists.newArrayList(
+                        PlaceholderExpression.of(Expression.class, 1),
+                        PlaceholderExpression.of(Expression.class, 2)), false);
+
+        doRegister("split", 2, "split_by_string",
+                Lists.newArrayList(
+                        PlaceholderExpression.of(Expression.class, 1),
+                        PlaceholderExpression.of(Expression.class, 2)), true);
+        doRegister("split", 2, "split_by_string",
+                Lists.newArrayList(
+                        PlaceholderExpression.of(Expression.class, 1),
+                        PlaceholderExpression.of(Expression.class, 2)), false);
         // TODO: add other function transformer
     }
 
     @Override
     protected void registerComplexTransformers() {
-        DateDiffFnCallTransformer dateDiffFnCallTransformer = new DateDiffFnCallTransformer();
-        doRegister(dateDiffFnCallTransformer.getSourceFnName(), dateDiffFnCallTransformer);
         // TODO: add other complex function transformer
     }
 
-    protected void registerStringFunctionTransformer() {
-        doRegister("codepoint", 1, "ascii",
-                Lists.newArrayList(PlaceholderExpression.of(Expression.class, 1)), false);
-        // TODO: add other string function transformer
-    }
-
     static class SingletonHolder {
-        private static final TrinoFnCallTransformers INSTANCE = new TrinoFnCallTransformers();
+        private static final HiveFnCallTransformers INSTANCE = new HiveFnCallTransformers();
     }
 
-    public static TrinoFnCallTransformers getSingleton() {
+    public static HiveFnCallTransformers getSingleton() {
         return SingletonHolder.INSTANCE;
     }
 }
