@@ -52,8 +52,8 @@ template class SetSourceOperator<false>;
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
     std::shared_ptr<typename SetDependency::SharedState> ss = nullptr;
-    ss.reset(new typename SetDependency::SharedState());
     auto& deps = info.dependencys;
+    ss.reset(new typename SetDependency::SharedState(deps.size()));
     for (auto& dep : deps) {
         ((SetDependency*)dep.get())->set_shared_state(ss);
     }

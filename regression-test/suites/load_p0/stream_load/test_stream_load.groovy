@@ -1019,7 +1019,7 @@ suite("test_stream_load", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    sql """create USER common_user@'%' IDENTIFIED BY '123456'"""
+    sql """create USER common_user@'%' IDENTIFIED BY '123456test!'"""
     sql """GRANT LOAD_PRIV ON *.* TO 'common_user'@'%';"""
 
     streamLoad {
@@ -1028,7 +1028,7 @@ suite("test_stream_load", "p0") {
         set 'column_separator', '|'
         set 'columns', 'k1, k2, v1, v2, v3'
         set 'strict_mode', 'true'
-        set 'Authorization', 'Basic  Y29tbW9uX3VzZXI6MTIzNDU2'
+        set 'Authorization', 'Basic  Y29tbW9uX3VzZXI6MTIzNDU2dGVzdCE='
 
         file 'test_auth.csv'
         time 10000 // limit inflight 10s

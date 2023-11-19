@@ -132,6 +132,13 @@ age number(2),
 score number(3,1)
 );
 
+CREATE TABLE "DORIS_TEST"."student3"
+(
+"id" NUMBER(5,0),
+"NAME" VARCHAR2(20),
+"AGE" NUMBER(2,0),
+"SCORE" NUMBER(3,1)
+);
 
 create table doris_test.test_all_types (
   id int,

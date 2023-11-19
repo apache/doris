@@ -65,6 +65,7 @@ public:
         title << _name << " (frag_id=" << state->fragment_instance_id() << ")";
         // create profile
         _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
+        init_sink_common_profile();
         return Status::OK();
     }
 
@@ -80,6 +81,9 @@ public:
     }
 
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override {
+        SCOPED_TIMER(_exec_timer);
+        COUNTER_UPDATE(_blocks_sent_counter, 1);
+        COUNTER_UPDATE(_output_rows_counter, block->rows());
         return _writer->append_block(*block);
     }
 
