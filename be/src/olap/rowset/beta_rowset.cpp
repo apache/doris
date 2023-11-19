@@ -256,7 +256,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                     InvertedIndexDescriptor::get_index_file_name(src_path, index_id);
             std::string inverted_index_dst_file_path =
                     InvertedIndexDescriptor::get_index_file_name(dst_path, index_id);
-            bool index_file_exists = false;
+            bool index_file_exists = true;
             RETURN_IF_ERROR(local_fs->exists(inverted_index_src_file_path, &index_file_exists));
             if (index_file_exists) {
                 DBUG_EXECUTE_IF(
