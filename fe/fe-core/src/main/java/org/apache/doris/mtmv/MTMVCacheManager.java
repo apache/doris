@@ -29,7 +29,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -263,24 +262,31 @@ public class MTMVCacheManager implements MTMVHookService {
     }
 
     @Override
-    public void dropTable(Table table) throws UserException {
+    public void dropTable(Table table) {
         processBaseTableChange(table, "The base table has been deleted:");
     }
 
     @Override
-    public void alterTable(Table table) throws UserException {
+    public void alterTable(Table table) {
         processBaseTableChange(table, "The base table has been updated:");
     }
 
-    private void processBaseTableChange(Table table, String msgPrefix) throws UserException {
+    private void processBaseTableChange(Table table, String msgPrefix) {
         BaseTableInfo baseTableInfo = new BaseTableInfo(table);
         Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTable(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
         }
         for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
-            Table mtmv = Env.getCurrentEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(mtmvInfo.getDbId()).getTableOrAnalysisException(mtmvInfo.getTableId());
+            Table mtmv = null;
+            try {
+                mtmv = Env.getCurrentEnv().getInternalCatalog()
+                        .getDbOrAnalysisException(mtmvInfo.getDbId())
+                        .getTableOrAnalysisException(mtmvInfo.getTableId());
+            } catch (AnalysisException e) {
+                LOG.warn(e);
+                continue;
+            }
             TableNameInfo tableNameInfo = new TableNameInfo(mtmv.getQualifiedDbName(),
                     mtmv.getName());
             MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE,
