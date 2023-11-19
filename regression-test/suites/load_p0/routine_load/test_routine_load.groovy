@@ -751,6 +751,60 @@ suite("test_routine_load","p0") {
         }
     }
 
+    // invalid format
+    i = 0
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+                def name = "routine_load_" + tableName
+                sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]})
+                    PROPERTIES
+                    (
+                        "format" = "test",
+                        "max_batch_interval" = "5",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${jsonTopic[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                sql "sync"
+                i++
+            }
+
+            i = 0
+            for (String tableName in tables) {
+                while (true) {
+                    sleep(1000)
+                    def res = sql "show routine load for ${jobs[i]}"
+                    def state = res[0][8].toString()
+                    if (state == "NEED_SCHEDULE") {
+                        continue;
+                    }
+                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                    assertEquals(res[0][8].toString(), "PAUSED")
+                    break;
+                }
+
+                sql "stop routine load for ${jobs[i]}"
+                i++
+            }
+        } finally {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
+        }
+    }
+
     i = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
@@ -829,7 +883,7 @@ suite("test_routine_load","p0") {
             }
         }
     }
-    
+
     // disable_simdjson_reader and load json
     i = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -927,7 +981,7 @@ suite("test_routine_load","p0") {
             }
         }
     }
-    
+
 
     // TODO: need update kafka script
     // i = 0
@@ -1071,13 +1125,13 @@ suite("test_routine_load","p0") {
                         sleep(5000)
                         count++
                     }
-                    
+
                     if (i <= 3) {
                         qt_sql_multi_table_one_data "select * from ${tableName1} order by k00,k01"
                     } else {
                         qt_sql_multi_table_one_data "select * from ${tableName1} order by k00"
                     }
-                    
+
                     i++
                 }
             } finally {
@@ -1150,13 +1204,13 @@ suite("test_routine_load","p0") {
                         sleep(5000)
                         count++
                     }
-                    
+
                     if (i <= 3) {
                         qt_sql_multi_table "select * from ${tableName1} order by k00,k01"
                     } else {
                         qt_sql_multi_table "select * from ${tableName1} order by k00"
                     }
-                    
+
                     i++
                 }
             } finally {
