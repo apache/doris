@@ -253,6 +253,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         this.label = label;
     }
 
+    public LoadJob(EtlJobType jobType, long dbId, String label, long jobId) {
+        this(jobType);
+        this.id = jobId;
+        this.dbId = dbId;
+        this.label = label;
+    }
+
     protected void readLock() {
         lock.readLock().lock();
     }
@@ -864,7 +871,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             job = new BrokerLoadJob();
         } else if (type == EtlJobType.SPARK) {
             job = new SparkLoadJob();
-        } else if (type == EtlJobType.INSERT) {
+        } else if (type == EtlJobType.INSERT || type == EtlJobType.INSERT_JOB) {
             job = new InsertLoadJob();
         } else if (type == EtlJobType.MINI) {
             job = new MiniLoadJob();

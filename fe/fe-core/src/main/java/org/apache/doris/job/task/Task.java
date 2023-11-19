@@ -37,7 +37,7 @@ public interface Task {
      * This method contains the main logic of the task.
      * Implementations should define the specific actions to be performed by the task.
      */
-    void run();
+    void run() throws Exception;
 
     /**
      * This method is called when the task fails to execute successfully.

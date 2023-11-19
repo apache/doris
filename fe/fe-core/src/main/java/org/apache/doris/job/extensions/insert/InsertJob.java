@@ -26,7 +26,9 @@ import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
@@ -45,9 +47,16 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     InsertIntoTableCommand command;
 
+    StmtExecutor stmtExecutor;
+
+    ConnectContext ctx;
+
+    List<Long> taskIdList;
+
+
     @Override
     public List<InsertTask> createTasks(TaskType taskType) {
-        InsertTask task = new InsertTask(null, null, null, null, null);
+        InsertTask task = new InsertTask(null, getCurrentDbName(), getExecuteSql());
         task.setJobId(getJobId());
         task.setTaskType(taskType);
         task.setTaskId(Env.getCurrentEnv().getNextId());
@@ -76,7 +85,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     protected void checkJobParamsInternal() {
-        if (command == null || StringUtils.isBlank(getExecuteSql())) {
+        if (command == null && StringUtils.isBlank(getExecuteSql())) {
             throw new IllegalArgumentException("command or sql is null,must be set");
         }
         if (null != command && !getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
@@ -86,6 +95,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     public List<InsertTask> queryTasks() {
+        /// System.out.println(Env.getCurrentEnv().getGlobalTransactionMgr().t());
         return null;
     }
 
@@ -111,7 +121,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     public void onTaskSuccess(InsertTask task) {
-        getRunningTasks().remove(task);
+        super.onTaskSuccess(task);
     }
 
     @Override

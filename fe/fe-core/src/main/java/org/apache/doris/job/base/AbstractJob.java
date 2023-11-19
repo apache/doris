@@ -96,6 +96,9 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
             task.setCreateTimeMs(System.currentTimeMillis());
             task.setStatus(TaskStatus.PENDING);
         });
+        if (CollectionUtils.isEmpty(getRunningTasks())) {
+            setRunningTasks(new ArrayList<>());
+        }
         getRunningTasks().addAll(tasks);
     }
 
@@ -134,7 +137,9 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
 
     public static AbstractJob readFields(DataInput in) throws IOException {
         String jsonJob = Text.readString(in);
-        return GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
+        AbstractJob<?> job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
+        job.setRunningTasks(new ArrayList<>());
+        return job;
     }
 
     @Override

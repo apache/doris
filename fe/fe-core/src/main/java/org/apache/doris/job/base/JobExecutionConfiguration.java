@@ -40,7 +40,7 @@ public class JobExecutionConfiguration {
 
     @Getter
     @Setter
-    private boolean immediate = false;
+    private boolean immediate = true;
 
     /**
      * Maximum number of concurrent tasks, <= 0 means no limit
@@ -133,9 +133,14 @@ public class JobExecutionConfiguration {
                     && timerDefinition.getEndTimeMs() < startTimeMs) {
                 return delayTimeSeconds;
             }
+            long intervalValue = timerDefinition.getIntervalUnit().getIntervalMs(timerDefinition.getInterval());
+            long jobStartTimeMs = timerDefinition.getStartTimeMs();
+            if (isImmediate()) {
+                jobStartTimeMs += intervalValue;
+            }
 
-            return getExecutionDelaySeconds(startTimeMs, endTimeMs, timerDefinition.getStartTimeMs(),
-                    timerDefinition.getIntervalUnit().getIntervalMs(timerDefinition.getInterval()), currentTimeMs);
+            return getExecutionDelaySeconds(startTimeMs, endTimeMs, jobStartTimeMs,
+                    intervalValue, currentTimeMs);
         }
 
         return delayTimeSeconds;
@@ -163,7 +168,6 @@ public class JobExecutionConfiguration {
 
         long firstTriggerTime = windowStartTimeMs + (intervalMs - ((windowStartTimeMs - startTimeMs)
                 % intervalMs)) % intervalMs;
-
         if (firstTriggerTime < currentTimeMs) {
             firstTriggerTime += intervalMs;
         }
@@ -176,6 +180,7 @@ public class JobExecutionConfiguration {
         for (long triggerTime = firstTriggerTime; triggerTime <= windowEndTimeMs; triggerTime += intervalMs) {
             if (triggerTime >= currentTimeMs && (null == timerDefinition.getEndTimeMs()
                     || triggerTime < timerDefinition.getEndTimeMs())) {
+                timerDefinition.setLatestSchedulerTimeMs(triggerTime);
                 timestamps.add(queryDelayTimeSecond(currentTimeMs, triggerTime));
             }
         }

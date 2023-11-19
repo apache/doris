@@ -115,6 +115,10 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
                 schedulerInstantJob(job, TaskType.SCHEDULED);
             }
         }
+        //RECURRING job and  immediate is true
+        if (job.getJobConfig().isImmediate()) {
+            job.getJobConfig().getTimerDefinition().setLatestSchedulerTimeMs(System.currentTimeMillis());
+        }
         //if it's timer job and trigger last window already start, we will scheduler it immediately
         cycleTimerJobScheduler(job);
     }

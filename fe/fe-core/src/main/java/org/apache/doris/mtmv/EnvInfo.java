@@ -43,8 +43,8 @@ public class EnvInfo {
 
     @Override
     public String toString() {
-        return "EnvInfo{" +
-                "ctlName='" + ctlName + '\''
+        return "EnvInfo{"
+                + "ctlName='" + ctlName + '\''
                 + ", dbName='" + dbName + '\''
                 + '}';
     }
