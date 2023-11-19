@@ -237,7 +237,7 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
 
     ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
-                return !task_group->enable_memory_overcommit();
+                return task_group->is_mem_limit_valid() && !task_group->enable_memory_overcommit();
             },
             &task_groups);
     if (task_groups.empty()) {
@@ -279,7 +279,7 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
     std::vector<taskgroup::TaskGroupPtr> task_groups;
     ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
-                return task_group->enable_memory_overcommit();
+                return task_group->is_mem_limit_valid() && task_group->enable_memory_overcommit();
             },
             &task_groups);
     if (task_groups.empty()) {
