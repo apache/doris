@@ -141,6 +141,10 @@ public class MaxComputeJniScanner extends JniScanner {
                 readColumnsToId.put(fields[i], i);
             }
         }
+    }
+
+    @Override
+    public void open() throws IOException {
         // reorder columns
         List<Column> columnList = curTableScan.getSchema().getColumns();
         columnList.addAll(curTableScan.getSchema().getPartitionColumns());
@@ -151,10 +155,6 @@ public class MaxComputeJniScanner extends JniScanner {
         // Downloading columns data from Max compute only supports the order of table metadata.
         // We might get an error message if no sort here: Column reorder is not supported in legacy arrow mode.
         readColumns.sort((Comparator.comparing(o -> columnRank.get(o.getName()))));
-    }
-
-    @Override
-    public void open() throws IOException {
         if (readColumns.isEmpty()) {
             return;
         }
