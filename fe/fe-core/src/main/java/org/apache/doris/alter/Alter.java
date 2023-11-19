@@ -873,8 +873,7 @@ public class Alter {
         return clusterHandler;
     }
 
-    public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay)
-            throws UserException {
+    public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
         TableNameInfo tbl = alterMTMV.getMvName();
         MTMV mtmv = null;
         try {
@@ -897,6 +896,8 @@ public class Alter {
                 Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
+        } catch (UserException e) {
+            LOG.warn(e);
         } finally {
             if (mtmv != null) {
                 mtmv.writeUnlock();

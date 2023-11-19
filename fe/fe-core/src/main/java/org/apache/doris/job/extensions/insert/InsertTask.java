@@ -65,7 +65,7 @@ public class InsertTask extends AbstractTask {
 
 
     @Override
-    public void before() {
+    public void before() throws JobException {
 
         ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
