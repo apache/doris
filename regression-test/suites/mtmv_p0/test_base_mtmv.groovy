@@ -48,25 +48,25 @@ suite("test_base_mtmv") {
         SELECT * FROM ${tableName};
     """
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
-    order_qt_status "select Name,State,RefreshState  from mtmvs("database"="${dbName}") where Name="${mvName}""
+    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
      sql """
         REFRESH MATERIALIZED VIEW ${mvName}
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_status "select Name,State,RefreshState  from mtmvs("database"="${dbName}") where Name="${mvName}""
+    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
     sql """
-        alter table ${tableName} add COLUMN new_col INT AFTER id;
+        alter table ${tableName} add COLUMN new_col INT AFTER username;
     """
-    order_qt_status "select Name,State,RefreshState  from mtmvs("database"="${dbName}") where Name="${mvName}""
+    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
     sql """
         alter table ${tableName} drop COLUMN new_col;
     """
     sql """
         REFRESH MATERIALIZED VIEW ${mvName}
     """
-    order_qt_status "select Name,State,RefreshState  from mtmvs("database"="${dbName}") where Name="${mvName}""
+    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-
+    assertEquals(0, 0);
 }
