@@ -378,8 +378,8 @@ Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta
     return Status::OK();
 }
 
-Status VMetaScanner::_build_materialized_views_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                                TFetchSchemaTableDataRequest* request) {
+Status VMetaScanner::_build_materialized_views_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "VMetaScanner::_build_materialized_views_metadata_request";
     if (!meta_scan_range.__isset.materialized_views_params) {
         return Status::InternalError(
@@ -392,7 +392,8 @@ Status VMetaScanner::_build_materialized_views_metadata_request(const TMetaScanR
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::MATERIALIZED_VIEWS);
-    metadata_table_params.__set_materialized_views_metadata_params(meta_scan_range.materialized_views_params);
+    metadata_table_params.__set_materialized_views_metadata_params(
+            meta_scan_range.materialized_views_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
