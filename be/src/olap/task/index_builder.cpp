@@ -264,12 +264,6 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
     for (auto i = 0; i < _alter_inverted_indexes.size(); ++i) {
         auto inverted_index = _alter_inverted_indexes[i];
         auto index_id = inverted_index.index_id;
-        auto converted_result = _olap_data_convertor->convert_column_data(i);
-        if (converted_result.first != Status::OK()) {
-            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
-            return converted_result.first;
-        }
-
         auto column_name = inverted_index.columns[0];
         auto column_idx = tablet_schema->field_index(column_name);
         if (column_idx < 0) {
@@ -280,6 +274,11 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         auto column = tablet_schema->column(column_idx);
         auto writer_sign = std::make_pair(segment_idx, index_id);
         std::unique_ptr<Field> field(FieldFactory::create(column));
+        auto converted_result = _olap_data_convertor->convert_column_data(i);
+        if (converted_result.first != Status::OK()) {
+            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
+            return converted_result.first;
+        }
         const auto* ptr = (const uint8_t*)converted_result.second->get_data();
         if (converted_result.second->get_nullmap()) {
             RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, field.get(),
