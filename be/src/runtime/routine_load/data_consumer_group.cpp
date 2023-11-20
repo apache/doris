@@ -344,11 +344,11 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
             const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()));
             size_t  json_begin = index_of_json_begin(filter_data);
             // append filtered data
+            Status st = Status::OK();
             if (json_begin >= 0) {
-                size_t  filter_len = len_of_uint8_t(filter_data);
-                Status st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
+                size_t  filter_len = len_of_actual_data(filter_data);
+                st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
             }
-
 
             if (st.ok()) {
                 received_rows++;
