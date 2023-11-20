@@ -40,3 +40,233 @@ PhysicalResultSink
 ------filter((t.id = 1))
 --------PhysicalOlapScan[t1]
 
+-- !filter_join_inner --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t1.id = 1))
+----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !filter_join_inner --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t1.id = 1))
+----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !filter_join_inner --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------filter((t1.msg = ''))
+------------PhysicalOlapScan[t1]
+
+-- !filter_join_left --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t1.id = 1))
+----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !filter_join_right --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t1.id = 1))
+----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !filter_join_full --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t1.id = 1))
+----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !filter_join_cross --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1]
+
+-- !filter_join_left_anti --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t1.id = 1))
+----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((t2.id = 1))
+--------------PhysicalOlapScan[t2]
+
+-- !filter_join_left_semi --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t1.id = 1))
+----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((t2.id = 1))
+--------------PhysicalOlapScan[t2]
+
+-- !filter_join_right_anti --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t2.id = 1))
+----------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((t1.id = 1))
+--------------PhysicalOlapScan[t1]
+
+-- !filter_join_right_semi --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t2.id = 1))
+----------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((t1.id = 1))
+--------------PhysicalOlapScan[t1]
+
+-- !filter_join_right_semi --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------filter((t2.id = 1))
+----------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((t1.id = 1))
+--------------PhysicalOlapScan[t1]
+
+-- !filter_multi_inner --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+--------filter((t3.id = 1))
+----------PhysicalOlapScan[t3]
+--------PhysicalDistribute
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------------filter((t1.id = 1))
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------filter((t2.id = 1))
+----------------PhysicalOlapScan[t2]
+
+-- !filter_mixed_inner_left --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+----------PhysicalDistribute
+------------filter((t3.id = 1))
+--------------PhysicalOlapScan[t3]
+----------PhysicalDistribute
+------------filter((t1.id = 1))
+--------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !filter_multi_left --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+----------PhysicalDistribute
+------------filter((t3.id = 1))
+--------------PhysicalOlapScan[t3]
+----------PhysicalDistribute
+------------filter((t1.id = 1))
+--------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !filter_multi_outer --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+----------PhysicalDistribute
+------------filter((t3.id = 1))
+--------------PhysicalOlapScan[t3]
+----------PhysicalDistribute
+------------filter((t1.id = 1))
+--------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !filter_multi_cross --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalOlapScan[t3]
+--------PhysicalDistribute
+----------NestedLoopJoin[CROSS_JOIN]
+------------PhysicalOlapScan[t2]
+------------PhysicalDistribute
+--------------filter((t1.id = 1))
+----------------PhysicalOlapScan[t1]
+
+-- !filter_multi_mixed --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t4.id))otherCondition=()
+------------filter((t4.id = 1))
+--------------PhysicalOlapScan[t4]
+------------PhysicalDistribute
+--------------filter((t1.id = 1))
+----------------PhysicalOlapScan[t1]
+----------PhysicalDistribute
+------------filter((t3.id = 1))
+--------------PhysicalOlapScan[t3]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+

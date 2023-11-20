@@ -48,4 +48,112 @@ suite("push_filter_through") {
     qt_filter_order_by_constant"""
     explain shape plan select * from (select id from t1 order by 1) t where id = 1;
     """
+
+    // push filter through inner join
+    qt_filter_join_inner"""
+    explain shape plan select * from t1 inner join t2 on t1.id = t2.id where t1.id = 1;
+    """
+    qt_filter_join_inner"""
+    explain shape plan select * from t1 inner join t2 on t1.id = t2.id and t1.id = 1;
+    """
+    qt_filter_join_inner"""
+    explain shape plan select * from t1 inner join t2 on t1.id = t2.id and t1.msg = "";
+    """
+    // push filter through left join
+    qt_filter_join_left"""
+    explain shape plan select * from t1 left outer join t2 on t1.id = t2.id where t1.id = 1;
+    """
+    // push filter through right join
+    qt_filter_join_right"""
+    explain shape plan select * from t1 right outer join t2 on t1.id = t2.id where t1.id = 1;
+    """
+    // push filter through full join
+    qt_filter_join_full"""
+    explain shape plan select * from t1 full outer join t2 on t1.id = t2.id where t1.id = 1;
+    """
+    // push filter through cross join
+    qt_filter_join_cross"""
+    explain shape plan select * from t1 cross join t2 where t1.id = 1;
+    """
+    // push filter through left anti join
+    qt_filter_join_left_anti"""
+    explain shape plan select * from t1 left anti join t2 on t1.id = t2.id where t1.id = 1;
+    """
+    // push filter through left semi join
+    qt_filter_join_left_semi"""
+    explain shape plan select * from t1 left semi join t2 on t1.id = t2.id where t1.id = 1;
+    """
+    // push filter through right anti join
+    qt_filter_join_right_anti"""
+    explain shape plan select * from t1 right anti join t2 on t1.id = t2.id where t2.id = 1;
+    """
+    // push filter through right semi join
+    qt_filter_join_right_semi"""
+    explain shape plan select * from t1 right semi join t2 on t1.id = t2.id where t2.id = 1;
+    """
+    // push filter through right semi join
+    qt_filter_join_right_semi"""
+    explain shape plan select * from t1 right semi join t2 on t1.id = t2.id where t2.id = 1;
+    """
+
+    // Push filter through multiple inner joins
+    qt_filter_multi_inner"""
+    explain shape plan
+    select *
+    from t1
+    inner join t2 on t1.id = t2.id
+    inner join t3 on t1.id = t3.id
+    where t1.id = 1;
+    """
+
+    // Push filter through mixed inner and left joins
+    qt_filter_mixed_inner_left"""
+    explain shape plan
+    select *
+    from t1
+    inner join t2 on t1.id = t2.id
+    left join t3 on t1.id = t3.id
+    where t1.id = 1;
+    """
+
+    // Push filter through multiple left joins
+    qt_filter_multi_left"""
+    explain shape plan
+    select *
+    from t1
+    left join t2 on t1.id = t2.id
+    left join t3 on t1.id = t3.id
+    where t1.id = 1;
+    """
+
+    // Push filter through multiple outer joins
+    qt_filter_multi_outer"""
+    explain shape plan
+    select *
+    from t1
+    full join t2 on t1.id = t2.id
+    left join t3 on t1.id = t3.id
+    where t1.id = 1;
+    """
+
+    // Push filter through multiple cross joins
+    qt_filter_multi_cross"""
+    explain shape plan
+    select *
+    from t1
+    cross join t2
+    cross join t3
+    where t1.id = 1;
+    """
+
+    // Push filter through a mix of inner, left, and right joins
+    qt_filter_multi_mixed"""
+    explain shape plan
+    select *
+    from t1
+    inner join t2 on t1.id = t2.id
+    left join t3 on t1.id = t3.id
+    right join t4 on t1.id = t4.id
+    where t1.id = 1;
+    """
 }
