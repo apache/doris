@@ -137,6 +137,20 @@ void FinishDependency::set_ready_to_finish() {
 }
 
 Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
+    if (config::enable_fuzzy_mode && !_ready_for_read &&
+        _should_log(_read_dependency_watcher.elapsed_time())) {
+        LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                     << _node_id << " block tasks: " << _blocked_task.size()
+                     << " write block tasks: "
+                     << (is_write_dependency()
+                                 ? ((WriteDependency*)this)->_write_blocked_task.size()
+                                 : 0)
+                     << " write done: "
+                     << (is_write_dependency() ? ((WriteDependency*)this)->_ready_for_write.load()
+                                               : true)
+                     << "task: " << (task ? task->fragment_context()->debug_string() : "");
+    }
+    
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready_for_read = _ready_for_read.load();
     if (!ready_for_read && !push_to_blocking_queue() && task) {

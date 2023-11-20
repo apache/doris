@@ -58,12 +58,11 @@ public:
             : Dependency(id, node_id, "DataDependency"), _always_done(false) {}
 
     void set_always_done() {
-        _always_done = true;
-        if (_ready_for_read) {
+        if (_always_done) {
             return;
         }
-        _read_dependency_watcher.stop();
-        _ready_for_read = true;
+        _always_done = true;
+        Dependency::set_ready_for_read();
     }
 
     void block_reading() override {

@@ -135,19 +135,19 @@ public:
          */
         return _use_blocking_queue || get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
     }
-    void set_use_blocking_queue(bool use_blocking_queue) {
+    void set_use_blocking_queue() {
         if (_blocked_dep->push_to_blocking_queue()) {
             _use_blocking_queue = true;
             return;
         }
-        _use_blocking_queue = use_blocking_queue;
+        _use_blocking_queue = false;
     }
 
 private:
     Dependency* _write_blocked_dependency() {
         _blocked_dep = _write_dependencies->write_blocked_by(this);
         if (_blocked_dep != nullptr) {
-            set_use_blocking_queue(false);
+            set_use_blocking_queue();
             static_cast<WriteDependency*>(_blocked_dep)->start_write_watcher();
             return _blocked_dep;
         }
@@ -158,7 +158,7 @@ private:
         for (auto* fin_dep : _finish_dependencies) {
             _blocked_dep = fin_dep->finish_blocked_by(this);
             if (_blocked_dep != nullptr) {
-                set_use_blocking_queue(false);
+                set_use_blocking_queue();
                 static_cast<FinishDependency*>(_blocked_dep)->start_finish_watcher();
                 return _blocked_dep;
             }
@@ -170,7 +170,7 @@ private:
         for (auto* op_dep : _read_dependencies) {
             _blocked_dep = op_dep->read_blocked_by(this);
             if (_blocked_dep != nullptr) {
-                set_use_blocking_queue(false);
+                set_use_blocking_queue();
                 _blocked_dep->start_read_watcher();
                 return _blocked_dep;
             }

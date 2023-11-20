@@ -146,7 +146,7 @@ void BlockedTaskScheduler::_schedule() {
                     // TODO(gabriel): This condition means this task is in blocking queue now and we should
                     //  remove it because this new dependency should not be put into blocking queue. We
                     //  will delete this strange behavior after ScanDependency and UnionDependency done.
-                    continue;
+                    local_blocked_tasks.erase(iter++);
                 } else {
                     iter++;
                 }
