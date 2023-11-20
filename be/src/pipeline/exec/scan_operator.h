@@ -62,8 +62,6 @@ public:
     ScanDependency(int id, int node_id)
             : Dependency(id, node_id, "ScanDependency"), _scanner_ctx(nullptr) {}
 
-    void* shared_state() override { return nullptr; }
-
     // TODO(gabriel):
     [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
         if (_scanner_ctx && _scanner_ctx->get_num_running_scanners() == 0 &&
@@ -72,6 +70,8 @@ public:
         }
         return Dependency::read_blocked_by(task);
     }
+
+    bool push_to_blocking_queue() override { return true; }
 
     void block_reading() override {
         if (_eos) {

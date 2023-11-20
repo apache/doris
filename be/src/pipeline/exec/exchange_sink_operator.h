@@ -70,8 +70,6 @@ public:
     ExchangeSinkQueueDependency(int id, int node_id)
             : WriteDependency(id, node_id, "ResultQueueDependency") {}
     ~ExchangeSinkQueueDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
 };
 
 class BroadcastDependency final : public WriteDependency {
@@ -125,7 +123,6 @@ public:
     LocalExchangeChannelDependency(int id, int node_id)
             : WriteDependency(id, node_id, "LocalExchangeChannelDependency") {}
     ~LocalExchangeChannelDependency() override = default;
-    void* shared_state() override { return nullptr; }
     // TODO(gabriel): blocked by memory
 };
 

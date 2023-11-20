@@ -56,7 +56,6 @@ public:
     ExchangeDataDependency(int id, int node_id,
                            vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
             : Dependency(id, node_id, "DataDependency"), _always_done(false) {}
-    void* shared_state() override { return nullptr; }
 
     void set_always_done() {
         _always_done = true;

@@ -49,8 +49,6 @@ public:
     ResultSinkDependency(int id, int node_id)
             : WriteDependency(id, node_id, "ResultSinkDependency") {}
     ~ResultSinkDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
 };
 
 class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
