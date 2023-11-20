@@ -1443,8 +1443,13 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         // if job exists
         List<org.apache.doris.job.base.AbstractJob> jobList;
-        jobList = Env.getCurrentEnv().getJobManager()
-                .queryJobs(showJobStmt.getJobType(), showJobStmt.getName());
+        if (null == showJobStmt.getJobType()) {
+            jobList = Env.getCurrentEnv().getJobManager()
+                    .queryJobs(showJobStmt.getJobTypes());
+        } else {
+            jobList = Env.getCurrentEnv().getJobManager()
+                    .queryJobs(showJobStmt.getJobType(), showJobStmt.getName());
+        }
 
         if (jobList.isEmpty()) {
             resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);

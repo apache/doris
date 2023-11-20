@@ -32,6 +32,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import lombok.Getter;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -66,6 +67,12 @@ public class ShowJobStmt extends ShowStmt {
 
     @Getter
     private JobType jobType; // optional
+
+    /**
+     * Supported job types, if we want to support more job types, we need to add them here.
+     */
+    @Getter
+    private List<JobType> jobTypes = Arrays.asList(JobType.INSERT); // optional
 
     @Getter
     private String name; // optional

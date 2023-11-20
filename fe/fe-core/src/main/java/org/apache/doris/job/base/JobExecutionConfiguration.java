@@ -40,7 +40,7 @@ public class JobExecutionConfiguration {
 
     @Getter
     @Setter
-    private boolean immediate = true;
+    private boolean immediate = false;
 
     /**
      * Maximum number of concurrent tasks, <= 0 means no limit

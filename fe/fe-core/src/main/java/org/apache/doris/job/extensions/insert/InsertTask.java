@@ -73,8 +73,8 @@ public class InsertTask extends AbstractTask {
         ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setQualifiedUser(Auth.ROOT_USER);
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.setQualifiedUser(Auth.ADMIN_USER);
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
         ctx.setDatabase(currentDb);
@@ -105,17 +105,11 @@ public class InsertTask extends AbstractTask {
 
     @Override
     public void run() throws JobException {
-        if (getJobId().equals(888L)) {
-            System.out.println("InsertTask run" + getJobId() + TimeUtils.longToTimeString(System.currentTimeMillis()));
-        }
-        //just for test
-
         try {
             command.run(ctx, stmtExecutor);
         } catch (Exception e) {
             throw new JobException(e);
         }
-        log.info(getJobId() + "InsertTask run" + TimeUtils.longToTimeString(System.currentTimeMillis()));
     }
 
     @Override

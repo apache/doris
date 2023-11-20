@@ -123,7 +123,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
-import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
@@ -188,28 +187,28 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CreateJobStmt) {
             try {
                 env.getJobManager().registerJob(((CreateJobStmt) ddlStmt).getJobInstance());
-            } catch (JobException e) {
+            } catch (Exception e) {
                 throw new DdlException(e.getMessage());
             }
         } else if (ddlStmt instanceof StopJobStmt) {
             StopJobStmt stmt = (StopJobStmt) ddlStmt;
             try {
                 env.getJobManager().unregisterJob(stmt.getName(), JobType.INSERT);
-            } catch (JobException e) {
+            } catch (Exception e) {
                 throw new DdlException(e.getMessage());
             }
         } else if (ddlStmt instanceof PauseJobStmt) {
             PauseJobStmt stmt = (PauseJobStmt) ddlStmt;
             try {
                 env.getJobManager().alterJobStatus(stmt.getName(), JobStatus.PAUSED, JobType.INSERT);
-            } catch (JobException e) {
+            } catch (Exception e) {
                 throw new DdlException(e.getMessage());
             }
         } else if (ddlStmt instanceof ResumeJobStmt) {
             ResumeJobStmt stmt = (ResumeJobStmt) ddlStmt;
             try {
                 env.getJobManager().alterJobStatus(stmt.getName(), JobStatus.RUNNING, JobType.INSERT);
-            } catch (JobException e) {
+            } catch (Exception e) {
                 throw new DdlException(e.getMessage());
             }
         } else if (ddlStmt instanceof CreateUserStmt) {
