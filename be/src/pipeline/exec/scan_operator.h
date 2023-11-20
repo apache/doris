@@ -77,6 +77,9 @@ public:
         if (_eos) {
             return;
         }
+        if (_scanner_done) {
+            return;
+        }
         Dependency::block_reading();
     }
 
@@ -89,11 +92,20 @@ public:
         Dependency::set_ready_for_read();
     }
 
+    void set_scanner_done() {
+        if (_scanner_done) {
+            return;
+        }
+        _scanner_done = true;
+        Dependency::set_ready_for_read();
+    }
+
     void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
 
 private:
     vectorized::ScannerContext* _scanner_ctx;
     std::atomic<bool> _eos {false};
+    std::atomic<bool> _scanner_done {false};
 };
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {

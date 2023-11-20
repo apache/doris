@@ -431,7 +431,7 @@ bool ScannerContext::no_schedule() {
 
 void ScannerContext::_set_scanner_done() {
     if (_dependency) {
-        _dependency->set_eos();
+        _dependency->set_scanner_done();
     }
 }
 
