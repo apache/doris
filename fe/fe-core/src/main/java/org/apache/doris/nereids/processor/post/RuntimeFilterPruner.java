@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -123,10 +124,26 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         return scan;
     }
 
+    @Override
     public PhysicalAssertNumRows visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             CascadesContext context) {
         assertNumRows.child().accept(this, context);
+        context.getRuntimeFilterContext().addEffectiveSrcNode(assertNumRows);
         return assertNumRows;
+    }
+
+    @Override
+    public PhysicalHashAggregate visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate,
+                                                            CascadesContext context) {
+        aggregate.child().accept(this, context);
+        // q1: A join (select x, sum(y) as z from B group by x) T on A.a = T.x
+        // q2: A join (select x, sum(y) as z from B group by x) T on A.a = T.z
+        // RF on q1 is not effective, but RF on q2 is. But q1 is a more generous pattern, and hence agg is not
+        // regarded as an effective source. Let this RF judge by ndv.
+        if (context.getRuntimeFilterContext().isEffectiveSrcNode(aggregate.child(0))) {
+            context.getRuntimeFilterContext().addEffectiveSrcNode(aggregate);
+        }
+        return aggregate;
     }
 
     /**
