@@ -71,7 +71,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    # Specify the format of imported data, csv and json are supported.
    config :format, :validate => ['csv', 'json', 'csv_with_names', 'csv_with_names_and_types', 'parquet', 'orc'], :default => "csv"
    # jsonpaths example: jsonpaths: "[\"$.category\",\"$.price\",\"$.author\"]"
-   config :jsonpaths, :validate => :string, :default => ""
+   config :jsonpaths, :validate => :array, :default => []
    # Specify the root node of the json document
    config :json_root, :validate => :string, :default => ""
    # Boolean, true means the json will be parsed in the first row of the schema, turn on this option to improve the efficiency of json importing.
@@ -301,7 +301,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
           headers["columns"] ||= @columns
       end
       headers["format"] = @format if @format != ""
-      headers["jsonpaths"] = @jsonpaths if @jsonpaths != ""
+      headers["jsonpaths"] = @jsonpaths if @jsonpaths != []
       headers["json_root"] = @json_root if @json_root != ""
       headers["fuzzy_parse"] = @fuzzy_parse if @fuzzy_parse != ""
       headers["num_as_string"] = @num_as_string if @num_as_string != ""
