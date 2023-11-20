@@ -156,4 +156,29 @@ suite("push_filter_through") {
     right join t4 on t1.id = t4.id
     where t1.id = 1;
     """
+
+    // Push filter of agg function through aggregated filter
+    qt_filter_aggregation_filtered_agg_func"""
+    explain shape plan select count() from t1 group by msg having count() > 10;
+    """
+    // Push filter through group by set
+    qt_filter_aggregation_group_set"""
+    explain shape plan select count() from t1 group by ROLLUP(msg, id) having count() > 10;
+    """
+    // Push filter of group by key through aggregated filter
+    qt_filter_aggregation_filtered_key"""
+    explain shape plan select count() from t1 group by id having id > 10;
+    """
+    // Push filter of part of group by key through aggregated filter
+    qt_filter_aggregation_filtered_part_key"""
+    explain shape plan select count() from t1 group by id, msg having id > 10;
+    """
+    // Push filter to subquery with constant
+    qt_filter_aggregation_filtered_part_key"""
+    select * from (select count(), now() as c from t1 group by id) t where c > 10;
+    """
+    // Push filter to subquery with alias
+    qt_filter_aggregation_filtered_part_key"""
+    explain shape plan select * from (select id + 1, count() as c from t1 group by id) t where c > 10;
+    """
 }

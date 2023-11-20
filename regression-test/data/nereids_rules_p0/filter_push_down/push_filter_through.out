@@ -270,3 +270,53 @@ PhysicalResultSink
 ----------filter((t2.id = 1))
 ------------PhysicalOlapScan[t2]
 
+-- !filter_aggregation_filtered_agg_func --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------filter((count(*) > 10))
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t1]
+
+-- !filter_aggregation_group_set --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------filter((count(*) > 10))
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalRepeat
+----------------PhysicalOlapScan[t1]
+
+-- !filter_aggregation_filtered_key --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------filter((t1.id > 10))
+------------PhysicalOlapScan[t1]
+
+-- !filter_aggregation_filtered_part_key --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashAgg[LOCAL]
+--------filter((t1.id > 10))
+----------PhysicalOlapScan[t1]
+
+-- !filter_aggregation_filtered_part_key --
+
+-- !filter_aggregation_filtered_part_key --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------filter((t.c > 10))
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
+
