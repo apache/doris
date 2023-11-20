@@ -431,7 +431,7 @@ private:
                         build_idxs[matched_cnt++] = build_idx;
                     }
                 } else {
-                    build_idxs[matched_cnt++] = build_idx;
+                    build_idxs[matched_cnt] = build_idx;
                     matched_cnt += keys[probe_idx] == build_keys[build_idx];
                 }
                 build_idx = next[build_idx];
@@ -443,6 +443,7 @@ private:
 
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
+                // may over batch_size when emplace 0 into build_idxs
                 if (!build_idx) {
                     probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = 0;
@@ -462,9 +463,7 @@ private:
             do_the_probe();
         }
 
-        probe_idx -=
-                (matched_cnt >= batch_size &&
-                 build_idx); // FULL_OUTER_JOIN may over batch_size when emplace 0 into build_idxs
+        probe_idx -= (build_idx != 0);
         return std::tuple {probe_idx, build_idx, matched_cnt};
     }
 
@@ -478,6 +477,7 @@ private:
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
+            auto matched_cnt_old = matched_cnt;
             while (build_idx && matched_cnt < batch_size) {
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     probe_idxs[matched_cnt] = probe_idx;
@@ -495,11 +495,16 @@ private:
 
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
-                // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
-                if (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx) {
-                    probe_idxs[matched_cnt] = probe_idx;
-                    build_idxs[matched_cnt] = 0;
-                    matched_cnt++;
+                if (matched_cnt_old != matched_cnt) {
+                    current_probe_mathced = true;
+                }
+                if (!build_idx) {
+                    if (!current_probe_mathced) {
+                        probe_idxs[matched_cnt] = probe_idx;
+                        build_idxs[matched_cnt] = 0;
+                        matched_cnt++;
+                    }
+                    current_probe_mathced = false;
                 }
             }
             probe_idx++;
@@ -514,7 +519,7 @@ private:
             do_the_probe();
         }
 
-        probe_idx -= (matched_cnt == batch_size && build_idx);
+        probe_idx -= (build_idx != 0);
         return std::tuple {probe_idx, build_idx, matched_cnt};
     }
 
@@ -531,6 +536,8 @@ private:
     mutable uint32_t iter_idx = 1;
     Cell cell;
     doris::vectorized::Arena* pool;
+
+    bool current_probe_mathced = false;
 };
 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
