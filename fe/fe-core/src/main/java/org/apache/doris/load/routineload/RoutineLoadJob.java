@@ -64,7 +64,6 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -1457,8 +1456,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
             return rows;
         }
-        DatabaseTransactionMgr databaseTransactionMgr = Env.getCurrentEnv().getGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(dbId);
 
         routineLoadTaskInfoList.forEach(entity -> {
             long txnId = entity.getTxnId();
@@ -1466,7 +1463,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 rows.add(entity.getTaskShowInfo());
                 return;
             }
-            TransactionState transactionState = databaseTransactionMgr.getTransactionState(entity.getTxnId());
+            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(dbId, entity.getTxnId());
             if (null != transactionState && null != transactionState.getTransactionStatus()) {
                 entity.setTxnStatus(transactionState.getTransactionStatus());
             }

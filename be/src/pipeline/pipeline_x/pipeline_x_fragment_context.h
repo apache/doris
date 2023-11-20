@@ -115,6 +115,8 @@ public:
 
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
+    std::string debug_string() override;
+
 private:
     void _close_action() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
@@ -145,6 +147,9 @@ private:
                              const TPipelineFragmentParams& params, const RowDescriptor& row_desc,
                              RuntimeState* state, DescriptorTbl& desc_tbl,
                              PipelineId cur_pipeline_id);
+
+    bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
+
     OperatorXPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
