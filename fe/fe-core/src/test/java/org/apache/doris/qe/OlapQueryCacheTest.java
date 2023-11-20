@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.PartitionValue;
@@ -150,6 +151,7 @@ public class OlapQueryCacheTest {
 
     @Before
     public void setUp() throws Exception {
+        service = AccessTestUtil.fetchSystemInfoService();
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         new MockUp<Util>() {
@@ -159,6 +161,11 @@ public class OlapQueryCacheTest {
             }
         };
         new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+
             @Mock
             public SystemInfoService getCurrentSystemInfo() {
                 return service;
@@ -203,6 +210,7 @@ public class OlapQueryCacheTest {
             }
         };
 
+        env = AccessTestUtil.fetchAdminCatalog();
         new Expectations(env) {
             {
                 env.getAccessManager();
@@ -220,6 +228,10 @@ public class OlapQueryCacheTest {
                 env.getCatalogMgr();
                 minTimes = 0;
                 result = dsMgr;
+
+                Env.isCheckpointThread();
+                minTimes = 0;
+                result = false;
             }
         };
         FunctionSet fs = new FunctionSet();
