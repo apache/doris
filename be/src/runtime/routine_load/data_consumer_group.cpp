@@ -346,10 +346,10 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
             size_t  filter_len = len_of_actual_data(filter_data);
             Status  st = Status::OK();
             // append filtered data
-            if (json_begin >= 0 && filter_len >= 10000) {
+            if (json_begin >= 0 && filter_len >= 5000) {
                 LOG(INFO) << "get larger pulsar message: " << filter_data
                         << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
-                st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
+                st = (pulsar_pipe.get()->*append_data)(filter_data, len);
             }
             if (st.ok()) {
                 received_rows++;
