@@ -25,7 +25,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "arrow/buffer.h"
 #include "arrow/io/interfaces.h"
 #include "arrow/status.h"
 #include "common/status.h"
