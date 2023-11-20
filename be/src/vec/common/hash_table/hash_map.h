@@ -260,7 +260,7 @@ public:
     template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join, bool need_judge_null>
     auto find_batch(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                     int probe_idx, uint32_t build_idx, int probe_rows,
-                    uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs,
+                    uint32_t* __restrict probe_idxs, bool& probe_visited, uint32_t* __restrict build_idxs,
                     doris::vectorized::ColumnFilterHelper* mark_column) {
         if constexpr (is_mark_join) {
             return _find_batch_mark<JoinOpType>(keys, bucket_nums, probe_idx, probe_rows,
@@ -277,7 +277,7 @@ public:
                       JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                       JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN) {
             return _find_batch_inner_outer_join<JoinOpType>(keys, bucket_nums, probe_idx, build_idx,
-                                                            probe_rows, probe_idxs, build_idxs);
+                                                            probe_rows, probe_idxs, probe_visited, build_idxs);
         }
         if constexpr (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
                       JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
@@ -472,12 +472,12 @@ private:
                                       const uint32_t* __restrict bucket_nums, int probe_idx,
                                       uint32_t build_idx, int probe_rows,
                                       uint32_t* __restrict probe_idxs,
+                                      bool& probe_visited,
                                       uint32_t* __restrict build_idxs) {
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
-            auto matched_cnt_old = matched_cnt;
             while (build_idx && matched_cnt < batch_size) {
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     probe_idxs[matched_cnt] = probe_idx;
@@ -495,16 +495,15 @@ private:
 
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
-                if (matched_cnt_old != matched_cnt) {
-                    current_probe_mathced = true;
-                }
+                // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
+                probe_visited |= (matched_cnt && probe_idxs[matched_cnt - 1] == probe_idx);
                 if (!build_idx) {
-                    if (!current_probe_mathced) {
+                    if (!probe_visited) {
                         probe_idxs[matched_cnt] = probe_idx;
                         build_idxs[matched_cnt] = 0;
                         matched_cnt++;
                     }
-                    current_probe_mathced = false;
+                    probe_visited = false;
                 }
             }
             probe_idx++;
@@ -536,8 +535,6 @@ private:
     mutable uint32_t iter_idx = 1;
     Cell cell;
     doris::vectorized::Arena* pool;
-
-    bool current_probe_mathced = false;
 };
 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
