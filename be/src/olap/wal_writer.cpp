@@ -41,7 +41,7 @@ WalWriter::WalWriter(const std::string& file_name,
           _file_name(file_name),
           _disk_bytes(0),
           _all_wal_disk_bytes(all_wal_disk_bytes),
-          _is_first_append_blocks(false) {}
+          _is_first_append_blocks(true) {}
 
 WalWriter::~WalWriter() {}
 
