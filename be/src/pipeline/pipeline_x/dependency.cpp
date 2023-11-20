@@ -29,10 +29,8 @@
 namespace doris::pipeline {
 
 void Dependency::add_block_task(PipelineXTask* task) {
-    // TODO(gabriel): support read dependency
-    if (!_blocked_task.empty() && _blocked_task[_blocked_task.size() - 1] == task) {
-        return;
-    }
+    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
+            << "Duplicate task: " << task->debug_string();
     _blocked_task.push_back(task);
 }
 
@@ -73,6 +71,28 @@ void Dependency::set_ready_for_read() {
         }
         _ready_for_read = true;
         local_block_task.swap(_blocked_task);
+    }
+    for (auto* task : local_block_task) {
+        task->try_wake_up(this);
+    }
+}
+
+void SetDependency::set_ready_for_read() {
+    if (_set_state->ready_for_read) {
+        return;
+    }
+    _read_dependency_watcher.stop();
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        if (_set_state->ready_for_read) {
+            return;
+        }
+        _set_state->ready_for_read = true;
+        local_block_task.swap(_blocked_task);
+    }
+    for (auto* task : local_block_task) {
+        task->try_wake_up(this);
     }
 }
 
@@ -117,23 +137,9 @@ void FinishDependency::set_ready_to_finish() {
 }
 
 Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
-    if (config::enable_fuzzy_mode && !_ready_for_read &&
-        _should_log(_read_dependency_watcher.elapsed_time())) {
-        LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                     << _node_id << " block tasks: " << _blocked_task.size()
-                     << " write block tasks: "
-                     << (is_write_dependency()
-                                 ? ((WriteDependency*)this)->_write_blocked_task.size()
-                                 : 0)
-                     << " write done: "
-                     << (is_write_dependency() ? ((WriteDependency*)this)->_ready_for_write.load()
-                                               : true)
-                     << "task: " << (task ? task->fragment_context()->debug_string() : "");
-    }
-
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready_for_read = _ready_for_read.load();
-    if (!ready_for_read && task) {
+    if (!ready_for_read && push_to_blocking_queue() && task) {
         add_block_task(task);
     }
     return ready_for_read ? nullptr : this;
