@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <cstddef>

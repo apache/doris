@@ -50,15 +50,15 @@ namespace vectorized {
 struct ScannerCounter;
 class Block;
 
-class ArrowReader : public GenericReader {
-    ENABLE_FACTORY_CREATOR(ArrowReader);
+class ArrowStreamReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(ArrowStreamReader);
 
 public:
-    ArrowReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
-                const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
+    ArrowStreamReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
+                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                      const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
 
-    ~ArrowReader() override;
+    ~ArrowStreamReader() override;
 
     Status init_reader();
 

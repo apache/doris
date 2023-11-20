@@ -75,7 +75,6 @@ arrow::Result<int64_t> ArrowPipInputStream::Read(int64_t nbytes, void* out) {
     if (UNLIKELY(!status.ok())) {
         return arrow::Status::IOError("Error to read data from pip");
     }
-    // pos_ += (int64_t)read_length;
 
     if (_begin) {
         read_length += 4;

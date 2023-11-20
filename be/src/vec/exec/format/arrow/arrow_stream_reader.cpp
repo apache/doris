@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "arrow_reader.h"
+#include "arrow_stream_reader.h"
 
 #include "arrow/array.h"
 #include "arrow/io/buffered.h"
@@ -38,20 +38,22 @@ class RuntimeProfile;
 
 namespace doris::vectorized {
 
-ArrowReader::ArrowReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
-                         const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                         const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
+ArrowStreamReader::ArrowStreamReader(RuntimeState* state, RuntimeProfile* profile,
+                                     ScannerCounter* counter, const TFileScanRangeParams& params,
+                                     const TFileRangeDesc& range,
+                                     const std::vector<SlotDescriptor*>& file_slot_descs,
+                                     io::IOContext* io_ctx)
         : _state(state), _range(range), _file_slot_descs(file_slot_descs), _file_reader(nullptr) {}
 
-ArrowReader::~ArrowReader() = default;
+ArrowStreamReader::~ArrowStreamReader() = default;
 
-Status ArrowReader::init_reader() {
+Status ArrowStreamReader::init_reader() {
     RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, false));
     _pip_stream = ArrowPipInputStream::create_unique(_file_reader);
     return Status::OK();
 }
 
-Status ArrowReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     bool has_next = false;
     RETURN_IF_ERROR(_pip_stream->HasNext(&has_next));
     if (!has_next) {
@@ -79,6 +81,7 @@ Status ArrowReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     std::vector<std::shared_ptr<arrow::RecordBatch>> out_batches = std::move(tRet2).ValueUnsafe();
 
     // convert arrow batch to block
+    // TODO get tz from schema
     cctz::time_zone ctzz;
     TimezoneUtils::find_cctz_time_zone("UTC", ctzz);
     auto columns = block->mutate_columns();
@@ -104,8 +107,8 @@ Status ArrowReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
-Status ArrowReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                                std::unordered_set<std::string>* missing_cols) {
+Status ArrowStreamReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                                      std::unordered_set<std::string>* missing_cols) {
     for (auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
