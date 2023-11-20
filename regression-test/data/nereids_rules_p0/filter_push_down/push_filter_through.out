@@ -10,3 +10,33 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalEmptyRelation
 
+-- !filter_project_arithmetic --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------filter((cast(id as BIGINT) = 1))
+--------PhysicalOlapScan[t1]
+
+-- !filter_order_by --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------filter((t.id = 1))
+--------PhysicalOlapScan[t1]
+
+-- !filter_order_by_limit --
+PhysicalResultSink
+--filter((t.id = 1))
+----PhysicalTopN[MERGE_SORT]
+------PhysicalDistribute
+--------PhysicalTopN[LOCAL_SORT]
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
+
+-- !filter_order_by_constant --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------filter((t.id = 1))
+--------PhysicalOlapScan[t1]
+

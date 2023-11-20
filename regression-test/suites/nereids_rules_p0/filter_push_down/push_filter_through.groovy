@@ -29,4 +29,23 @@ suite("push_filter_through") {
      explain shape plan select * from (select 2 as alia from t1) t where alia = 1;
     """
 
+    // push filter through project with arithmetic expression
+    qt_filter_project_arithmetic"""
+    explain shape plan select * from (select id + 1 as alia from t1) t where alia = 2;
+    """
+
+    // push filter through order by
+    qt_filter_order_by"""
+    explain shape plan select * from (select id from t1 order by id) t where t.id = 1;
+    """
+
+    // push filter through order by
+    qt_filter_order_by_limit"""
+    explain shape plan select * from (select id from t1 order by id limit 1) t where id = 1;
+    """
+
+    // push filter through order by constant
+    qt_filter_order_by_constant"""
+    explain shape plan select * from (select id from t1 order by 1) t where id = 1;
+    """
 }
