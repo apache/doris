@@ -1124,8 +1124,8 @@ suite("test_stream_load", "p0") {
 
     sql "sync"
     def res = sql "select * from ${tableName14}"
-    def time = res[0][5].toString().split("T")[0].split("-")
-    def year = time[0].toString()
+    def ts = res[0][5].toString().split("T")[0].split("-")
+    def year = ts[0].toString()
     SimpleDateFormat sdf= new SimpleDateFormat("yyyy-MM-dd")
     def now = sdf.format(new Date()).toString().split("-")
 
