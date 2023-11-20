@@ -430,8 +430,8 @@ bool ScannerContext::no_schedule() {
 }
 
 void ScannerContext::_set_scanner_done() {
-    if (_scanner_done_dependency) {
-        _scanner_done_dependency->set_ready_for_read();
+    if (_dependency) {
+        _dependency->set_scanner_done();
     }
 }
 
