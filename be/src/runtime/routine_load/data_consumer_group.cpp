@@ -337,33 +337,32 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
             pulsar::MessageId msg_id = msg->getMessageId();
             std::size_t len = msg->getLength();
 
-            VLOG(3) << "get pulsar message"
+            LOG(INFO) << "get pulsar message"
                     << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
 
             //filter invalid prefix of json
             const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()));
             long  json_begin = index_of_json_begin(filter_data);
             // append filtered data
-            Status st = Status::OK();
             if (json_begin >= 0) {
                 size_t  filter_len = len_of_actual_data(filter_data);
-                st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
-            }
+                Status  st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
 
-            if (st.ok()) {
-                received_rows++;
-                // len of receive origin message from pulsar
-                left_bytes -= len;
-                ack_offset[partition] = msg_id;
-                VLOG(3) << "consume partition" << partition << " - " << msg_id;
-            } else {
-                // failed to append this msg, we must stop
-                LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id << ", errmsg=" << st.to_string();
-                eos = true;
-                {
-                    std::unique_lock<std::mutex> lock(_mutex);
-                    if (result_st.ok()) {
-                        result_st = st;
+                if (st.ok()) {
+                    received_rows++;
+                    // len of receive origin message from pulsar
+                    left_bytes -= len;
+                    ack_offset[partition] = msg_id;
+                    VLOG(3) << "consume partition" << partition << " - " << msg_id;
+                } else {
+                    // failed to append this msg, we must stop
+                    LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id << ", errmsg=" << st.to_string();
+                    eos = true;
+                    {
+                        std::unique_lock<std::mutex> lock(_mutex);
+                        if (result_st.ok()) {
+                            result_st = st;
+                        }
                     }
                 }
             }
