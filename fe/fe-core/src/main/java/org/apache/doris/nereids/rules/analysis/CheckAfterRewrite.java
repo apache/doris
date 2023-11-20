@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -134,6 +135,8 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                                 .map(Expression::getInputSlots)
                                 .flatMap(Set::stream)
                                 .anyMatch(realUsedExpr -> !childrenOutput.contains(realUsedExpr.getExprId()));
+                    } else if (expr instanceof SlotReference && ((SlotReference) expr).hasSubColPath()) {
+                        return false;
                     } else {
                         return !(expr instanceof SlotNotFromChildren);
                     }

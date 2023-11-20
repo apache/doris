@@ -305,7 +305,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             if (cacheSlotWithSlotName.containsKey(Pair.of(selectedIndexId, col.getName()))) {
                 return cacheSlotWithSlotName.get(Pair.of(selectedIndexId, col.getName()));
             }
-            Slot slot = SlotReference.fromColumn(col, qualified());
+            Slot slot = SlotReference.fromColumn(col, qualified(), this);
             cacheSlotWithSlotName.put(Pair.of(selectedIndexId, col.getName()), slot);
             return slot;
         }).collect(ImmutableList.toImmutableList());

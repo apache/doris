@@ -57,6 +57,11 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     protected final Optional<GroupExpression> groupExpression;
     protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
 
+    // For some reason supplier needs to be modified, so use an extra field
+    // in order not to break the `final` rule.
+    // TODO: think a better way to handle such case.
+    protected Supplier<LogicalProperties> mutableLogicalPropertiesSupplier;
+
     // this field is special, because other fields in tree node is immutable, but in some scenes, mutable
     // state is necessary. e.g. the rewrite framework need distinguish whether the plan is created by
     // rules, the framework can set this field to a state variable to quickly judge without new big plan.
@@ -160,7 +165,19 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         if (this instanceof Unbound) {
             return UnboundLogicalProperties.INSTANCE;
         }
+        if (mutableLogicalPropertiesSupplier != null) {
+            // Use mutable properties in the priority
+            return mutableLogicalPropertiesSupplier.get();
+        }
         return logicalPropertiesSupplier.get();
+    }
+
+    public void setMutableLogicalProperties(LogicalProperties newLogicalProperties) {
+        this.mutableLogicalPropertiesSupplier = Suppliers.memoize(() -> newLogicalProperties);
+    }
+
+    public void initMutableLogicalProperties() {
+        this.mutableLogicalPropertiesSupplier = Suppliers.memoize(this::computeLogicalProperties);
     }
 
     @Override

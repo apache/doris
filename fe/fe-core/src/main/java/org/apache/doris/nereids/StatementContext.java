@@ -28,10 +28,12 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -44,7 +46,9 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -99,6 +103,14 @@ public class StatementContext {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
+    // Notice: it's case-sensitive
+    // Sub-column name -> Paths of sub columns
+    private final Map<String, Map<List<String>, SlotReference>> subColumnSlotRefMap
+            = Maps.newHashMap();
+
+    // Map slot to its relation, currently used in SlotReference to find its original
+    // LogicalRelation for example LogicalOlapScan
+    private final Map<Slot, LogicalRelation> slotToRelation = Maps.newHashMap();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -147,6 +159,43 @@ public class StatementContext {
 
     public int getMaxContinuousJoin() {
         return joinCount;
+    }
+
+    /**
+     * Add a slot ref attached with paths in context to avoid duplicated slot
+     */
+    public void addPathSlotRef(String var, List<String> paths, SlotReference slotRef) {
+        subColumnSlotRefMap.computeIfAbsent(var, k -> Maps.newTreeMap(
+                new Comparator<List<String>>() {
+                    public int compare(List<String> lst1, List<String> lst2) {
+                        Iterator<String> it1 = lst1.iterator();
+                        Iterator<String> it2 = lst2.iterator();
+                        while (it1.hasNext() && it2.hasNext()) {
+                            int result = it1.next().compareTo(it2.next());
+                            if (result != 0) {
+                                return result;
+                            }
+                        }
+                        return Integer.compare(lst1.size(), lst2.size());
+                    }
+                }));
+        subColumnSlotRefMap.get(var).put(paths, slotRef);
+    }
+
+    public SlotReference getPathSlot(String var, List<String> paths) {
+        Map<List<String>, SlotReference> pathsSlotsMap = subColumnSlotRefMap.getOrDefault(var, null);
+        if (pathsSlotsMap == null) {
+            return null;
+        }
+        return pathsSlotsMap.getOrDefault(paths, null);
+    }
+
+    public void addSlotToRelation(Slot slot, LogicalRelation relation) {
+        slotToRelation.put(slot, relation);
+    }
+
+    public LogicalRelation getRelationBySlot(Slot slot) {
+        return slotToRelation.getOrDefault(slot, null);
     }
 
     public boolean isDpHyp() {

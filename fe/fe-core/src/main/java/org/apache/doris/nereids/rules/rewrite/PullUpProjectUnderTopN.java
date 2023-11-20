@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanUtils;
 
-import com.google.common.base.Preconditions;
+import avro.shaded.com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.Set;

@@ -199,7 +199,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
         String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
         Map<String, String> invertedIndexCharFilter = new HashMap<>();
-        SlotRef left = (SlotRef) match.left().accept(this, context);
+        SlotRef left = (SlotRef) match.left().getInputSlots().stream().findFirst().get().accept(this, context);
         OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
                                     .orElse(getOlapTableDirectly(left));
 
