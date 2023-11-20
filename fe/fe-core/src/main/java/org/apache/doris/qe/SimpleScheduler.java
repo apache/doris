@@ -53,7 +53,7 @@ public class SimpleScheduler {
     private static Map<Long, Pair<Integer, String>> blacklistBackends = Maps.newConcurrentMap();
     private static UpdateBlacklistThread updateBlacklistThread;
 
-    public static void init () {
+    public static void init() {
         updateBlacklistThread = new UpdateBlacklistThread();
         updateBlacklistThread.start();
     }
