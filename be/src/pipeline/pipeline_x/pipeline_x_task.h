@@ -167,12 +167,19 @@ private:
     }
 
     Dependency* _read_blocked_dependency() {
+        auto* dep = _blocked_dep;
         for (auto* op_dep : _read_dependencies) {
             _blocked_dep = op_dep->read_blocked_by(this);
             if (_blocked_dep != nullptr) {
                 set_use_blocking_queue(false);
                 _blocked_dep->start_read_watcher();
-                return _blocked_dep;
+                // TODO(gabriel): This condition means this task is in blocking queue now and we should
+                //  remove it because this new dependency should not be put into blocking queue. We
+                //  will delete this strange behavior after ScanDependency and UnionDependency done.
+                return dep && dep->push_to_blocking_queue() &&
+                                       !_blocked_dep->push_to_blocking_queue()
+                               ? nullptr
+                               : _blocked_dep;
             }
         }
         return nullptr;

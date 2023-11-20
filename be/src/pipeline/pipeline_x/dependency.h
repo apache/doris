@@ -146,6 +146,7 @@ public:
 protected:
     friend class Dependency;
     std::atomic<bool> _ready_for_write {true};
+    std::mutex _write_task_lock;
     MonotonicStopWatch _write_dependency_watcher;
 
 private:

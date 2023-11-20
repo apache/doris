@@ -104,7 +104,7 @@ void WriteDependency::set_ready_for_write() {
 
     std::vector<PipelineXTask*> local_block_task {};
     {
-        std::unique_lock<std::mutex> lc(_task_lock);
+        std::unique_lock<std::mutex> lc(_write_task_lock);
         if (_ready_for_write) {
             return;
         }
@@ -168,7 +168,7 @@ FinishDependency* FinishDependency::finish_blocked_by(PipelineXTask* task) {
 }
 
 WriteDependency* WriteDependency::write_blocked_by(PipelineXTask* task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
+    std::unique_lock<std::mutex> lc(_write_task_lock);
     const auto ready_for_write = _ready_for_write.load();
     if (!ready_for_write && task) {
         add_write_block_task(task);
