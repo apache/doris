@@ -108,10 +108,10 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
     }
 
-    protected volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
-    protected List<Column> partitionColumns;
+    private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    private List<Column> partitionColumns;
 
-    protected DLAType dlaType = DLAType.UNKNOWN;
+    private DLAType dlaType = DLAType.UNKNOWN;
 
     // No as precise as row count in TableStats, but better than none.
     private long estimatedRowCount = -1;
@@ -120,7 +120,7 @@ public class HMSExternalTable extends ExternalTable {
     protected volatile long eventUpdateTime;
 
     public enum DLAType {
-        UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
+        UNKNOWN, HIVE, HUDI, ICEBERG
     }
 
     /**
@@ -133,10 +133,6 @@ public class HMSExternalTable extends ExternalTable {
      */
     public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.HMS_EXTERNAL_TABLE);
-    }
-
-    public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog, TableType type) {
-        super(id, name, catalog, dbName, type);
     }
 
     public boolean isSupportedHmsTable() {
@@ -493,7 +489,7 @@ public class HMSExternalTable extends ExternalTable {
         return tmpSchema;
     }
 
-    protected void initPartitionColumns(List<Column> schema) {
+    private void initPartitionColumns(List<Column> schema) {
         List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
