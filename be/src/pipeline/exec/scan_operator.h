@@ -56,38 +56,56 @@ public:
     Status try_close(RuntimeState* state) override;
 };
 
-class EosDependency final : public Dependency {
+class ScanDependency final : public Dependency {
 public:
-    ENABLE_FACTORY_CREATOR(EosDependency);
-    EosDependency(int id, int node_id) : Dependency(id, node_id, "EosDependency") {}
-    void* shared_state() override { return nullptr; }
-};
-
-class ScannerDoneDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(ScannerDoneDependency);
-    ScannerDoneDependency(int id, int node_id) : Dependency(id, node_id, "ScannerDoneDependency") {}
-    void* shared_state() override { return nullptr; }
-};
-
-class DataReadyDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(DataReadyDependency);
-    DataReadyDependency(int id, int node_id, vectorized::ScannerContext* scanner_ctx)
-            : Dependency(id, node_id, "DataReadyDependency"), _scanner_ctx(scanner_ctx) {}
+    ENABLE_FACTORY_CREATOR(ScanDependency);
+    ScanDependency(int id, int node_id)
+            : Dependency(id, node_id, "ScanDependency"), _scanner_ctx(nullptr) {}
 
     void* shared_state() override { return nullptr; }
 
     // TODO(gabriel):
     [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
-        if (_scanner_ctx->get_num_running_scanners() == 0 && _scanner_ctx->should_be_scheduled()) {
+        if (_scanner_ctx && _scanner_ctx->get_num_running_scanners() == 0 &&
+            _scanner_ctx->should_be_scheduled()) {
             _scanner_ctx->reschedule_scanner_ctx();
         }
         return Dependency::read_blocked_by(task);
     }
 
+    void block_reading() override {
+        if (_eos) {
+            return;
+        }
+        if (_scanner_done) {
+            return;
+        }
+        Dependency::block_reading();
+    }
+
+    bool eos() const { return _eos.load(); }
+    void set_eos() {
+        if (_eos) {
+            return;
+        }
+        _eos = true;
+        Dependency::set_ready_for_read();
+    }
+
+    void set_scanner_done() {
+        if (_scanner_done) {
+            return;
+        }
+        _scanner_done = true;
+        Dependency::set_ready_for_read();
+    }
+
+    void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
+
 private:
     vectorized::ScannerContext* _scanner_ctx;
+    std::atomic<bool> _eos {false};
+    std::atomic<bool> _scanner_done {false};
 };
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
@@ -128,10 +146,7 @@ protected:
     virtual Status _init_profile() = 0;
 
     std::atomic<bool> _opened {false};
-    std::shared_ptr<EosDependency> _eos_dependency;
-    std::shared_ptr<OrDependency> _source_dependency;
-    std::shared_ptr<ScannerDoneDependency> _scanner_done_dependency;
-    std::shared_ptr<DataReadyDependency> _data_ready_dependency;
+    std::shared_ptr<ScanDependency> _scan_dependency;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
@@ -203,7 +218,7 @@ class ScanLocalState : public ScanLocalStateBase {
 
     int64_t get_push_down_count() override;
 
-    Dependency* dependency() override { return _source_dependency.get(); }
+    Dependency* dependency() override { return _scan_dependency.get(); }
 
 protected:
     template <typename LocalStateType>
