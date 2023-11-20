@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -66,7 +65,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                             // remove literal partition by and order by keys
                             return windowExpression.withPartitionKeysOrderKeys(
                                     windowExpression.getPartitionKeys().stream()
-                                            .filter(expression -> !expression.isConstant())
+                                            .filter(partitionExpr -> !partitionExpr.isConstant())
                                             .collect(Collectors.toList()),
                                     windowExpression.getOrderKeys().stream()
                                             .filter(orderExpression -> !orderExpression
