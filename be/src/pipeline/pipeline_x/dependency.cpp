@@ -78,21 +78,10 @@ void Dependency::set_ready_for_read() {
 }
 
 void SetDependency::set_ready_for_read() {
-    if (_set_state->ready_for_read) {
-        return;
-    }
-    _read_dependency_watcher.stop();
-    std::vector<PipelineXTask*> local_block_task {};
-    {
-        std::unique_lock<std::mutex> lc(_task_lock);
-        if (_set_state->ready_for_read) {
-            return;
-        }
-        _set_state->ready_for_read = true;
-        local_block_task.swap(_blocked_task);
-    }
-    for (auto* task : local_block_task) {
-        task->try_wake_up(this);
+    if (_child_idx == 0) {
+        WriteDependency::set_ready_for_read();
+    } else {
+        _set_state->probe_finished_children_dependency[0]->set_ready_for_read();
     }
 }
 

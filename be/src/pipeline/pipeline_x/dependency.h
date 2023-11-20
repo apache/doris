@@ -766,19 +766,10 @@ public:
 
     void set_shared_state(std::shared_ptr<SetSharedState> set_state) { _set_state = set_state; }
 
-    // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
-        std::unique_lock<std::mutex> lc(_task_lock);
-        auto ready_for_read = _set_state->ready_for_read.load();
-        if (!ready_for_read && task) {
-            add_block_task(task);
-        }
-        return ready_for_read ? nullptr : this;
-    }
-
     void set_ready_for_read() override;
 
     void set_cur_child_id(int id) {
+        _child_idx = id;
         _set_state->probe_finished_children_dependency[id] = this;
         if (id != 0) {
             block_writing();
@@ -787,6 +778,7 @@ public:
 
 private:
     std::shared_ptr<SetSharedState> _set_state;
+    int _child_idx {0};
 };
 
 using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,
