@@ -488,7 +488,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         || !(join.getHashJoinConjuncts().get(0) instanceof EqualTo)) {
                     break;
                 } else {
-                    EqualTo equalTo = (EqualTo) join.getEqualToConjuncts().get(0);
+                    EqualTo equalTo = join.getEqualToConjuncts().get(0);
                     equalTos.add(equalTo);
                     equalCondToJoinMap.put(equalTo, join);
                 }
