@@ -124,9 +124,9 @@ private:
 
     void get_backlog_nums(std::shared_ptr<StreamLoadContext> ctx);
 
-    const unsigned char* filter_invalid_prefix_of_json(const unsigned char* data);
+    const uint8_t* filter_invalid_prefix_of_json(const uint8_t* data);
 
-    size_t len_of_uint8_t(const unsigned char* data);
+    size_t len_of_uint8_t(const uint8_t* data);
 
 private:
     // blocking queue to receive msgs from all consumers

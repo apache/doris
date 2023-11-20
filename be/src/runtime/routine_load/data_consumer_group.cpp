@@ -341,7 +341,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                     << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
 
             //filter invalid prefix of json
-            const unsigned char* filter_data = filter_invalid_prefix_of_json(msg->getData());
+            const uint8_t* filter_data = filter_invalid_prefix_of_json(static_cast<const uint8_t*>(msg->getData()));
             size_t  filter_len = len_of_uint8_t(filter_data);
             // append filtered data
             Status st = (pulsar_pipe.get()->*append_data)(static_cast<const char*>(filter_data), filter_len);
@@ -397,7 +397,7 @@ void PulsarDataConsumerGroup::get_backlog_nums(std::shared_ptr<StreamLoadContext
     }
 }
 
-const unsigned char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const unsigned char* data) {
+const uint8_t* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const uint8_t* data) {
     // first index of '['
     int first_left_square_bracket_index = -1;
     // first index of '{'
@@ -410,7 +410,6 @@ const unsigned char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(cons
             first_left_curly_bracket_index = i;
         }
     }
-    int json_start = -1;
     if (first_left_square_bracket_index >= 0 && first_left_curly_bracket_index >= 0) {
         if (first_left_square_bracket_index < first_left_curly_bracket_index) {
             return data + first_left_square_bracket_index;
@@ -426,7 +425,7 @@ const unsigned char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(cons
     }
 }
 
-size_t PulsarDataConsumerGroup::len_of_uint8_t(const unsigned char* data) {
+size_t PulsarDataConsumerGroup::len_of_uint8_t(const uint8_t* data) {
     size_t length = 0;
     while (data[length] != '\0') {
         ++length;
