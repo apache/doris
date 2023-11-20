@@ -45,11 +45,13 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
@@ -190,6 +192,14 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
+        if (boundFunction instanceof ElementAt && boundFunction.getDataType().isVariantType()) {
+            Slot slot = boundFunction.getInputSlots().stream().findFirst().get();
+            if (slot.hasUnbound()) {
+                slot = (Slot) super.visit(slot, context);
+            }
+            // rewrite to slot and bound this slot
+            return ElementAtToSlot.rewriteToSlot((ElementAt) boundFunction, (SlotReference) slot);
+        }
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
     }

@@ -125,6 +125,19 @@ public class SlotBinder extends SubExprAnalyzer {
         }
     }
 
+    // @Override
+    // public Expression visitElementAt(ElementAt elementAt, CascadesContext context) {
+    //     Slot slot = elementAt.getInputSlots().stream().findFirst().get();
+    //     if (slot.hasUnbound()) {
+    //         slot = (Slot) visitUnboundSlot((UnboundSlot) slot, context);
+    //     }
+    //     if (slot.getDataType().isVariantType()) {
+    //         // rewrite to slot and bound this slot
+    //         return ElementAtToSlot.rewriteToSlot(elementAt, (SlotReference) slot);
+    //     }
+    //     return visitScalarFunction(elementAt, context);
+    // }
+
     @Override
     public Slot visitUnboundSlot(UnboundSlot unboundSlot, CascadesContext context) {
         Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getScope().getSlots()));
@@ -183,7 +196,8 @@ public class SlotBinder extends SubExprAnalyzer {
         List<Slot> slots = getScope().getSlots()
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
-                || (((SlotReference) slot).isVisible()) || showHidden)
+                        || (((SlotReference) slot).isVisible()) || showHidden)
+                .filter(slot -> !(((SlotReference) slot).hasSubColPath()))
                 .collect(Collectors.toList());
         switch (qualifier.size()) {
             case 0: // select *
@@ -264,6 +278,11 @@ public class SlotBinder extends SubExprAnalyzer {
 
     private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
         return boundSlots.stream().distinct().filter(boundSlot -> {
+            if (boundSlot instanceof SlotReference
+                    && ((SlotReference) boundSlot).hasSubColPath()) {
+                // already bounded
+                return false;
+            }
             List<String> nameParts = unboundSlot.getNameParts();
             int qualifierSize = boundSlot.getQualifier().size();
             int namePartsSize = nameParts.size();

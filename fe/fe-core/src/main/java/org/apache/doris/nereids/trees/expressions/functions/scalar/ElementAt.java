@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -43,6 +45,8 @@ public class ElementAt extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(new FollowToAnyDataType(0))
                     .args(ArrayType.of(new AnyDataType(0)), BigIntType.INSTANCE),
+            FunctionSignature.ret(new VariantType())
+                    .args(new VariantType(), VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(new FollowToAnyDataType(1))
                     .args(MapType.of(new AnyDataType(0), new AnyDataType(1)), new FollowToAnyDataType(0))
     );
