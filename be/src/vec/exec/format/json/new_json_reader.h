@@ -141,8 +141,14 @@ private:
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
-    Status _simdjson_parse_json(bool* is_empty_row, bool* eof);
-    Status _simdjson_parse_json_doc(size_t* size, bool* eof);
+    Status _simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
+                                const uint8_t* json_str, simdjson::error_code* error);
+    Status _read_pipe_buf(size_t* size, bool* eof, const uint8_t* json_str);
+    Status _init_json_parser_iterate(size_t* size, const uint8_t* json_str,
+                                     simdjson::error_code* error);
+    Status _get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
+                           const uint8_t* json_str, bool* is_empty_row);
+    Status _set_empty_row(size_t* size, bool* eof, bool* is_empty_row);
 
     Status _simdjson_handle_simple_json(RuntimeState* state, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,

@@ -1010,9 +1010,13 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
     size_t num_rows = block.rows();
     do {
         bool valid = false;
+        size_t size = 0;
+        const uint8_t* json_str = nullptr;
+        simdjson::error_code* error = nullptr;
         try {
             if (_next_row >= _total_rows) { // parse json and generic document
-                Status st = _simdjson_parse_json(is_empty_row, eof);
+                RETURN_IF_ERROR(_simdjson_parse_json(&size, is_empty_row, eof, json_str, error));
+                Status st = _get_json_value(&size, eof, error, json_str, is_empty_row);
                 if (st.is<DATA_QUALITY_ERROR>()) {
                     continue; // continue to read next
                 }
@@ -1119,9 +1123,13 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
     size_t num_rows = block.rows();
     simdjson::ondemand::object cur;
     do {
+        size_t size = 0;
+        const uint8_t* json_str = nullptr;
+        simdjson::error_code* error = nullptr;
         try {
             if (_next_row >= _total_rows) {
-                Status st = _simdjson_parse_json(is_empty_row, eof);
+                RETURN_IF_ERROR(_simdjson_parse_json(&size, is_empty_row, eof, json_str, error));
+                Status st = _get_json_value(&size, eof, error, json_str, is_empty_row);
                 if (st.is<DATA_QUALITY_ERROR>()) {
                     continue; // continue to read next
                 }
@@ -1205,8 +1213,12 @@ Status NewJsonReader::_simdjson_handle_nested_complex_json(
     while (true) {
         size_t num_rows = block.rows();
         simdjson::ondemand::object cur;
+        size_t size = 0;
+        const uint8_t* json_str = nullptr;
+        simdjson::error_code* error = nullptr;
         try {
-            Status st = _simdjson_parse_json(is_empty_row, eof);
+            RETURN_IF_ERROR(_simdjson_parse_json(&size, is_empty_row, eof, json_str, error));
+            Status st = _get_json_value(&size, eof, error, json_str, is_empty_row);
             if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
@@ -1437,31 +1449,21 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
     return Status::OK();
 }
 
-Status NewJsonReader::_simdjson_parse_json(bool* is_empty_row, bool* eof) {
-    size_t size = 0;
-    RETURN_IF_ERROR(_simdjson_parse_json_doc(&size, eof));
-
-    // read all data, then return
-    if (size == 0 || *eof) {
-        *is_empty_row = true;
+Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
+                                           const uint8_t* json_str, simdjson::error_code* error) {
+    SCOPED_TIMER(_file_read_timer);
+    // step1: read buf from pipe.
+    RETURN_IF_ERROR(_read_pipe_buf(size, eof, json_str));
+    if (*eof) {
         return Status::OK();
     }
 
-    if (!_parsed_jsonpaths.empty() && _strip_outer_array) {
-        _total_rows = _json_value.count_elements().value();
-        _next_row = 0;
-
-        if (_total_rows == 0) {
-            // meet an empty json array.
-            *is_empty_row = true;
-        }
-    }
+    // step2: init json parser iterate.
+    RETURN_IF_ERROR(_init_json_parser_iterate(size, json_str, error));
     return Status::OK();
 }
-Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
-    // read a whole message
-    SCOPED_TIMER(_file_read_timer);
-    const uint8_t* json_str = nullptr;
+
+Status NewJsonReader::_read_pipe_buf(size_t* size, bool* eof, const uint8_t* json_str) {
     std::unique_ptr<uint8_t[]> json_str_ptr;
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof, _io_ctx));
@@ -1476,9 +1478,11 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
     }
 
     _bytes_read_counter += *size;
-    if (*eof) {
-        return Status::OK();
-    }
+    return Status::OK();
+}
+
+Status NewJsonReader::_init_json_parser_iterate(size_t* size, const uint8_t* json_str,
+                                                simdjson::error_code* error) {
     if (*size + simdjson::SIMDJSON_PADDING > _padded_size) {
         // For efficiency reasons, simdjson requires a string with a few bytes (simdjson::SIMDJSON_PADDING) at the end.
         // Hence, a re-allocation is needed if the space is not enough.
@@ -1495,11 +1499,34 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
     }
     memcpy(&_simdjson_ondemand_padding_buffer.front(), json_str, *size);
     _original_doc_size = *size;
-    auto error =
-            _ondemand_json_parser
-                    ->iterate(std::string_view(_simdjson_ondemand_padding_buffer.data(), *size),
-                              _padded_size)
-                    .get(_original_json_doc);
+    *error = _ondemand_json_parser
+                     ->iterate(std::string_view(_simdjson_ondemand_padding_buffer.data(), *size),
+                               _padded_size)
+                     .get(_original_json_doc);
+    return Status::OK();
+}
+
+Status NewJsonReader::_set_empty_row(size_t* size, bool* eof, bool* is_empty_row) {
+    if (size == 0 || *eof) {
+        *is_empty_row = true;
+        return Status::OK();
+    }
+
+    if (!_parsed_jsonpaths.empty() && _strip_outer_array) {
+        _total_rows = _json_value.count_elements().value();
+        _next_row = 0;
+
+        if (_total_rows == 0) {
+            // meet an empty json array.
+            *is_empty_row = true;
+        }
+    }
+    return Status::OK();
+}
+
+Status NewJsonReader::_get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
+                                      const uint8_t* json_str, bool* is_empty_row) {
+    SCOPED_TIMER(_file_read_timer);
     auto return_quality_error = [&](fmt::memory_buffer& error_msg,
                                     const std::string& doc_info) -> Status {
         RETURN_IF_ERROR(_state->append_error_msg_to_file(
@@ -1515,10 +1542,10 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
         }
         return Status::DataQualityError(fmt::to_string(error_msg));
     };
-    if (error != simdjson::error_code::SUCCESS) {
+    if (*error != simdjson::error_code::SUCCESS) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "Parse json data for JsonDoc failed. code: {}, error info: {}",
-                       error, simdjson::error_message(error));
+                       *error, simdjson::error_message(*error));
         return return_quality_error(error_msg, std::string((char*)json_str, *size));
     }
     auto type_res = _original_json_doc.type();
@@ -1570,6 +1597,7 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
                        "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
         return return_quality_error(error_msg, std::string((char*)json_str, *size));
     }
+    RETURN_IF_ERROR(_set_empty_row(size, eof, is_empty_row));
     return Status::OK();
 }
 
