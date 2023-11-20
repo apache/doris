@@ -5771,14 +5771,13 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) throws UserException {
+    public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) {
         AlterMTMV alter = new AlterMTMV(mvName);
         alter.setStatus(status);
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVCache cache)
-            throws UserException {
+    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVCache cache) {
         AlterMTMV alter = new AlterMTMV(mvName);
         alter.setTask(task);
         alter.setCache(cache);

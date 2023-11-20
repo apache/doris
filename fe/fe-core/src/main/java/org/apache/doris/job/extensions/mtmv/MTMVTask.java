@@ -159,14 +159,8 @@ public class MTMVTask extends AbstractTask {
         return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
     }
 
-    private void addTaskResult() throws JobException {
-        try {
-            Env.getCurrentEnv()
-                    .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this,
-                            cache);
-        } catch (UserException e) {
-            LOG.warn(e);
-            throw new JobException(e);
-        }
+    private void addTaskResult() {
+        Env.getCurrentEnv()
+                .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, cache);
     }
 }

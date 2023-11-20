@@ -21,7 +21,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -41,7 +40,7 @@ public interface MTMVHookService {
 
     void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task);
 
-    void dropTable(Table table) throws UserException;
+    void dropTable(Table table);
 
-    void alterTable(Table table) throws UserException;
+    void alterTable(Table table);
 }

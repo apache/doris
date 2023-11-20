@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
@@ -157,12 +156,12 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void dropTable(Table table) throws UserException {
+    public void dropTable(Table table) {
 
     }
 
     @Override
-    public void alterTable(Table table) throws UserException{
+    public void alterTable(Table table) {
 
     }
 
