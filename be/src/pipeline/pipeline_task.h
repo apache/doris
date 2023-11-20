@@ -133,7 +133,7 @@ public:
         _wait_worker_watcher.start();
     }
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
-    PipelineTaskState get_state() { return _cur_state; }
+    PipelineTaskState get_state() const { return _cur_state; }
     void set_state(PipelineTaskState state);
 
     virtual bool is_pending_finish() {
@@ -154,6 +154,7 @@ public:
     }
 
     virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
+    virtual bool push_blocked_task_to_queue() const { return true; }
 
     virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
