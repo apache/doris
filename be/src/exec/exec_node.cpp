@@ -129,7 +129,7 @@ Status ExecNode::prepare(RuntimeState* state) {
     _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
     _rows_returned_counter = ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputRows", TUnit::UNIT, 1);
     _output_bytes_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBytes", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BytesProduced", TUnit::BYTES, 1);
     _block_count_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
