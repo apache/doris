@@ -341,7 +341,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                     << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
 
             //filter invalid prefix of json
-            const uint8_t* filter_data = filter_invalid_prefix_of_json(msg->getData());
+            const unsigned char* filter_data = filter_invalid_prefix_of_json(msg->getData());
             size_t  filter_len = len_of_uint8_t(filter_data);
             // append filtered data
             Status st = (pulsar_pipe.get()->*append_data)(static_cast<const char*>(filter_data), filter_len);
@@ -397,7 +397,7 @@ void PulsarDataConsumerGroup::get_backlog_nums(std::shared_ptr<StreamLoadContext
     }
 }
 
-const uint8_t* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const uint8_t* data) {
+const unsigned char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const unsigned char* data) {
     // first index of '['
     int first_left_square_bracket_index = -1;
     // first index of '{'
@@ -426,7 +426,7 @@ const uint8_t* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const uint
     }
 }
 
-size_t PulsarDataConsumerGroup::len_of_uint8_t(const uint8_t* data) {
+size_t PulsarDataConsumerGroup::len_of_uint8_t(const unsigned char* data) {
     size_t length = 0;
     while (data[length] != '\0') {
         ++length;
