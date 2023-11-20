@@ -109,6 +109,7 @@ public class TabletRepairAndBalanceTest {
         Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         Config.colocate_group_relocate_delay_second = 1;
+        Config.disable_balance = true;
         // 5 backends:
         // 127.0.0.1
         // 127.0.0.2
@@ -417,7 +418,13 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrowsNoException(() -> dropTable(dropStmt1));
         ExceptionChecker.expectThrowsNoException(() -> dropTable(dropStmt2));
         ExceptionChecker.expectThrowsNoException(() -> dropTable(dropStmt3));
-        Assert.assertEquals(0, replicaMetaTable.size());
+        Assert.assertNull(db.getTableNullable("tbl1"));
+        Assert.assertNull(db.getTableNullable("col_tbl1"));
+        Assert.assertNull(db.getTableNullable("col_tbl2"));
+        //  After unify force and non-force drop table, the indexes will be erase eventually.
+        while (colocateTableIndex.getAllGroupIds().size() > 0) {
+            Thread.sleep(1000);
+        }
 
         // set all backends' tag to default
         for (int i = 0; i < backends.size(); ++i) {

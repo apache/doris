@@ -52,13 +52,6 @@ public class WorkloadGroupTest {
         WorkloadGroup.create(name1, properties1);
     }
 
-    @Test(expected = DdlException.class)
-    public void testRequiredProperty() throws DdlException {
-        Map<String, String> properties1 = Maps.newHashMap();
-        String name1 = "g1";
-        WorkloadGroup.create(name1, properties1);
-    }
-
     @Test
     public void testCpuShareValue() {
         Map<String, String> properties1 = Maps.newHashMap();

@@ -126,7 +126,6 @@ protected:
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
 
-    OpentelemetrySpan _span;
     OperatorXBase* _parent;
     RuntimeState* _state;
     vectorized::VExprContextSPtrs _conjuncts;
@@ -626,9 +625,9 @@ public:
 };
 
 template <typename Writer, typename Parent>
-class AsyncWriterSink : public PipelineXSinkLocalState<AsyncWriterSinkDependency> {
+class AsyncWriterSink : public PipelineXSinkLocalState<FakeDependency> {
 public:
-    using Base = PipelineXSinkLocalState<AsyncWriterSinkDependency>;
+    using Base = PipelineXSinkLocalState<FakeDependency>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _async_writer_dependency(nullptr) {}
 
@@ -638,8 +637,8 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state);
 
-    WriteDependency* write_blocked_by();
-
+    WriteDependency* write_blocked_by(PipelineXTask* task);
+    WriteDependency* dependency() override { return _async_writer_dependency.get(); }
     Status close(RuntimeState* state, Status exec_status) override;
 
     Status try_close(RuntimeState* state, Status exec_status) override;

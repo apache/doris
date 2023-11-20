@@ -36,6 +36,7 @@ namespace pipeline {
 class AsyncWriterDependency;
 class WriteDependency;
 class FinishDependency;
+class PipelineXTask;
 
 } // namespace pipeline
 
@@ -79,7 +80,7 @@ public:
         return _data_queue_is_available() || _is_finished();
     }
 
-    pipeline::WriteDependency* write_blocked_by();
+    pipeline::WriteDependency* write_blocked_by(pipeline::PipelineXTask* task);
 
     [[nodiscard]] bool is_pending_finish() const { return !_writer_thread_closed; }
 

@@ -102,8 +102,8 @@ protected:
     void TearDown() override {
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(nullptr);
+        _engine.reset();
         exec_env->set_storage_engine(nullptr);
-        _engine.reset(nullptr);
         EXPECT_EQ(system("rm -rf ./data_test"), 0);
         static_cast<void>(io::global_local_filesystem()->delete_directory(
                 std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX));

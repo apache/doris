@@ -56,8 +56,9 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_QUANTILE_STATE);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::QUANTILE_STATE;
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
     }
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
@@ -79,8 +80,6 @@ public:
         return true;
     }
     bool have_maximum_size_of_value() const override { return false; }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 

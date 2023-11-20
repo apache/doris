@@ -71,30 +71,6 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-Provide HDFS HA information and Kerberos authentication information at the same time, examples are as follows:
-
-```sql
-CREATE CATALOG hive PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
-    'hive.metastore.sasl.enabled' = 'true',
-    'hive.metastore.kerberos.principal' = 'your-hms-principal',
-    'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
-    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
-    'hadoop.security.authentication' = 'kerberos',
-    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
-    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
-    'yarn.resourcemanager.principal' = 'your-rm-principal'
-);
-```
-
-Please place the `krb5.conf` file and `keytab` authentication file under all `BE` and `FE` nodes. The path of the `keytab` authentication file is consistent with the configuration. The `krb5.conf` file is placed in `/etc by default /krb5.conf` path.
-
-The value of `hive.metastore.kerberos.principal` needs to be consistent with the property of the same name of the connected hive metastore, which can be obtained from `hive-site.xml`.
-
 ### Hive On VIEWFS
 
 ```sql
@@ -362,7 +338,11 @@ We need to change to
 
 ## Hive Version
 
-Doris can correctly access the Hive Metastore in different Hive versions. By default, Doris will access the Hive Metastore with a Hive 2.3 compatible interface. You can also specify the hive version when creating the Catalog. If accessing Hive 1.1.0 version:
+Doris can correctly access the Hive Metastore in different Hive versions. By default, Doris will access the Hive Metastore with a Hive 2.3 compatible interface.
+
+If you meet error message like `Invalid method name: 'get_table_req'`, which means the hive version is mismatch.
+
+You can specify the hive version when creating the Catalog. If accessing Hive 1.1.0 version:
 
 ```sql 
 CREATE CATALOG hive PROPERTIES (
@@ -499,3 +479,70 @@ To connect to the Hive Metastore with Ranger permission verification enabled, yo
 
 4. Create role1 with the same name in doris, and assign role1 to user1, user1 will have the query authority of db1.table1.col1 and col2 at the same time
 
+
+## Integrate with Kerberos
+
+Kerberos is an authentication protocol. It is designed to provide strong authentication for applications by using secret-key cryptography.
+
+### Settings
+
+1. If Kerberos authentication is configured for services in the cluster, need obtain their authentication information when configuring the Hive Catalog.
+
+    `hadoop.kerberos.keytab`: It records the principals required for authentication, and the keytab in the Doris cluster must be the same.
+
+    `hadoop.kerberos.principal`: Find the principal corresponding to the hostname on the Doris cluster, such as `doris/hostname@HADOOP.COM`, and check the keytab with `klist -kt`.
+
+    `yarn.resourcemanager.principal`: Go to the Yarn Resource Manager node, get it from `yarn-site.xml`, and check the keytab of Yarn with `klist-kt`.
+
+    `hive.metastore.kerberos.principal`: Go to the Hive metadata service node, get it from `hive-site.xmll`, and check the keytab of Hive with `klist-kt`.
+
+    `hadoop.security.authentication`: Enable Hadoop Kerberos authentication.
+
+Please place the `krb5.conf` file and `keytab` authentication file under all `BE` and `FE` nodes. The path of the `keytab` authentication file is consistent with the configuration. The `krb5.conf` file is placed in `/etc by default /krb5.conf` path. Make sure that the JVM parameter `-Djava.security.krb5.conf` and the environment variable `KRB5_CONFIG` point to the correct path to the `krb5.conf` file.
+
+2. After the configuration is complete, If no error is reported in the `FE` or `BE` logs, you can enable Kerberos debugging. See related error resolution: [FAQ](../faq.md)
+
+- Under all `FE` and `BE` nodes, find `conf/fe.conf` and `conf/be.conf` under the deployment path.
+
+- After the above configuration file is found, set the JVM parameter `-Dsun.security.krb5.debug=true` in the `JAVA_OPTS` variable to enable Kerberos debugging.
+
+- You can view debugging information about `FE` Kerberos authentication in the log path of the fe node `log/fe.out`.
+
+- You can view debugging information about `BE` Kerberos authentication in the log path of the be node `log/be.out`.
+
+### Best Practices
+
+Examples:
+
+```sql
+CREATE CATALOG hive_krb PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+    'hive.metastore.sasl.enabled' = 'true',
+    'hive.metastore.kerberos.principal' = 'your-hms-principal',
+    'hadoop.security.authentication' = 'kerberos',
+    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
+    'yarn.resourcemanager.principal' = 'your-rm-principal'
+);
+```
+
+Provide HDFS HA information and Kerberos authentication information at the same time, examples are as follows:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+    'hive.metastore.sasl.enabled' = 'true',
+    'hive.metastore.kerberos.principal' = 'your-hms-principal',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'hadoop.security.authentication' = 'kerberos',
+    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
+    'yarn.resourcemanager.principal' = 'your-rm-principal'
+);
+```

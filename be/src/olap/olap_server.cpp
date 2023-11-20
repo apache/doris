@@ -184,13 +184,6 @@ Status StorageEngine::start_bg_threads() {
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
-            scoped_refptr<Thread> path_scan_thread;
-            RETURN_IF_ERROR(Thread::create(
-                    "StorageEngine", "path_scan_thread",
-                    [this, data_dir]() { this->_path_scan_thread_callback(data_dir); },
-                    &path_scan_thread));
-            _path_scan_threads.emplace_back(path_scan_thread);
-
             scoped_refptr<Thread> path_gc_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
@@ -198,7 +191,7 @@ Status StorageEngine::start_bg_threads() {
                     &path_gc_thread));
             _path_gc_threads.emplace_back(path_gc_thread);
         }
-        LOG(INFO) << "path scan/gc threads started. number:" << get_stores().size();
+        LOG(INFO) << "path gc threads started. number:" << get_stores().size();
     }
 
     RETURN_IF_ERROR(ThreadPoolBuilder("CooldownTaskThreadPool")
@@ -368,24 +361,6 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
     LOG(INFO) << "stop path gc thread!";
-}
-
-void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
-    int32_t interval = config::path_scan_interval_second;
-    do {
-        LOG(INFO) << "try to perform path scan!";
-        Status st = data_dir->perform_path_scan();
-        if (!st) {
-            LOG(WARNING) << "path scan failed: " << st;
-        }
-
-        interval = config::path_scan_interval_second;
-        if (interval <= 0) {
-            LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
-                         << "will be forced set to one day";
-            interval = 24 * 3600; // one day
-        }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
@@ -1047,11 +1022,15 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
         // also tablets once failed to do follow cooldown
         auto skip_tablet = [this, skip_failed_interval,
                             cur_time](const TabletSharedPtr& tablet) -> bool {
+            bool is_skip =
+                    cur_time - tablet->last_failed_follow_cooldown_time() < skip_failed_interval ||
+                    TABLET_RUNNING != tablet->tablet_state();
+            if (is_skip) {
+                return is_skip;
+            }
             std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
-            return cur_time - tablet->last_failed_follow_cooldown_time() < skip_failed_interval ||
-                   TABLET_RUNNING != tablet->tablet_state() ||
-                   _running_cooldown_tablets.find(tablet->tablet_id()) !=
-                           _running_cooldown_tablets.end();
+            return _running_cooldown_tablets.find(tablet->tablet_id()) !=
+                   _running_cooldown_tablets.end();
         };
         _tablet_manager->get_cooldown_tablets(&tablets, std::move(skip_tablet));
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();

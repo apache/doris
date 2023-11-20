@@ -17,14 +17,24 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -37,12 +47,15 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
@@ -52,18 +65,19 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -77,7 +91,7 @@ public class ConnectContext {
 
     public enum ConnectType {
         MYSQL,
-        ARROW_FLIGHT
+        ARROW_FLIGHT_SQL
     }
 
     protected volatile ConnectType connectType;
@@ -96,8 +110,14 @@ public class ConnectContext {
     protected volatile int connectionId;
     // Timestamp when the connection is make
     protected volatile long loginTime;
-    // arrow flight token
+    // for arrow flight
     protected volatile String peerIdentity;
+    private String runningQuery;
+    private TNetworkAddress resultFlightServerAddr;
+    private TNetworkAddress resultInternalServiceAddr;
+    private ArrayList<Expr> resultOutputExprs;
+    private TUniqueId finstId;
+    private boolean returnResultFromLocal = true;
     // mysql net
     protected volatile MysqlChannel mysqlChannel;
     // state
@@ -128,6 +148,8 @@ public class ConnectContext {
     protected volatile UserIdentity currentUserIdentity;
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
+    // Store user variable in this connection
+    private Map<String, LiteralExpr> userVars = new HashMap<>();
     // Scheduler this connection belongs to
     protected volatile ConnectScheduler connectScheduler;
     // Executor
@@ -138,8 +160,6 @@ public class ConnectContext {
     protected volatile long startTime;
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
-
-    protected volatile Tracer tracer = Telemetry.getNoopTracer();
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
@@ -178,6 +198,7 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
+
     // This context is used for SSL connection between server and mysql client.
     private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
 
@@ -190,7 +211,7 @@ public class ConnectContext {
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
-    //internal call like `insert overwrite` need skipAuth
+    // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
     // but the internal implementation will call the logic of `AlterTable`.
     // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
@@ -286,41 +307,31 @@ public class ConnectContext {
         return connectType;
     }
 
-    public ConnectContext() {
-        this((StreamConnection) null);
-    }
-
-    public ConnectContext(String peerIdentity) {
-        this.connectType = ConnectType.ARROW_FLIGHT;
-        this.peerIdentity = peerIdentity;
+    public void init() {
         state = new QueryState();
         returnRows = 0;
         isKilled = false;
         sessionVariable = VariableMgr.newSessionVariable();
-        mysqlChannel = new DummyMysqlChannel();
+        userVars = new HashMap<>();
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
-        setResultSinkType(TResultSinkType.ARROW_FLIGHT_PROTOCAL);
+    }
+
+    public ConnectContext() {
+        this((StreamConnection) null);
     }
 
     public ConnectContext(StreamConnection connection) {
         connectType = ConnectType.MYSQL;
-        state = new QueryState();
-        returnRows = 0;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
-        isKilled = false;
         if (connection != null) {
             mysqlChannel = new MysqlChannel(connection);
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
-        sessionVariable = VariableMgr.newSessionVariable();
-        command = MysqlCommand.COM_SLEEP;
-        if (Config.use_fuzzy_session_variable) {
-            sessionVariable.initFuzzyModeVariables();
-        }
+        init();
     }
 
     public boolean isTxnModel() {
@@ -451,6 +462,65 @@ public class ConnectContext {
         defaultCatalog = env.getInternalCatalog().getName();
     }
 
+    public void setUserVar(SetVar setVar) {
+        userVars.put(setVar.getVariable().toLowerCase(), setVar.getResult());
+    }
+
+    public @Nullable Literal getLiteralForUserVar(String varName) {
+        varName = varName.toLowerCase();
+        if (userVars.containsKey(varName)) {
+            LiteralExpr literalExpr = userVars.get(varName);
+            if (literalExpr instanceof BoolLiteral) {
+                return Literal.of(((BoolLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof IntLiteral) {
+                return Literal.of(((IntLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof FloatLiteral) {
+                return Literal.of(((FloatLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof DecimalLiteral) {
+                return Literal.of(((DecimalLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof StringLiteral) {
+                return Literal.of(((StringLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof NullLiteral) {
+                return Literal.of(null);
+            } else {
+                return Literal.of("");
+            }
+        } else {
+            // If there are no such user defined var, just return the NULL value.
+            return Literal.of(null);
+        }
+    }
+
+    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
+    public void fillValueForUserDefinedVar(VariableExpr desc) {
+        String varName = desc.getName().toLowerCase();
+        if (userVars.containsKey(varName)) {
+            LiteralExpr literalExpr = userVars.get(varName);
+            desc.setType(literalExpr.getType());
+            if (literalExpr instanceof BoolLiteral) {
+                desc.setBoolValue(((BoolLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof IntLiteral) {
+                desc.setIntValue(((IntLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof FloatLiteral) {
+                desc.setFloatValue(((FloatLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof DecimalLiteral) {
+                desc.setDecimalValue(((DecimalLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof StringLiteral) {
+                desc.setStringValue(((StringLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof NullLiteral) {
+                desc.setType(Type.NULL);
+                desc.setIsNull();
+            } else {
+                desc.setType(Type.VARCHAR);
+                desc.setStringValue("");
+            }
+        } else {
+            // If there are no such user defined var, just fill the NULL value.
+            desc.setType(Type.NULL);
+            desc.setIsNull();
+        }
+    }
+
     public Env getEnv() {
         return env;
     }
@@ -541,12 +611,68 @@ public class ConnectContext {
         this.loginTime = System.currentTimeMillis();
     }
 
+    public void setRunningQuery(String runningQuery) {
+        this.runningQuery = runningQuery;
+    }
+
+    public String getRunningQuery() {
+        return runningQuery;
+    }
+
+    public void setResultFlightServerAddr(TNetworkAddress resultFlightServerAddr) {
+        this.resultFlightServerAddr = resultFlightServerAddr;
+    }
+
+    public TNetworkAddress getResultFlightServerAddr() {
+        return resultFlightServerAddr;
+    }
+
+    public void setResultInternalServiceAddr(TNetworkAddress resultInternalServiceAddr) {
+        this.resultInternalServiceAddr = resultInternalServiceAddr;
+    }
+
+    public TNetworkAddress getResultInternalServiceAddr() {
+        return resultInternalServiceAddr;
+    }
+
+    public void setResultOutputExprs(ArrayList<Expr> resultOutputExprs) {
+        this.resultOutputExprs = resultOutputExprs;
+    }
+
+    public ArrayList<Expr> getResultOutputExprs() {
+        return resultOutputExprs;
+    }
+
+    public void setFinstId(TUniqueId finstId) {
+        this.finstId = finstId;
+    }
+
+    public TUniqueId getFinstId() {
+        return finstId;
+    }
+
+    public void setReturnResultFromLocal(boolean returnResultFromLocal) {
+        this.returnResultFromLocal = returnResultFromLocal;
+    }
+
+    public boolean isReturnResultFromLocal() {
+        return returnResultFromLocal;
+    }
+
     public String getPeerIdentity() {
         return peerIdentity;
     }
 
+    public FlightSqlChannel getFlightSqlChannel() {
+        throw new RuntimeException("getFlightSqlChannel not in flight sql connection");
+    }
+
     public MysqlChannel getMysqlChannel() {
         return mysqlChannel;
+    }
+
+    public String getClientIP() {
+        return getMysqlChannel().getRemoteHostPortString();
     }
 
     public QueryState getState() {
@@ -620,10 +746,14 @@ public class ConnectContext {
         return executor;
     }
 
-    public void cleanup() {
+    protected void closeChannel() {
         if (mysqlChannel != null) {
             mysqlChannel.close();
         }
+    }
+
+    public void cleanup() {
+        closeChannel();
         threadLocalInfo.remove();
         returnRows = 0;
     }
@@ -680,14 +810,6 @@ public class ConnectContext {
         this.minidump = minidump;
     }
 
-    public Tracer getTracer() {
-        return tracer;
-    }
-
-    public void initTracer(String name) {
-        this.tracer = Telemetry.getOpenTelemetry().getTracer(name);
-    }
-
     public StatementContext getStatementContext() {
         return statementContext;
     }
@@ -701,27 +823,17 @@ public class ConnectContext {
     }
 
     public String getRemoteHostPortString() {
-        if (connectType.equals(ConnectType.MYSQL)) {
-            return getMysqlChannel().getRemoteHostPortString();
-        } else if (connectType.equals(ConnectType.ARROW_FLIGHT)) {
-            // TODO Get flight client IP:Port
-            return peerIdentity;
-        }
-        return "";
+        return getMysqlChannel().getRemoteHostPortString();
     }
 
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill query from {}, kill connection: {}", getRemoteHostPortString(), killConnection);
+        LOG.warn("kill query from {}, kill mysql connection: {}", getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
             isKilled = true;
-            if (connectType.equals(ConnectType.MYSQL)) {
-                // Close channel to break connection with client
-                getMysqlChannel().close();
-            } else if (connectType.equals(ConnectType.ARROW_FLIGHT)) {
-                connectScheduler.unregisterConnection(this);
-            }
+            // Close channel to break connection with client
+            closeChannel();
         }
         // Now, cancel running query.
         cancelQuery();

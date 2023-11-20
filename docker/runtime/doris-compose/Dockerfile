@@ -21,15 +21,22 @@ FROM openjdk:8u342-jdk
 
 # set environment variables
 ENV JAVA_HOME="/usr/local/openjdk-8/"
+ENV jacoco_version 0.8.8
 
 ADD output /opt/apache-doris/
 
 RUN  sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list
 RUN  apt-get clean
 
+RUN  mkdir /opt/apache-doris/coverage
+
 RUN apt-get update && \
-    apt-get install -y default-mysql-client python lsof tzdata && \
+    apt-get install -y default-mysql-client python lsof tzdata curl unzip && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
     apt-get clean
+
+RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/$jacoco_version/jacoco-$jacoco_version.zip -o jacoco.zip && \
+    mkdir /jacoco && \
+    unzip jacoco.zip -d /jacoco
 

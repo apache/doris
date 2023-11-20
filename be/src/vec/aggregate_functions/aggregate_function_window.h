@@ -245,6 +245,7 @@ public:
 template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
 struct LeadLagData {
 public:
+    static constexpr bool result_nullable = result_is_nullable;
     void reset() {
         _data_value.reset();
         _default_value.reset();
@@ -395,7 +396,13 @@ public:
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override { return _argument_type; }
+    DataTypePtr get_return_type() const override {
+        if constexpr (Data::result_nullable) {
+            return make_nullable(_argument_type);
+        } else {
+            return _argument_type;
+        }
+    }
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,

@@ -28,7 +28,6 @@ import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
-import org.apache.doris.nereids.rules.analysis.RejectGroupCommitInsert;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
@@ -57,11 +56,13 @@ import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
+import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubquery;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractAndNormalizeWindowExpression;
@@ -125,6 +126,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
+                            new EliminateSortUnderSubquery(),
                             new EliminateGroupByConstant(),
                             // MergeProjects depends on this rule
                             new LogicalSubQueryAliasToLogicalProject(),
@@ -151,10 +153,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                     bottomUp(new PullUpProjectUnderApply()),
                     topDown(new PushdownFilterThroughProject()),
-                    costBased(
-                            custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
-                                    AggScalarSubQueryToWindowFunction::new)
-                    ),
+                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
+                            AggScalarSubQueryToWindowFunction::new),
                     bottomUp(
                             new EliminateUselessPlanUnderApply(),
                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -176,6 +176,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateLimit(),
                             new EliminateFilter(),
                             new EliminateAggregate(),
+                            new EliminateJoinCondition(),
                             new EliminateAssertNumRows()
                     )
             ),
@@ -270,9 +271,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     costBased(topDown(new InferSetOperatorDistinct())),
                     topDown(new BuildAggForUnion())
             ),
-
-            // TODO remove it after Nereids support group commit insert
-            topDown(new RejectGroupCommitInsert()),
 
             // topic("Distinct",
             //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))

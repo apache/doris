@@ -48,15 +48,15 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
-                          uint64_t shard_id, uint32_t next_unique_id,
-                          const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                          TabletMetaSharedPtr* tablet_meta) {
+TabletMetaSharedPtr TabletMeta::create(
+        const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
+        uint32_t next_unique_id,
+        const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id) {
     std::optional<TBinlogConfig> binlog_config;
     if (request.__isset.binlog_config) {
         binlog_config = request.binlog_config;
     }
-    *tablet_meta = std::make_shared<TabletMeta>(
+    return std::make_shared<TabletMeta>(
             request.table_id, request.partition_id, request.tablet_id, request.replica_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
@@ -69,7 +69,6 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             request.time_series_compaction_goal_size_mbytes,
             request.time_series_compaction_file_count_threshold,
             request.time_series_compaction_time_threshold_seconds);
-    return Status::OK();
 }
 
 TabletMeta::TabletMeta()
@@ -364,7 +363,8 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
         ColumnPB* children_column = column->add_children_columns();
-        init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
+        init_column_from_tcolumn(tcolumn.children_column[i].col_unique_id,
+                                 tcolumn.children_column[i], children_column);
     }
 }
 
@@ -1073,5 +1073,27 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
 }
 
 std::atomic<ShardedLRUCache*> DeleteBitmap::AggCache::s_repr {nullptr};
+
+std::string tablet_state_name(TabletState state) {
+    switch (state) {
+    case TABLET_NOTREADY:
+        return "TABLET_NOTREADY";
+
+    case TABLET_RUNNING:
+        return "TABLET_RUNNING";
+
+    case TABLET_TOMBSTONED:
+        return "TABLET_TOMBSTONED";
+
+    case TABLET_STOPPED:
+        return "TABLET_STOPPED";
+
+    case TABLET_SHUTDOWN:
+        return "TABLET_SHUTDOWN";
+
+    default:
+        return "TabletState(" + std::to_string(state) + ")";
+    }
+}
 
 } // namespace doris

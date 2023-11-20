@@ -56,18 +56,14 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_TIME);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::TIME;
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_TIMEV2;
     }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
     MutableColumnPtr create_column() const override;
-
-    bool is_summable() const override { return true; }
-    bool can_be_used_in_bit_operations() const override { return true; }
-    bool can_be_used_in_boolean_context() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeTimeSerDe>(nesting_level);
@@ -92,18 +88,10 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_TIMEV2);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::TIMEV2;
-    }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
     MutableColumnPtr create_column() const override;
-
-    bool is_summable() const override { return true; }
-    bool can_be_used_in_bit_operations() const override { return true; }
-    bool can_be_used_in_boolean_context() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {

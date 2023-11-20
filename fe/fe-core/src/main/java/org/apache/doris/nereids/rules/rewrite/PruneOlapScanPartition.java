@@ -24,9 +24,11 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.collections.CollectionUtils;
@@ -72,6 +74,11 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
             if (!CollectionUtils.isEmpty(manuallySpecifiedPartitions)) {
                 prunedPartitions.retainAll(manuallySpecifiedPartitions);
+            }
+            if (prunedPartitions.isEmpty()) {
+                return new LogicalEmptyRelation(
+                        ConnectContext.get().getStatementContext().getNextRelationId(),
+                        filter.getOutput());
             }
             LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(ImmutableList.copyOf(prunedPartitions));
             return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
