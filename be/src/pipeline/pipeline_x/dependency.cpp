@@ -29,10 +29,8 @@
 namespace doris::pipeline {
 
 void Dependency::add_block_task(PipelineXTask* task) {
-    // TODO(gabriel): support read dependency
-    if (!_blocked_task.empty() && _blocked_task[_blocked_task.size() - 1] == task) {
-        return;
-    }
+    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
+            << "Duplicate task: " << task->debug_string();
     _blocked_task.push_back(task);
 }
 
@@ -74,6 +72,17 @@ void Dependency::set_ready_for_read() {
         _ready_for_read = true;
         local_block_task.swap(_blocked_task);
     }
+    for (auto* task : local_block_task) {
+        task->try_wake_up(this);
+    }
+}
+
+void SetDependency::set_ready_for_read() {
+    if (_child_idx == 0) {
+        WriteDependency::set_ready_for_read();
+    } else {
+        _set_state->probe_finished_children_dependency[0]->set_ready_for_read();
+    }
 }
 
 void WriteDependency::set_ready_for_write() {
@@ -84,7 +93,7 @@ void WriteDependency::set_ready_for_write() {
 
     std::vector<PipelineXTask*> local_block_task {};
     {
-        std::unique_lock<std::mutex> lc(_task_lock);
+        std::unique_lock<std::mutex> lc(_write_task_lock);
         if (_ready_for_write) {
             return;
         }
@@ -133,7 +142,7 @@ Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
 
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready_for_read = _ready_for_read.load();
-    if (!ready_for_read && task) {
+    if (!ready_for_read && !push_to_blocking_queue() && task) {
         add_block_task(task);
     }
     return ready_for_read ? nullptr : this;
@@ -162,7 +171,7 @@ FinishDependency* FinishDependency::finish_blocked_by(PipelineXTask* task) {
 }
 
 WriteDependency* WriteDependency::write_blocked_by(PipelineXTask* task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
+    std::unique_lock<std::mutex> lc(_write_task_lock);
     const auto ready_for_write = _ready_for_write.load();
     if (!ready_for_write && task) {
         add_write_block_task(task);

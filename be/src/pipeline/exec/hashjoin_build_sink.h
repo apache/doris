@@ -52,8 +52,6 @@ public:
     SharedHashTableDependency(int id, int node_id)
             : WriteDependency(id, node_id, "SharedHashTableDependency") {}
     ~SharedHashTableDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
 };
 
 class HashJoinBuildSinkLocalState final

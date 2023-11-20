@@ -23,7 +23,6 @@ namespace doris {
 
 class HttpRequest;
 
-// Get BE health state from http API.
 class PipelineTaskAction : public HttpHandler {
 public:
     PipelineTaskAction() = default;
