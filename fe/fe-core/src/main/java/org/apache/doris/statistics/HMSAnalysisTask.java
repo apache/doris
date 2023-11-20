@@ -145,6 +145,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
                 bucketFlag = true;
                 sb.append(LINEAR_ANALYZE_TEMPLATE);
+                params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
                 params.put("rowCount", "ROUND(count(1) * ${scaleFactor})");
             } else {
                 sb.append(DUJ1_ANALYZE_TEMPLATE);
