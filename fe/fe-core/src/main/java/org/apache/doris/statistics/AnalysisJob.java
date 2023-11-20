@@ -187,7 +187,7 @@ public class AnalysisJob {
     }
 
     public void deregisterJob() {
-        analysisManager.removeJob(jobInfo.jobId);
+        analysisManager.removeJob(jobInfo);
     }
 
     protected void syncLoadStats() {

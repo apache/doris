@@ -127,8 +127,6 @@ public class AnalysisManager implements Writable {
 
     private final Map<Long, TableStatsMeta> idToTblStats = new ConcurrentHashMap<>();
 
-    private final Map<Long, AnalysisJob> idToAnalysisJob = new ConcurrentHashMap<>();
-
     protected SimpleQueue<AnalysisInfo> autoJobs = createSimpleQueue(null, this);
 
     private final Function<TaskStatusWrapper, Void> userJobStatusUpdater = w -> {
@@ -1075,16 +1073,11 @@ public class AnalysisManager implements Writable {
         return tableStats.findColumnStatsMeta(colName);
     }
 
-    public AnalysisJob findJob(long id) {
-        return idToAnalysisJob.get(id);
-    }
-
     public void constructJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> tasks) {
-        AnalysisJob job = new AnalysisJob(jobInfo, tasks);
-        idToAnalysisJob.put(jobInfo.jobId, job);
+        new AnalysisJob(jobInfo, tasks);
     }
 
-    public void removeJob(long id) {
-        idToAnalysisJob.remove(id);
+    public void removeJob(AnalysisInfo jobInfo) {
+       analysisJobIdToTaskMap.remove(jobInfo.jobId);
     }
 }

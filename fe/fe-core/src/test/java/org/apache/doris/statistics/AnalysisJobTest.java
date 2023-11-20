@@ -221,4 +221,12 @@ public class AnalysisJobTest {
         Assertions.assertEquals(1, job.queryFinished.size());
     }
 
+    @Test
+    public void testDeregisterJob(@Mocked AnalysisInfo analysisInfo) {
+        Env.getCurrentEnv().getAnalysisManager().analysisJobIdToTaskMap.put(0L, Collections.emptyMap());
+        AnalysisJob job = new AnalysisJob(analysisInfo, Collections.emptyList());
+        job.deregisterJob();
+        Assertions.assertEquals(0, Env.getCurrentEnv().getAnalysisManager().analysisJobIdToTaskMap.size());
+    }
+
 }
