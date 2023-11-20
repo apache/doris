@@ -342,7 +342,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
 
             //filter invalid prefix of json
             const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()));
-            size_t  json_begin = index_of_json_begin(filter_data);
+            long  json_begin = index_of_json_begin(filter_data);
             // append filtered data
             Status st = Status::OK();
             if (json_begin >= 0) {
@@ -437,9 +437,9 @@ size_t PulsarDataConsumerGroup::len_of_actual_data(const char* data) {
     return length;
 }
 
-size_t PulsarDataConsumerGroup::index_of_json_begin(const char* data) {
+long PulsarDataConsumerGroup::index_of_json_begin(const char* data) {
     size_t length = 0;
-    size_t index  = -1;
+    long index  = -1;
     while (data[length] != '\0') {
         ++length;
         if (data[length] == '[' || data[length] == '{') {
