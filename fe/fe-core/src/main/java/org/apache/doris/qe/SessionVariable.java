@@ -939,6 +939,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
 
+    @VariableMgr.VarAttr(name = "ENABLE_NEREIDS_RULES", needForward = true)
+    public String enableNereidsRules = "";
+
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
     private boolean enableNewCostModel = false;
 
@@ -2279,6 +2282,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public Set<Integer> getDisableNereidsRules() {
         return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
+                .filter(rule -> !rule.isEmpty())
+                .map(rule -> rule.toUpperCase(Locale.ROOT))
+                .map(rule -> RuleType.valueOf(rule).type())
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public Set<Integer> getEnableNereidsRules() {
+        return Arrays.stream(enableNereidsRules.split(",[\\s]*"))
                 .filter(rule -> !rule.isEmpty())
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
                 .map(rule -> RuleType.valueOf(rule).type())

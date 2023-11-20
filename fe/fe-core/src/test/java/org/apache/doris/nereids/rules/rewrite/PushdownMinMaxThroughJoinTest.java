@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -29,9 +30,15 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 class PushdownMinMaxThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -41,6 +48,12 @@ class PushdownMinMaxThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testSingleJoin() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_MIN_MAX_THROUGH_JOIN.type());
+            }
+        };
         Alias min = new Min(scan1.getOutput().get(0)).alias("min");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -49,11 +62,24 @@ class PushdownMinMaxThroughJoinTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushdownMinMaxThroughJoin())
-                .printlnTree();
+                .matches(
+                        logicalAggregate(
+                                logicalJoin(
+                                        logicalAggregate(),
+                                        logicalOlapScan()
+                                )
+                        )
+                );
     }
 
     @Test
     void testMultiJoin() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_MIN_MAX_THROUGH_JOIN.type());
+            }
+        };
         Alias min = new Min(scan1.getOutput().get(0)).alias("min");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -64,11 +90,35 @@ class PushdownMinMaxThroughJoinTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushdownMinMaxThroughJoin())
-                .printlnTree();
+                .printlnTree()
+                .matches(
+                        logicalAggregate(
+                                logicalJoin(
+                                        logicalAggregate(
+                                                logicalJoin(
+                                                        logicalAggregate(
+                                                                logicalJoin(
+                                                                        logicalAggregate(),
+                                                                        logicalOlapScan()
+                                                                )
+                                                        ),
+                                                        logicalOlapScan()
+                                                )
+                                        ),
+                                        logicalOlapScan()
+                                )
+                        )
+                );
     }
 
     @Test
     void testAggNotOutputGroupBy() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_MIN_MAX_THROUGH_JOIN.type());
+            }
+        };
         // agg don't output group by
         Alias min = new Min(scan1.getOutput().get(0)).alias("min");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
@@ -79,11 +129,29 @@ class PushdownMinMaxThroughJoinTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushdownMinMaxThroughJoin())
-                .printlnTree();
+                .matches(
+                        logicalAggregate(
+                                logicalJoin(
+                                        logicalAggregate(
+                                                logicalJoin(
+                                                        logicalAggregate(),
+                                                        logicalOlapScan()
+                                                )
+                                        ),
+                                        logicalOlapScan()
+                                )
+                        )
+                );
     }
 
     @Test
     void testBothSideSingleJoin() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_MIN_MAX_THROUGH_JOIN.type());
+            }
+        };
         Alias min = new Min(scan1.getOutput().get(1)).alias("min");
         Alias max = new Max(scan2.getOutput().get(1)).alias("max");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
@@ -94,11 +162,24 @@ class PushdownMinMaxThroughJoinTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .printlnTree()
                 .applyTopDown(new PushdownMinMaxThroughJoin())
-                .printlnTree();
+                .matches(
+                        logicalAggregate(
+                                logicalJoin(
+                                        logicalAggregate(),
+                                        logicalAggregate()
+                                )
+                        )
+                );
     }
 
     @Test
     void testBothSide() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_MIN_MAX_THROUGH_JOIN.type());
+            }
+        };
         Alias min = new Min(scan1.getOutput().get(1)).alias("min");
         Alias max = new Max(scan3.getOutput().get(1)).alias("max");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
@@ -109,6 +190,18 @@ class PushdownMinMaxThroughJoinTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushdownMinMaxThroughJoin())
-                .printlnTree();
+                .matches(
+                        logicalAggregate(
+                                logicalJoin(
+                                        logicalAggregate(
+                                                logicalJoin(
+                                                        logicalAggregate(),
+                                                        logicalOlapScan()
+                                                )
+                                        ),
+                                        logicalAggregate()
+                                )
+                        )
+                );
     }
 }
