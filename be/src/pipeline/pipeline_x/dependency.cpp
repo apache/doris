@@ -139,7 +139,7 @@ void FinishDependency::set_ready_to_finish() {
 Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready_for_read = _ready_for_read.load();
-    if (!ready_for_read && push_to_blocking_queue() && task) {
+    if (!ready_for_read && !push_to_blocking_queue() && task) {
         add_block_task(task);
     }
     return ready_for_read ? nullptr : this;
