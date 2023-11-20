@@ -131,7 +131,7 @@ Status ExecNode::prepare(RuntimeState* state) {
     _output_bytes_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBytes", TUnit::BYTES, 1);
     _block_count_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBlockCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
