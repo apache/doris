@@ -106,16 +106,17 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
     return Status::OK();
 }
 
-void EsScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void EsScanLocalState::set_scan_ranges(RuntimeState* state,
+                                       const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& es_scan_range : scan_ranges) {
         DCHECK(es_scan_range.scan_range.__isset.es_scan_range);
         _scan_ranges.emplace_back(new TEsScanRange(es_scan_range.scan_range.es_scan_range));
     }
 }
 
-EsScanOperatorX::EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+EsScanOperatorX::EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs)
-        : ScanOperatorX<EsScanLocalState>(pool, tnode, descs),
+        : ScanOperatorX<EsScanLocalState>(pool, tnode, operator_id, descs),
           _tuple_id(tnode.es_scan_node.tuple_id),
           _tuple_desc(nullptr) {
     ScanOperatorX<EsScanLocalState>::_output_tuple_id = tnode.es_scan_node.tuple_id;

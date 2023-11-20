@@ -148,6 +148,9 @@ private:
         } else if (which.is_decimal128i()) {
             _execute<ColumnDecimal128I>(expr_column, min_value_column, max_value_column,
                                         num_buckets, nested_column_column);
+        } else if (which.is_decimal256()) {
+            _execute<ColumnDecimal256>(expr_column, min_value_column, max_value_column, num_buckets,
+                                       nested_column_column);
         } else if (which.is_date()) {
             _execute<ColumnDate>(expr_column, min_value_column, max_value_column, num_buckets,
                                  nested_column_column);

@@ -379,8 +379,8 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     bool should_stop = false;
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && raw_bytes_read < raw_bytes_threshold &&
-           (raw_rows_read < raw_rows_threshold || num_rows_in_block < state->batch_size())) {
+    while (!eos && raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold &&
+           num_rows_in_block < state->batch_size()) {
         // TODO llj task group should should_yield?
         if (UNLIKELY(ctx->done())) {
             // No need to set status on error here.
@@ -455,19 +455,9 @@ void ScannerScheduler::_task_group_scanner_scan(ScannerScheduler* scheduler,
         auto success = scan_queue->take(&scan_task);
         if (success) {
             int64_t time_spent = 0;
-            if (!scan_task.is_empty_task) {
-                RuntimeProfile::Counter tmp_timer(TUnit::TIME_NS);
-                {
-                    SCOPED_CPU_TIMER(&tmp_timer);
-                    scan_task.scan_func();
-                }
-                time_spent = tmp_timer.value();
-            } else {
-                {
-                    SCOPED_RAW_TIMER(&time_spent);
-                    usleep(taskgroup::SCAN_THREAD_TIME_SLICE_US);
-                }
-                time_spent = time_spent * _core_num / _total_query_thread_num;
+            {
+                SCOPED_RAW_TIMER(&time_spent);
+                scan_task.scan_func();
             }
             scan_queue->update_statistics(scan_task, time_spent);
         }

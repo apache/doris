@@ -103,5 +103,6 @@ order by
     // def outFile = "regression-test/suites/nereids_tpch_shape_sf1000_p0/ddl/rf/rf.9"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    assertEquals("RF4[ps_suppkey->[l_suppkey],RF5[ps_partkey->[l_partkey],RF3[l_orderkey->[o_orderkey],RF2[s_suppkey->[l_suppkey],RF1[p_partkey->[l_partkey],RF0[n_nationkey->[s_nationkey]", getRuntimeFilters(plan))
+
+    assertEquals("RF4[ps_suppkey->[l_suppkey],RF5[ps_partkey->[l_partkey],RF3[s_suppkey->[l_suppkey],RF2[l_orderkey->[o_orderkey],RF1[p_partkey->[l_partkey],RF0[n_nationkey->[s_nationkey]", getRuntimeFilters(plan))
 }

@@ -103,12 +103,6 @@ Status BetaRowsetWriterV2::flush_memtable(vectorized::Block* block, int32_t segm
     }
 
     TabletSchemaSPtr flush_schema;
-    /* TODO: support dynamic schema
-    if (_context.tablet_schema->is_dynamic_schema()) {
-        // Unfold variant column
-        RETURN_IF_ERROR(_unfold_variant_column(*block, flush_schema));
-    }
-    */
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
         RETURN_IF_ERROR(

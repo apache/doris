@@ -197,12 +197,6 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveCatalog",
                         CountingDataOutputStream.class, long.class);
                 break;
-            case "mtmvJobManager":
-                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadMTMVJobManager", DataInputStream.class,
-                        long.class);
-                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveMTMVJobManager",
-                        CountingDataOutputStream.class, long.class);
-                break;
             case "globalFunction":
                 metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadGlobalFunction", DataInputStream.class,
                         long.class);
@@ -225,6 +219,7 @@ public class MetaPersistMethod {
                         Env.class.getDeclaredMethod("saveBinlogs", CountingDataOutputStream.class, long.class);
                 break;
             case "AnalysisMgr":
+            case "AnalysisMgrV2":
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadAnalysisManager", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =

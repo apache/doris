@@ -162,6 +162,8 @@ public:
     // error.
     [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics);
 
+    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics,
+                                                          int sender_id);
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
     // prepare()/open()/get_next() returned with an error).

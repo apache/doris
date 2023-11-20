@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.qe.ConnectContext;
 
 /** ComputePrecisionForSum */
 public interface ComputePrecisionForSum extends ComputePrecision {
@@ -28,9 +29,16 @@ public interface ComputePrecisionForSum extends ComputePrecision {
         DataType argumentType = getArgumentType(0);
         if (signature.getArgType(0) instanceof DecimalV3Type) {
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(argumentType);
+            boolean enableDecimal256 = false;
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+            }
             return signature.withArgumentType(0, decimalV3Type)
                     .withReturnType(DecimalV3Type.createDecimalV3Type(
-                            DecimalV3Type.MAX_DECIMAL128_PRECISION, decimalV3Type.getScale()));
+                            enableDecimal256 ? DecimalV3Type.MAX_DECIMAL256_PRECISION
+                                    : DecimalV3Type.MAX_DECIMAL128_PRECISION,
+                            decimalV3Type.getScale()));
         } else {
             return signature;
         }

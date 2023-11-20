@@ -40,13 +40,15 @@ public:
     virtual Status do_partitioning(RuntimeState* state, Block* block,
                                    MemTracker* mem_tracker) const = 0;
 
-    virtual void* get_hash_values() const = 0;
+    virtual void* get_channel_ids() const = 0;
+
+    virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 
 protected:
     const size_t _partition_count;
 };
 
-template <typename HashValueType>
+template <typename HashValueType, typename ChannelIds>
 class Partitioner : public PartitionerBase {
 public:
     Partitioner(int partition_count) : PartitionerBase(partition_count) {}
@@ -65,7 +67,7 @@ public:
     Status do_partitioning(RuntimeState* state, Block* block,
                            MemTracker* mem_tracker) const override;
 
-    void* get_hash_values() const override { return _hash_vals.data(); }
+    void* get_channel_ids() const override { return _hash_vals.data(); }
 
 protected:
     Status _get_partition_column_result(Block* block, std::vector<int>& result) const {
@@ -83,19 +85,28 @@ protected:
     mutable std::vector<HashValueType> _hash_vals;
 };
 
-class HashPartitioner final : public Partitioner<uint64_t> {
+template <typename ChannelIds>
+class XXHashPartitioner final : public Partitioner<uint64_t, ChannelIds> {
 public:
-    HashPartitioner(int partition_count) : Partitioner<uint64_t>(partition_count) {}
-    ~HashPartitioner() override = default;
+    using Base = Partitioner<uint64_t, ChannelIds>;
+    XXHashPartitioner(int partition_count) : Partitioner<uint64_t, ChannelIds>(partition_count) {}
+    ~XXHashPartitioner() override = default;
+
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
 private:
     void _do_hash(const ColumnPtr& column, uint64_t* __restrict result, int idx) const override;
 };
 
-class BucketHashPartitioner final : public Partitioner<uint32_t> {
+template <typename ChannelIds>
+class Crc32HashPartitioner final : public Partitioner<uint32_t, ChannelIds> {
 public:
-    BucketHashPartitioner(int partition_count) : Partitioner<uint32_t>(partition_count) {}
-    ~BucketHashPartitioner() override = default;
+    using Base = Partitioner<uint32_t, ChannelIds>;
+    Crc32HashPartitioner(int partition_count)
+            : Partitioner<uint32_t, ChannelIds>(partition_count) {}
+    ~Crc32HashPartitioner() override = default;
+
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
 private:
     void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const override;

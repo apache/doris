@@ -54,6 +54,7 @@
 namespace doris {
 
 class DeltaWriterV2;
+class RuntimeProfile;
 
 namespace vectorized {
 
@@ -69,7 +70,7 @@ public:
     DeltaWriterV2* get_or_create(int64_t tablet_id, std::function<DeltaWriterV2*()> creator);
 
     // close all delta writers in this DeltaWriterV2Map if there is no other users
-    Status close();
+    Status close(RuntimeProfile* profile);
 
     // cancel all delta writers in this DeltaWriterV2Map
     void cancel(Status status);

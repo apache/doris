@@ -112,8 +112,7 @@ Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context)
     std::lock_guard<std::shared_mutex> lck(tablet->get_header_lock());
     int64_t cur_max_version = tablet->max_version_unlocked().second;
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+    if (tablet->tablet_state() == TABLET_NOTREADY) {
         // Disable 'partial_update' when the tablet is undergoing a 'schema changing process'
         if (_req.table_schema_param->is_partial_update()) {
             return Status::InternalError(
@@ -122,7 +121,7 @@ Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context)
         }
         _rowset_ids.clear();
     } else {
-        _rowset_ids = tablet->all_rs_id(cur_max_version);
+        RETURN_IF_ERROR(tablet->all_rs_id(cur_max_version, &_rowset_ids));
     }
     _delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
     mow_context =
@@ -238,8 +237,7 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(tablet->tablet_id())) {
+    if (tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                      "tablet_id: "
                   << tablet->tablet_id() << " txn_id: " << _req.txn_id;
@@ -248,11 +246,6 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
     auto beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(tablet->tablet_id())) {
-        return Status::OK();
-    }
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(
@@ -280,7 +273,6 @@ Status RowsetBuilder::wait_calc_delete_bitmap() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_wait_delete_bitmap_timer);
     RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
-    RETURN_IF_ERROR(_calc_delete_bitmap_token->get_delete_bitmap(_delete_bitmap));
     LOG(INFO) << "Got result of calc delete bitmap task from executor, tablet_id: "
               << _tablet->tablet_id() << ", txn_id: " << _req.txn_id;
     return Status::OK();
@@ -294,8 +286,7 @@ Status RowsetBuilder::commit_txn() {
     auto tablet = static_cast<Tablet*>(_tablet.get());
     if (tablet->enable_unique_key_merge_on_write() &&
         config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0 &&
-        !(tablet->tablet_state() == TABLET_NOTREADY &&
-          SchemaChangeHandler::tablet_in_converting(tablet->tablet_id()))) {
+        tablet->tablet_state() != TABLET_NOTREADY) {
         auto st = tablet->check_delete_bitmap_correctness(
                 _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, _rowset_ids);
         if (!st.ok()) {

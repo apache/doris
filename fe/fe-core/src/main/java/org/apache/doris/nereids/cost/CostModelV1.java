@@ -22,7 +22,6 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -44,23 +43,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
-    /**
-     * The intuition behind `HEAVY_OPERATOR_PUNISH_FACTOR` is we need to avoid this form of join patterns:
-     * Plan1: L join ( AGG1(A) join AGG2(B))
-     * But
-     * Plan2: L join AGG1(A) join AGG2(B) is welcomed.
-     * AGG is time-consuming operator. From the perspective of rowCount, nereids may choose Plan1,
-     * because `Agg1 join Agg2` generates few tuples. But in Plan1, Agg1 and Agg2 are done in serial, in Plan2, Agg1 and
-     * Agg2 are done in parallel. And hence, Plan1 should be punished.
-     * <p>
-     * An example is tpch q15.
-     */
-    static final double HEAVY_OPERATOR_PUNISH_FACTOR = 0.0;
 
     // for a join, skew = leftRowCount/rightRowCount
     // the higher skew is, the more we prefer broadcast join than shuffle join
@@ -68,24 +56,26 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
-    private int beNumber = 1;
+    private final int beNumber;
 
-    public CostModelV1() {
-        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+    public CostModelV1(ConnectContext connectContext) {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        if (sessionVariable.isPlayNereidsDump()) {
             // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
             beNumber = 1;
-        } else if (ConnectContext.get().getSessionVariable().getBeNumberForTest() != -1) {
-            beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
+        } else if (sessionVariable.getBeNumberForTest() != -1) {
+            beNumber = sessionVariable.getBeNumberForTest();
         } else {
             beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
         }
     }
 
-    public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
+    public static Cost addChildCost(SessionVariable sessionVariable, Cost planCost, Cost childCost) {
         Preconditions.checkArgument(childCost instanceof CostV1 && planCost instanceof CostV1);
         CostV1 childCostV1 = (CostV1) childCost;
         CostV1 planCostV1 = (CostV1) planCost;
-        return new CostV1(childCostV1.getCpuCost() + planCostV1.getCpuCost(),
+        return new CostV1(sessionVariable,
+                childCostV1.getCpuCost() + planCostV1.getCpuCost(),
                 childCostV1.getMemoryCost() + planCostV1.getMemoryCost(),
                 childCostV1.getNetworkCost() + planCostV1.getNetworkCost());
     }
@@ -98,7 +88,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(statistics.getRowCount());
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
     }
 
     @Override
@@ -109,7 +99,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     public Cost visitPhysicalSchemaScan(PhysicalSchemaScan physicalSchemaScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(statistics.getRowCount());
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
     }
 
     @Override
@@ -117,31 +107,31 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
         CostV1 costValue = (CostV1) storageLayerAggregate.getRelation().accept(this, context);
         // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
-        return new CostV1(costValue.getCpuCost() * 0.7, costValue.getMemoryCost(),
+        return new CostV1(context.getSessionVariable(), costValue.getCpuCost() * 0.7, costValue.getMemoryCost(),
                 costValue.getNetworkCost());
     }
 
     @Override
     public Cost visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(statistics.getRowCount());
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
     }
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-        return CostV1.ofCpu(1);
+        return CostV1.ofCpu(context.getSessionVariable(), 1);
     }
 
     @Override
     public Cost visitPhysicalJdbcScan(PhysicalJdbcScan physicalJdbcScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(statistics.getRowCount());
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
     }
 
     @Override
     public Cost visitPhysicalEsScan(PhysicalEsScan physicalEsScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(statistics.getRowCount());
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
     }
 
     @Override
@@ -157,7 +147,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             // Now we do more like two-phase sort, so penalise one-phase sort
             rowCount *= 100;
         }
-        return CostV1.of(childRowCount, rowCount, childRowCount);
+        return CostV1.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
     }
 
     @Override
@@ -172,7 +162,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             // Now we do more like two-phase sort, so penalise one-phase sort
             rowCount *= 100;
         }
-        return CostV1.of(childRowCount, rowCount, childRowCount);
+        return CostV1.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
     }
 
     @Override
@@ -185,10 +175,10 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
-        return CostV1.of(
-            childStatistics.getRowCount(),
-            statistics.getRowCount(),
-            childStatistics.getRowCount());
+        return CostV1.of(context.getSessionVariable(),
+                childStatistics.getRowCount(),
+                statistics.getRowCount(),
+                childStatistics.getRowCount());
     }
 
     @Override
@@ -200,7 +190,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         // shuffle
         if (spec instanceof DistributionSpecHash) {
-            return CostV1.of(
+            return CostV1.of(context.getSessionVariable(),
                     0,
                     0,
                     intputRowCount * childStatistics.dataSizeFactor() / beNumber);
@@ -211,7 +201,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             // estimate broadcast cost by an experience formula: beNumber^0.5 * rowCount
             // - sender number and receiver number is not available at RBO stage now, so we use beNumber
             // - senders and receivers work in parallel, that why we use square of beNumber
-            return CostV1.of(
+            return CostV1.of(context.getSessionVariable(),
                     0,
                     0,
                     intputRowCount * childStatistics.dataSizeFactor());
@@ -220,14 +210,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         // gather
         if (spec instanceof DistributionSpecGather) {
-            return CostV1.of(
+            return CostV1.of(context.getSessionVariable(),
                     0,
                     0,
                     intputRowCount * childStatistics.dataSizeFactor() / beNumber);
         }
 
         // any
-        return CostV1.of(
+        return CostV1.of(context.getSessionVariable(),
                 intputRowCount,
                 0,
                 0);
@@ -238,11 +228,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
         Statistics inputStatistics = context.getChildStatistics(0);
         if (aggregate.getAggPhase().isLocal()) {
-            return CostV1.of(inputStatistics.getRowCount() / beNumber,
+            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount() / beNumber,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             // global
-            return CostV1.of(inputStatistics.getRowCount(),
+            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount(),
                     inputStatistics.getRowCount(), 0);
         }
     }
@@ -279,7 +269,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be processed in parallel.
         */
         if (physicalHashJoin.getJoinType().isCrossJoin()) {
-            return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
+            return CostV1.of(context.getSessionVariable(), leftRowCount + rightRowCount + outputRowCount,
                     0,
                     leftRowCount + rightRowCount
             );
@@ -294,8 +284,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             //                    bigger cost for ProbeWhenBuildSideOutput effort and ProbeWhenSearchHashTableTime
             //                    on the output rows, taken on outputRowCount()
             double probeSideFactor = 1.0;
-            double buildSideFactor = ConnectContext.get().getSessionVariable().getBroadcastRightTableScaleFactor();
-            int parallelInstance = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+            double buildSideFactor = context.getSessionVariable().getBroadcastRightTableScaleFactor();
+            int parallelInstance = Math.max(1, context.getSessionVariable().getParallelExecInstanceNum());
             int totalInstanceNumber = parallelInstance * beNumber;
             if (buildSideFactor <= 1.0) {
                 // use totalInstanceNumber to the power of 2 as the default factor value
@@ -303,51 +293,29 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             }
             // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
             // will refine this in next generation cost model.
-            if (isStatsUnknown(physicalHashJoin, buildStats, probeStats)) {
+            if (!context.isStatsReliable()) {
                 // forbid broadcast join when stats is unknown
-                return CostV1.of(rightRowCount * buildSideFactor + 1 / leftRowCount,
+                return CostV1.of(context.getSessionVariable(), rightRowCount * buildSideFactor + 1 / leftRowCount,
                         rightRowCount,
                         0
                 );
             }
-            return CostV1.of(leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
+            return CostV1.of(context.getSessionVariable(),
+                    leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
                     rightRowCount,
                     0
             );
         }
-        if (isStatsUnknown(physicalHashJoin, buildStats, probeStats)) {
-            return CostV1.of(rightRowCount + 1 / leftRowCount,
+        if (!context.isStatsReliable()) {
+            return CostV1.of(context.getSessionVariable(),
+                    rightRowCount + 1 / leftRowCount,
                     rightRowCount,
                     0);
         }
-        return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
+        return CostV1.of(context.getSessionVariable(), leftRowCount + rightRowCount + outputRowCount,
                 rightRowCount,
                 0
         );
-    }
-
-    private boolean isStatsUnknown(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
-            Statistics build, Statistics probe) {
-        for (Slot slot : join.getConditionSlot()) {
-            if ((build.columnStatistics().containsKey(slot) && !build.columnStatistics().get(slot).isUnKnown)
-                    || (probe.columnStatistics().containsKey(slot) && !probe.columnStatistics().get(slot).isUnKnown)) {
-                continue;
-            }
-            return true;
-        }
-        return false;
-    }
-
-    private boolean isStatsUnknown(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
-            Statistics build, Statistics probe) {
-        for (Slot slot : join.getConditionSlot()) {
-            if ((build.columnStatistics().containsKey(slot) && !build.columnStatistics().get(slot).isUnKnown)
-                    || (probe.columnStatistics().containsKey(slot) && !probe.columnStatistics().get(slot).isUnKnown)) {
-                continue;
-            }
-            return true;
-        }
-        return false;
     }
 
     @Override
@@ -358,12 +326,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
-        if (isStatsUnknown(nestedLoopJoin, leftStatistics, rightStatistics)) {
-            return CostV1.of(rightStatistics.getRowCount() + 1 / leftStatistics.getRowCount(),
+        if (!context.isStatsReliable()) {
+            return CostV1.of(context.getSessionVariable(),
+                    rightStatistics.getRowCount() + 1 / leftStatistics.getRowCount(),
                     rightStatistics.getRowCount(),
                     0);
         }
-        return CostV1.of(
+        return CostV1.of(context.getSessionVariable(),
                 leftStatistics.getRowCount() * rightStatistics.getRowCount(),
                 rightStatistics.getRowCount(),
                 0);
@@ -372,7 +341,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             PlanContext context) {
-        return CostV1.of(
+        return CostV1.of(context.getSessionVariable(),
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                 0
@@ -382,7 +351,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.of(
+        return CostV1.of(context.getSessionVariable(),
                 statistics.getRowCount(),
                 statistics.getRowCount(),
                 0

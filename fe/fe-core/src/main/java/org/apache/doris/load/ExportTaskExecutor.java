@@ -168,6 +168,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
 
     private AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
+        exportJob.getSessionVariables().setQueryTimeoutS(exportJob.getTimeoutSecond());
         connectContext.setSessionVariable(exportJob.getSessionVariables());
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(exportJob.getTableName().getDb());

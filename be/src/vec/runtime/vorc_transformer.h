@@ -74,8 +74,9 @@ private:
 // a wrapper of parquet output stream
 class VOrcTransformer final : public VFileFormatTransformer {
 public:
-    VOrcTransformer(doris::io::FileWriter* file_writer, const VExprContextSPtrs& output_vexpr_ctxs,
-                    const std::string& schema, bool output_object_data);
+    VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                    const VExprContextSPtrs& output_vexpr_ctxs, const std::string& schema,
+                    bool output_object_data);
 
     ~VOrcTransformer() = default;
 

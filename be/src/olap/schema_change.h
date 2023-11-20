@@ -107,11 +107,7 @@ public:
                            TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
                            TabletSchemaSPtr base_tablet_schema) {
         if (rowset_reader->rowset()->empty() || rowset_reader->rowset()->num_rows() == 0) {
-            RETURN_WITH_WARN_IF_ERROR(
-                    rowset_writer->flush(), Status::Error<ErrorCode::INVALID_ARGUMENT>(""),
-                    fmt::format("create empty version for schema change failed. version= {}-{}",
-                                rowset_writer->version().first, rowset_writer->version().second));
-
+            RETURN_IF_ERROR(rowset_writer->flush());
             return Status::OK();
         }
 

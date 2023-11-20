@@ -108,6 +108,9 @@ public:
     // sender queue. Called from DataStreamMgr.
     void remove_sender(int sender_id, int be_number, Status exec_status);
 
+    void remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics,
+                       Status exec_status);
+
     void cancel_stream(Status exec_status);
 
     void close();

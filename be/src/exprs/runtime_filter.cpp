@@ -42,6 +42,7 @@
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "gutil/strings/substitute.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
@@ -52,6 +53,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/wide_integer.h"
+#include "vec/core/wide_integer_to_string.h"
 #include "vec/exprs/vbitmap_predicate.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
@@ -60,7 +63,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/runtime/shared_hash_table_controller.h"
-
 namespace doris {
 
 // PrimitiveType-> PColumnType
@@ -99,6 +101,8 @@ PColumnType to_proto(PrimitiveType type) {
         return PColumnType::COLUMN_TYPE_DECIMAL64;
     case TYPE_DECIMAL128I:
         return PColumnType::COLUMN_TYPE_DECIMAL128I;
+    case TYPE_DECIMAL256:
+        return PColumnType::COLUMN_TYPE_DECIMAL256;
     case TYPE_CHAR:
         return PColumnType::COLUMN_TYPE_CHAR;
     case TYPE_VARCHAR:
@@ -148,6 +152,8 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_DECIMAL64;
     case PColumnType::COLUMN_TYPE_DECIMAL128I:
         return TYPE_DECIMAL128I;
+    case PColumnType::COLUMN_TYPE_DECIMAL256:
+        return TYPE_DECIMAL256;
     case PColumnType::COLUMN_TYPE_VARCHAR:
         return TYPE_VARCHAR;
     case PColumnType::COLUMN_TYPE_CHAR:
@@ -790,6 +796,18 @@ public:
             });
             break;
         }
+        case TYPE_DECIMAL256: {
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
+                auto string_val = column.stringval();
+                StringParser::ParseResult result;
+                auto int_val = StringParser::string_to_int<wide::Int256>(
+                        string_val.c_str(), string_val.length(), &result);
+                DCHECK(result == StringParser::PARSE_SUCCESS);
+                set->insert(&int_val);
+            });
+            break;
+        }
         case TYPE_VARCHAR:
         case TYPE_CHAR:
         case TYPE_STRING: {
@@ -919,6 +937,18 @@ public:
                     min_string_val.c_str(), min_string_val.length(), &result);
             DCHECK(result == StringParser::PARSE_SUCCESS);
             int128_t max_val = StringParser::string_to_int<int128_t>(
+                    max_string_val.c_str(), max_string_val.length(), &result);
+            DCHECK(result == StringParser::PARSE_SUCCESS);
+            return _context.minmax_func->assign(&min_val, &max_val);
+        }
+        case TYPE_DECIMAL256: {
+            auto min_string_val = minmax_filter->min_val().stringval();
+            auto max_string_val = minmax_filter->max_val().stringval();
+            StringParser::ParseResult result;
+            auto min_val = StringParser::string_to_int<wide::Int256>(
+                    min_string_val.c_str(), min_string_val.length(), &result);
+            DCHECK(result == StringParser::PARSE_SUCCESS);
+            auto max_val = StringParser::string_to_int<wide::Int256>(
                     max_string_val.c_str(), max_string_val.length(), &result);
             DCHECK(result == StringParser::PARSE_SUCCESS);
             return _context.minmax_func->assign(&min_val, &max_val);
@@ -1205,6 +1235,11 @@ void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
     if (_enable_pipeline_exec) {
         _rf_state_atomic.store(RuntimeFilterState::READY);
+        if (!_filter_timer.empty()) {
+            for (auto& timer : _filter_timer) {
+                timer->call_ready();
+            }
+        }
     } else {
         std::unique_lock lock(_inner_mutex);
         _rf_state = RuntimeFilterState::READY;
@@ -1223,6 +1258,10 @@ void IRuntimeFilter::signal() {
         _profile->add_info_string("BloomFilterSize",
                                   std::to_string(_wrapper->get_bloom_filter_size()));
     }
+}
+
+void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> timer) {
+    _filter_timer.push_back(timer);
 }
 
 BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
@@ -1578,6 +1617,12 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
         });
         return;
     }
+    case TYPE_DECIMAL256: {
+        batch_copy<wide::Int256>(filter, it, [](PColumnValue* column, const wide::Int256* value) {
+            column->set_stringval(wide::to_string(*value));
+        });
+        return;
+    }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
@@ -1684,6 +1729,13 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
                 LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(min_data)));
         filter->mutable_max_val()->set_stringval(
                 LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(max_data)));
+        return;
+    }
+    case TYPE_DECIMAL256: {
+        filter->mutable_min_val()->set_stringval(
+                wide::to_string(*reinterpret_cast<const wide::Int256*>(min_data)));
+        filter->mutable_max_val()->set_stringval(
+                wide::to_string(*reinterpret_cast<const wide::Int256*>(max_data)));
         return;
     }
     case TYPE_CHAR:

@@ -57,14 +57,13 @@ Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
 
 Status DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                     int end_idx, BufferWritable& bw,
-                                                    FormatOptions& options,
-                                                    int nesting_level) const {
+                                                    FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 Status DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                      BufferWritable& bw, FormatOptions& options,
-                                                      int nesting_level) const {
+                                                      BufferWritable& bw,
+                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -79,15 +78,13 @@ Status DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int
 Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
-                                                               const FormatOptions& options,
-                                                               int nesting_level) const {
+                                                               const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                          const FormatOptions& options,
-                                                          int nesting_level) const {
+                                                          const FormatOptions& options) const {
     JsonBinaryValue value;
     RETURN_IF_ERROR(value.from_json_string(slice.data, slice.size));
 
@@ -115,7 +112,8 @@ void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Null
     }
 }
 
-Status DataTypeJsonbSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                               const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int start,
                                                int end, std::vector<StringRef>& buffer_list) const {
     return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());

@@ -116,22 +116,23 @@ struct FileCacheProfileReporter {
 
     FileCacheProfileReporter(RuntimeProfile* profile) {
         static const char* cache_profile = "FileCache";
-        ADD_TIMER(profile, cache_profile);
-        num_local_io_total =
-                ADD_CHILD_COUNTER(profile, "NumLocalIOTotal", TUnit::UNIT, cache_profile);
-        num_remote_io_total =
-                ADD_CHILD_COUNTER(profile, "NumRemoteIOTotal", TUnit::UNIT, cache_profile);
-        local_io_timer = ADD_CHILD_TIMER(profile, "LocalIOUseTimer", cache_profile);
-        remote_io_timer = ADD_CHILD_TIMER(profile, "RemoteIOUseTimer", cache_profile);
-        write_cache_io_timer = ADD_CHILD_TIMER(profile, "WriteCacheIOUseTimer", cache_profile);
-        bytes_write_into_cache =
-                ADD_CHILD_COUNTER(profile, "BytesWriteIntoCache", TUnit::BYTES, cache_profile);
-        num_skip_cache_io_total =
-                ADD_CHILD_COUNTER(profile, "NumSkipCacheIOTotal", TUnit::UNIT, cache_profile);
-        bytes_scanned_from_cache =
-                ADD_CHILD_COUNTER(profile, "BytesScannedFromCache", TUnit::BYTES, cache_profile);
-        bytes_scanned_from_remote =
-                ADD_CHILD_COUNTER(profile, "BytesScannedFromRemote", TUnit::BYTES, cache_profile);
+        ADD_TIMER_WITH_LEVEL(profile, cache_profile, 1);
+        num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumLocalIOTotal", TUnit::UNIT,
+                                                          cache_profile, 1);
+        num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumRemoteIOTotal", TUnit::UNIT,
+                                                           cache_profile, 1);
+        local_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LocalIOUseTimer", cache_profile, 1);
+        remote_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "RemoteIOUseTimer", cache_profile, 1);
+        write_cache_io_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(profile, "WriteCacheIOUseTimer", cache_profile, 1);
+        bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesWriteIntoCache",
+                                                              TUnit::BYTES, cache_profile, 1);
+        num_skip_cache_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumSkipCacheIOTotal",
+                                                               TUnit::UNIT, cache_profile, 1);
+        bytes_scanned_from_cache = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesScannedFromCache",
+                                                                TUnit::BYTES, cache_profile, 1);
+        bytes_scanned_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesScannedFromRemote",
+                                                                 TUnit::BYTES, cache_profile, 1);
     }
 
     void update(const FileCacheStatistics* statistics) {

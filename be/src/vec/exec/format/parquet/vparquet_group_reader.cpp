@@ -116,7 +116,6 @@ Status RowGroupReader::init(
                                                  not_single_slot_filter_conjuncts->end());
     }
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
-    _text_converter.reset(new TextConverter('\\'));
     _merge_read_ranges(row_ranges);
     if (_read_columns.empty()) {
         // Query task that only select columns in path.
@@ -176,15 +175,8 @@ Status RowGroupReader::init(
 
 bool RowGroupReader::_can_filter_by_dict(int slot_id,
                                          const tparquet::ColumnMetaData& column_metadata) {
-    SlotDescriptor* slot = nullptr;
-    const std::vector<SlotDescriptor*>& slots = _tuple_descriptor->slots();
-    for (auto each : slots) {
-        if (each->id() == slot_id) {
-            slot = each;
-            break;
-        }
-    }
-    if (!slot->type().is_string_type()) {
+    if (column_metadata.encodings[0] != tparquet::Encoding::RLE_DICTIONARY ||
+        column_metadata.type != tparquet::Type::BYTE_ARRAY) {
         return false;
     }
 
@@ -337,6 +329,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             bool can_filter_all = false;
             RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
                     _filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
+
             if (can_filter_all) {
                 for (auto& col : columns_to_filter) {
                     std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -345,6 +338,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 _convert_dict_cols_to_string_cols(block);
                 return Status::OK();
             }
+
             if (!_not_single_slot_filter_conjuncts.empty()) {
                 _convert_dict_cols_to_string_cols(block);
                 std::vector<IColumn::Filter*> merged_filters;
@@ -363,7 +357,6 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
         }
-
         *read_rows = block->rows();
         return Status::OK();
     }
@@ -422,8 +415,10 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
             has_eof = true;
         }
     }
+
     *read_rows = batch_read_rows;
     *batch_eof = has_eof;
+
     return Status::OK();
 }
 
@@ -615,14 +610,29 @@ Status RowGroupReader::_fill_partition_columns(
         Block* block, size_t rows,
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns) {
+    DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : partition_columns) {
         auto doris_column = block->get_by_name(kv.first).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
-        if (!_text_converter->write_vec_column(slot_desc, col_ptr, const_cast<char*>(value.c_str()),
-                                               value.size(), true, false, rows)) {
+        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
+        Slice slice(value.data(), value.size());
+        vector<Slice> slices(rows);
+        for (int i = 0; i < rows; i++) {
+            slices[i] = {value.data(), value.size()};
+        }
+        int num_deserialized = 0;
+        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
+                                                             _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
+        }
+        if (num_deserialized != rows) {
+            return Status::InternalError(
+                    "Failed to fill partition column: {}={} ."
+                    "Number of rows expected to be written : {}, number of rows actually written : "
+                    "{}",
+                    slot_desc->col_name(), value, num_deserialized, rows);
         }
     }
     return Status::OK();

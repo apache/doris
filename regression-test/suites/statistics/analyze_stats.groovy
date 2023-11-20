@@ -118,7 +118,7 @@ suite("test_analyze") {
         DROP STATS ${tbl}(analyzetestlimitedk3)
     """
 
-    exception = null
+    def exception = null
 
     try {
         sql """
@@ -881,7 +881,7 @@ PARTITION `p599` VALUES IN (599)
 
     sql """ANALYZE TABLE test_600_partition_table_analyze WITH SYNC"""
 
-    //  column_name | count | ndv  | num_null | data_size | avg_size_byte | min  | max  | updated_time
+    //  0:column_name | 1:count | 2:ndv  | 3:num_null | 4:data_size | 5:avg_size_byte | 6:min  | 7:max  | 8:updated_time
     id_col_stats = sql """
         SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
     """
@@ -1110,4 +1110,45 @@ PARTITION `p599` VALUES IN (599)
     sql """ANALYZE TABLE test_meta_management WITH SYNC"""
     afterDropped = sql """SHOW TABLE STATS test_meta_management"""
     assert check_column(afterDropped, "[col1, col2, col3]")
+
+    // test analyze specific column
+    sql """CREATE TABLE test_analyze_specific_column (col1 varchar(11451) not null, col2 int not null, col3 int not null)
+    DUPLICATE KEY(col1)
+    DISTRIBUTED BY HASH(col1)
+    BUCKETS 3
+    PROPERTIES(
+            "replication_num"="1"
+    );"""
+    sql """insert into test_analyze_specific_column values('%.', 2, 1);"""
+    sql """ANALYZE TABLE test_analyze_specific_column(col2) WITH SYNC"""
+    result = sql """SHOW COLUMN STATS test_analyze_specific_column"""
+    assert result.size() == 1
+
+    // test escape sql
+    sql """
+         DROP TABLE IF EXISTS test_max_min_lit;
+    """
+
+    sql """
+          CREATE TABLE test_max_min_lit  (
+          `col1` varchar(32) NULL
+          ) ENGINE=OLAP
+            DUPLICATE KEY(`col1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`col1`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            ); 
+    """
+
+    sql """INSERT INTO test_max_min_lit VALUES("\\'")"""
+    sql """INSERT INTO test_max_min_lit VALUES('\\';')"""
+    sql "INSERT INTO test_max_min_lit VALUES('测试')"
+
+    sql """ANALYZE TABLE test_max_min_lit WITH SYNC"""
+    def max = sql """show column cached stats test_max_min_lit"""
+    def expected_max = { r, expected_value ->
+        return (r[0][7]).equals(expected_value)
+    }
+    expected_max(max, "测试")
 }

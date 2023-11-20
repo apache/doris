@@ -67,6 +67,22 @@ suite("test_sql_block_rule") {
     }
 
     sql """
+        ALTER SQL_BLOCK_RULE test_rule_sql PROPERTIES("enable"="false")
+        """
+
+    sql "SELECT * FROM table_2"
+
+    sql """
+        ALTER SQL_BLOCK_RULE test_rule_sql
+        PROPERTIES("sql"="SELECT abcd FROM table_2", "global"= "true", "enable"= "true")
+    """
+
+    test {
+        sql("SELECT abcd FROM table_2", false)
+        exception "sql match regex sql block rule: test_rule_sql"
+    }
+
+    sql """
                 DROP SQL_BLOCK_RULE if exists test_rule_sql
               """
 

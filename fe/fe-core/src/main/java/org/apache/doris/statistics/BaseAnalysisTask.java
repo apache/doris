@@ -78,7 +78,8 @@ public abstract class BaseAnalysisTask {
     protected static final String INSERT_COL_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + "    SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id, row_count, "
-            + "        ndv, null_count, CAST(min AS string), CAST(max AS string), data_size, update_time\n"
+            + "        ndv, null_count,"
+            + " to_base64(CAST(min AS string)), to_base64(CAST(max AS string)), data_size, update_time\n"
             + "    FROM \n"
             + "     (SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
             + "         ${catalogId} AS catalog_id, "
@@ -89,8 +90,8 @@ public abstract class BaseAnalysisTask {
             + "         NULL AS part_id, "
             + "         SUM(count) AS row_count, \n"
             + "         SUM(null_count) AS null_count, "
-            + "         MIN(CAST(min AS ${type})) AS min, "
-            + "         MAX(CAST(max AS ${type})) AS max, "
+            + "         MIN(CAST(from_base64(min) AS ${type})) AS min, "
+            + "         MAX(CAST(from_base64(max) AS ${type})) AS max, "
             + "         SUM(data_size_in_bytes) AS data_size, "
             + "         NOW() AS update_time \n"
             + "     FROM ${internalDB}.${columnStatTbl}"
@@ -114,8 +115,8 @@ public abstract class BaseAnalysisTask {
             + "${row_count} AS row_count, "
             + "${ndv} AS ndv, "
             + "${null_count} AS null_count, "
-            + "'${min}' AS min, "
-            + "'${max}' AS max, "
+            + "to_base64('${min}') AS min, "
+            + "to_base64('${max}') AS max, "
             + "${data_size} AS data_size, "
             + "NOW() ";
 
@@ -146,11 +147,11 @@ public abstract class BaseAnalysisTask {
     }
 
     protected void init(AnalysisInfo info) {
-        tableSample = getTableSample();
         DBObjects dbObjects = StatisticsUtil.convertIdToObjects(info.catalogId, info.dbId, info.tblId);
         catalog = dbObjects.catalog;
         db = dbObjects.db;
         tbl = dbObjects.table;
+        tableSample = getTableSample();
         // External Table level task doesn't contain a column. Don't need to do the column related analyze.
         if (info.externalTableLevelTask) {
             return;
@@ -241,7 +242,7 @@ public abstract class BaseAnalysisTask {
     // Min value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
     protected String getMinFunction() {
         if (tableSample == null) {
-            return "MIN(`${colName}`) ";
+            return "CAST(MIN(`${colName}`) as ${type}) ";
         } else {
             return "NULL ";
         }
@@ -250,7 +251,7 @@ public abstract class BaseAnalysisTask {
     // Max value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
     protected String getMaxFunction() {
         if (tableSample == null) {
-            return "MAX(`${colName}`) ";
+            return "CAST(MAX(`${colName}`) as ${type}) ";
         } else {
             return "NULL ";
         }

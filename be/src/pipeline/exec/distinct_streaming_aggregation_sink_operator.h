@@ -110,16 +110,11 @@ private:
 class DistinctStreamingAggSinkOperatorX final
         : public AggSinkOperatorX<DistinctStreamingAggSinkLocalState> {
 public:
-    DistinctStreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    DistinctStreamingAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                       const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._dependency->write_blocked_by();
-    }
 };
 
 } // namespace pipeline

@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS `supplier` (
 UNIQUE KEY (`s_suppkey`)
 DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 10
 PROPERTIES (
-"function_column.sequence_type" = 'int',
+"function_column.sequence_col" = 's_suppkey',
 "compression"="zstd",
 "replication_num" = "1",
 "enable_unique_key_merge_on_write" = "true"

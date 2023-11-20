@@ -46,6 +46,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.resource.Tag;
@@ -983,6 +984,7 @@ public class TabletScheduler extends MasterDaemon {
             boolean force, LoadStatisticForTag statistic) throws SchedException {
         Replica chosenReplica = null;
         double maxScore = 0;
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
         for (Replica replica : replicas) {
             BackendLoadStatistic beStatistic = statistic.getBackendLoadStatistic(replica.getBackendId());
             if (beStatistic == null) {
@@ -1006,6 +1008,11 @@ public class TabletScheduler extends MasterDaemon {
             if (loadScore > maxScore) {
                 maxScore = loadScore;
                 chosenReplica = replica;
+            }
+
+            if (debugHighBeId > 0 && replica.getBackendId() == debugHighBeId) {
+                chosenReplica = replica;
+                break;
             }
         }
 
@@ -1318,7 +1325,8 @@ public class TabletScheduler extends MasterDaemon {
 
         // get all available paths which this tablet can fit in.
         // beStatistics is sorted by mix load score in ascend order, so select from first to last.
-        List<BePathLoadStatPair> allFitPaths = Lists.newArrayList();
+        List<BePathLoadStatPair> allFitPathsSameMedium = Lists.newArrayList();
+        List<BePathLoadStatPair> allFitPathsDiffMedium = Lists.newArrayList();
         for (BackendLoadStatistic bes : beStatistics) {
             if (!bes.isAvailable()) {
                 LOG.debug("backend {} is not available, skip. tablet: {}", bes.getBeId(), tabletCtx.getTabletId());
@@ -1349,27 +1357,27 @@ public class TabletScheduler extends MasterDaemon {
 
             List<RootPathLoadStatistic> resultPaths = Lists.newArrayList();
             BalanceStatus st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
-                    resultPaths, tabletCtx.getTabletStatus() != TabletStatus.REPLICA_RELOCATING
-                    /* if REPLICA_RELOCATING, then it is not a supplement task */);
-            if (!st.ok()) {
-                LOG.debug("unable to find path for tablet: {}. {}", tabletCtx, st);
-                // This is to solve, when we decommission some BEs with SSD disks,
-                // if there are no SSD disks on the remaining BEs, it will be impossible to select a
-                // suitable destination path.
-                // In this case, we need to ignore the storage medium property
-                // and try to select the destination path again.
-                // Set `isSupplement` to true will ignore the  storage medium property.
-                st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
-                        resultPaths, true);
-                if (!st.ok()) {
-                    LOG.debug("unable to find path for supplementing tablet: {}. {}", tabletCtx, st);
-                    continue;
+                    resultPaths, false);
+            if (st.ok()) {
+                resultPaths.stream().forEach(path -> allFitPathsSameMedium.add(new BePathLoadStatPair(bes, path)));
+            } else {
+                LOG.debug("backend {} unable to find path for tablet: {}. {}", bes.getBeId(), tabletCtx, st);
+                resultPaths.clear();
+                st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), resultPaths, true);
+                if (st.ok()) {
+                    resultPaths.stream().forEach(path -> allFitPathsDiffMedium.add(new BePathLoadStatPair(bes, path)));
+                } else {
+                    LOG.debug("backend {} unable to find path for supplementing tablet: {}. {}",
+                            bes.getBeId(), tabletCtx, st);
                 }
             }
-
-            resultPaths.stream().forEach(path -> allFitPaths.add(new BePathLoadStatPair(bes, path)));
         }
 
+        // all fit paths has already been sorted by load score in 'allFitPaths' in ascend order.
+        // just get first available path.
+        // we try to find a path with specified media type, if not find, arbitrarily use one.
+        List<BePathLoadStatPair> allFitPaths =
+                !allFitPathsSameMedium.isEmpty() ? allFitPathsSameMedium : allFitPathsDiffMedium;
         if (allFitPaths.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find dest path for new replica");
         }
@@ -1377,14 +1385,11 @@ public class TabletScheduler extends MasterDaemon {
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(allFitPaths);
         Collections.sort(allFitPaths, comparator);
 
-        // all fit paths has already been sorted by load score in 'allFitPaths' in ascend order.
-        // just get first available path.
-        // we try to find a path with specified media type, if not find, arbitrarily use one.
         for (BePathLoadStatPair bePathLoadStat : allFitPaths) {
             RootPathLoadStatistic rootPathLoadStatistic = bePathLoadStat.getPathLoadStatistic();
             if (rootPathLoadStatistic.getStorageMedium() != tabletCtx.getStorageMedium()) {
                 LOG.debug("backend {}'s path {}'s storage medium {} "
-                                + "is not equal to tablet's storage medium {}, skip. tablet: {}",
+                        + "is not equal to tablet's storage medium {}, skip. tablet: {}",
                         rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
                         rootPathLoadStatistic.getStorageMedium(), tabletCtx.getStorageMedium(),
                         tabletCtx.getTabletId());
@@ -1535,6 +1540,16 @@ public class TabletScheduler extends MasterDaemon {
 
                 if (statusPair.second.ordinal() < tabletCtx.getPriority().ordinal()) {
                     statusPair.second = tabletCtx.getPriority();
+                }
+            }
+
+            if (statusPair.first == TabletStatus.NEED_FURTHER_REPAIR) {
+                // replica is just waiting for finishing txns before furtherRepairWatermarkTxnTd,
+                // no need to add it immediately
+                Replica replica = tablet.getReplicaByBackendId(tabletCtx.getDestBackendId());
+                if (replica != null && replica.getVersion() >= partition.getVisibleVersion()
+                        && replica.getLastFailedVersion() < 0) {
+                    return;
                 }
             }
         } finally {

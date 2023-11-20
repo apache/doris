@@ -125,6 +125,8 @@ public:
     // For ordered rowset compaction, manual build rowset
     virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
 
+    virtual PUniqueId load_id() = 0;
+
     virtual Version version() = 0;
 
     virtual int64_t num_rows() const = 0;

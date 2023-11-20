@@ -76,7 +76,8 @@ public:
                                         std::unique_ptr<RowsetWriter>* rowset_writer) = 0;
 
     virtual Status capture_rs_readers(const Version& spec_version,
-                                      std::vector<RowSetSplits>* rs_splits) const = 0;
+                                      std::vector<RowSetSplits>* rs_splits,
+                                      bool skip_missing_version) const = 0;
 
     virtual size_t tablet_footprint() = 0;
 

@@ -258,7 +258,9 @@ public:
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
-                      std::is_same_v<ColumnType, ColumnHLL>) {
+                      std::is_same_v<ColumnType, ColumnHLL> ||
+                      std::is_same_v<ColumnType, ColumnIPv4> ||
+                      std::is_same_v<ColumnType, ColumnIPv6>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
             update_result_normal<uint8_t, ColumnType, then_null>(result_column_ptr, then_idx,

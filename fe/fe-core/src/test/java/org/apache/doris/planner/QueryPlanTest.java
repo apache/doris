@@ -573,11 +573,11 @@ public class QueryPlanTest extends TestWithFeService {
         // disable implicit cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.hll_table;",
-                "No matching function with signature: length(hll)"
+                "No matching function with signature: length(HLL)"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.bitmap_table;",
-                "No matching function with signature: length(bitmap)"
+                "No matching function with signature: length(BITMAP)"
         );
     }
 

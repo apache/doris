@@ -64,8 +64,8 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "ROUND(COUNT(1) * ${scaleFactor}) AS row_count, "
             + NDV_SAMPLE_TEMPLATE
             + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS null_count, "
-            + "${minFunction} AS min, "
-            + "${maxFunction} AS max, "
+            + "to_base64(${minFunction}) AS min, "
+            + "to_base64(${maxFunction}) AS max, "
             + "${dataSizeFunction} * ${scaleFactor} AS data_size, "
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
@@ -81,8 +81,8 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "COUNT(1) AS row_count, "
             + "NDV(`${colName}`) AS ndv, "
             + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
-            + "MIN(`${colName}`) AS min, "
-            + "MAX(`${colName}`) AS max, "
+            + "to_base64(MIN(`${colName}`)) AS min, "
+            + "to_base64(MAX(`${colName}`)) AS max, "
             + "${dataSizeFunction} AS data_size, "
             + "NOW() FROM `${catalogName}`.`${dbName}`.`${tblName}` where ";
 

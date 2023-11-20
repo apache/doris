@@ -58,6 +58,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/mem_info.h"
 #include "util/time.h"
 #include "vec/olap/vertical_block_reader.h"
@@ -167,6 +168,7 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
         }
     }
 
+    DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_sum_src_row", { sum_src_row++; });
     if (raw_rows_read != sum_src_row) {
         return Status::Error<CHECK_LINES_ERROR>(
                 "segcompaction read row num does not match source. expect read row:{}, actual read "
@@ -174,12 +176,15 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
                 sum_src_row, raw_rows_read);
     }
 
+    DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_merged_rows", { merged_rows++; });
     if ((output_rows + merged_rows) != raw_rows_read) {
         return Status::Error<CHECK_LINES_ERROR>(
                 "segcompaction total row num does not match after merge. expect total row:{},  "
                 "actual total row:{}, (output_rows:{},merged_rows:{})",
                 raw_rows_read, output_rows + merged_rows, output_rows, merged_rows);
     }
+    DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_filtered_rows",
+                    { filtered_rows++; });
     if (filtered_rows != 0) {
         return Status::Error<CHECK_LINES_ERROR>(
                 "segcompaction should not have filtered rows but actual filtered rows:{}",

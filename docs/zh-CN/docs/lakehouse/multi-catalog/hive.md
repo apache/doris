@@ -369,9 +369,9 @@ CREATE CATALOG hive PROPERTIES (
 | char| char | |
 | varchar| varchar| |
 | decimal| decimal | |
-| `array<type>` | `array<type>`| 支持array嵌套，如 `array<array<int>>` |
-| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 暂不支持嵌套，KeyType 和 ValueType 需要为基础类型 |
-| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
+| `array<type>` | `array<type>`| 支持嵌套，如 `array<map<string, int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 支持嵌套，如 `map<string, array<int>>` |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 支持嵌套，如 `struct<col1: array<int>, col2: map<int, date>>` |
 | other | unsupported | |
 
 ## 是否按照 hive 表的 schema 来截断 char 或者 varchar 列

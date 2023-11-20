@@ -160,14 +160,18 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
     _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");
+    auto output_data_types = VectorizedUtils::get_data_types(_row_descriptor);
+    auto column_nums = _child_expr_lists[0].size();
+    DCHECK_EQ(output_data_types.size(), column_nums)
+            << output_data_types.size() << " " << column_nums;
+    // the nullable is not depend on child, it's should use _row_descriptor from FE plan
+    // some case all not nullable column from children, but maybe need output nullable.
+    vector<bool> nullable_flags(column_nums, false);
+    for (int i = 0; i < column_nums; ++i) {
+        nullable_flags[i] = output_data_types[i]->is_nullable();
+    }
 
-    // Prepare result expr lists.
-    vector<bool> nullable_flags;
-    nullable_flags.resize(_child_expr_lists[0].size(), false);
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        for (int j = 0; j < _child_expr_lists[i].size(); ++j) {
-            nullable_flags[j] = nullable_flags[j] || _child_expr_lists[i][j]->root()->is_nullable();
-        }
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
     for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
@@ -466,9 +470,6 @@ Status VSetOperationNode<is_intersect>::extract_probe_column(Block& block, Colum
             }
 
         } else {
-            if (i == 0) {
-                LOG(WARNING) << "=========1 " << _build_not_ignore_null[i];
-            }
             if (_build_not_ignore_null[i]) {
                 auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
                 _probe_column_inserted_id.emplace_back(block.columns());

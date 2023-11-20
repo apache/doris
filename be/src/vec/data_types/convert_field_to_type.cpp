@@ -82,6 +82,9 @@ public:
     [[noreturn]] String operator()(const DecimalField<Decimal128I>& x) const {
         LOG(FATAL) << "not implemeted";
     }
+    [[noreturn]] String operator()(const DecimalField<Decimal256>& x) const {
+        LOG(FATAL) << "not implemeted";
+    }
 };
 
 namespace {

@@ -58,7 +58,7 @@ jobs:
           
           set -x
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "buildall" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
-            trigger_pipelines="Doris_DorisRegression_P0RegressionPipelineX Doris_Doris_FeUt Doris_DorisBeUt_BeUt Doris_DorisCompile_Compile Doris_Performance_Clickbench_ClickbenchNew Doris_ArmPipeline_P0Regression ${trigger_pipelines}"
+            trigger_pipelines="Doris_Doris_FeUt Doris_DorisBeUt_BeUt Doris_DorisCompile_Compile Doris_Performance_Clickbench_ClickbenchNew Doris_ArmPipeline_P0Regression ${trigger_pipelines}"
           fi
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ " p0" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
             trigger_pipelines="Doris_DorisRegression_P0Regression  ${trigger_pipelines}"
@@ -100,6 +100,7 @@ jobs:
           
           for pipeline in ${trigger_pipelines}
           do
+            same_build_sign="false"
             echo "-----------------------------------------------------------------"
             running_builds_command="curl -s -X GET ${teamcity_url}/app/rest/builds\?locator\=buildType\:${pipeline}\,branch:pull/${pull_request_num}\,running:true"
             echo "${running_builds_command}" 
@@ -126,8 +127,6 @@ jobs:
                 echo "the same pr_commit build already exist, this build ${build} is running or in queue!"
                 same_build_sign="true" 
                 break
-              else
-                same_build_sign="false"
               fi
             done
           

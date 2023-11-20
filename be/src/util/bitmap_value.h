@@ -519,49 +519,44 @@ public:
         // we cannot use operator == on the map because either side may contain
         // empty Roaring Bitmaps
         auto lhs_iter = roarings.cbegin();
+        auto lhs_cend = roarings.cend();
         auto rhs_iter = r.roarings.cbegin();
-        do {
-            // if the left map has reached its end, ensure that the right map
-            // contains only empty Bitmaps
-            if (lhs_iter == roarings.cend()) {
-                while (rhs_iter != r.roarings.cend()) {
-                    if (rhs_iter->second.isEmpty()) {
-                        ++rhs_iter;
-                        continue;
-                    }
-                    return false;
-                }
-                return true;
-            }
-            // if the left map has an empty bitmap, skip it
-            if (lhs_iter->second.isEmpty()) {
+        auto rhs_cend = r.roarings.cend();
+        while (lhs_iter != lhs_cend && rhs_iter != rhs_cend) {
+            auto lhs_key = lhs_iter->first;
+            auto rhs_key = rhs_iter->first;
+            const auto& lhs_map = lhs_iter->second;
+            const auto& rhs_map = rhs_iter->second;
+            if (lhs_map.isEmpty()) {
                 ++lhs_iter;
                 continue;
             }
-
-            do {
-                // if the right map has reached its end, ensure that the right
-                // map contains only empty Bitmaps
-                if (rhs_iter == r.roarings.cend()) {
-                    while (lhs_iter != roarings.cend()) {
-                        if (lhs_iter->second.isEmpty()) {
-                            ++lhs_iter;
-                            continue;
-                        }
-                        return false;
-                    }
-                    return true;
-                }
-                // if the right map has an empty bitmap, skip it
-                if (rhs_iter->second.isEmpty()) {
-                    ++rhs_iter;
-                    continue;
-                }
-            } while (false);
-            // if neither map has reached its end ensure elements are equal and
-            // move to the next element in both
-        } while (lhs_iter++->second == rhs_iter++->second);
-        return false;
+            if (rhs_map.isEmpty()) {
+                ++rhs_iter;
+                continue;
+            }
+            if (!(lhs_key == rhs_key)) {
+                return false;
+            }
+            if (!(lhs_map == rhs_map)) {
+                return false;
+            }
+            ++lhs_iter;
+            ++rhs_iter;
+        }
+        while (lhs_iter != lhs_cend) {
+            if (!lhs_iter->second.isEmpty()) {
+                return false;
+            }
+            ++lhs_iter;
+        }
+        while (rhs_iter != rhs_cend) {
+            if (!rhs_iter->second.isEmpty()) {
+                return false;
+            }
+            ++rhs_iter;
+        }
+        return true;
     }
 
     /**
@@ -2000,7 +1995,7 @@ public:
             case SET: {
                 uint64_t cardinality = 0;
                 for (auto v : _set) {
-                    if (_bitmap->contains(v)) {
+                    if (rhs._bitmap->contains(v)) {
                         ++cardinality;
                     }
                 }
@@ -2110,7 +2105,7 @@ public:
             case EMPTY:
                 return 0;
             case SINGLE:
-                return 1 - _sv == rhs._sv;
+                return 1 - (_sv == rhs._sv);
             case BITMAP:
                 return cardinality() - _bitmap->contains(rhs._sv);
             case SET:

@@ -249,6 +249,12 @@ struct TQueryOptions {
   86: optional i32 analyze_timeout = 43200;
 
   87: optional bool faster_float_convert = false;
+
+  88: optional bool enable_decimal256 = false;
+
+  89: optional bool enable_local_shuffle = false;
+  // For emergency use, skip missing version when reading rowsets
+  90: optional bool skip_missing_version = false;
 }
 
 

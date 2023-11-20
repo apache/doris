@@ -120,9 +120,14 @@ Status CgroupV1CpuCtl::add_thread_to_cgroup() {
     if (!_init_succ) {
         return Status::OK();
     }
+#if defined(__APPLE__)
+    //unsupported now
+    return Status::OK();
+#else
     int tid = static_cast<int>(syscall(SYS_gettid));
     std::string msg = "add thread " + std::to_string(tid) + " to group";
     std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_task_file, tid, msg, true);
+#endif
 }
 } // namespace doris

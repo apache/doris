@@ -286,8 +286,6 @@ public class MinidumpUtils {
 
     /**
      * serialize output plan to dump file and persistent into disk
-     * @param resultPlan
-     *
      */
     public static void serializeOutputToDumpFile(Plan resultPlan) {
         if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()
@@ -401,22 +399,22 @@ public class MinidumpUtils {
                 }
                 switch (field.getType().getSimpleName()) {
                     case "boolean":
-                        root.put(attr.name(), (Boolean) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "int":
-                        root.put(attr.name(), (Integer) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "long":
-                        root.put(attr.name(), (Long) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "float":
-                        root.put(attr.name(), (Float) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "double":
-                        root.put(attr.name(), (Double) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "String":
-                        root.put(attr.name(), (String) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     default:
                         // Unsupported type variable.

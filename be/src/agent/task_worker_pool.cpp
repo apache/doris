@@ -1071,9 +1071,6 @@ void TaskWorkerPool::_handle_report(const TReportRequest& request, ReportType ty
                 .error(result.status);
     } else {
         is_report_success = true;
-        LOG_INFO("successfully report {}", TYPE_STRING(type))
-                .tag("host", _master_info.network_address.hostname)
-                .tag("port", _master_info.network_address.port);
     }
     switch (type) {
     case TASK:

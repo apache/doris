@@ -69,8 +69,6 @@ private:
 
     BlockQueueSharedPtr _queue;
 
-    RuntimeProfile* _profile; // Allocated from _pool
-
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
     VExprContextSPtrs _output_vexpr_ctxs;

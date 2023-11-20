@@ -17,11 +17,11 @@
 
 #pragma once
 
+#include "bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "function_filter.h"
 #include "olap/bitmap_filter_predicate.h"
-#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/like_column_predicate.h"
@@ -103,7 +103,10 @@ public:
     M(TYPE_STRING)            \
     M(TYPE_DECIMAL32)         \
     M(TYPE_DECIMAL64)         \
-    M(TYPE_DECIMAL128I)
+    M(TYPE_DECIMAL128I)       \
+    M(TYPE_DECIMAL256)        \
+    M(TYPE_IPV4)              \
+    M(TYPE_IPV6)
 
 template <class Traits, size_t N = 0>
 typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
@@ -220,16 +223,6 @@ inline auto create_bloom_filter(PrimitiveType type) {
 
 inline auto create_bitmap_filter(PrimitiveType type) {
     return create_bitmap_predicate_function<BitmapFilterTraits>(type);
-}
-
-template <PrimitiveType PT>
-ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
-                                              const std::shared_ptr<BloomFilterFuncBase>& filter,
-                                              int be_exec_version, const TabletColumn*) {
-    std::shared_ptr<BloomFilterFuncBase> filter_olap;
-    filter_olap.reset(create_bloom_filter(PT));
-    filter_olap->light_copy(filter.get());
-    return new BloomFilterColumnPredicate<PT>(column_id, filter, be_exec_version);
 }
 
 template <PrimitiveType PT>

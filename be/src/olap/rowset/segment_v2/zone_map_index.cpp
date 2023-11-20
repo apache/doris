@@ -196,11 +196,14 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     M(TYPE_DATETIME)             \
     M(TYPE_DATEV2)               \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_IPV4)                 \
+    M(TYPE_IPV6)                 \
     M(TYPE_VARCHAR)              \
     M(TYPE_STRING)               \
     M(TYPE_DECIMAL32)            \
     M(TYPE_DECIMAL64)            \
-    M(TYPE_DECIMAL128I)
+    M(TYPE_DECIMAL128I)          \
+    M(TYPE_DECIMAL256)
 
 Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res) {
     switch (field->type()) {
