@@ -70,8 +70,6 @@ public:
     ExchangeSinkQueueDependency(int id, int node_id)
             : WriteDependency(id, node_id, "ResultQueueDependency") {}
     ~ExchangeSinkQueueDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
 };
 
 class BroadcastDependency final : public WriteDependency {
@@ -93,19 +91,6 @@ public:
         if (old_vale == 1) {
             WriteDependency::block_writing();
         }
-    }
-
-    void* shared_state() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
-        return nullptr;
-    }
-
-    void set_ready_for_write() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
-    }
-
-    void block_writing() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
     }
 
     int available_blocks() const { return _available_block; }
@@ -138,7 +123,6 @@ public:
     LocalExchangeChannelDependency(int id, int node_id)
             : WriteDependency(id, node_id, "LocalExchangeChannelDependency") {}
     ~LocalExchangeChannelDependency() override = default;
-    void* shared_state() override { return nullptr; }
     // TODO(gabriel): blocked by memory
 };
 
