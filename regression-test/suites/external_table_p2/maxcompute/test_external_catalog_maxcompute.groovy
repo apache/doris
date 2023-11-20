@@ -51,10 +51,27 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
             qt_q6 """ select * from mc_parts where dt = '2020-09-21' and mc_bigint > 6223 """
             qt_q7 """ select * from mc_parts where dt = '2020-09-21' or mc_bigint > 0 """
         }
+
         sql """ switch `${mc_catalog_name}`; """
         sql """ use `${mc_db}`; """
         q01()
         q02()
         q03()
+
+        // replay test
+        sql """drop catalog if exists ${mc_catalog_name};"""
+        sql """
+            create catalog if not exists ${mc_catalog_name} properties (
+                "type" = "max_compute",
+                "mc.region" = "cn-beijing",
+                "mc.default.project" = "${mc_db}",
+                "mc.access_key" = "${ak}",
+                "mc.secret_key" = "${sk}",
+                "mc.public_access" = "true"
+            );
+        """
+        sql """ switch `${mc_catalog_name}`; """
+        sql """ use `${mc_db}`; """
+        qt_replay_q6 """ select * from mc_parts where dt = '2020-09-21' and mc_bigint > 6223 """
     }
 }
