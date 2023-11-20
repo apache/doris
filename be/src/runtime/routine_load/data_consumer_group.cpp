@@ -337,15 +337,17 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
             pulsar::MessageId msg_id = msg->getMessageId();
             std::size_t len = msg->getLength();
 
-            LOG(INFO) << "get pulsar message"
+            VLOG(3) << "get pulsar message"
                     << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
 
             //filter invalid prefix of json
             const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()));
             long  json_begin = index_of_json_begin(filter_data);
+            size_t  filter_len = len_of_actual_data(filter_data);
             // append filtered data
-            if (json_begin >= 0) {
-                size_t  filter_len = len_of_actual_data(filter_data);
+            if (json_begin >= 0 && filter_len >= 10000) {
+                LOG(INFO) << "get larger pulsar message: " << filter_data <<
+                        << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
                 Status  st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
 
                 if (st.ok()) {
