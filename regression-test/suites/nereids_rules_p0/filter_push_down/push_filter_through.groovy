@@ -181,4 +181,37 @@ suite("push_filter_through") {
     qt_filter_aggregation_filtered_part_key"""
     explain shape plan select * from (select id + 1, count() as c from t1 group by id) t where c > 10;
     """
+    // Push filter through UNION
+    qt_push_filter_union"""
+    explain shape plan select * from ( select * from t1 UNION select * from t2) t where t.id = 2;
+    """
+    // Push filter through UNION ALL
+    qt_push_filter_union_all"""
+    explain shape plan select * from ( select * from t1 UNION ALL select * from t2) t where t.id = 2;
+    """
+    // Push filter through INTERSECT
+    qt_push_filter_intersect"""
+    explain shape plan select * from ( select * from t1 INTERSECT select * from t2) t where t.id = 2;
+    """
+    // Push filter through EXCEPT
+    qt_push_filter_except"""
+    explain shape plan select * from ( select * from t1 EXCEPT select * from t2) t where t.id = 2;
+    """
+    // // Push filter through UNION with constant
+    // qt_push_filter_union"""
+    // explain shape plan select id from ( select cast(now() as int) as id UNION select id from t2) t where c = 2;
+    // """
+    // // Push filter through UNION ALL with constant
+    // qt_push_filter_union_all"""
+    // explain shape plan select id from ( select cast(now() as int) as id UNION ALL select id from t2) t where c = 2;
+    // """
+    // // Push filter through INTERSECT with constant
+    // qt_push_filter_intersect"""
+    // explain shape plan select id from ( select cast(now() as int) as id INTERSECT select id from t2) t where c = 2;
+    // """
+    // // Push filter through EXCEPT with constant
+    // qt_push_filter_except"""
+    // explain shape plan select id from ( select cast(now() as int) as id EXCEPT select id from t2) t where c = 2;
+    // """
+    
 }

@@ -320,3 +320,50 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalOlapScan[t1]
 
+-- !push_filter_union --
+PhysicalResultSink
+--PhysicalDistribute
+----hashAgg[GLOBAL]
+------PhysicalDistribute
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------filter((t1.id = 2))
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------filter((t2.id = 2))
+----------------PhysicalOlapScan[t2]
+
+-- !push_filter_union_all --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalUnion
+------PhysicalDistribute
+--------filter((t1.id = 2))
+----------PhysicalOlapScan[t1]
+------PhysicalDistribute
+--------filter((t2.id = 2))
+----------PhysicalOlapScan[t2]
+
+-- !push_filter_intersect --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalIntersect
+------PhysicalDistribute
+--------filter((t1.id = 2))
+----------PhysicalOlapScan[t1]
+------PhysicalDistribute
+--------filter((t2.id = 2))
+----------PhysicalOlapScan[t2]
+
+-- !push_filter_except --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalExcept
+------PhysicalDistribute
+--------filter((t1.id = 2))
+----------PhysicalOlapScan[t1]
+------PhysicalDistribute
+--------filter((t2.id = 2))
+----------PhysicalOlapScan[t2]
+
