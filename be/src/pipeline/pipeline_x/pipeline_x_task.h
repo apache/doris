@@ -136,10 +136,6 @@ public:
         return _use_blocking_queue || get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
     }
     void set_use_blocking_queue(bool use_blocking_queue) {
-        if (_blocked_dep->is_or_dep()) {
-            _use_blocking_queue = true;
-            return;
-        }
         _use_blocking_queue = use_blocking_queue;
     }
 

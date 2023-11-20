@@ -170,28 +170,6 @@ WriteDependency* WriteDependency::write_blocked_by(PipelineXTask* task) {
     return ready_for_write ? nullptr : this;
 }
 
-Dependency* OrDependency::read_blocked_by(PipelineXTask* task) {
-    // TODO(gabriel):
-    for (auto& child : _children) {
-        auto* cur_res = child->read_blocked_by(nullptr);
-        if (cur_res == nullptr) {
-            return nullptr;
-        }
-    }
-    return this;
-}
-
-WriteDependency* OrDependency::write_blocked_by(PipelineXTask* task) {
-    for (auto& child : _children) {
-        CHECK(child->is_write_dependency());
-        auto* cur_res = ((WriteDependency*)child.get())->write_blocked_by(nullptr);
-        if (cur_res == nullptr) {
-            return nullptr;
-        }
-    }
-    return this;
-}
-
 template Status HashJoinDependency::extract_join_column<true>(
         vectorized::Block&,
         COW<vectorized::IColumn>::mutable_ptr<vectorized::ColumnVector<unsigned char>>&,
@@ -240,17 +218,6 @@ std::string RuntimeFilterDependency::debug_string(int indentation_level) {
 }
 
 std::string AndDependency::debug_string(int indentation_level) {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, children=[",
-                   std::string(indentation_level * 2, ' '), _name, _node_id);
-    for (auto& child : _children) {
-        fmt::format_to(debug_string_buffer, "{}, \n", child->debug_string(indentation_level = 1));
-    }
-    fmt::format_to(debug_string_buffer, "{}]", std::string(indentation_level * 2, ' '));
-    return fmt::to_string(debug_string_buffer);
-}
-
-std::string OrDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}{}: id={}, children=[",
                    std::string(indentation_level * 2, ' '), _name, _node_id);
