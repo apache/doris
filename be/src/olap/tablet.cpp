@@ -1347,6 +1347,39 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
     return pick_candidate_rowsets_to_single_replica_compaction();
 }
 
+std::vector<RowsetSharedPtr> Tablet::collect_consecutive_empty_rowsets() {
+    std::vector<RowsetSharedPtr> consecutive_empty_rowsets;
+    std::vector<RowsetSharedPtr> candidate_rowsets =
+            pick_candidate_rowsets_to_cumulative_compaction();
+    traverse_rowsets([&candidate_rowsets, this](const auto& rs) {
+        if (rs->is_local() && rs->start_version() >= _cumulative_point) {
+            candidate_rowsets.emplace_back(rs);
+        }
+    });
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    int len = candidate_rowsets.size();
+    for (int i = 0; i < len - 1; ++i) {
+        auto rowset = candidate_rowsets[i];
+        auto next_rowset = candidate_rowsets[i + 1];
+
+        if (rowset->num_segments() == 0 && next_rowset->num_segments() == 0 &&
+            rowset->end_version() == next_rowset->start_version() - 1) {
+            consecutive_empty_rowsets.emplace_back(rowset);
+            consecutive_empty_rowsets.emplace_back(next_rowset);
+
+            int next_index = i + 2;
+            while (next_index < len && candidate_rowsets[next_index]->num_segments() == 0 &&
+                   rowset->end_version() == candidate_rowsets[next_index]->start_version() - 1) {
+                consecutive_empty_rowsets.emplace_back(candidate_rowsets[next_index]);
+                rowset = candidate_rowsets[next_index++];
+            }
+            return consecutive_empty_rowsets;
+        }
+    }
+
+    return consecutive_empty_rowsets;
+}
+
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_index(
         const std::set<int32_t>& alter_index_uids, bool is_drop_op) {
     std::vector<RowsetSharedPtr> candidate_rowsets;

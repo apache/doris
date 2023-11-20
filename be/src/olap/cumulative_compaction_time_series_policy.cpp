@@ -70,6 +70,12 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         return score;
     }
 
+    // If their are many empty rowset, maybe should be compact
+    auto consecutive_empty_rowsets = tablet->collect_consecutive_empty_rowsets();
+    if (!consecutive_empty_rowsets.empty()) {
+        return score;
+    }
+
     // Condition 2: the number of input files reaches the threshold specified by parameter compaction_file_count_threshold
     if (score >= tablet->tablet_meta()->time_series_compaction_file_count_threshold()) {
         return score;
@@ -85,6 +91,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
             (tablet->tablet_meta()->time_series_compaction_time_threshold_seconds() * 1000)) {
             return score;
         }
+
     } else if (score > 0) {
         // If the compaction process has not been successfully executed,
         // the condition for triggering compaction based on the last successful compaction time (condition 3) will never be met
@@ -145,6 +152,12 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
         // check if the rowset has already been compacted
         // [2-11] : rowset has been compacted
         if (!is_delete && rs->version().first == rs->version().second) {
+            *ret_cumulative_point = rs->version().first;
+            break;
+        }
+
+        if (!is_delete && rs->version().first != 0 && rs->version().first != rs->version().second &&
+            rs->num_segments() == 0) {
             *ret_cumulative_point = rs->version().first;
             break;
         }
@@ -229,6 +242,14 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         return transient_size;
     }
 
+    auto consecutive_empty_rowsets = tablet->collect_consecutive_empty_rowsets();
+    if (!consecutive_empty_rowsets.empty()) {
+        input_rowsets->clear();
+        input_rowsets->insert(input_rowsets->end(), consecutive_empty_rowsets.begin(),
+                              consecutive_empty_rowsets.end());
+        return transient_size;
+    }
+
     // Condition 2: the number of input files reaches the threshold specified by parameter compaction_file_count_threshold
     if (*compaction_score >= tablet->tablet_meta()->time_series_compaction_file_count_threshold()) {
         return transient_size;
@@ -254,10 +275,11 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
 void TimeSeriesCumulativeCompactionPolicy::update_cumulative_point(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
         RowsetSharedPtr output_rowset, Version& last_delete_version) {
-    if (tablet->tablet_state() != TABLET_RUNNING) {
+    if (tablet->tablet_state() != TABLET_RUNNING || output_rowset->num_segments() == 0) {
         // if tablet under alter process, do not update cumulative point
         return;
     }
+
     tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
 }
 
