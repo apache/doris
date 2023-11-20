@@ -126,7 +126,9 @@ private:
 
     const char* filter_invalid_prefix_of_json(const char* data);
 
-    size_t len_of_uint8_t(const char* data);
+    size_t len_of_actual_data(const char* data);
+
+    size_t PulsarDataConsumerGroup::index_of_json_begin(const char* data);
 
 private:
     // blocking queue to receive msgs from all consumers
