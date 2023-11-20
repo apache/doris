@@ -31,13 +31,15 @@ import static org.apache.doris.catalog.ScalarType.MAX_VARCHAR_LENGTH;
 
 
 public class JdbcDruidClient extends JdbcClient {
+    private static final String DRUID_CATALOG = "druid";
+
     protected JdbcDruidClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
     }
 
     @Override
     protected String getCatalogName(Connection conn) throws SQLException {
-        return conn.getCatalog();
+        return DRUID_CATALOG;
     }
 
     @Override
