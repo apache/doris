@@ -82,13 +82,13 @@ public:
     void set_available_block(int available_block) { _available_block = available_block; }
 
     void return_available_block() {
-        _available_block++;
-        WriteDependency::set_ready_for_write();
+        if (_available_block.fetch_add(1) == 0) {
+            WriteDependency::set_ready_for_write();
+        }
     }
 
     void take_available_block() {
-        auto old_vale = _available_block.fetch_sub(1);
-        if (old_vale == 1) {
+        if (_available_block.fetch_sub(1) == 1) {
             WriteDependency::block_writing();
         }
     }
