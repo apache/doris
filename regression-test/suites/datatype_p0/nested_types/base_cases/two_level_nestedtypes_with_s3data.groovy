@@ -57,7 +57,7 @@ suite("two_level_nestedtypes_with_s3data") {
             } else {
                 sql "select ${col_name} from ${table_name} order by ${col_name};"
             }
-            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
+            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb column must use with specific function, and don't support filter, group by or order by")
         }
     }
 
