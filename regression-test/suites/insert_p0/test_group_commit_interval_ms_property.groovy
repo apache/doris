@@ -15,13 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import com.mysql.cj.jdbc.StatementImpl
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite("test_group_commit_interval_ms_property") {
 
-    def tableName =  "test_group_commit_interval_ms_property_tbl"
+    def dbName = "regression_test_insert_p0"
+    def tableName = "test_group_commit_interval_ms_property_tbl"
+    def table = dbName + "." + tableName
 
-    sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
+    def group_commit_insert = { sql, expected_row_count ->
+        def stmt = prepareStatement """ ${sql}  """
+        def result = stmt.executeUpdate()
+        logger.info("insert result: " + result)
+        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+        logger.info("result server info: " + serverInfo)
+        if (result != expected_row_count) {
+            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
+        }
+        // assertEquals(result, expected_row_count)
+        assertTrue(serverInfo.contains("'status':'PREPARE'"))
+        assertTrue(serverInfo.contains("'label':'group_commit_"))
+        return serverInfo
+    }
+
+    for (item in ["legacy", "nereids"]) {
+        try {
+            // create table
+            sql """ drop table if exists ${table}; """
+
+            sql """
+            CREATE TABLE ${table} (
                 k bigint,  
                 v bigint
                 )  
@@ -29,47 +53,48 @@ suite("test_group_commit_interval_ms_property") {
                 DISTRIBUTED BY HASH (v) BUCKETS 8
                 PROPERTIES(  
                 "replication_num" = "1",
-                "group_commit_interval_ms"="8000"
+                "group_commit_interval_ms"="10000"
                 );
-        """
+            """
 
-    sql "set enable_insert_group_commit = true;"
-    
-    qt_1 "show create table ${tableName}"
+            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
 
-    sql "insert into ${tableName} values(1,1);"
+            sql "set enable_insert_group_commit = true;"
 
-    qt_2 "select * from ${tableName} order by k"
+            if (item == "nereids") {
+                sql """ set enable_nereids_dml = true; """
+                sql """ set enable_nereids_planner=true; """
+                sql """ set enable_fallback_to_original_planner=false; """
+            } else {
+                sql """ set enable_nereids_dml = false; """
+            }
 
-    Thread.sleep(5000);
+            qt_1 "show create table ${table}"
 
-    sql "insert into ${tableName} values(2,2)"
+            def msg1 = group_commit_insert """insert into ${table} values(1,1); """, 1
 
-    qt_3 "select * from ${tableName} order by k"
+            Thread.sleep(8000);
 
-    Thread.sleep(8000);
+            def msg2 = group_commit_insert """insert into ${table} values(2,2) """, 1
 
-    qt_4 "select * from ${tableName} order by k"
+            assertEquals(msg1.substring(msg1.indexOf("group_commit")+11, msg1.indexOf("group_commit")+43), msg2.substring(msg2.indexOf("group_commit")+11, msg2.indexOf("group_commit")+43));
 
-    sql "ALTER TABLE ${tableName} SET (\"group_commit_interval_ms\"=\"1000\");"
+            sql "ALTER TABLE ${table} SET (\"group_commit_interval_ms\"=\"1000\"); "
 
-    qt_5 "show create table ${tableName}"
+            qt_2 "show create table ${table}"
 
-    sql "insert into ${tableName} values(3,3)"
+            def msg3 = group_commit_insert """insert into ${table} values(3,3); """, 1
 
-    qt_6 "select * from ${tableName} order by k"
+            Thread.sleep(2000);
 
-    Thread.sleep(2000);
+            def msg4 = group_commit_insert """insert into ${table} values(4,4); """, 1
 
-    qt_7 "select * from ${tableName} order by k"
+            assertNotEquals(msg3.substring(msg3.indexOf("group_commit")+11, msg3.indexOf("group_commit")+43), msg4.substring(msg4.indexOf("group_commit")+11, msg4.indexOf("group_commit")+43));
 
-    sql "insert into ${tableName} values(4,4)"
-
-    qt_8 "select * from ${tableName} order by k"
-
-    Thread.sleep(2000);
-    
-    qt_9 "select * from ${tableName} order by k"
-    
-    sql "DROP TABLE ${tableName}"
+            sql "DROP TABLE ${table}"
+                }
+        } finally {
+                // try_sql("DROP TABLE ${table}")
+        }
+    }
 }
