@@ -285,7 +285,19 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------filter((count(*) > 10))
+------filter((cast(msg as DOUBLE) = 1))
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalRepeat
+----------------filter((t1.id > 10))
+------------------PhysicalOlapScan[t1]
+
+-- !filter_aggregation_group_set --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------filter(((t1.id > 10) OR (cast(msg as DOUBLE) = 1)))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]

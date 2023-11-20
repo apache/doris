@@ -163,7 +163,10 @@ suite("push_filter_through") {
     """
     // Push filter through group by set
     qt_filter_aggregation_group_set"""
-    explain shape plan select count() from t1 group by ROLLUP(msg, id) having count() > 10;
+    explain shape plan select count() from t1 group by grouping sets ((msg, id), (id)) having id > 10 and msg = 1;
+    """
+    qt_filter_aggregation_group_set"""
+    explain shape plan select count() from t1 group by grouping sets ((msg, id), (id)) having id > 10 or msg = 1;
     """
     // Push filter of group by key through aggregated filter
     qt_filter_aggregation_filtered_key"""
@@ -214,4 +217,5 @@ suite("push_filter_through") {
     // explain shape plan select id from ( select cast(now() as int) as id EXCEPT select id from t2) t where c = 2;
     // """
     
+
 }
