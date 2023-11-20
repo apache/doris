@@ -87,9 +87,9 @@ public class InsertJob extends AbstractJob<InsertTask> {
             taskIdList.add(id);
             return;
         }
-        if (taskIdList.size() > MAX_SAVE_TASK_NUM) {
+        taskIdList.add(id);
+        if (taskIdList.size() >= MAX_SAVE_TASK_NUM) {
             taskIdList.poll();
-            taskIdList.add(id);
         }
         Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }

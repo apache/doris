@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * todo implement this later
@@ -61,6 +62,10 @@ public class InsertTask extends AbstractTask {
 
     private String currentDb;
 
+    private AtomicBoolean isCanceled = new AtomicBoolean(false);
+
+    private AtomicBoolean isFinished = new AtomicBoolean(false);
+
 
     @Getter
     @Setter
@@ -69,7 +74,9 @@ public class InsertTask extends AbstractTask {
 
     @Override
     public void before() throws JobException {
-
+        if (isCanceled.get()) {
+            throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
+        }
         ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
@@ -114,16 +121,25 @@ public class InsertTask extends AbstractTask {
 
     @Override
     public void onFail() throws JobException {
+        isFinished.set(true);
         super.onFail();
     }
 
     @Override
     public void onSuccess() throws JobException {
+        isFinished.set(true);
         super.onSuccess();
     }
 
     @Override
     public void cancel() throws JobException {
+        if (isFinished.get() || isCanceled.get()) {
+            return;
+        }
+        isCanceled.getAndSet(true);
+        if (null != stmtExecutor) {
+            stmtExecutor.cancel();
+        }
         super.cancel();
     }
 
