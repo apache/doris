@@ -150,7 +150,7 @@ Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
                                                : true)
                      << "task: " << (task ? task->fragment_context()->debug_string() : "");
     }
-    
+
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready_for_read = _ready_for_read.load();
     if (!ready_for_read && !push_to_blocking_queue() && task) {
