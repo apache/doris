@@ -680,12 +680,12 @@ public class NativeInsertStmt extends InsertStmt {
             // INSERT INTO SELECT ... FROM tbl
             if (!origColIdxsForExtendCols.isEmpty()) {
                 // extend the result expr by duplicating the related exprs
+                Map<String, Expr> slotToIndex = buildSlotToIndex(queryStmt.getResultExprs(), realTargetColumnNames,
+                        analyzer);
                 for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
                     if (entry.second == null) {
                         queryStmt.getResultExprs().add(queryStmt.getResultExprs().get(entry.first));
                     } else {
-                        Map<String, Expr> slotToIndex = buildSlotToIndex(queryStmt.getResultExprs(),
-                                realTargetColumnNames);
                         //substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
                         List<SlotRef> columns = entry.second.getRefColumns();
@@ -711,12 +711,12 @@ public class NativeInsertStmt extends InsertStmt {
         // expand colLabels in QueryStmt
         if (!origColIdxsForExtendCols.isEmpty()) {
             if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
+                Map<String, Expr> slotToIndex = buildSlotToIndex(queryStmt.getBaseTblResultExprs(),
+                        realTargetColumnNames, analyzer);
                 for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
                     if (entry.second == null) {
                         queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(entry.first));
                     } else {
-                        Map<String, Expr> slotToIndex = buildSlotToIndex(queryStmt.getBaseTblResultExprs(),
-                                realTargetColumnNames);
                         //substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
                         List<SlotRef> columns = entry.second.getRefColumns();
@@ -751,15 +751,16 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
-    private Map<String, Expr> buildSlotToIndex(ArrayList<Expr> row, List<String> realTargetColumnNames)
-            throws AnalysisException {
+    private Map<String, Expr> buildSlotToIndex(ArrayList<Expr> row, List<String> realTargetColumnNames,
+            Analyzer analyzer) throws AnalysisException {
         Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (int i = 0; i < queryStmt.getResultExprs().size(); i++) {
-            Expr expr = queryStmt.getResultExprs().get(i);
+        for (int i = 0; i < row.size(); i++) {
+            Expr expr = row.get(i);
+            expr.analyze(analyzer);
             if (!(expr instanceof StringLiteral
                     && ((StringLiteral) expr).getValue().equals(SelectStmt.DEFAULT_VALUE))) {
-                slotToIndex.put(realTargetColumnNames.get(i), row.get(i)
-                        .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
+                slotToIndex.put(realTargetColumnNames.get(i),
+                        expr.checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
             }
         }
         for (Column column : targetTable.getBaseSchema()) {
@@ -788,7 +789,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         ArrayList<Expr> row = rows.get(rowIdx);
-        Map<String, Expr> slotToIndex = buildSlotToIndex(row, realTargetColumnNames);
+        Map<String, Expr> slotToIndex = buildSlotToIndex(row, realTargetColumnNames, analyzer);
 
         if (!origColIdxsForExtendCols.isEmpty()) {
             /**
