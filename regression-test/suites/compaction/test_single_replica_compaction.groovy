@@ -142,6 +142,9 @@ suite("test_single_replica_compaction", "p2") {
         Boolean found = false
         String master_backend_id;
         List<String> follower_backend_id = new ArrayList<>()
+        // The test table only has one bucket with 3 replicas,
+        // and `show tablets` will return 3 different replicas with the same tablet.
+        // So we can use the same tablet_id to get tablet/trigger compaction with different backends.
         String tablet_id = tablets[0][0]
         for (String[] tablet in tablets) {
             String trigger_backend_id = tablet[2]

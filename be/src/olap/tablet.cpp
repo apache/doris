@@ -1456,9 +1456,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
     if (tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
         StorageEngine::instance()->get_peer_replica_info(tablet_id(), &replica_info,
                                                          &dummp_token)) {
-        std::string addr = replica_info.host;
-        addr += ":";
-        addr += std::to_string(replica_info.brpc_port);
+        std::string addr = replica_info.host + ":" + std::to_string(replica_info.brpc_port);
         fetch_addr.SetString(addr.c_str(), addr.length(), root.GetAllocator());
     } else {
         // -1 means do compaction locally
