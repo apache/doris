@@ -26,6 +26,7 @@ import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.data.ArrowRecordReader;
 import com.aliyun.odps.tunnel.TableTunnel;
+import com.aliyun.odps.tunnel.TunnelException;
 import com.aliyun.odps.type.TypeInfo;
 import com.aliyun.odps.type.TypeInfoFactory;
 import com.google.common.base.Strings;
@@ -60,27 +61,30 @@ public class MaxComputeJniScanner extends JniScanner {
     private static final String START_OFFSET = "start_offset";
     private static final String SPLIT_SIZE = "split_size";
     private static final String PUBLIC_ACCESS = "public_access";
+    private final RootAllocator arrowAllocator = new RootAllocator(Integer.MAX_VALUE);
     private final Map<String, MaxComputeTableScan> tableScans = new ConcurrentHashMap<>();
     private final String region;
     private final String project;
     private final String table;
     private PartitionSpec partitionSpec;
     private Set<String> partitionColumns;
-    private final MaxComputeTableScan curTableScan;
+    private MaxComputeTableScan curTableScan;
     private MaxComputeColumnValue columnValue;
     private long remainBatchRows = 0;
     private long totalRows = 0;
-    private RootAllocator arrowAllocator;
     private ArrowRecordReader curReader;
     private List<Column> readColumns;
     private Map<String, Integer> readColumnsToId;
     private long startOffset = -1L;
+    private int retryCount = 2;
     private long splitSize = -1L;
+    private final Map<String, String> refreshParams;
 
     public MaxComputeJniScanner(int batchSize, Map<String, String> params) {
         region = Objects.requireNonNull(params.get(REGION), "required property '" + REGION + "'.");
         project = Objects.requireNonNull(params.get(PROJECT), "required property '" + PROJECT + "'.");
         table = Objects.requireNonNull(params.get(TABLE), "required property '" + TABLE + "'.");
+        refreshParams = params;
         tableScans.putIfAbsent(tableUniqKey(), newTableScan(params));
         curTableScan = tableScans.get(tableUniqKey());
         String partitionSpec = params.get(PARTITION_SPEC);
@@ -102,6 +106,11 @@ public class MaxComputeJniScanner extends JniScanner {
             }
         }
         initTableInfo(columnTypes, requiredFields, predicates, batchSize);
+    }
+
+    public void refreshTableScan() {
+        curTableScan = newTableScan(refreshParams);
+        tableScans.put(tableUniqKey(), curTableScan);
     }
 
     private MaxComputeTableScan newTableScan(Map<String, String> params) {
@@ -132,6 +141,10 @@ public class MaxComputeJniScanner extends JniScanner {
                 readColumnsToId.put(fields[i], i);
             }
         }
+    }
+
+    @Override
+    public void open() throws IOException {
         // reorder columns
         List<Column> columnList = curTableScan.getSchema().getColumns();
         columnList.addAll(curTableScan.getSchema().getPartitionColumns());
@@ -142,10 +155,6 @@ public class MaxComputeJniScanner extends JniScanner {
         // Downloading columns data from Max compute only supports the order of table metadata.
         // We might get an error message if no sort here: Column reorder is not supported in legacy arrow mode.
         readColumns.sort((Comparator.comparing(o -> columnRank.get(o.getName()))));
-    }
-
-    @Override
-    public void open() throws IOException {
         if (readColumns.isEmpty()) {
             return;
         }
@@ -159,19 +168,27 @@ public class MaxComputeJniScanner extends JniScanner {
             long start = startOffset == -1L ? 0 : startOffset;
             long recordCount = session.getRecordCount();
             totalRows = splitSize > 0 ? Math.min(splitSize, recordCount) : recordCount;
-
-            arrowAllocator = new RootAllocator(Long.MAX_VALUE);
             partitionColumns = session.getSchema().getPartitionColumns().stream()
                     .map(Column::getName)
                     .collect(Collectors.toSet());
             List<Column> maxComputeColumns = new ArrayList<>(readColumns);
             maxComputeColumns.removeIf(e -> partitionColumns.contains(e.getName()));
             curReader = session.openArrowRecordReader(start, totalRows, maxComputeColumns, arrowAllocator);
+            remainBatchRows = totalRows;
+        } catch (TunnelException e) {
+            if (retryCount > 0 && e.getErrorMsg().contains("TableModified")) {
+                retryCount--;
+                // try to refresh table scan and re-open odps
+                refreshTableScan();
+                open();
+            } else {
+                retryCount = 2;
+                throw new IOException(e);
+            }
         } catch (Exception e) {
             close();
             throw new IOException(e);
         }
-        remainBatchRows = totalRows;
     }
 
     private Column createOdpsColumn(int colIdx, ColumnType dorisType) {
@@ -204,9 +221,11 @@ public class MaxComputeJniScanner extends JniScanner {
             case DOUBLE:
                 odpsType = TypeInfoFactory.DOUBLE;
                 break;
+            case DATETIME:
             case DATETIMEV2:
                 odpsType = TypeInfoFactory.DATETIME;
                 break;
+            case DATE:
             case DATEV2:
                 odpsType = TypeInfoFactory.DATE;
                 break;
@@ -237,7 +256,7 @@ public class MaxComputeJniScanner extends JniScanner {
         startOffset = -1;
         splitSize = -1;
         if (curReader != null) {
-            arrowAllocator.close();
+            arrowAllocator.releaseBytes(arrowAllocator.getAllocatedMemory());
             curReader.close();
             curReader = null;
         }
@@ -279,7 +298,9 @@ public class MaxComputeJniScanner extends JniScanner {
                         Integer readColumnId = readColumnsToId.get(partitionColumn);
                         if (readColumnId != null && partitionValue != null) {
                             MaxComputePartitionValue value = new MaxComputePartitionValue(partitionValue);
-                            appendData(readColumnId, value);
+                            for (int i = 0; i < batchRows; i++) {
+                                appendData(readColumnId, value);
+                            }
                         }
                     }
                 }
