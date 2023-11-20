@@ -422,9 +422,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
 
-    public static final String FULL_AUTO_ANALYZE_START_TIME = "full_auto_analyze_start_time";
+    public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
-    public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
+    public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
 
     public static final String SQL_DIALECT = "sql_dialect";
 
@@ -432,7 +432,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
 
-    public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
+    public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
     public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
 
@@ -1277,18 +1277,6 @@ public class SessionVariable implements Serializable, Writable {
                     + " use a skiplist to optimize the intersection."})
     public int invertedIndexConjunctionOptThreshold = 1000;
 
-    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
-            description = {"该参数定义自动ANALYZE例程的开始时间",
-                    "This parameter defines the start time for the automatic ANALYZE routine."},
-            flag = VariableMgr.GLOBAL)
-    public String fullAutoAnalyzeStartTime = "00:00:00";
-
-    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
-            description = {"该参数定义自动ANALYZE例程的结束时间",
-                    "This parameter defines the end time for the automatic ANALYZE routine."},
-            flag = VariableMgr.GLOBAL)
-    public String fullAutoAnalyzeEndTime = "23:59:59";
-
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
     public String sqlDialect = "doris";
@@ -1303,10 +1291,22 @@ public class SessionVariable implements Serializable, Writable {
             options = {"none", "sql_cache", "partition_cache"})
     public String testQueryCacheHit = "none";
 
-    @VariableMgr.VarAttr(name = ENABLE_FULL_AUTO_ANALYZE,
+    @VariableMgr.VarAttr(name = ENABLE_AUTO_ANALYZE,
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
-    public boolean enableFullAutoAnalyze = true;
+    public boolean enableAutoAnalyze = true;
+
+    @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的开始时间",
+                    "This parameter defines the start time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String autoAnalyzeStartTime = "00:00:00";
+
+    @VariableMgr.VarAttr(name = AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的结束时间",
+                    "This parameter defines the end time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String autoAnalyzeEndTime = "23:59:59";
 
     @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
             description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
