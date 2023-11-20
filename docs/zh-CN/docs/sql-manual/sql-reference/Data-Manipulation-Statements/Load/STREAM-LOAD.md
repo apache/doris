@@ -156,6 +156,8 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
   
 30. escape <version since="dev" type="inline"> 转义符。用于转义在字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。 </version>
 
+29. ignore_mode: <version since="dev" type="inline"> ignore模式，仅当目标表为开启merge-on-write的unique表时有效。开启后，对于插入的行，如果该行的key在表中不存在，则插入该行数据。如果key在表中不存在，则丢弃这行数据。当目标表中存在sequence列时stream无法开启ignore mode。</version>
+
 ### Example
 
 1. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重。指定超时时间为 100 秒

@@ -205,7 +205,7 @@ public class LoadingTaskPlanner {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds,
                 Config.enable_single_replica_load);
-        olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, singleTabletLoadPerSink, strictMode);
+        olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, singleTabletLoadPerSink, strictMode, false);
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
 
         olapTableSink.complete(analyzer);

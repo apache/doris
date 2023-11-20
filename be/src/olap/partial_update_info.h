@@ -23,7 +23,7 @@ namespace doris {
 
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,
-              const std::set<string>& partial_update_cols, bool is_strict_mode) {
+              const std::set<string>& partial_update_cols, bool is_strict_mode, bool is_unique_key_ignore_mode) {
         is_partial_update = partial_update;
         partial_update_input_columns = partial_update_cols;
         missing_cids.clear();
@@ -40,6 +40,7 @@ struct PartialUpdateInfo {
             }
         }
         this->is_strict_mode = is_strict_mode;
+        this->is_unique_key_ignore_mode = is_unique_key_ignore_mode;
     }
 
     bool is_partial_update {false};
@@ -50,5 +51,6 @@ struct PartialUpdateInfo {
     // to generate a new row, only available in non-strict mode
     bool can_insert_new_rows_in_partial_update {true};
     bool is_strict_mode {false};
+    bool is_unique_key_ignore_mode {false};
 };
 } // namespace doris

@@ -356,6 +356,10 @@ public:
     }
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
+    void set_is_unique_key_ignore_mode(bool is_unique_key_ignore_mode) {
+        _is_unique_key_ignore_mode = is_unique_key_ignore_mode;
+    }
+    bool is_unique_key_ignore_mode() const { return _is_unique_key_ignore_mode; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -393,6 +397,7 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
+    bool _is_unique_key_ignore_mode = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

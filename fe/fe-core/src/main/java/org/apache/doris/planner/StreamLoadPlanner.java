@@ -263,7 +263,7 @@ public class StreamLoadPlanner {
             olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         }
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
-                taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+                taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), taskInfo.isIgnoreMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
@@ -480,7 +480,7 @@ public class StreamLoadPlanner {
             olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         }
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), taskInfo.isIgnoreMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 

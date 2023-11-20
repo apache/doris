@@ -916,6 +916,11 @@ void DeleteBitmap::add(const BitmapKey& bmk, uint32_t row_id) {
     delete_bitmap[bmk].add(row_id);
 }
 
+void DeleteBitmap::add_ignore(const BitmapKey& bmk) {
+    std::lock_guard l(lock);
+    delete_bitmap_ignore.insert(bmk);
+}
+
 int DeleteBitmap::remove(const BitmapKey& bmk, uint32_t row_id) {
     std::lock_guard l(lock);
     auto it = delete_bitmap.find(bmk);
@@ -995,6 +1000,23 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
     for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
         auto& [k, bm] = *it;
         if (k >= end) {
+            break;
+        }
+        subset_rowset_map->set(k, bm);
+    }
+}
+
+void DeleteBitmap::subset_ignore(const BitmapKey& start, const BitmapKey& end,
+                          DeleteBitmap* subset_rowset_map) const {
+    roaring::Roaring roaring;
+    DCHECK(start < end);
+    std::shared_lock l(lock);
+    for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+        auto& [k, bm] = *it;
+        if (k >= end) {
+            break;
+        }
+        if (delete_bitmap_ignore.find(k) == delete_bitmap_ignore.end()) {
             break;
         }
         subset_rowset_map->set(k, bm);

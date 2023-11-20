@@ -105,6 +105,7 @@
 #include "olap/txn_manager.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/define_primitive_type.h"
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
@@ -2881,6 +2882,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_schema = rowset->tablet_schema();
     bool is_partial_update = rowset_writer && rowset_writer->is_partial_update();
+    bool is_unique_key_ignore_mode = rowset_schema->is_unique_key_ignore_mode();
     bool have_input_seq_column = false;
     if (is_partial_update && rowset_schema->has_sequence_col()) {
         std::vector<uint32_t> including_cids =
@@ -2957,54 +2959,61 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             if (st.is<KEY_NOT_FOUND>()) {
                 continue;
             }
-
-            if (st.is<KEY_ALREADY_EXISTS>() && (!is_partial_update || have_input_seq_column)) {
-                // `st.is<KEY_ALREADY_EXISTS>()` means that there exists a row with the same key and larger value
-                // in seqeunce column.
-                // - If the current load is not a partial update, we just delete current row.
-                // - Otherwise, it means that we are doing the alignment process in publish phase due to conflicts
-                // during concurrent partial updates. And there exists another load which introduces a row with
-                // the same keys and larger sequence column value published successfully after the commit phase
-                // of the current load.
-                //     - If the columns we update include sequence column, we should delete the current row becase the
-                //       partial update on the current row has been `overwritten` by the previous one with larger sequence
-                //       column value.
-                //     - Otherwise, we should combine the values of the missing columns in the previous row and the values
-                //       of the including columns in the current row into a new row.
-                delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
-                                   row_id);
-                continue;
+            if (UNLIKELY(is_unique_key_ignore_mode)) {
+                if (st.is<OK>() || st.is<KEY_ALREADY_EXISTS>()) {
+                    delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                       row_id);
+                    delete_bitmap->add_ignore({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON});
+                }
+            } else {
+                if (st.is<KEY_ALREADY_EXISTS>() && (!is_partial_update || have_input_seq_column)) {
+                    // `st.is<KEY_ALREADY_EXISTS>()` means that there exists a row with the same key and larger value
+                    // in seqeunce column.
+                    // - If the current load is not a partial update, we just delete current row.
+                    // - Otherwise, it means that we are doing the alignment process in publish phase due to conflicts
+                    // during concurrent partial updates. And there exists another load which introduces a row with
+                    // the same keys and larger sequence column value published successfully after the commit phase
+                    // of the current load.
+                    //     - If the columns we update include sequence column, we should delete the current row becase the
+                    //       partial update on the current row has been `overwritten` by the previous one with larger sequence
+                    //       column value.
+                    //     - Otherwise, we should combine the values of the missing columns in the previous row and the values
+                    //       of the including columns in the current row into a new row.
+                    delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                       row_id);
+                    continue;
+                }
+                if (is_partial_update && rowset_writer != nullptr) {
+                    // In publish version, record rows to be deleted for concurrent update
+                    // For example, if version 5 and 6 update a row, but version 6 only see
+                    // version 4 when write, and when publish version, version 5's value will
+                    // be marked as deleted and it's update is losed.
+                    // So here we should read version 5's columns and build a new row, which is
+                    // consists of version 6's update columns and version 5's origin columns
+                    // here we build 2 read plan for ori values and update values
+                    prepare_to_read(loc, pos, &read_plan_ori);
+                    prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos, &read_plan_update);
+                    rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
+                    ++pos;
+                    // delete bitmap will be calculate when memtable flush and
+                    // publish. The two stages may see different versions.
+                    // When there is sequence column, the currently imported data
+                    // of rowset may be marked for deletion at memtablet flush or
+                    // publish because the seq column is smaller than the previous
+                    // rowset.
+                    // just set 0 as a unified temporary version number, and update to
+                    // the real version number later.
+                    delete_bitmap->add(
+                            {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                            loc.row_id);
+                    delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                       row_id);
+                    continue;
+                }
+                // when st = ok
+                delete_bitmap->add({loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                                   loc.row_id);
             }
-            if (is_partial_update && rowset_writer != nullptr) {
-                // In publish version, record rows to be deleted for concurrent update
-                // For example, if version 5 and 6 update a row, but version 6 only see
-                // version 4 when write, and when publish version, version 5's value will
-                // be marked as deleted and it's update is losed.
-                // So here we should read version 5's columns and build a new row, which is
-                // consists of version 6's update columns and version 5's origin columns
-                // here we build 2 read plan for ori values and update values
-                prepare_to_read(loc, pos, &read_plan_ori);
-                prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos, &read_plan_update);
-                rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
-                ++pos;
-                // delete bitmap will be calculate when memtable flush and
-                // publish. The two stages may see different versions.
-                // When there is sequence column, the currently imported data
-                // of rowset may be marked for deletion at memtablet flush or
-                // publish because the seq column is smaller than the previous
-                // rowset.
-                // just set 0 as a unified temporary version number, and update to
-                // the real version number later.
-                delete_bitmap->add(
-                        {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                        loc.row_id);
-                delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
-                                   row_id);
-                continue;
-            }
-            // when st = ok
-            delete_bitmap->add({loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                               loc.row_id);
         }
         remaining -= num_read;
     }
@@ -3396,7 +3405,7 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
         for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
             src.segment_id = seg_id;
             DeleteBitmap subset_map(tablet_id());
-            input_delete_bitmap.subset({rowset->rowset_id(), seg_id, start_version},
+            input_delete_bitmap.subset_ignore({rowset->rowset_id(), seg_id, start_version},
                                        {rowset->rowset_id(), seg_id, end_version}, &subset_map);
             // traverse all versions and convert rowid
             for (auto iter = subset_map.delete_bitmap.begin();
