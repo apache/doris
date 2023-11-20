@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/internal_service.pb.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>
