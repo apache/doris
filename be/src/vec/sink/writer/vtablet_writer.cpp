@@ -1151,7 +1151,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
 
     // add all counter
     _input_rows_counter = ADD_COUNTER(profile, "RowsRead", TUnit::UNIT);
-    _output_rows_counter = ADD_COUNTER(profile, "RowsReturned", TUnit::UNIT);
+    _output_rows_counter = ADD_COUNTER(profile, "RowsProduced", TUnit::UNIT);
     _filtered_rows_counter = ADD_COUNTER(profile, "RowsFiltered", TUnit::UNIT);
     _send_data_timer = ADD_TIMER(profile, "SendDataTime");
     _wait_mem_limit_timer = ADD_CHILD_TIMER(profile, "WaitMemLimitTime", "SendDataTime");
