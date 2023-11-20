@@ -240,7 +240,7 @@ void DorisCompoundFileWriter::copyFile(const char* fileName, lucene::store::Inde
 
 class DorisCompoundDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {
 private:
-    io::FileWriterPtr writer;
+    io::FileWriterPtr _writer;
 
 protected:
     void flushBuffer(const uint8_t* b, const int32_t size) override;
@@ -380,9 +380,9 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
 
 void DorisCompoundDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem,
                                                  const char* path) {
-    Status status = fileSystem->create_file(path, &writer);
+    Status status = fileSystem->create_file(path, &_writer);
     if (!status.ok()) {
-        writer.reset(nullptr);
+        _writer.reset(nullptr);
         auto err = "Create compound file error: " + status.to_string();
         LOG(WARNING) << err;
         _CLTHROWA(CL_ERR_IO, err.c_str());
@@ -390,7 +390,7 @@ void DorisCompoundDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileS
 }
 
 DorisCompoundDirectory::FSIndexOutput::~FSIndexOutput() {
-    if (writer) {
+    if (_writer) {
         try {
             FSIndexOutput::close();
             DBUG_EXECUTE_IF(
@@ -402,22 +402,20 @@ DorisCompoundDirectory::FSIndexOutput::~FSIndexOutput() {
                     })
         } catch (CLuceneError& err) {
             //ignore errors...
-            writer.reset(nullptr);
             LOG(WARNING) << "FSIndexOutput deconstruct error: " << err.what();
         }
-        writer.reset(nullptr);
     }
 }
 
 void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const int32_t size) {
-    if (writer != nullptr && b != nullptr && size > 0) {
+    if (_writer != nullptr && b != nullptr && size > 0) {
         Slice data {b, (size_t)size};
-        Status st = writer->append(data);
+        Status st = _writer->append(data);
         if (!st.ok()) {
             LOG(WARNING) << "File IO Write error: " << st.to_string();
         }
     } else {
-        if (writer == nullptr) {
+        if (_writer == nullptr) {
             LOG(WARNING) << "File writer is nullptr in DorisCompoundDirectory::FSIndexOutput, "
                             "ignore flush.";
         } else if (b == nullptr) {
@@ -443,36 +441,36 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
             LOG(WARNING) << "FSIndexOutput close, BufferedIndexOutput close IO error: "
                          << err.what();
         }
-        writer.reset(nullptr);
+        _writer.reset(nullptr);
         _CLTHROWA(err.number(), err.what());
     }
-    if (writer) {
-        Status ret = writer->finalize();
+    if (_writer) {
+        Status ret = _writer->finalize();
         DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._set_writer_finalize_status_error",
                         { ret = Status::Error<INTERNAL_ERROR>("writer finalize status error"); })
         if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer finalize error: " << ret.to_string();
-            writer.reset(nullptr);
+            _writer.reset(nullptr);
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }
-        ret = writer->close();
+        ret = _writer->close();
         DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._set_writer_close_status_error",
                         { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
         if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer close error: " << ret.to_string();
-            writer.reset(nullptr);
+            _writer.reset(nullptr);
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }
     } else {
         LOG(WARNING) << "File writer is nullptr, ignore finalize and close.";
     }
-    writer.reset(nullptr);
+    _writer.reset(nullptr);
 }
 
 int64_t DorisCompoundDirectory::FSIndexOutput::length() const {
-    CND_PRECONDITION(writer != nullptr, "file is not open");
+    CND_PRECONDITION(_writer != nullptr, "file is not open");
     int64_t ret;
-    if (!writer->fs()->file_size(writer->path(), &ret).ok()) {
+    if (!_writer->fs()->file_size(_writer->path(), &ret).ok()) {
         return -1;
     }
     return ret;
