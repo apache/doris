@@ -1338,7 +1338,7 @@ void AggregationNode::_close_with_serialized_key() {
             [&](auto&& agg_method) -> void {
                 auto& data = agg_method.data;
                 data.for_each_mapped([&](auto& mapped) {
-                    if (mapped) {
+                    if (mapped && *mapped != '\0') {
                         _destroy_agg_status(mapped);
                         mapped = nullptr;
                     }
