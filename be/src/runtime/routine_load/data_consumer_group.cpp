@@ -340,11 +340,15 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
             VLOG(3) << "get pulsar message"
                     << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
 
-            Status st = (pulsar_pipe.get()->*append_data)(static_cast<const char*>(msg->getData()),
-                                                          static_cast<size_t>(len));
+            //filter invalid prefix of json
+            const uint8_t* filter_data = filter_invalid_prefix_of_json(msg->getData());
+            size_t  filter_len = len_of_uint8_t(filter_data);
+            // append filtered data
+            Status st = (pulsar_pipe.get()->*append_data)(static_cast<const char*>(filter_data), filter_len);
 
             if (st.ok()) {
                 received_rows++;
+                // len of receive origin message from pulsar
                 left_bytes -= len;
                 ack_offset[partition] = msg_id;
                 VLOG(3) << "consume partition" << partition << " - " << msg_id;
@@ -391,6 +395,43 @@ void PulsarDataConsumerGroup::get_backlog_nums(std::shared_ptr<StreamLoadContext
                     backlog_num;
         }
     }
+}
+
+const uint8_t* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const uint8_t* data) {
+    // first index of '['
+    int first_left_square_bracket_index = -1;
+    // first index of '{'
+    int first_left_curly_bracket_index  = -1;
+    for (int i = 0; data[i] != '\0'; ++i) {
+        if (first_left_square_bracket_index == -1 && data[i] == '[') {
+            first_left_square_bracket_index = i;
+        }
+        if (first_left_curly_bracket_index == -1 && data[i] == '{') {
+            first_left_curly_bracket_index = i;
+        }
+    }
+    int json_start = -1;
+    if (first_left_square_bracket_index >= 0 && first_left_curly_bracket_index >= 0) {
+        if (first_left_square_bracket_index < first_left_curly_bracket_index) {
+            return data + first_left_square_bracket_index;
+        } else {
+            return data + first_left_curly_bracket_index;
+        }
+    } else if (first_left_square_bracket_index >= 0) {
+        return data + first_left_square_bracket_index;
+    } else if (first_left_curly_bracket_index >= 0) {
+        return data + first_left_curly_bracket_index;
+    } else {
+        return data;
+    }
+}
+
+size_t PulsarDataConsumerGroup::len_of_uint8_t(const uint8_t* data) {
+    size_t length = 0;
+    while (data[length] != '\0') {
+        ++length;
+    }
+    return length;
 }
 
 } // namespace doris
