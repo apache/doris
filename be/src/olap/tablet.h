@@ -277,6 +277,8 @@ public:
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
     std::vector<Version> get_all_versions();
 
+    std::vector<RowsetSharedPtr> collect_consecutive_empty_rowsets();
+
     void calculate_cumulative_point();
     // TODO(ygl):
     bool is_primary_replica() { return false; }
