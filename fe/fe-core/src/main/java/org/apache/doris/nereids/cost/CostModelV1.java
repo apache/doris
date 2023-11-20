@@ -22,6 +22,8 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -42,8 +44,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -277,6 +281,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             );
         }
 
+        int parallelInstance = Math.max(1, context.getSessionVariable().getParallelExecInstanceNum());
+        int totalInstanceNumber = parallelInstance * beNumber;
         if (context.isBroadcastJoin()) {
             // compared with shuffle join, bc join will be taken a penalty for both build and probe side;
             // currently we use the following factor as the penalty factor:
@@ -287,8 +293,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             //                    on the output rows, taken on outputRowCount()
             double probeSideFactor = 1.0;
             double buildSideFactor = context.getSessionVariable().getBroadcastRightTableScaleFactor();
-            int parallelInstance = Math.max(1, context.getSessionVariable().getParallelExecInstanceNum());
-            int totalInstanceNumber = parallelInstance * beNumber;
             if (buildSideFactor <= 1.0) {
                 if (buildStats.computeSize() < 1024 * 1024) {
                     // no penalty to broadcast if build side is small
@@ -304,10 +308,39 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     0
             );
         }
-        return CostV1.of(context.getSessionVariable(), leftRowCount + rightRowCount + outputRowCount,
+        return CostV1.of(context.getSessionVariable(),
+                (leftRowCount + rightRowCount + outputRowCount)
+                        * skewPenalty(physicalHashJoin, probeStats, buildStats, totalInstanceNumber),
                 rightRowCount,
                 0
         );
+    }
+
+    private double skewPenalty(PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin,
+                               Statistics probeStats,
+                               Statistics buildStats,
+                               int totalInstanceNumber) {
+        double penalty = 1.0;
+        for (Expression conj : physicalHashJoin.getHashJoinConjuncts()) {
+            EqualTo eq = (EqualTo) JoinUtils.swapEqualToForChildrenOrder(
+                    (EqualTo) conj, physicalHashJoin.left().getOutputSet());
+            ColumnStatistic leftColStats = probeStats.findColumnStatistics(eq.left());
+            if (leftColStats != null && !leftColStats.isUnKnown()) {
+                if (leftColStats.ndv < beNumber) {
+                    penalty = Math.max(totalInstanceNumber / Math.max(1.0, leftColStats.ndv), penalty);
+                    break;
+                }
+            }
+
+            ColumnStatistic rightColStats = buildStats.findColumnStatistics(eq.right());
+            if (rightColStats != null && !rightColStats.isUnKnown()) {
+                if (rightColStats.ndv < beNumber) {
+                    penalty = Math.max(totalInstanceNumber / Math.max(1.0, rightColStats.ndv), penalty);
+                    break;
+                }
+            }
+        }
+        return penalty;
     }
 
     @Override

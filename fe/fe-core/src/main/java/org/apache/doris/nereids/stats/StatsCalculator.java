@@ -1025,7 +1025,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 .setMaxValue(newRange.getHigh())
                 .setNdv(newRange.getDistinctValues())
                 .setNumNulls(leftStats.numNulls + rightStats.numNulls)
-                .setAvgSizeByte(newAverageRowSize);
+                .setAvgSizeByte(newAverageRowSize)
+                .setIsUnknown(leftStats.isUnKnown || rightStats.isUnKnown);
         return columnStatisticBuilder.build();
     }
 
