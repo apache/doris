@@ -44,6 +44,7 @@ import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 import org.apache.doris.nereids.rules.rewrite.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.rewrite.LeadingJoin;
+import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 
 import java.util.List;
 import java.util.Objects;
@@ -124,6 +125,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
+            bottomUp(new SemiJoinCommute()),
             bottomUp(
                     new CheckLeadingJoin(),
                     new CollectSubQueryAlias(),

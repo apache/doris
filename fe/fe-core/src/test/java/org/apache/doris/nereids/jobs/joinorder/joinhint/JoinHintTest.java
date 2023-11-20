@@ -101,7 +101,7 @@ public class JoinHintTest extends TPCHTestBase {
                     used++;
                     break;
                 case UNUSED:
-                    used++;
+                    unused++;
                     break;
                 case SYNTAX_ERROR:
                     syntaxError++;

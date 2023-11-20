@@ -62,6 +62,8 @@ public class LeadingHint extends Hint {
 
     private final List<Pair<Long, Expression>> filters = new ArrayList<>();
 
+    private final Map<Expression, JoinType> filterJoinType = Maps.newLinkedHashMap();
+
     private final List<JoinConstraint> joinConstraintList = new ArrayList<>();
 
     private Long innerJoinBitmap = 0L;
@@ -192,6 +194,29 @@ public class LeadingHint extends Hint {
 
     public List<Pair<Long, Expression>> getFilters() {
         return filters;
+    }
+
+    public void putFilterJoinType(Expression filter, JoinType joinType) {
+        filterJoinType.put(filter, joinType);
+    }
+
+    /**
+     * find out whether filters can match original joinType
+     * @param filters filters needs to put on this join
+     * @param joinType join type computed by join constraint
+     * @return can filters matched
+     */
+    public boolean isFilterJoinTypeMatched(List<Expression> filters, JoinType joinType) {
+        for (Expression filter : filters) {
+            JoinType originalJoinType = filterJoinType.get(filter);
+            if (originalJoinType.equals(joinType)
+                    || originalJoinType.isOuterJoin() && joinType.isOuterJoin()
+                    || originalJoinType.isSemiJoin() && joinType.isSemiJoin()) {
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     public List<JoinConstraint> getJoinConstraintList() {
@@ -398,6 +423,9 @@ public class LeadingHint extends Hint {
                     if (joinType == null) {
                         this.setStatus(HintStatus.SYNTAX_ERROR);
                         this.setErrorMessage("JoinType can not be null");
+                    } else if (!isFilterJoinTypeMatched(conditions, joinType)) {
+                        this.setStatus(HintStatus.UNUSED);
+                        this.setErrorMessage("condition does not matched joinType");
                     }
                     if (!this.isSuccess()) {
                         return null;

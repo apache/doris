@@ -63,6 +63,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
+                    leading.putFilterJoinType(expression, join.getJoinType());
                 }
                 expressions = join.getOtherJoinConjuncts();
                 for (Expression expression : expressions) {
@@ -71,6 +72,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
+                    leading.putFilterJoinType(expression, join.getJoinType());
                 }
                 Long leftHand = LongBitmap.computeTableBitmap(join.left().getInputRelations());
                 Long rightHand = LongBitmap.computeTableBitmap(join.right().getInputRelations());
