@@ -76,7 +76,7 @@
 namespace doris {
 class QueryStatistics;
 
-const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
+const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsProducedRate";
 
 ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : _id(tnode.node_id),
@@ -127,11 +127,12 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
     _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
-    _rows_returned_counter = ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputRows", TUnit::UNIT, 1);
+    _rows_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
     _output_bytes_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBytes", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BytesProduced", TUnit::BYTES, 1);
     _block_count_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBlockCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,

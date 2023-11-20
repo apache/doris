@@ -133,8 +133,8 @@ protected:
 
     void init_sink_common_profile() {
         _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
-        _output_rows_counter = ADD_COUNTER_WITH_LEVEL(_profile, "OutputRows", TUnit::UNIT, 1);
-        _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "OutputBlockCount", TUnit::UNIT, 1);
+        _output_rows_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
+        _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     }
 };
 
