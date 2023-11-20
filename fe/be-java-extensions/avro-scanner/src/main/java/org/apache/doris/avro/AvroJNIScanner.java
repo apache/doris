@@ -57,6 +57,7 @@ public class AvroJNIScanner extends JniScanner {
     private final String uri;
     private final Map<String, String> requiredParams;
     private final Integer fetchSize;
+    private final ClassLoader classLoader;
     private int[] requiredColumnIds;
     private String[] columnTypes;
     private String[] requiredFields;
@@ -81,6 +82,7 @@ public class AvroJNIScanner extends JniScanner {
      * @param requiredParams required params
      */
     public AvroJNIScanner(int fetchSize, Map<String, String> requiredParams) {
+        this.classLoader = this.getClass().getClassLoader();
         this.requiredParams = requiredParams;
         this.fetchSize = fetchSize;
         this.isGetTableSchema = Boolean.parseBoolean(requiredParams.get(AvroProperties.IS_GET_TABLE_SCHEMA));
@@ -142,6 +144,7 @@ public class AvroJNIScanner extends JniScanner {
 
     @Override
     public void open() throws IOException {
+        Thread.currentThread().setContextClassLoader(classLoader);
         switch (fileType) {
             case FILE_HDFS:
                 this.avroReader = new HDFSFileReader(uri);

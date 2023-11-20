@@ -77,5 +77,6 @@ public class HDFSFileReader extends AvroReader {
         if (Objects.nonNull(dataReader)) {
             dataReader.close();
         }
+        fileSystem.close();
     }
 }

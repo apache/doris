@@ -97,5 +97,6 @@ public class S3FileReader extends AvroReader {
         if (Objects.nonNull(dataReader)) {
             dataReader.close();
         }
+        fileSystem.close();
     }
 }
