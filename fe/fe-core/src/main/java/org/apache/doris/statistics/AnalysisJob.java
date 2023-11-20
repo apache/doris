@@ -188,6 +188,7 @@ public class AnalysisJob {
 
     public void deregisterJob() {
         analysisManager.removeJob(jobInfo.jobId);
+        analysisManager.analysisJobIdToTaskMap.remove(jobInfo.jobId);
     }
 
     protected void syncLoadStats() {
