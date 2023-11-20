@@ -156,7 +156,7 @@ suite("one_level_nestedtypes_with_s3data") {
     ]
     int fi = 0
     for (String f : array_files) {
-        sql "truncate table ${table_names[2]};"
+        sql "truncate table ${table_names[0]};"
 //        load_from_tvf(table_names[0], f, format_order[fi])
         load_from_s3(table_names[0], f, format_order[fi])
         ++ fi
@@ -198,7 +198,7 @@ suite("one_level_nestedtypes_with_s3data") {
     ]
     fi = 0
     for (String f : map_files) {
-        sql "truncate table ${table_names[2]};"
+        sql "truncate table ${table_names[1]};"
 //        load_from_tvf(table_names[1], f, format_order[fi])
         load_from_s3(table_names[1], f, format_order[fi])
         ++ fi
