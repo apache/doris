@@ -605,7 +605,8 @@ public class DateLiteral extends LiteralExpr {
     }
 
     private void fillPaddedValue(char[] buffer, int start, long value, int length) {
-        for (int i = start + length - 1; i >= start; i--) {
+        int end = start + length;
+        for (int i = end - 1; i >= start; i--) {
             buffer[i] = (char) ('0' + value % 10);
             value /= 10;
         }
@@ -636,10 +637,11 @@ public class DateLiteral extends LiteralExpr {
 
         if (type.isDatetimeV2()) {
             int scale = ((ScalarType) type).getScalarScale();
-            long ms = (long) (microsecond / SCALE_FACTORS[scale] * SCALE_FACTORS[scale]);
-            if (ms != 0) {
+            long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
+
+            if (scaledMicroseconds != 0) {
                 dateTimeChars[19] = '.';
-                fillPaddedValue(dateTimeChars, 20, (int) ms, scale);
+                fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
                 return new String(dateTimeChars, 0, 20 + scale);
             }
         }
