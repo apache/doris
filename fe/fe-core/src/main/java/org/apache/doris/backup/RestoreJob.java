@@ -1047,6 +1047,7 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
                             localTbl.getTimeSeriesCompactionFileCountThreshold(),
                             localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                            localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             localTbl.storeRowColumn(),
                             localTbl.isDynamicSchema(),
                             binlogConfig);

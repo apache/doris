@@ -470,6 +470,16 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                         tablet_meta_info.time_series_compaction_time_threshold_seconds);
                 need_to_save = true;
             }
+            if (tablet_meta_info.__isset.time_series_compaction_empty_rowsets_threshold) {
+                if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                    status = Status::InvalidArgument(
+                            "only time series compaction policy support time series config");
+                    continue;
+                }
+                tablet->tablet_meta()->set_time_series_compaction_empty_rowsets_threshold(
+                        tablet_meta_info.time_series_compaction_empty_rowsets_threshold);
+                need_to_save = true;
+            }
             if (tablet_meta_info.__isset.replica_id) {
                 tablet->tablet_meta()->set_replica_id(tablet_meta_info.replica_id);
             }
