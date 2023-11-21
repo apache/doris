@@ -310,7 +310,7 @@ public:
             } else {
                 const auto str_ref = col_string->get_data_at(i);
                 const char* value = str_ref.data;
-                size_t value_size = str_ref.size;
+                size_t value_size = std::min(str_ref.size, IPV6_BINARY_LENGTH);
                 memcpy(ipv6_addresses[i].data, value, value_size);
                 memset(ipv6_addresses[i].data + value_size, 0, IPV6_BINARY_LENGTH - value_size);
             }
