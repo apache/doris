@@ -1363,6 +1363,8 @@ std::vector<RowsetSharedPtr> Tablet::pick_first_consecutive_empty_rowsets() {
 
         // identify two consecutive rowsets that are empty
         if (rowset->num_segments() == 0 && next_rowset->num_segments() == 0 &&
+            !rowset->rowset_meta()->has_delete_predicate() &&
+            !next_rowset->rowset_meta()->has_delete_predicate() &&
             rowset->end_version() == next_rowset->start_version() - 1) {
             consecutive_empty_rowsets.emplace_back(rowset);
             consecutive_empty_rowsets.emplace_back(next_rowset);
@@ -1371,6 +1373,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_first_consecutive_empty_rowsets() {
 
             // keep searching for consecutive empty rowsets
             while (next_index < len && candidate_rowsets[next_index]->num_segments() == 0 &&
+                   !candidate_rowsets[next_index]->rowset_meta()->has_delete_predicate() &&
                    rowset->end_version() == candidate_rowsets[next_index]->start_version() - 1) {
                 consecutive_empty_rowsets.emplace_back(candidate_rowsets[next_index]);
                 rowset = candidate_rowsets[next_index++];

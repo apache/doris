@@ -63,6 +63,13 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         return 0;
     }
 
+    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets();
+    if (!consecutive_empty_rowsets.empty() &&
+        consecutive_empty_rowsets.size() >
+                tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold()) {
+        return score;
+    }
+
     // Condition 1: the size of input files for compaction meets the requirement of parameter compaction_goal_size
     int64_t compaction_goal_size_mbytes =
             tablet->tablet_meta()->time_series_compaction_goal_size_mbytes();
@@ -92,8 +99,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         tablet->set_last_cumu_compaction_success_time(now);
     }
 
-    // Condition 4: If their are many empty rowsets, maybe should be compacted
-    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets();
+    // If their are many empty rowsets, maybe should be compacted
     if (!consecutive_empty_rowsets.empty()) {
         return score;
     }
@@ -179,6 +185,20 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         return 0;
     }
 
+    // If their are many empty rowsets, maybe should be compacted
+    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets();
+    if (!consecutive_empty_rowsets.empty() &&
+        consecutive_empty_rowsets.size() >
+                tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold()) {
+        VLOG_NOTICE << "tablet is " << tablet->tablet_id()
+                    << ", there are too many consecutive empty rowsets, size is "
+                    << consecutive_empty_rowsets.size();
+        input_rowsets->clear();
+        input_rowsets->insert(input_rowsets->end(), consecutive_empty_rowsets.begin(),
+                              consecutive_empty_rowsets.end());
+        return 0;
+    }
+
     int transient_size = 0;
     *compaction_score = 0;
     input_rowsets->clear();
@@ -226,6 +246,7 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
                 total_size = 0;
                 continue;
             }
+
             return transient_size;
         }
     }
@@ -259,8 +280,7 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         }
     }
 
-    // Condition 4: If their are many empty rowsets, maybe should be compacted
-    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets();
+    // If their are many empty rowsets, maybe should be compacted
     if (!consecutive_empty_rowsets.empty()) {
         input_rowsets->clear();
         input_rowsets->insert(input_rowsets->end(), consecutive_empty_rowsets.begin(),
