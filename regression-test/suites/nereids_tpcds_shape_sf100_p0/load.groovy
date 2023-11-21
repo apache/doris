@@ -2536,1573 +2536,1573 @@ alter table store_sales modify column ss_wholesale_cost set stats ('row_count'='
 """
 
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='Y', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='Y', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='2003-01-01', 'max_value'='2003-12-31', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='2003-01-01', 'max_value'='2003-12-31', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='1999-01-01', 'max_value'='1999-12-31', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='1999-01-01', 'max_value'='1999-12-31', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='35793', 'ndv'='35630', 'num_nulls'='0', 'min_value'='1900-01-02', 'max_value'='1997-12-31', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='35793', 'ndv'='35630', 'num_nulls'='0', 'min_value'='1900-01-02', 'max_value'='1997-12-31', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2002-01-01', 'max_value'='2002-12-31', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2002-01-01', 'max_value'='2002-12-31', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='35065', 'ndv'='35118', 'num_nulls'='0', 'min_value'='2004-01-01', 'max_value'='2100-01-01', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='35065', 'ndv'='35118', 'num_nulls'='0', 'min_value'='2004-01-01', 'max_value'='2100-01-01', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2001-01-01', 'max_value'='2001-12-31', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2001-01-01', 'max_value'='2001-12-31', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='1998-01-01', 'max_value'='1998-12-31', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='1998-01-01', 'max_value'='1998-12-31', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='366', 'ndv'='366', 'num_nulls'='0', 'min_value'='2000-01-01', 'max_value'='2000-12-31', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='366', 'ndv'='366', 'num_nulls'='0', 'min_value'='2000-01-01', 'max_value'='2000-12-31', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='35793', 'ndv'='35428', 'num_nulls'='0', 'min_value'='AAAAAAAAAAAAFCAA', 'max_value'='AAAAAAAAPPPPECAA', 'data_size'='572688') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='35793', 'ndv'='35428', 'num_nulls'='0', 'min_value'='AAAAAAAAAAAAFCAA', 'max_value'='AAAAAAAAPPPPECAA', 'data_size'='572688') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='368', 'num_nulls'='0', 'min_value'='AAAAAAAAAAGGFCAA', 'max_value'='AAAAAAAAPPFGFCAA', 'data_size'='5840') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='368', 'num_nulls'='0', 'min_value'='AAAAAAAAAAGGFCAA', 'max_value'='AAAAAAAAPPFGFCAA', 'data_size'='5840') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='AAAAAAAAAAHGFCAA', 'max_value'='AAAAAAAAPPHGFCAA', 'data_size'='5840') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='AAAAAAAAAAHGFCAA', 'max_value'='AAAAAAAAPPHGFCAA', 'data_size'='5840') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='AAAAAAAAAANGFCAA', 'max_value'='AAAAAAAAPPNGFCAA', 'data_size'='5840') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='AAAAAAAAAANGFCAA', 'max_value'='AAAAAAAAPPNGFCAA', 'data_size'='5840') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='AAAAAAAAAAKGFCAA', 'max_value'='AAAAAAAAPPKGFCAA', 'data_size'='5840') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='AAAAAAAAAAKGFCAA', 'max_value'='AAAAAAAAPPKGFCAA', 'data_size'='5840') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='35065', 'ndv'='35542', 'num_nulls'='0', 'min_value'='AAAAAAAAAAAHFCAA', 'max_value'='AAAAAAAAPPPOFCAA', 'data_size'='561040') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='35065', 'ndv'='35542', 'num_nulls'='0', 'min_value'='AAAAAAAAAAAHFCAA', 'max_value'='AAAAAAAAPPPOFCAA', 'data_size'='561040') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='AAAAAAAAAAMGFCAA', 'max_value'='AAAAAAAAPPLGFCAA', 'data_size'='5840') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='AAAAAAAAAAMGFCAA', 'max_value'='AAAAAAAAPPLGFCAA', 'data_size'='5840') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='366', 'ndv'='362', 'num_nulls'='0', 'min_value'='AAAAAAAAAAJGFCAA', 'max_value'='AAAAAAAAPPIGFCAA', 'data_size'='5856') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='366', 'ndv'='362', 'num_nulls'='0', 'min_value'='AAAAAAAAAAJGFCAA', 'max_value'='AAAAAAAAPPIGFCAA', 'data_size'='5856') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451179', 'data_size'='2920') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451179', 'data_size'='2920') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451544', 'data_size'='2920') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451544', 'data_size'='2920') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452275', 'data_size'='2920') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452275', 'data_size'='2920') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='366', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451910', 'data_size'='2928') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='366', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451910', 'data_size'='2928') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='35065', 'ndv'='35067', 'num_nulls'='0', 'min_value'='2453006', 'max_value'='2488070', 'data_size'='280520') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='35065', 'ndv'='35067', 'num_nulls'='0', 'min_value'='2453006', 'max_value'='2488070', 'data_size'='280520') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='365', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452640', 'data_size'='2920') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='365', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452640', 'data_size'='2920') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='35793', 'ndv'='36266', 'num_nulls'='0', 'min_value'='2415022', 'max_value'='2450814', 'data_size'='286344') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='35793', 'ndv'='36266', 'num_nulls'='0', 'min_value'='2415022', 'max_value'='2450814', 'data_size'='286344') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='365', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2453005', 'data_size'='2920') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='365', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2453005', 'data_size'='2920') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='366', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2614') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='366', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2614') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='35065', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='250466') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='35065', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='250466') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2608') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2608') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='35793', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='255663') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='35793', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='255663') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2607') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2607') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2606') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2606') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2606') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2606') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2609') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2609') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='35793', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='35793', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='35065', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='35065', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='366', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='366', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='35793', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='35793', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='366', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='366', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='35065', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='35065', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452245', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452245', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451514', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451514', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='35793', 'ndv'='1181', 'num_nulls'='0', 'min_value'='2415021', 'max_value'='2450784', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='35793', 'ndv'='1181', 'num_nulls'='0', 'min_value'='2415021', 'max_value'='2450784', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451880', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451880', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2452975', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2452975', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452610', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452610', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='35065', 'ndv'='1161', 'num_nulls'='0', 'min_value'='2453006', 'max_value'='2488070', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='35065', 'ndv'='1161', 'num_nulls'='0', 'min_value'='2453006', 'max_value'='2488070', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451149', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451149', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='413', 'max_value'='417', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='413', 'max_value'='417', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='366', 'ndv'='5', 'num_nulls'='0', 'min_value'='401', 'max_value'='405', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='366', 'ndv'='5', 'num_nulls'='0', 'min_value'='401', 'max_value'='405', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='35793', 'ndv'='394', 'num_nulls'='0', 'min_value'='1', 'max_value'='393', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='35793', 'ndv'='394', 'num_nulls'='0', 'min_value'='1', 'max_value'='393', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='393', 'max_value'='397', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='393', 'max_value'='397', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='405', 'max_value'='409', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='405', 'max_value'='409', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='397', 'max_value'='401', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='397', 'max_value'='401', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='409', 'max_value'='413', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='409', 'max_value'='413', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='417', 'max_value'='801', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='417', 'max_value'='801', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5375', 'max_value'='5427', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5375', 'max_value'='5427', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5270', 'max_value'='5322', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5270', 'max_value'='5322', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5323', 'max_value'='5375', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5323', 'max_value'='5375', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='35793', 'ndv'='5136', 'num_nulls'='0', 'min_value'='1', 'max_value'='5114', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='35793', 'ndv'='5136', 'num_nulls'='0', 'min_value'='1', 'max_value'='5114', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='35065', 'ndv'='5008', 'num_nulls'='0', 'min_value'='5427', 'max_value'='10436', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='35065', 'ndv'='5008', 'num_nulls'='0', 'min_value'='5427', 'max_value'='10436', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='366', 'ndv'='53', 'num_nulls'='0', 'min_value'='5218', 'max_value'='5270', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='366', 'ndv'='53', 'num_nulls'='0', 'min_value'='5218', 'max_value'='5270', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5114', 'max_value'='5166', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5114', 'max_value'='5166', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5166', 'max_value'='5218', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5166', 'max_value'='5218', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='2000', 'max_value'='2000', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='2000', 'max_value'='2000', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1998', 'max_value'='1998', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1998', 'max_value'='1998', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2002', 'max_value'='2002', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2002', 'max_value'='2002', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1999', 'max_value'='1999', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1999', 'max_value'='1999', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='35065', 'ndv'='97', 'num_nulls'='0', 'min_value'='2004', 'max_value'='2100', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='35065', 'ndv'='97', 'num_nulls'='0', 'min_value'='2004', 'max_value'='2100', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='35793', 'ndv'='98', 'num_nulls'='0', 'min_value'='1900', 'max_value'='1997', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='35793', 'ndv'='98', 'num_nulls'='0', 'min_value'='1900', 'max_value'='1997', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2001', 'max_value'='2001', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2001', 'max_value'='2001', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2003', 'max_value'='2003', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2003', 'max_value'='2003', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452275', 'max_value'='2452943', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452275', 'max_value'='2452943', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451910', 'max_value'='2452578', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451910', 'max_value'='2452578', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='35793', 'ndv'='1186', 'num_nulls'='0', 'min_value'='2415020', 'max_value'='2451117', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='35793', 'ndv'='1186', 'num_nulls'='0', 'min_value'='2415020', 'max_value'='2451117', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452640', 'max_value'='2453308', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452640', 'max_value'='2453308', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451179', 'max_value'='2451847', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451179', 'max_value'='2451847', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='35065', 'ndv'='1144', 'num_nulls'='0', 'min_value'='2453005', 'max_value'='2488372', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='35065', 'ndv'='1144', 'num_nulls'='0', 'min_value'='2453005', 'max_value'='2488372', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451544', 'max_value'='2452214', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451544', 'max_value'='2452214', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2450814', 'max_value'='2451482', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2450814', 'max_value'='2451482', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1188', 'max_value'='1199', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1188', 'max_value'='1199', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='35793', 'ndv'='1176', 'num_nulls'='0', 'min_value'='0', 'max_value'='1175', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='35793', 'ndv'='1176', 'num_nulls'='0', 'min_value'='0', 'max_value'='1175', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1176', 'max_value'='1187', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1176', 'max_value'='1187', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1236', 'max_value'='1247', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1236', 'max_value'='1247', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='35065', 'ndv'='1147', 'num_nulls'='0', 'min_value'='1248', 'max_value'='2400', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='35065', 'ndv'='1147', 'num_nulls'='0', 'min_value'='1248', 'max_value'='2400', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1212', 'max_value'='1223', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1212', 'max_value'='1223', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='1200', 'max_value'='1211', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='1200', 'max_value'='1211', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1224', 'max_value'='1235', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1224', 'max_value'='1235', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='35793', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='35793', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='35065', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='35065', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='366', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='366', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='35793', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='35793', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='35065', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='35065', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2001Q1', 'max_value'='2001Q4', 'data_size'='2190') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2001Q1', 'max_value'='2001Q4', 'data_size'='2190') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='35793', 'ndv'='393', 'num_nulls'='0', 'min_value'='1900Q1', 'max_value'='1997Q4', 'data_size'='214758') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='35793', 'ndv'='393', 'num_nulls'='0', 'min_value'='1900Q1', 'max_value'='1997Q4', 'data_size'='214758') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2002Q1', 'max_value'='2002Q4', 'data_size'='2190') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2002Q1', 'max_value'='2002Q4', 'data_size'='2190') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='366', 'ndv'='4', 'num_nulls'='0', 'min_value'='2000Q1', 'max_value'='2000Q4', 'data_size'='2196') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='366', 'ndv'='4', 'num_nulls'='0', 'min_value'='2000Q1', 'max_value'='2000Q4', 'data_size'='2196') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='2004Q1', 'max_value'='2100Q1', 'data_size'='210390') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='2004Q1', 'max_value'='2100Q1', 'data_size'='210390') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2003Q1', 'max_value'='2003Q4', 'data_size'='2190') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2003Q1', 'max_value'='2003Q4', 'data_size'='2190') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1998Q1', 'max_value'='1998Q4', 'data_size'='2190') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1998Q1', 'max_value'='1998Q4', 'data_size'='2190') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1999Q1', 'max_value'='1999Q4', 'data_size'='2190') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1999Q1', 'max_value'='1999Q4', 'data_size'='2190') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='35793', 'ndv'='394', 'num_nulls'='0', 'min_value'='1', 'max_value'='393', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='35793', 'ndv'='394', 'num_nulls'='0', 'min_value'='1', 'max_value'='393', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='405', 'max_value'='409', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='405', 'max_value'='409', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='366', 'ndv'='5', 'num_nulls'='0', 'min_value'='401', 'max_value'='405', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='366', 'ndv'='5', 'num_nulls'='0', 'min_value'='401', 'max_value'='405', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='397', 'max_value'='401', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='397', 'max_value'='401', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='409', 'max_value'='413', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='409', 'max_value'='413', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='393', 'max_value'='397', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='393', 'max_value'='397', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='413', 'max_value'='417', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='413', 'max_value'='417', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='417', 'max_value'='801', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='417', 'max_value'='801', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='35793', 'ndv'='35806', 'num_nulls'='0', 'min_value'='2414930', 'max_value'='2450722', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='35793', 'ndv'='35806', 'num_nulls'='0', 'min_value'='2414930', 'max_value'='2450722', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2451088', 'max_value'='2451452', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2451088', 'max_value'='2451452', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2451819', 'max_value'='2452183', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2451819', 'max_value'='2452183', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='361', 'num_nulls'='0', 'min_value'='2450723', 'max_value'='2451087', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='361', 'num_nulls'='0', 'min_value'='2450723', 'max_value'='2451087', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2452184', 'max_value'='2452548', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2452184', 'max_value'='2452548', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2452549', 'max_value'='2452913', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2452549', 'max_value'='2452913', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='35065', 'ndv'='34991', 'num_nulls'='0', 'min_value'='2452914', 'max_value'='2487978', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='35065', 'ndv'='34991', 'num_nulls'='0', 'min_value'='2452914', 'max_value'='2487978', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='366', 'ndv'='365', 'num_nulls'='0', 'min_value'='2451453', 'max_value'='2451818', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='366', 'ndv'='365', 'num_nulls'='0', 'min_value'='2451453', 'max_value'='2451818', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452640', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452640', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='35793', 'ndv'='35878', 'num_nulls'='0', 'min_value'='2414657', 'max_value'='2450449', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='35793', 'ndv'='35878', 'num_nulls'='0', 'min_value'='2414657', 'max_value'='2450449', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='366', 'ndv'='363', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451544', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='366', 'ndv'='363', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451544', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='363', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451910', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='363', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451910', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2450450', 'max_value'='2450814', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2450450', 'max_value'='2450814', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='35065', 'ndv'='35076', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2487705', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='35065', 'ndv'='35076', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2487705', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='363', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451179', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='363', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451179', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452275', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452275', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5270', 'max_value'='5322', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5270', 'max_value'='5322', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5114', 'max_value'='5166', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5114', 'max_value'='5166', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5166', 'max_value'='5218', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5166', 'max_value'='5218', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5375', 'max_value'='5427', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5375', 'max_value'='5427', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5323', 'max_value'='5375', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5323', 'max_value'='5375', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='35065', 'ndv'='5008', 'num_nulls'='0', 'min_value'='5427', 'max_value'='10436', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='35065', 'ndv'='5008', 'num_nulls'='0', 'min_value'='5427', 'max_value'='10436', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='35793', 'ndv'='5136', 'num_nulls'='0', 'min_value'='1', 'max_value'='5114', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='35793', 'ndv'='5136', 'num_nulls'='0', 'min_value'='1', 'max_value'='5114', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='366', 'ndv'='53', 'num_nulls'='0', 'min_value'='5218', 'max_value'='5270', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='366', 'ndv'='53', 'num_nulls'='0', 'min_value'='5218', 'max_value'='5270', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1999', 'max_value'='1999', 'data_size'='1460') partition (p1999);"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1999', 'max_value'='1999', 'data_size'='1460') partition (p1999);"""
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='35793', 'ndv'='98', 'num_nulls'='0', 'min_value'='1900', 'max_value'='1997', 'data_size'='143172') partition (ppast);"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='35793', 'ndv'='98', 'num_nulls'='0', 'min_value'='1900', 'max_value'='1997', 'data_size'='143172') partition (ppast);"""
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1998', 'max_value'='1998', 'data_size'='1460') partition (p1998);"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1998', 'max_value'='1998', 'data_size'='1460') partition (p1998);"""
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2001', 'max_value'='2001', 'data_size'='1460') partition (p2001);"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2001', 'max_value'='2001', 'data_size'='1460') partition (p2001);"""
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2002', 'max_value'='2002', 'data_size'='1460') partition (p2002);"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2002', 'max_value'='2002', 'data_size'='1460') partition (p2002);"""
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='2000', 'max_value'='2000', 'data_size'='1464') partition (p2000);"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='2000', 'max_value'='2000', 'data_size'='1464') partition (p2000);"""
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2003', 'max_value'='2003', 'data_size'='1460') partition (p2003);"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2003', 'max_value'='2003', 'data_size'='1460') partition (p2003);"""
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='35065', 'ndv'='97', 'num_nulls'='0', 'min_value'='2004', 'max_value'='2100', 'data_size'='140260') partition (pfuture);"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='35065', 'ndv'='97', 'num_nulls'='0', 'min_value'='2004', 'max_value'='2100', 'data_size'='140260') partition (pfuture);"""
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_current_day set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_current_month set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_current_quarter set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_current_week set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='Y', 'max_value'='Y', 'data_size'='365') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='Y', 'max_value'='Y', 'data_size'='365') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='366') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='365') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='35793', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35793') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_current_year set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_current_year set stats ('row_count'='35065', 'ndv'='1', 'num_nulls'='0', 'min_value'='N', 'max_value'='N', 'data_size'='35065') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='2003-01-01', 'max_value'='2003-12-31', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='2003-01-01', 'max_value'='2003-12-31', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='1999-01-01', 'max_value'='1999-12-31', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='1999-01-01', 'max_value'='1999-12-31', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='35793', 'ndv'='35630', 'num_nulls'='0', 'min_value'='1900-01-02', 'max_value'='1997-12-31', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='35793', 'ndv'='35630', 'num_nulls'='0', 'min_value'='1900-01-02', 'max_value'='1997-12-31', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2002-01-01', 'max_value'='2002-12-31', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2002-01-01', 'max_value'='2002-12-31', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='35065', 'ndv'='35118', 'num_nulls'='0', 'min_value'='2004-01-01', 'max_value'='2100-01-01', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='35065', 'ndv'='35118', 'num_nulls'='0', 'min_value'='2004-01-01', 'max_value'='2100-01-01', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2001-01-01', 'max_value'='2001-12-31', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2001-01-01', 'max_value'='2001-12-31', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='1998-01-01', 'max_value'='1998-12-31', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='1998-01-01', 'max_value'='1998-12-31', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_date set stats ('row_count'='366', 'ndv'='366', 'num_nulls'='0', 'min_value'='2000-01-01', 'max_value'='2000-12-31', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_date set stats ('row_count'='366', 'ndv'='366', 'num_nulls'='0', 'min_value'='2000-01-01', 'max_value'='2000-12-31', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='35793', 'ndv'='35428', 'num_nulls'='0', 'min_value'='AAAAAAAAAAAAFCAA', 'max_value'='AAAAAAAAPPPPECAA', 'data_size'='572688') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='35793', 'ndv'='35428', 'num_nulls'='0', 'min_value'='AAAAAAAAAAAAFCAA', 'max_value'='AAAAAAAAPPPPECAA', 'data_size'='572688') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='368', 'num_nulls'='0', 'min_value'='AAAAAAAAAAGGFCAA', 'max_value'='AAAAAAAAPPFGFCAA', 'data_size'='5840') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='368', 'num_nulls'='0', 'min_value'='AAAAAAAAAAGGFCAA', 'max_value'='AAAAAAAAPPFGFCAA', 'data_size'='5840') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='AAAAAAAAAAHGFCAA', 'max_value'='AAAAAAAAPPHGFCAA', 'data_size'='5840') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='AAAAAAAAAAHGFCAA', 'max_value'='AAAAAAAAPPHGFCAA', 'data_size'='5840') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='AAAAAAAAAANGFCAA', 'max_value'='AAAAAAAAPPNGFCAA', 'data_size'='5840') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='AAAAAAAAAANGFCAA', 'max_value'='AAAAAAAAPPNGFCAA', 'data_size'='5840') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='AAAAAAAAAAKGFCAA', 'max_value'='AAAAAAAAPPKGFCAA', 'data_size'='5840') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='AAAAAAAAAAKGFCAA', 'max_value'='AAAAAAAAPPKGFCAA', 'data_size'='5840') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='35065', 'ndv'='35542', 'num_nulls'='0', 'min_value'='AAAAAAAAAAAHFCAA', 'max_value'='AAAAAAAAPPPOFCAA', 'data_size'='561040') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='35065', 'ndv'='35542', 'num_nulls'='0', 'min_value'='AAAAAAAAAAAHFCAA', 'max_value'='AAAAAAAAPPPOFCAA', 'data_size'='561040') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='AAAAAAAAAAMGFCAA', 'max_value'='AAAAAAAAPPLGFCAA', 'data_size'='5840') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='AAAAAAAAAAMGFCAA', 'max_value'='AAAAAAAAPPLGFCAA', 'data_size'='5840') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_date_id set stats ('row_count'='366', 'ndv'='362', 'num_nulls'='0', 'min_value'='AAAAAAAAAAJGFCAA', 'max_value'='AAAAAAAAPPIGFCAA', 'data_size'='5856') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_date_id set stats ('row_count'='366', 'ndv'='362', 'num_nulls'='0', 'min_value'='AAAAAAAAAAJGFCAA', 'max_value'='AAAAAAAAPPIGFCAA', 'data_size'='5856') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451179', 'data_size'='2920') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451179', 'data_size'='2920') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451544', 'data_size'='2920') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='366', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451544', 'data_size'='2920') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452275', 'data_size'='2920') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452275', 'data_size'='2920') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='366', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451910', 'data_size'='2928') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='366', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451910', 'data_size'='2928') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='35065', 'ndv'='35067', 'num_nulls'='0', 'min_value'='2453006', 'max_value'='2488070', 'data_size'='280520') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='35065', 'ndv'='35067', 'num_nulls'='0', 'min_value'='2453006', 'max_value'='2488070', 'data_size'='280520') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='365', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452640', 'data_size'='2920') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='365', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452640', 'data_size'='2920') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='35793', 'ndv'='36266', 'num_nulls'='0', 'min_value'='2415022', 'max_value'='2450814', 'data_size'='286344') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='35793', 'ndv'='36266', 'num_nulls'='0', 'min_value'='2415022', 'max_value'='2450814', 'data_size'='286344') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='365', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2453005', 'data_size'='2920') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_date_sk set stats ('row_count'='365', 'ndv'='365', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2453005', 'data_size'='2920') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='366', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2614') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='366', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2614') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='35065', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='250466') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='35065', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='250466') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2608') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2608') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='35793', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='255663') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='35793', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='255663') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2607') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2607') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2606') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2606') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2606') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2606') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2609') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_day_name set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='2609') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='35793', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='35793', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='35065', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='35065', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='366', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='366', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_dom set stats ('row_count'='365', 'ndv'='31', 'num_nulls'='0', 'min_value'='1', 'max_value'='31', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='35793', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='35793', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='365', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='366', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='366', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_dow set stats ('row_count'='35065', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_dow set stats ('row_count'='35065', 'ndv'='7', 'num_nulls'='0', 'min_value'='0', 'max_value'='6', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452245', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452245', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451514', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451514', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='35793', 'ndv'='1181', 'num_nulls'='0', 'min_value'='2415021', 'max_value'='2450784', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='35793', 'ndv'='1181', 'num_nulls'='0', 'min_value'='2415021', 'max_value'='2450784', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451880', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451880', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2452975', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2452975', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452610', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452610', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='35065', 'ndv'='1161', 'num_nulls'='0', 'min_value'='2453006', 'max_value'='2488070', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='35065', 'ndv'='1161', 'num_nulls'='0', 'min_value'='2453006', 'max_value'='2488070', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451149', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_first_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451149', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_following_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='413', 'max_value'='417', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='413', 'max_value'='417', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='366', 'ndv'='5', 'num_nulls'='0', 'min_value'='401', 'max_value'='405', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='366', 'ndv'='5', 'num_nulls'='0', 'min_value'='401', 'max_value'='405', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='35793', 'ndv'='394', 'num_nulls'='0', 'min_value'='1', 'max_value'='393', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='35793', 'ndv'='394', 'num_nulls'='0', 'min_value'='1', 'max_value'='393', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='393', 'max_value'='397', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='393', 'max_value'='397', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='405', 'max_value'='409', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='405', 'max_value'='409', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='397', 'max_value'='401', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='397', 'max_value'='401', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='409', 'max_value'='413', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='409', 'max_value'='413', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='417', 'max_value'='801', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='417', 'max_value'='801', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5375', 'max_value'='5427', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5375', 'max_value'='5427', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5270', 'max_value'='5322', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5270', 'max_value'='5322', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5323', 'max_value'='5375', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5323', 'max_value'='5375', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='35793', 'ndv'='5136', 'num_nulls'='0', 'min_value'='1', 'max_value'='5114', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='35793', 'ndv'='5136', 'num_nulls'='0', 'min_value'='1', 'max_value'='5114', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='35065', 'ndv'='5008', 'num_nulls'='0', 'min_value'='5427', 'max_value'='10436', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='35065', 'ndv'='5008', 'num_nulls'='0', 'min_value'='5427', 'max_value'='10436', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='366', 'ndv'='53', 'num_nulls'='0', 'min_value'='5218', 'max_value'='5270', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='366', 'ndv'='53', 'num_nulls'='0', 'min_value'='5218', 'max_value'='5270', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5114', 'max_value'='5166', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5114', 'max_value'='5166', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5166', 'max_value'='5218', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_fy_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5166', 'max_value'='5218', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='2000', 'max_value'='2000', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='2000', 'max_value'='2000', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1998', 'max_value'='1998', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1998', 'max_value'='1998', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2002', 'max_value'='2002', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2002', 'max_value'='2002', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1999', 'max_value'='1999', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1999', 'max_value'='1999', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='35065', 'ndv'='97', 'num_nulls'='0', 'min_value'='2004', 'max_value'='2100', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='35065', 'ndv'='97', 'num_nulls'='0', 'min_value'='2004', 'max_value'='2100', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='35793', 'ndv'='98', 'num_nulls'='0', 'min_value'='1900', 'max_value'='1997', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='35793', 'ndv'='98', 'num_nulls'='0', 'min_value'='1900', 'max_value'='1997', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2001', 'max_value'='2001', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2001', 'max_value'='2001', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2003', 'max_value'='2003', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_fy_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2003', 'max_value'='2003', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_holiday set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452275', 'max_value'='2452943', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452275', 'max_value'='2452943', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451910', 'max_value'='2452578', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451910', 'max_value'='2452578', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='35793', 'ndv'='1186', 'num_nulls'='0', 'min_value'='2415020', 'max_value'='2451117', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='35793', 'ndv'='1186', 'num_nulls'='0', 'min_value'='2415020', 'max_value'='2451117', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452640', 'max_value'='2453308', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2452640', 'max_value'='2453308', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451179', 'max_value'='2451847', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451179', 'max_value'='2451847', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='35065', 'ndv'='1144', 'num_nulls'='0', 'min_value'='2453005', 'max_value'='2488372', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='35065', 'ndv'='1144', 'num_nulls'='0', 'min_value'='2453005', 'max_value'='2488372', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451544', 'max_value'='2452214', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='2451544', 'max_value'='2452214', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2450814', 'max_value'='2451482', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_last_dom set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='2450814', 'max_value'='2451482', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1188', 'max_value'='1199', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1188', 'max_value'='1199', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='35793', 'ndv'='1176', 'num_nulls'='0', 'min_value'='0', 'max_value'='1175', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='35793', 'ndv'='1176', 'num_nulls'='0', 'min_value'='0', 'max_value'='1175', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1176', 'max_value'='1187', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1176', 'max_value'='1187', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1236', 'max_value'='1247', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1236', 'max_value'='1247', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='35065', 'ndv'='1147', 'num_nulls'='0', 'min_value'='1248', 'max_value'='2400', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='35065', 'ndv'='1147', 'num_nulls'='0', 'min_value'='1248', 'max_value'='2400', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1212', 'max_value'='1223', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1212', 'max_value'='1223', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='1200', 'max_value'='1211', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='1200', 'max_value'='1211', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1224', 'max_value'='1235', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_month_seq set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1224', 'max_value'='1235', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='35793', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='35793', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='35065', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='35065', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='366', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_moy set stats ('row_count'='365', 'ndv'='12', 'num_nulls'='0', 'min_value'='1', 'max_value'='12', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='366', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='366', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='35793', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='35793', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_qoy set stats ('row_count'='35065', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_qoy set stats ('row_count'='35065', 'ndv'='4', 'num_nulls'='0', 'min_value'='1', 'max_value'='4', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2001Q1', 'max_value'='2001Q4', 'data_size'='2190') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2001Q1', 'max_value'='2001Q4', 'data_size'='2190') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='35793', 'ndv'='393', 'num_nulls'='0', 'min_value'='1900Q1', 'max_value'='1997Q4', 'data_size'='214758') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='35793', 'ndv'='393', 'num_nulls'='0', 'min_value'='1900Q1', 'max_value'='1997Q4', 'data_size'='214758') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2002Q1', 'max_value'='2002Q4', 'data_size'='2190') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2002Q1', 'max_value'='2002Q4', 'data_size'='2190') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='366', 'ndv'='4', 'num_nulls'='0', 'min_value'='2000Q1', 'max_value'='2000Q4', 'data_size'='2196') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='366', 'ndv'='4', 'num_nulls'='0', 'min_value'='2000Q1', 'max_value'='2000Q4', 'data_size'='2196') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='2004Q1', 'max_value'='2100Q1', 'data_size'='210390') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='2004Q1', 'max_value'='2100Q1', 'data_size'='210390') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2003Q1', 'max_value'='2003Q4', 'data_size'='2190') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='2003Q1', 'max_value'='2003Q4', 'data_size'='2190') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1998Q1', 'max_value'='1998Q4', 'data_size'='2190') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1998Q1', 'max_value'='1998Q4', 'data_size'='2190') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1999Q1', 'max_value'='1999Q4', 'data_size'='2190') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_name set stats ('row_count'='365', 'ndv'='4', 'num_nulls'='0', 'min_value'='1999Q1', 'max_value'='1999Q4', 'data_size'='2190') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='35793', 'ndv'='394', 'num_nulls'='0', 'min_value'='1', 'max_value'='393', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='35793', 'ndv'='394', 'num_nulls'='0', 'min_value'='1', 'max_value'='393', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='405', 'max_value'='409', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='405', 'max_value'='409', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='366', 'ndv'='5', 'num_nulls'='0', 'min_value'='401', 'max_value'='405', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='366', 'ndv'='5', 'num_nulls'='0', 'min_value'='401', 'max_value'='405', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='397', 'max_value'='401', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='397', 'max_value'='401', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='409', 'max_value'='413', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='409', 'max_value'='413', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='393', 'max_value'='397', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='393', 'max_value'='397', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='413', 'max_value'='417', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='365', 'ndv'='5', 'num_nulls'='0', 'min_value'='413', 'max_value'='417', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_quarter_seq set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='417', 'max_value'='801', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_quarter_seq set stats ('row_count'='35065', 'ndv'='387', 'num_nulls'='0', 'min_value'='417', 'max_value'='801', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='35793', 'ndv'='35806', 'num_nulls'='0', 'min_value'='2414930', 'max_value'='2450722', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='35793', 'ndv'='35806', 'num_nulls'='0', 'min_value'='2414930', 'max_value'='2450722', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2451088', 'max_value'='2451452', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2451088', 'max_value'='2451452', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2451819', 'max_value'='2452183', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2451819', 'max_value'='2452183', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='361', 'num_nulls'='0', 'min_value'='2450723', 'max_value'='2451087', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='361', 'num_nulls'='0', 'min_value'='2450723', 'max_value'='2451087', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2452184', 'max_value'='2452548', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2452184', 'max_value'='2452548', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2452549', 'max_value'='2452913', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='365', 'ndv'='362', 'num_nulls'='0', 'min_value'='2452549', 'max_value'='2452913', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='35065', 'ndv'='34991', 'num_nulls'='0', 'min_value'='2452914', 'max_value'='2487978', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='35065', 'ndv'='34991', 'num_nulls'='0', 'min_value'='2452914', 'max_value'='2487978', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_lq set stats ('row_count'='366', 'ndv'='365', 'num_nulls'='0', 'min_value'='2451453', 'max_value'='2451818', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_lq set stats ('row_count'='366', 'ndv'='365', 'num_nulls'='0', 'min_value'='2451453', 'max_value'='2451818', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452640', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2452276', 'max_value'='2452640', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='35793', 'ndv'='35878', 'num_nulls'='0', 'min_value'='2414657', 'max_value'='2450449', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='35793', 'ndv'='35878', 'num_nulls'='0', 'min_value'='2414657', 'max_value'='2450449', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='366', 'ndv'='363', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451544', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='366', 'ndv'='363', 'num_nulls'='0', 'min_value'='2451180', 'max_value'='2451544', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='363', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451910', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='363', 'num_nulls'='0', 'min_value'='2451545', 'max_value'='2451910', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2450450', 'max_value'='2450814', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='364', 'num_nulls'='0', 'min_value'='2450450', 'max_value'='2450814', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='35065', 'ndv'='35076', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2487705', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='35065', 'ndv'='35076', 'num_nulls'='0', 'min_value'='2452641', 'max_value'='2487705', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='363', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451179', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='363', 'num_nulls'='0', 'min_value'='2450815', 'max_value'='2451179', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452275', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_same_day_ly set stats ('row_count'='365', 'ndv'='367', 'num_nulls'='0', 'min_value'='2451911', 'max_value'='2452275', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5270', 'max_value'='5322', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5270', 'max_value'='5322', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5114', 'max_value'='5166', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5114', 'max_value'='5166', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5166', 'max_value'='5218', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5166', 'max_value'='5218', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5375', 'max_value'='5427', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5375', 'max_value'='5427', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5323', 'max_value'='5375', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='365', 'ndv'='53', 'num_nulls'='0', 'min_value'='5323', 'max_value'='5375', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='35065', 'ndv'='5008', 'num_nulls'='0', 'min_value'='5427', 'max_value'='10436', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='35065', 'ndv'='5008', 'num_nulls'='0', 'min_value'='5427', 'max_value'='10436', 'data_size'='140260') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='35793', 'ndv'='5136', 'num_nulls'='0', 'min_value'='1', 'max_value'='5114', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='35793', 'ndv'='5136', 'num_nulls'='0', 'min_value'='1', 'max_value'='5114', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_week_seq set stats ('row_count'='366', 'ndv'='53', 'num_nulls'='0', 'min_value'='5218', 'max_value'='5270', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_week_seq set stats ('row_count'='366', 'ndv'='53', 'num_nulls'='0', 'min_value'='5218', 'max_value'='5270', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='366', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='366') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='35793', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35793') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='35065', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='35065') partition (pfuture);
+// """
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_weekend set stats ('row_count'='365', 'ndv'='2', 'num_nulls'='0', 'min_value'='N', 'max_value'='Y', 'data_size'='365') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1999', 'max_value'='1999', 'data_size'='1460') partition (p1999);
-"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1999', 'max_value'='1999', 'data_size'='1460') partition (p1999);
+// """
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='35793', 'ndv'='98', 'num_nulls'='0', 'min_value'='1900', 'max_value'='1997', 'data_size'='143172') partition (ppast);
-"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='35793', 'ndv'='98', 'num_nulls'='0', 'min_value'='1900', 'max_value'='1997', 'data_size'='143172') partition (ppast);
+// """
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1998', 'max_value'='1998', 'data_size'='1460') partition (p1998);
-"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='1998', 'max_value'='1998', 'data_size'='1460') partition (p1998);
+// """
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2001', 'max_value'='2001', 'data_size'='1460') partition (p2001);
-"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2001', 'max_value'='2001', 'data_size'='1460') partition (p2001);
+// """
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2002', 'max_value'='2002', 'data_size'='1460') partition (p2002);
-"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2002', 'max_value'='2002', 'data_size'='1460') partition (p2002);
+// """
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='2000', 'max_value'='2000', 'data_size'='1464') partition (p2000);
-"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='366', 'ndv'='1', 'num_nulls'='0', 'min_value'='2000', 'max_value'='2000', 'data_size'='1464') partition (p2000);
+// """
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2003', 'max_value'='2003', 'data_size'='1460') partition (p2003);
-"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='365', 'ndv'='1', 'num_nulls'='0', 'min_value'='2003', 'max_value'='2003', 'data_size'='1460') partition (p2003);
+// """
 
-sql """
-alter table date_dim modify column d_year set stats ('row_count'='35065', 'ndv'='97', 'num_nulls'='0', 'min_value'='2004', 'max_value'='2100', 'data_size'='140260') partition (pfuture);
-"""
+// sql """
+// alter table date_dim modify column d_year set stats ('row_count'='35065', 'ndv'='97', 'num_nulls'='0', 'min_value'='2004', 'max_value'='2100', 'data_size'='140260') partition (pfuture);
+// """
 
 
 
