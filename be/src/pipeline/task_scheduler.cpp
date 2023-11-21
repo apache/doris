@@ -368,9 +368,8 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     auto try_close_failed = !status.ok() && state != PipelineTaskState::CANCELED;
     if (try_close_failed) {
         cancel();
-        // Call `close` if `try_close` failed to make sure allocated resources are released
-        static_cast<void>(task->close(exec_status));
-    } else if (!task->is_pipelineX() && task->is_pending_finish()) {
+    }
+    if (!task->is_pipelineX() && task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
         static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
         task->set_running(false);
@@ -380,6 +379,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
         task->set_running(false);
         return;
     }
+
     status = task->close(exec_status);
     if (!status.ok() && state != PipelineTaskState::CANCELED) {
         cancel();
