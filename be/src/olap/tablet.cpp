@@ -1347,7 +1347,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
     return pick_candidate_rowsets_to_single_replica_compaction();
 }
 
-std::vector<RowsetSharedPtr> Tablet::collect_consecutive_empty_rowsets() {
+std::vector<RowsetSharedPtr> Tablet::pick_first_consecutive_empty_rowsets() {
     std::vector<RowsetSharedPtr> consecutive_empty_rowsets;
     std::vector<RowsetSharedPtr> candidate_rowsets;
     traverse_rowsets([&candidate_rowsets, this](const auto& rs) {
@@ -1361,12 +1361,15 @@ std::vector<RowsetSharedPtr> Tablet::collect_consecutive_empty_rowsets() {
         auto rowset = candidate_rowsets[i];
         auto next_rowset = candidate_rowsets[i + 1];
 
+        // identify two consecutive rowsets that are empty
         if (rowset->num_segments() == 0 && next_rowset->num_segments() == 0 &&
             rowset->end_version() == next_rowset->start_version() - 1) {
             consecutive_empty_rowsets.emplace_back(rowset);
             consecutive_empty_rowsets.emplace_back(next_rowset);
             rowset = next_rowset;
             int next_index = i + 2;
+
+            // keep searching for consecutive empty rowsets
             while (next_index < len && candidate_rowsets[next_index]->num_segments() == 0 &&
                    rowset->end_version() == candidate_rowsets[next_index]->start_version() - 1) {
                 consecutive_empty_rowsets.emplace_back(candidate_rowsets[next_index]);
