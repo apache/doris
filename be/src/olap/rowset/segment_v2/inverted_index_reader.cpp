@@ -594,7 +594,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
         // to avoid open directory additionally for null_bitmap
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         static_cast<void>(read_null_bitmap(&null_bitmap_cache_handle,
-                                           index_searcher->getReader()->directory()));
+                                           (*index_searcher)->getReader()->directory()));
 
         try {
             if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
