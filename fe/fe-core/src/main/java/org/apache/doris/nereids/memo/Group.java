@@ -48,7 +48,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 /**
  * Representation for group in cascades optimizer.
@@ -416,8 +415,8 @@ public class Group {
         return false;
     }
 
-    public @Nullable HyperGraph getHyperGraph() {
-        return null;
+    public List<HyperGraph> getHyperGraphs() {
+        return new ArrayList<>();
     }
 
     public boolean isProjectGroup() {
