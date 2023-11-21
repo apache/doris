@@ -410,10 +410,7 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, bool with_ro
     if (has_seq_col) {
         seq_col_length = _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
     }
-    size_t rowid_length = 0;
-    if (has_rowid) {
-        rowid_length = sizeof(uint32_t) + 1;
-    }
+    size_t rowid_length = has_rowid ? PrimaryKeyIndexReader::ROW_ID_LENGTH : 0;
 
     Slice key_without_seq =
             Slice(key.get_data(), key.get_size() - (with_seq_col ? seq_col_length : 0) -
@@ -456,18 +453,17 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, bool with_ro
             return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
         }
 
-        if (!with_seq_col) {
-            return Status::OK();
-        }
-
-        // compare sequence id
-        Slice sequence_id =
-                Slice(key.get_data() + key_without_seq.get_size() + 1, seq_col_length - 1);
-        Slice previous_sequence_id = Slice(
-                sought_key.get_data() + sought_key_without_seq.get_size() + 1, seq_col_length - 1);
-        if (sequence_id.compare(previous_sequence_id) < 0) {
-            return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>(
-                    "key with higher sequence id exists");
+        if (with_seq_col) {
+            // compare sequence id
+            Slice sequence_id =
+                    Slice(key.get_data() + key_without_seq.get_size() + 1, seq_col_length - 1);
+            Slice previous_sequence_id =
+                    Slice(sought_key.get_data() + sought_key_without_seq.get_size() + 1,
+                          seq_col_length - 1);
+            if (sequence_id.compare(previous_sequence_id) < 0) {
+                return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>(
+                        "key with higher sequence id exists");
+            }
         }
     } else if (has_rowid) {
         Slice sought_key_without_rowid =
@@ -505,7 +501,17 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     size_t num_read = 1;
     RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
     CHECK(num_read == 1);
-    *key = index_column->get_data_at(0).to_string();
+    // trim row id
+    if (_tablet_schema->cluster_key_idxes().empty()) {
+        *key = index_column->get_data_at(0).to_string();
+    } else {
+        Slice sought_key =
+                Slice(index_column->get_data_at(0).data, index_column->get_data_at(0).size);
+        Slice sought_key_without_rowid =
+                Slice(sought_key.get_data(),
+                      sought_key.get_size() - PrimaryKeyIndexReader::ROW_ID_LENGTH);
+        *key = sought_key_without_rowid.to_string();
+    }
     return Status::OK();
 }
 

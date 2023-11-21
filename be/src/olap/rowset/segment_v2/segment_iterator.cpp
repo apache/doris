@@ -1325,11 +1325,9 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
 
     // The sequence column needs to be removed from primary key index when comparing key
     bool has_seq_col = _segment->_tablet_schema->has_sequence_col();
-    bool has_rowid = !_segment->_tablet_schema->cluster_key_idxes().empty();
-    size_t rowid_length = 0;
-    if (has_rowid) {
-        rowid_length = sizeof(uint32_t) + 1;
-    }
+    // Used to get key range from primary key index,
+    // for mow with cluster key table, we should get key range from short key index.
+    DCHECK(_segment->_tablet_schema->cluster_key_idxes().empty());
 
     if (has_seq_col) {
         size_t seq_col_length =
@@ -1347,27 +1345,10 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
         Slice sought_key =
                 Slice(index_column->get_data_at(0).data, index_column->get_data_at(0).size);
         Slice sought_key_without_seq =
-                Slice(sought_key.get_data(), sought_key.get_size() - seq_col_length - rowid_length);
+                Slice(sought_key.get_data(), sought_key.get_size() - seq_col_length);
 
         // compare key
         if (Slice(index_key).compare(sought_key_without_seq) == 0) {
-            exact_match = true;
-        }
-    } else if (has_rowid) {
-        auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
-                _segment->_pk_index_reader->type_info()->type(), 1, 0);
-        auto index_column = index_type->create_column();
-        size_t num_to_read = 1;
-        size_t num_read = num_to_read;
-        RETURN_IF_ERROR(index_iterator->next_batch(&num_read, index_column));
-        DCHECK(num_to_read == num_read);
-
-        Slice sought_key =
-                Slice(index_column->get_data_at(0).data, index_column->get_data_at(0).size);
-        Slice sought_key_without_rowid =
-                Slice(sought_key.get_data(), sought_key.get_size() - rowid_length);
-        // compare key
-        if (Slice(index_key).compare(sought_key_without_rowid) == 0) {
             exact_match = true;
         }
     }

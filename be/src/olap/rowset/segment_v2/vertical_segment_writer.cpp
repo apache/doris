@@ -233,7 +233,7 @@ Status VerticalSegmentWriter::init() {
         }
         size_t rowid_length = 0;
         if (!_tablet_schema->cluster_key_idxes().empty()) {
-            rowid_length = sizeof(uint32_t) + 1;
+            rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
             _short_key_index_builder.reset(
                     new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
         }

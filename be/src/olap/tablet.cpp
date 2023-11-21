@@ -2768,7 +2768,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
     }
     size_t rowid_length = 0;
     if (with_rowid && !_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
-        rowid_length = sizeof(uint32_t) + 1;
+        rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
     Slice key_without_seq =
             Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length - rowid_length);
@@ -2959,7 +2959,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                     .length() +
                             1;
                 }
-                size_t rowid_length = sizeof(uint32_t) + 1;
+                size_t rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
                 Slice key_without_seq =
                         Slice(key.get_data(), key.get_size() - seq_col_length - rowid_length);
                 Slice rowid_slice =
@@ -3728,11 +3728,11 @@ Status Tablet::calc_delete_bitmap_between_segments(
     size_t seq_col_length = 0;
     if (_tablet_meta->tablet_schema()->has_sequence_col()) {
         auto seq_col_idx = _tablet_meta->tablet_schema()->sequence_col_idx();
-        seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length();
+        seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length() + 1;
     }
     size_t rowid_length = 0;
     if (!_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
-        rowid_length = sizeof(uint32_t) + 1;
+        rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
 
     MergeIndexDeleteBitmapCalculator calculator;

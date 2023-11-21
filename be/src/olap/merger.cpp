@@ -357,20 +357,8 @@ Status Merger::vertical_merge_rowsets(TabletSharedPtr tablet, ReaderType reader_
     vertical_split_columns(tablet_schema, &column_groups);
 
     std::vector<uint32_t> key_group_cluster_key_idxes;
-    if (column_groups.size() > 0) {
-        if (!tablet_schema->cluster_key_idxes().empty()) {
-            auto& key_column_group = column_groups[0];
-            for (const auto& index_in_tablet_schema : tablet_schema->cluster_key_idxes()) {
-                for (auto j = 0; j < key_column_group.size(); ++j) {
-                    auto cid = key_column_group[j];
-                    if (cid == index_in_tablet_schema) {
-                        key_group_cluster_key_idxes.emplace_back(j);
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    _generate_key_group_cluster_key_idxes(tablet_schema, column_groups,
+                                          key_group_cluster_key_idxes);
 
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
                                                  reader_type);
@@ -393,6 +381,23 @@ Status Merger::vertical_merge_rowsets(TabletSharedPtr tablet, ReaderType reader_
     RETURN_IF_ERROR(dst_rowset_writer->final_flush());
 
     return Status::OK();
+}
+
+void Merger::_generate_key_group_cluster_key_idxes(
+        TabletSchemaSPtr tablet_schema, std::vector<std::vector<uint32_t>>& column_groups,
+        std::vector<uint32_t>& key_group_cluster_key_idxes) {
+    if (column_groups.size() > 0 && !tablet_schema->cluster_key_idxes().empty()) {
+        auto& key_column_group = column_groups[0];
+        for (const auto& index_in_tablet_schema : tablet_schema->cluster_key_idxes()) {
+            for (auto j = 0; j < key_column_group.size(); ++j) {
+                auto cid = key_column_group[j];
+                if (cid == index_in_tablet_schema) {
+                    key_group_cluster_key_idxes.emplace_back(j);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 } // namespace doris

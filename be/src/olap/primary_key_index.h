@@ -135,6 +135,8 @@ public:
         return _index_reader->get_memory_size();
     }
 
+    static constexpr size_t ROW_ID_LENGTH = sizeof(uint32_t) + 1;
+
 private:
     bool _index_parsed;
     bool _bf_parsed;
