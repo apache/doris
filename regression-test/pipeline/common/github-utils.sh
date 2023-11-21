@@ -73,14 +73,21 @@ _get_pr_changed_files_count() {
 
     OWNER="${OWNER:=apache}"
     REPO="${REPO:=doris}"
-    if ret=$(
-        curl -s -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}" | jq -e '.changed_files'
-    ); then
-        echo "${ret}"
-    else
-        return 1
-    fi
+    try_times=10
+    while [[ ${try_times} -gt 0 ]]; do
+        set -x
+        if ret=$(
+            curl -s -H "Accept: application/vnd.github+json" \
+                https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}" | jq -e '.changed_files'
+        ); then
+            set +x
+            echo "${ret}" && return
+        fi
+        sleep 1s
+        try_times=$((try_times - 1))
+    done
+    set +x
+    if [[ ${try_times} -eq 0 ]]; then echo "Failed to get pr(${PULL_NUMBER}) changed file count" && return 1; fi
 }
 
 _get_pr_changed_files() {
@@ -101,7 +108,7 @@ _get_pr_changed_files() {
     file_name='pr_changed_files'
     rm -f "${file_name}"
     page=1
-    changed_files_count="$(_get_pr_changed_files_count "${PULL_NUMBER}")"
+    if ! changed_files_count="$(_get_pr_changed_files_count "${PULL_NUMBER}")"; then return 1; fi
     while [[ ${changed_files_count} -gt 0 ]]; do
         try_times=10
         while [[ ${try_times} -gt 0 ]]; do
@@ -121,14 +128,14 @@ _get_pr_changed_files() {
         page=$((page + 1))
         changed_files_count=$((changed_files_count - per_page))
     done
-    if [[ ${try_times} = 0 ]]; then echo -e "\033[31m List pull request(${pr_url}) files FAIL... \033[0m" && return 255; fi
+    if [[ ${try_times} -eq 0 ]]; then echo -e "\033[31m List pull request(${pr_url}) files FAIL... \033[0m" && return 1; fi
 
     all_files=$(jq -r '.[] | .filename' "${file_name}")
     added_files=$(jq -r '.[] | select(.status == "added") | .filename' "${file_name}")
     modified_files=$(jq -r '.[] | select(.status == "modified") | .filename' "${file_name}")
     removed_files=$(jq -r '.[] | select(.status == "removed") | .filename' "${file_name}")
     rm "${file_name}"
-    if [[ -z "${all_files}" ]]; then echo -e "\033[31m List pull request(${pr_url}) files FAIL... \033[0m" && return 255; fi
+    if [[ -z "${all_files}" ]]; then echo -e "\033[31m List pull request(${pr_url}) files FAIL... \033[0m" && return 1; fi
 
     echo -e "
 https://github.com/apache/doris/pull/${PULL_NUMBER}/files all change files:

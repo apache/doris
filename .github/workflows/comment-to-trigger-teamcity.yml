@@ -25,7 +25,6 @@ jobs:
   check-comment-if-need-to-trigger-teamcity:
 
     # This job only runs for pull request comments, and comment body contains 'run'
-    # if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, 'run') && ( contains(github.event.comment.body, 'buildall') || contains(github.event.comment.body, 'compile') || contains(github.event.comment.body, 'beut') || contains(github.event.comment.body, 'feut') || contains(github.event.comment.body, 'p0') || contains(github.event.comment.body, 'p1') || contains(github.event.comment.body, 'external') || contains(github.event.comment.body, 'pipelinex_p0') || contains(github.event.comment.body, 'clickbench') || contains(github.event.comment.body, 'arm') || contains(github.event.comment.body, 'tpch') ) }}
     if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, 'run') }}
 
     runs-on: ubuntu-latest
@@ -37,6 +36,7 @@ jobs:
     - name: "Parse PR comment"
       id: parse
       run: |
+        COMMENT_BODY=$(echo "${COMMENT_BODY}" | xargs)
         if [[ "${COMMENT_BODY}" == *'run buildall'* ||
             "${COMMENT_BODY}" == *'run compile'* ||
             "${COMMENT_BODY}" == *'run beut'* ||
@@ -53,8 +53,6 @@ jobs:
             echo "find no keyword in comment body, skip this action."
             exit
         fi
-
-        echo "GITHUB_EVENT_PATH: $GITHUB_EVENT_PATH"
 
         PULL_REQUEST_NUM="$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')"
         COMMIT_ID_FROM_TRIGGER="$(curl -s -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.head.sha')"
@@ -80,24 +78,36 @@ jobs:
       run: |
         source regression-test/pipeline/common/github-utils.sh
         set -x
-        _get_pr_changed_files "${{ steps.parse.outputs.PULL_REQUEST_NUM }}"
-        if file_changed_fe_ut; then
+        if _get_pr_changed_files "${{ steps.parse.outputs.PULL_REQUEST_NUM }}"; then
+          if file_changed_fe_ut; then
+            echo "changed_fe_ut=true" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_be_ut; then
+            echo "changed_be_ut=true" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_ckb; then
+            echo "changed_ckb=true" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_tpch=true" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_regression_p0; then
+            echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_pipelinex_p0=true" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_arm=true" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_regression_p1; then
+            echo "changed_p1=true" | tee -a "$GITHUB_OUTPUT"
+          fi
+        else
+          echo "INFO: failed to _get_pr_changed_files, default trigger all"
           echo "changed_fe_ut=true" | tee -a "$GITHUB_OUTPUT"
-        fi
-        if file_changed_be_ut; then
           echo "changed_be_ut=true" | tee -a "$GITHUB_OUTPUT"
-        fi
-        if file_changed_ckb; then
           echo "changed_ckb=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_tpch=true" | tee -a "$GITHUB_OUTPUT"
-        fi
-        if file_changed_regression_p0; then
           echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_pipelinex_p0=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_arm=true" | tee -a "$GITHUB_OUTPUT"
-        fi
-        if file_changed_regression_p1; then
           echo "changed_p1=true" | tee -a "$GITHUB_OUTPUT"
         fi
 
