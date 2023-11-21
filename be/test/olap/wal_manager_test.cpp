@@ -37,6 +37,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 #include "util/debug/leakcheck_disabler.h"
+#include "util/lock.h"
 #include "util/proto_util.h"
 
 namespace doris {
@@ -80,7 +81,8 @@ public:
     void createWal(const std::string& wal_path) {
         std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes =
                 std::make_shared<std::atomic_size_t>(0);
-        auto wal_writer = WalWriter(wal_path, _all_wal_disk_bytes);
+        std::shared_ptr<doris::ConditionVariable> cv = std::make_shared<doris::ConditionVariable>();
+        auto wal_writer = WalWriter(wal_path, _all_wal_disk_bytes, cv);
         static_cast<void>(wal_writer.init());
         static_cast<void>(wal_writer.finalize());
     }

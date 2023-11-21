@@ -29,6 +29,7 @@
 #include "runtime/exec_env.h"
 #include "service/brpc.h"
 #include "testutil/test_util.h"
+#include "util/lock.h"
 #include "util/proto_util.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
@@ -92,7 +93,8 @@ TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
     std::string file_name = _s_test_data_path + "/abcd123.txt";
     std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes =
             std::make_shared<std::atomic_size_t>(0);
-    auto wal_writer = WalWriter(file_name, _all_wal_disk_bytes);
+    std::shared_ptr<doris::ConditionVariable> cv = std::make_shared<doris::ConditionVariable>();
+    auto wal_writer = WalWriter(file_name, _all_wal_disk_bytes, cv);
     static_cast<void>(wal_writer.init());
     size_t file_len = 0;
     int64_t file_size = -1;
