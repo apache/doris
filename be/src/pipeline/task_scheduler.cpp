@@ -347,6 +347,7 @@ void TaskScheduler::_do_work(size_t index) {
             static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
             break;
         case PipelineTaskState::RUNNABLE:
+            task->set_running(false);
             static_cast<void>(_task_queue->push_back(task, index));
             break;
         default:
