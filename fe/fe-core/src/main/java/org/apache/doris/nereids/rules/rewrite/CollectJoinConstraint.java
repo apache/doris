@@ -54,6 +54,10 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                 LeadingHint leading = (LeadingHint) ctx.cascadesContext
                             .getHintMap().get("Leading");
                 LogicalJoin join = ctx.root;
+                if (join.getJoinType().isNullAwareLeftAntiJoin()) {
+                    leading.setStatus(Hint.HintStatus.UNUSED);
+                    leading.setErrorMessage("condition does not matched joinType");
+                }
                 List<Expression> expressions = join.getHashJoinConjuncts();
                 Long totalFilterBitMap = 0L;
                 Long nonNullableSlotBitMap = 0L;

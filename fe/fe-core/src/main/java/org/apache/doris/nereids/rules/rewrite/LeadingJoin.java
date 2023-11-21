@@ -45,12 +45,13 @@ public class LeadingJoin implements RewriteRuleFactory {
                 ((LeadingHint) leadingHint).setTotalBitmap();
                 Long currentBitMap = LongBitmap.computeTableBitmap(ctx.root.getInputRelations());
                 if (((LeadingHint) leadingHint).getTotalBitmap().equals(currentBitMap)
-                        && !leadingHint.isSyntaxError() && !leadingHint.isSuccess()) {
+                        && leadingHint.isSuccess()) {
                     Plan leadingJoin = ((LeadingHint) leadingHint).generateLeadingJoinPlan();
                     if (leadingHint.isSuccess() && leadingJoin != null) {
                         try {
                             ctx.cascadesContext.getConnectContext().getSessionVariable()
                                 .disableNereidsJoinReorderOnce();
+                            ctx.cascadesContext.setLeadingJoin(false);
                         } catch (DdlException e) {
                             throw new RuntimeException(e);
                         }

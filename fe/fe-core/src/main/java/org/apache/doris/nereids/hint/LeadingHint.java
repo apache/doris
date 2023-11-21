@@ -271,6 +271,22 @@ public class LeadingHint extends Hint {
         JoinConstraint matchedJoinConstraint = null;
 
         for (JoinConstraint joinConstraint : joinConstraintList) {
+            if (joinConstraint.getJoinType().isFullOuterJoin()) {
+                if (leftTableBitmap.equals(joinConstraint.getLeftHand())
+                        && rightTableBitmap.equals(joinConstraint.getRightHand())
+                        || rightTableBitmap.equals(joinConstraint.getLeftHand())
+                        && leftTableBitmap.equals(joinConstraint.getRightHand())) {
+                    if (matchedJoinConstraint != null) {
+                        return Pair.of(null, false);
+                    }
+                    matchedJoinConstraint = joinConstraint;
+                    reversed = false;
+                    break;
+                } else {
+                    continue;
+                }
+            }
+
             if (!LongBitmap.isOverlap(joinConstraint.getMinRightHand(), joinTableBitmap)) {
                 continue;
             }
@@ -390,7 +406,6 @@ public class LeadingHint extends Hint {
      * @return plan
      */
     public Plan generateLeadingJoinPlan() {
-        this.setStatus(HintStatus.SUCCESS);
         Stack<Pair<Integer, LogicalPlan>> stack = new Stack<>();
         int index = 0;
         LogicalPlan logicalPlan = getLogicalPlanByName(getTablelist().get(index));
