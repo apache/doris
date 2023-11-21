@@ -50,8 +50,8 @@ public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
     public static final Long MAX_HISTORY_TASKS_NUM = 100L;
 
-    @SerializedName(value = "dn")
-    private String dbName;
+    @SerializedName(value = "di")
+    private long dbId;
     @SerializedName(value = "mi")
     private long mtmvId;
     @SerializedName("sql")
@@ -60,8 +60,8 @@ public class MTMVTask extends AbstractTask {
     private MTMV mtmv;
     private MTMVCache cache;
 
-    public MTMVTask(String dbName, long mtmvId) {
-        this.dbName = dbName;
+    public MTMVTask(long dbId, long mtmvId) {
+        this.dbId = dbId;
         this.mtmvId = mtmvId;
     }
 
@@ -103,7 +103,7 @@ public class MTMVTask extends AbstractTask {
     public void before() throws JobException {
         super.before();
         try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
             mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
             sql = generateSql(mtmv);
         } catch (UserException e) {

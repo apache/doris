@@ -123,7 +123,6 @@ public class Alter {
 
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         TableName tableName = stmt.getTableName();
-        // check db
         String dbName = tableName.getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 

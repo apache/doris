@@ -57,7 +57,7 @@ public class MTMVJobManager implements MTMVHookService {
      */
     @Override
     public void createMTMV(MTMV mtmv) throws DdlException {
-        MTMVJob job = new MTMVJob(mtmv.getQualifiedDbName(), mtmv.getId());
+        MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
         job.setJobId(Env.getCurrentEnv().getNextId());
         job.setJobName(mtmv.getJobInfo().getJobName());
         job.setComment(mtmv.getName());
@@ -67,7 +67,6 @@ public class MTMVJobManager implements MTMVHookService {
         try {
             Env.getCurrentEnv().getJobManager().registerJob(job);
         } catch (JobException e) {
-            e.printStackTrace();
             throw new DdlException(e.getMessage(), e);
         }
     }
@@ -168,7 +167,7 @@ public class MTMVJobManager implements MTMVHookService {
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
                 .queryJobs(JobType.MTMV, mtmv.getJobInfo().getJobName());
         if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
-            throw new DdlException("jobs not normal");
+            throw new DdlException("jobs not normal,should have one job,but job num is: " + jobs.size());
         }
         try {
             Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId());

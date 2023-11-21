@@ -68,13 +68,13 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
                     .addColumn(new Column("ExecuteSql", ScalarType.createVarchar(20)))
                     .build();
 
-    @SerializedName(value = "dn")
-    private String dbName;
+    @SerializedName(value = "di")
+    private long dbId;
     @SerializedName(value = "mi")
     private long mtmvId;
 
-    public MTMVJob(String dbName, long mtmvId) {
-        this.dbName = dbName;
+    public MTMVJob(long dbId, long mtmvId) {
+        this.dbId = dbId;
         this.mtmvId = mtmvId;
         super.setCreateTimeMs(System.currentTimeMillis());
     }
@@ -86,7 +86,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public List<MTMVTask> createTasks(TaskType taskType) {
-        MTMVTask task = new MTMVTask(dbName, mtmvId);
+        MTMVTask task = new MTMVTask(dbId, mtmvId);
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
         tasks.add(task);
@@ -140,7 +140,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     }
 
     private MTMV getMTMV() throws DdlException, MetaNotFoundException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
