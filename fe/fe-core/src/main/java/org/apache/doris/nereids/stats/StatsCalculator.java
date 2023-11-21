@@ -888,31 +888,52 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return statisticsBuilder.build();
     }
 
-    private Statistics computeIntersect(SetOperation setOperation) {
+    private Statistics computeIntersect(SetOperation intersect) {
         Statistics leftChildStats = groupExpression.childStatistics(0);
         double rowCount = leftChildStats.getRowCount();
-        for (int i = 1; i < setOperation.getArity(); ++i) {
+        int arity = intersect.getArity();
+        for (int i = 1; i < arity; ++i) {
             rowCount = Math.min(rowCount, groupExpression.childStatistics(i).getRowCount());
         }
-        double minProd = Double.POSITIVE_INFINITY;
-        for (Group group : groupExpression.children()) {
-            Statistics statistics = group.getStatistics();
-            double prod = 1.0;
-            for (ColumnStatistic columnStatistic : statistics.columnStatistics().values()) {
-                prod *= columnStatistic.ndv;
-            }
-            if (minProd < prod) {
-                minProd = prod;
+        // R(a, b) = T1(a, b) intersect T2(a, b)
+        // R.a.ndv = min(T1.a.ndv, T2.a.ndv) and R.b.ndv = min(T1.b.ndv, T2.b.ndv)
+        // max(T1.row, T2.row) <= R.row <= R.a.ndv * R.b.ndv
+        StatisticsBuilder resultBuilder = new StatisticsBuilder();
+        double rowCountUpperBound = 1.0;
+        int colCount = intersect.getOutputs().size();
+        boolean hasUnknownColStats = false;
+        for (int colIdx = 0; colIdx < colCount; colIdx++) {
+            int childIdx = 0;
+            Slot slot = ((Plan) intersect).child(childIdx).getOutput().get(colIdx);
+            ColumnStatistic selectedChildColStats =
+                    groupExpression.childStatistics(childIdx).findColumnStatistics(slot);
+
+            if (selectedChildColStats == null || selectedChildColStats.isUnKnown()) {
+                resultBuilder.putColumnStatistics(intersect.getOutputs().get(colIdx), ColumnStatistic.UNKNOWN);
+                hasUnknownColStats = true;
+            } else {
+                for (childIdx = 1; childIdx < arity; childIdx++) {
+                    slot = ((Plan) intersect).child(childIdx).getOutput().get(colIdx);
+                    ColumnStatistic colStats = groupExpression.childStatistics(childIdx).findColumnStatistics(slot);
+                    if (colStats == null || colStats.isUnKnown()) {
+                        hasUnknownColStats = true;
+                        continue;
+                    }
+                    if (selectedChildColStats.ndv > colStats.ndv) {
+                        selectedChildColStats = colStats;
+                    }
+                }
+                resultBuilder.putColumnStatistics(intersect.getOutputs().get(colIdx),
+                        selectedChildColStats);
+                rowCountUpperBound *= selectedChildColStats.ndv;
             }
         }
-        rowCount = Math.min(rowCount, minProd);
-        List<NamedExpression> outputs = setOperation.getOutputs();
-        List<SlotReference> leftChildOutputs = setOperation.getRegularChildOutput(0);
-        for (int i = 0; i < outputs.size(); i++) {
-            leftChildStats.addColumnStats(outputs.get(i),
-                    leftChildStats.findColumnStatistics(leftChildOutputs.get(i)));
+
+        if (!hasUnknownColStats) {
+            rowCount = Math.min(rowCount, rowCountUpperBound);
         }
-        return leftChildStats.withRowCountAndEnforceValid(rowCount);
+        resultBuilder.setRowCount(rowCount);
+        return resultBuilder.build();
     }
 
     private Statistics computeGenerate(Generate generate) {
