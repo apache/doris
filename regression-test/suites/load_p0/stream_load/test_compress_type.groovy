@@ -91,8 +91,14 @@ suite("test_compress_type", "load_p0") {
         check {
             result, exception, startTime, endTime ->
                 assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("Fail", json.Status)
+                assertTrue(json.Message.contains("too many filtered rows"))
+                assertEquals(13, json.NumberTotalRows)
+                assertEquals(0, json.NumberLoadedRows)
+                assertEquals(13, json.NumberFilteredRows)
+                assertTrue(json.LoadBytes > 0)
         }
     }
 
@@ -106,8 +112,14 @@ suite("test_compress_type", "load_p0") {
         check {
             result, exception, startTime, endTime ->
                 assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("Fail", json.Status)
+                assertTrue(json.Message.contains("too many filtered rows"))
+                assertEquals(9, json.NumberTotalRows)
+                assertEquals(0, json.NumberLoadedRows)
+                assertEquals(9, json.NumberFilteredRows)
+                assertTrue(json.LoadBytes > 0)
         }
     }
 
@@ -121,8 +133,14 @@ suite("test_compress_type", "load_p0") {
         check {
             result, exception, startTime, endTime ->
                 assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("Fail", json.Status)
+                assertTrue(json.Message.contains("too many filtered rows"))
+                assertEquals(31, json.NumberTotalRows)
+                assertEquals(0, json.NumberLoadedRows)
+                assertEquals(31, json.NumberFilteredRows)
+                assertTrue(json.LoadBytes > 0)
         }
     }
 
@@ -135,8 +153,14 @@ suite("test_compress_type", "load_p0") {
         check {
             result, exception, startTime, endTime ->
                 assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("Fail", json.Status)
+                assertTrue(json.Message.contains("too many filtered rows"))
+                assertEquals(13, json.NumberTotalRows)
+                assertEquals(0, json.NumberLoadedRows)
+                assertEquals(13, json.NumberFilteredRows)
+                assertTrue(json.LoadBytes > 0)
         }
     }
 
@@ -149,8 +173,14 @@ suite("test_compress_type", "load_p0") {
         check {
             result, exception, startTime, endTime ->
                 assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("Fail", json.Status)
+                assertTrue(json.Message.contains("too many filtered rows"))
+                assertEquals(9, json.NumberTotalRows)
+                assertEquals(0, json.NumberLoadedRows)
+                assertEquals(9, json.NumberFilteredRows)
+                assertTrue(json.LoadBytes > 0)
         }
     }
 
@@ -163,8 +193,14 @@ suite("test_compress_type", "load_p0") {
         check {
             result, exception, startTime, endTime ->
                 assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("Fail", json.Status)
+                assertTrue(json.Message.contains("too many filtered rows"))
+                assertEquals(31, json.NumberTotalRows)
+                assertEquals(0, json.NumberLoadedRows)
+                assertEquals(31, json.NumberFilteredRows)
+                assertTrue(json.LoadBytes > 0)
         }
     }
 
