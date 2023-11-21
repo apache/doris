@@ -153,7 +153,7 @@ protected:
     virtual Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
-    virtual void _close_action();
+    virtual void _close_fragment_instance();
     void _init_next_report_time();
     void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
@@ -205,7 +205,7 @@ protected:
     RuntimeProfile::Counter* _prepare_timer;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
-    std::once_flag _close_once_flag;
+    bool _is_fragment_instance_closed = false;
 
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
