@@ -25,15 +25,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "arrow/io/interfaces.h"
-#include "arrow/status.h"
-#include "common/status.h"
 #include "io/file_factory.h"
-#include "io/fs/file_reader_writer_fwd.h"
-#include "util/slice.h"
-#include "vec/data_types/data_type.h"
-#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
-#include "vec/exec/format/generic_reader.h"
 
 namespace doris {
 
