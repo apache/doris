@@ -105,7 +105,7 @@ void ProcessHashTableProbe<JoinOpType, Parent>::probe_side_output_column(
         if (output_slot_flags[i]) {
             auto& column = probe_block.get_by_position(i).column;
             if (all_match_one) {
-                mcol[i]->insert_range_from(*column, last_probe_index, probe_size);
+                mcol[i]->insert_range_from(*column, last_probe_index, size);
             } else {
                 column->replicate(_probe_indexs.data(), size, *mcol[i]);
             }
@@ -174,17 +174,18 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
-        auto [new_probe_idx, new_build_idx,
-              new_current_offset] = hash_table_ctx.hash_table->template find_batch < JoinOpType,
+        auto [new_probe_idx, new_build_idx, new_current_offset,
+              new_all_match_one] = hash_table_ctx.hash_table->template find_batch < JoinOpType,
               with_other_conjuncts, is_mark_join,
               need_null_map_for_probe &&
                       ignore_null > (hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
-                                     probe_index, build_index, probe_rows, _probe_indexs.data(), _probe_visited,
-                                     _build_indexs.data(), mark_column.get());
+                                     probe_index, build_index, probe_rows, _probe_indexs.data(),
+                                     _probe_visited, _build_indexs.data(), mark_column.get());
         probe_index = new_probe_idx;
         build_index = new_build_idx;
         current_offset = new_current_offset;
         probe_size = probe_index - last_probe_index;
+        all_match_one = new_all_match_one;
     }
 
     build_side_output_column(mcol, *_right_output_slot_flags, current_offset, with_other_conjuncts);
