@@ -595,6 +595,26 @@ public class DateLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
+        // TODO: refactor the compare of Expr
+        if (expr instanceof DateLiteral) {
+            DateLiteral other = (DateLiteral) expr;
+            if (this.year != other.year) {
+                return this.year > other.year ? 1 : -1;
+            } else if (this.month != other.month) {
+                return this.month > other.month ? 1 : -1;
+            } else if (this.day != other.day) {
+                return this.day > other.day ? 1 : -1;
+            } else if (this.hour != other.hour) {
+                return this.hour > other.hour ? 1 : -1;
+            } else if (this.minute != other.minute) {
+                return this.minute > other.minute ? 1 : -1;
+            } else if (this.second != other.second) {
+                return this.second > other.second ? 1 : -1;
+            } else if (this.microsecond != other.microsecond) {
+                return this.microsecond > other.microsecond ? 1 : -1;
+            }
+            return 0;
+        }
         // date time will not overflow when doing addition and subtraction
         return getStringValue().compareTo(expr.getStringValue());
     }
@@ -748,7 +768,7 @@ public class DateLiteral extends LiteralExpr {
         } else if (targetType.isStringType()) {
             return new StringLiteral(getStringValue());
         } else if (targetType.isBigIntType()) {
-            long value = getYear() * 1000 + getMonth() * 100 + getDay();
+            long value = year * 1000 + month * 100 + day;
             return new IntLiteral(value, Type.BIGINT);
         } else {
             if (Type.isImplicitlyCastable(this.type, targetType, true, SessionVariable.getEnableDecimal256())) {
