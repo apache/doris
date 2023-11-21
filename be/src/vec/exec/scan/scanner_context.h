@@ -44,7 +44,7 @@ class TupleDescriptor;
 namespace pipeline {
 class ScanLocalStateBase;
 class ScanDependency;
-class FinishDependency;
+class Dependency;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -106,7 +106,7 @@ public:
     }
 
     void set_dependency(std::shared_ptr<pipeline::ScanDependency> dependency,
-                        std::shared_ptr<pipeline::FinishDependency> finish_dependency) {
+                        std::shared_ptr<pipeline::Dependency> finish_dependency) {
         _dependency = dependency;
         _finish_dependency = finish_dependency;
     }
@@ -284,7 +284,7 @@ protected:
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
     std::shared_ptr<pipeline::ScanDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::FinishDependency> _finish_dependency = nullptr;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

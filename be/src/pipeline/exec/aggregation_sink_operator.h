@@ -45,6 +45,40 @@ public:
     bool can_write() override { return true; }
 };
 
+class AggSinkDependency final : public Dependency {
+public:
+    using SharedState = AggSharedState;
+    AggSinkDependency(int id, int node_id) : Dependency(id, node_id, "AggSinkDependency", true) {}
+    ~AggSinkDependency() override = default;
+
+    void set_ready() override {
+        if (_is_streaming_agg_state()) {
+            if (((SharedState*)Dependency::_shared_state.get())
+                        ->data_queue->has_enough_space_to_push()) {
+                Dependency::set_ready();
+            }
+        } else {
+            Dependency::set_ready();
+        }
+    }
+
+    void block() override {
+        if (_is_streaming_agg_state()) {
+            if (!((SharedState*)Dependency::_shared_state.get())
+                         ->data_queue->has_enough_space_to_push()) {
+                Dependency::block();
+            }
+        } else {
+            Dependency::block();
+        }
+    }
+
+private:
+    bool _is_streaming_agg_state() {
+        return ((SharedState*)Dependency::_shared_state.get())->data_queue != nullptr;
+    }
+};
+
 template <typename LocalStateType>
 class AggSinkOperatorX;
 
@@ -145,7 +179,7 @@ protected:
         for (size_t i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
             Base::_shared_state->aggregate_evaluators[i]->function()->serialize_to_column(
                     Base::_shared_state->values,
-                    Base::_dependency->offsets_of_aggregate_states()[i], value_columns[i],
+                    Base::_shared_state->offsets_of_aggregate_states[i], value_columns[i],
                     num_rows);
         }
 
@@ -167,6 +201,7 @@ protected:
         return Status::OK();
     }
 
+    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
     template <typename HashTableCtxType, typename HashTableType>
     Status _spill_hash_table(HashTableCtxType& agg_method, HashTableType& hash_table) {
         vectorized::Block block;
@@ -254,6 +289,8 @@ protected:
 
         return Status::OK();
     }
+    Status _create_agg_status(vectorized::AggregateDataPtr data);
+    Status _reset_hash_table();
     // We should call this function only at 1st phase.
     // 1st phase: is_merge=true, only have one SlotRef.
     // 2nd phase: is_merge=false, maybe have multiple exprs.
@@ -299,13 +336,13 @@ protected:
 };
 
 class BlockingAggSinkLocalState
-        : public AggSinkLocalState<AggDependency, BlockingAggSinkLocalState> {
+        : public AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(BlockingAggSinkLocalState);
     using Parent = AggSinkOperatorX<BlockingAggSinkLocalState>;
 
     BlockingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : AggSinkLocalState<AggDependency, BlockingAggSinkLocalState>(parent, state) {}
+            : AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState>(parent, state) {}
     ~BlockingAggSinkLocalState() override = default;
 };
 

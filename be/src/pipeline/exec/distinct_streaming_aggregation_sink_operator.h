@@ -78,15 +78,15 @@ private:
 class DistinctStreamingAggSinkOperatorX;
 
 class DistinctStreamingAggSinkLocalState final
-        : public AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState> {
+        : public AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState> {
 public:
     using Parent = DistinctStreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>;
+    using Base = AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
     DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         RETURN_IF_ERROR(Base::init(state, info));
-        _shared_state->data_queue.reset(new DataQueue(1, _dependency));
+        _shared_state->data_queue.reset(new DataQueue(1));
         return Status::OK();
     }
 
