@@ -40,6 +40,7 @@ import org.apache.commons.lang3.RandomUtils;
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 @Data
@@ -106,7 +107,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
                 .orElseThrow(() -> new JobException("no task id:" + taskId)).cancel();
     }
 
-    public void initTasks(List<T> tasks) {
+    public void initTasks(List<? extends AbstractTask> tasks) {
         tasks.forEach(task -> {
             task.setJobId(jobId);
             task.setTaskId(getNextId());
@@ -116,7 +117,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         if (CollectionUtils.isEmpty(getRunningTasks())) {
             setRunningTasks(new ArrayList<>());
         }
-        getRunningTasks().addAll(tasks);
+        getRunningTasks().addAll((Collection<? extends T>) tasks);
     }
 
     public void checkJobParams() {

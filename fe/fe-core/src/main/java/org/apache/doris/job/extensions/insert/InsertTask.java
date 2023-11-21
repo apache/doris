@@ -24,7 +24,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.loadv2.LoadJob;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -62,6 +61,8 @@ public class InsertTask extends AbstractTask {
 
     private String currentDb;
 
+    private UserIdentity userIdentity;
+
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
 
     private AtomicBoolean isFinished = new AtomicBoolean(false);
@@ -80,8 +81,8 @@ public class InsertTask extends AbstractTask {
         ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setQualifiedUser(Auth.ADMIN_USER);
-        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
+        ctx.setCurrentUserIdentity(userIdentity);
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
         ctx.setDatabase(currentDb);
@@ -103,10 +104,11 @@ public class InsertTask extends AbstractTask {
         return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
     }
 
-    public InsertTask(String labelName, String currentDb, String sql) {
+    public InsertTask(String labelName, String currentDb, String sql, UserIdentity userIdentity) {
         this.labelName = labelName;
         this.sql = sql;
         this.currentDb = currentDb;
+        this.userIdentity = userIdentity;
 
     }
 

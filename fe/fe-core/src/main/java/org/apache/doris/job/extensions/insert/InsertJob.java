@@ -63,12 +63,13 @@ public class InsertJob extends AbstractJob<InsertTask> {
     @SerializedName("tis")
     ConcurrentLinkedQueue<Long> taskIdList;
 
+    // max save task num, do we need to config it?
     private static final int MAX_SAVE_TASK_NUM = 50;
 
 
     @Override
     public List<InsertTask> createTasks(TaskType taskType) {
-        InsertTask task = new InsertTask(null, getCurrentDbName(), getExecuteSql());
+        InsertTask task = new InsertTask(null, getCurrentDbName(), getExecuteSql(), getCreateUser());
         task.setJobId(getJobId());
         task.setTaskType(taskType);
         task.setTaskId(Env.getCurrentEnv().getNextId());
@@ -137,7 +138,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
         loadJobs.forEach(loadJob -> {
             InsertTask task;
             try {
-                task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null);
+                task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
             } catch (MetaNotFoundException e) {
                 log.warn("load job not found,job id is {}", loadJob.getId());
                 return;
