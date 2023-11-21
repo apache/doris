@@ -595,9 +595,9 @@ public class DateLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
+        DateLiteral other = (DateLiteral) expr;
         // TODO: refactor the compare of Expr
-        if (expr instanceof DateLiteral) {
-            DateLiteral other = (DateLiteral) expr;
+        if (other instanceof DateLiteral) {
             if (this.year != other.year) {
                 return this.year > other.year ? 1 : -1;
             } else if (this.month != other.month) {
