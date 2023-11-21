@@ -625,6 +625,7 @@ template class PipelineXSinkLocalState<UnionSinkDependency>;
 template class PipelineXSinkLocalState<PartitionSortSinkDependency>;
 template class PipelineXSinkLocalState<MultiCastSinkDependency>;
 template class PipelineXSinkLocalState<SetSinkDependency>;
+template class PipelineXSinkLocalState<SetProbeSinkDependency>;
 template class PipelineXSinkLocalState<LocalExchangeSinkDependency>;
 
 template class PipelineXLocalState<HashJoinProbeDependency>;
