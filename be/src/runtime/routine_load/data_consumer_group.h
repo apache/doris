@@ -128,8 +128,6 @@ private:
 
     size_t len_of_actual_data(const char* data);
 
-    long index_of_json_begin(const char* data);
-
 private:
     // blocking queue to receive msgs from all consumers
     BlockingQueue<pulsar::Message*> _queue;

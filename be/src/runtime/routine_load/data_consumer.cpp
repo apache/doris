@@ -543,7 +543,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         consumer_watch.stop();
         switch (res) {
         case pulsar::ResultOk:
-            LOG(INFO) << "get pulsar message: " << msg.get()->getDataAsString()
+            LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
                       << ", message id: " << msg.get()->getMessageId()
                       << ", len: " << msg.get()->getLength();
             if (msg.get()->getDataAsString().find('{') == std::string::npos) {

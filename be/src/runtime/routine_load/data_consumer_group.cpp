@@ -399,12 +399,12 @@ void PulsarDataConsumerGroup::get_backlog_nums(std::shared_ptr<StreamLoadContext
     }
 }
 
-const char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const char* data) {
+const char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const char* data, std::size_t size) {
     // first index of '['
     int first_left_square_bracket_index = -1;
     // first index of '{'
     int first_left_curly_bracket_index  = -1;
-    for (int i = 0; data[i] != '\0'; ++i) {
+    for (int i = 0; i < size; ++i) {
         if (first_left_square_bracket_index == -1 && data[i] == '[') {
             first_left_square_bracket_index = i;
         }
@@ -433,19 +433,6 @@ size_t PulsarDataConsumerGroup::len_of_actual_data(const char* data) {
         ++length;
     }
     return length;
-}
-
-long PulsarDataConsumerGroup::index_of_json_begin(const char* data) {
-    size_t length = 0;
-    long index  = -1;
-    while (data[length] != '\0') {
-        ++length;
-        if (data[length] == '[' || data[length] == '{') {
-            index = length;
-            break;
-        }
-    }
-    return index;
 }
 
 } // namespace doris
