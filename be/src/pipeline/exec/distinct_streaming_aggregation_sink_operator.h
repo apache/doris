@@ -84,11 +84,6 @@ public:
     using Base = AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
     DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
-        RETURN_IF_ERROR(Base::init(state, info));
-        _shared_state->data_queue.reset(new DataQueue(1));
-        return Status::OK();
-    }
 
     Status close(RuntimeState* state, Status exec_status) override;
     Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,

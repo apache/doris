@@ -110,6 +110,9 @@ public:
         }
         _eos = true;
         set_ready();
+        if (_is_write_dependency && _shared_state->source_dep != nullptr) {
+            _shared_state->source_dep->set_eos();
+        }
     }
     bool eos() const { return _eos.load(); }
 
