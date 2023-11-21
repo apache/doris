@@ -400,27 +400,15 @@ void PulsarDataConsumerGroup::get_backlog_nums(std::shared_ptr<StreamLoadContext
 }
 
 const char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const char* data, std::size_t size) {
-    // first index of '['
-    int first_left_square_bracket_index = -1;
     // first index of '{'
     int first_left_curly_bracket_index  = -1;
     for (int i = 0; i < size; ++i) {
-        if (first_left_square_bracket_index == -1 && data[i] == '[') {
-            first_left_square_bracket_index = i;
-        }
         if (first_left_curly_bracket_index == -1 && data[i] == '{') {
             first_left_curly_bracket_index = i;
+            break;
         }
     }
-    if (first_left_square_bracket_index >= 0 && first_left_curly_bracket_index >= 0) {
-        if (first_left_square_bracket_index < first_left_curly_bracket_index) {
-            return data + first_left_square_bracket_index;
-        } else {
-            return data + first_left_curly_bracket_index;
-        }
-    } else if (first_left_square_bracket_index >= 0) {
-        return data + first_left_square_bracket_index;
-    } else if (first_left_curly_bracket_index >= 0) {
+    if (first_left_curly_bracket_index >= 0) {
         return data + first_left_curly_bracket_index;
     } else {
         return data;
