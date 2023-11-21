@@ -193,8 +193,6 @@ void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_
         static_cast<size_t>(best.base) + static_cast<size_t>(best.len) == words.size()) {
         *dst++ = ':';
     }
-
-    dst++;
 }
 
 } // namespace doris::vectorized
