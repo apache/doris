@@ -50,6 +50,11 @@ arrow::Result<int64_t> ArrowPipInputStream::Tell() const {
 }
 
 Status ArrowPipInputStream::HasNext(bool* get) {
+    // 1. Arrow's serialization uses a 4-byte data to specify the length of the data that follows,
+    //    so there must be 4-byte data here.
+    // 2. If it is not determined whether there is a next batch of data (the data has already been transmitted),
+    //    then the `_file_reader->read_at` will return a buff with a read length of 0,
+    //    and the `RecordBatchStreamReader::Open` function will directly report an error when it gets this buff
     Slice file_slice(_read_buf, 4);
     size_t read_length = 0;
     RETURN_IF_ERROR(_file_reader->read_at(0, file_slice, &read_length, NULL));
@@ -62,6 +67,8 @@ Status ArrowPipInputStream::HasNext(bool* get) {
 }
 
 arrow::Result<int64_t> ArrowPipInputStream::Read(int64_t nbytes, void* out) {
+    // RecordBatchStreamReader::Open will create a new reader that will stream a batch of arrow data.
+    // But the first four bytes of this batch of data were taken by the HasNext function, so they need to be copied back here.
     uint8_t* out_ptr = (uint8_t*)out;
     if (_begin) {
         memmove(out_ptr, _read_buf, 4);

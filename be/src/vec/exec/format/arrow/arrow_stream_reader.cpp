@@ -67,7 +67,7 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
             arrow::ipc::RecordBatchStreamReader::Open(_pip_stream.get(),
                                                       arrow::ipc::IpcReadOptions::Defaults());
     if (!tRet.ok()) {
-        LOG(ERROR) << "failed to open stream reader: " << tRet.status().message();
+        LOG(WARNING) << "failed to open stream reader: " << tRet.status().message();
         return Status::InternalError("failed to open stream reader: {}", tRet.status().message());
     }
     auto reader = std::move(tRet).ValueUnsafe();
@@ -75,7 +75,7 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
     // get arrow data from reader
     arrow::Result<arrow::RecordBatchVector> tRet2 = reader->ToRecordBatches();
     if (!tRet2.ok()) {
-        LOG(ERROR) << "failed to read batch: " << tRet2.status().message();
+        LOG(WARNING) << "failed to read batch: " << tRet2.status().message();
         return Status::InternalError("failed to read batch: {}", tRet2.status().message());
     }
     std::vector<std::shared_ptr<arrow::RecordBatch>> out_batches = std::move(tRet2).ValueUnsafe();
