@@ -36,4 +36,11 @@ suite("forbid_unknown_col_stats") {
     );
     '''
     
+    test {
+        sql """select r_regionkey from region;  """
+        exception "java.sql.SQLException: errCode = 2, detailMessage = meet unknown column stats: r_regionkey";
+    }
+    
+    sql "alter table region modify column r_regionkey set stats ('ndv'='5', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='5');"
+    sql """select r_regionkey from region;  """
 }
