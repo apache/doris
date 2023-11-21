@@ -118,8 +118,11 @@ public:
                 // open index searcher into cache
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                         _segment_file_name, _index_meta->index_id());
-                static_cast<void>(InvertedIndexSearcherCache::instance()->insert(_fs, _directory,
-                                                                                 index_file_name));
+                auto st = InvertedIndexSearcherCache::instance()->insert(
+                        _fs, _directory, index_file_name, InvertedIndexReaderType::FULLTEXT);
+                if (!st.ok()) {
+                    LOG(ERROR) << "insert inverted index searcher cache error:" << st;
+                }
             }
         }
     }
@@ -141,7 +144,6 @@ public:
         auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                 _directory + "/" + _segment_file_name, _index_meta->index_id());
 
-        // LOG(INFO) << "inverted index path: " << index_path;
         bool exists = false;
         auto st = _fs->exists(index_path.c_str(), &exists);
         if (!st.ok()) {
@@ -151,12 +153,7 @@ public:
         }
         if (exists) {
             LOG(ERROR) << "try to init a directory:" << index_path << " already exists";
-            return Status::InternalError("init_fulltext_index a directory already exists");
-            //st = _fs->delete_directory(index_path.c_str());
-            //if (!st.ok()) {
-            //    LOG(ERROR) << "delete directory:" << index_path << " error:" << st;
-            //    return st;
-            //}
+            return Status::InternalError("init_fulltext_index directory already exists");
         }
 
         _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();

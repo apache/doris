@@ -59,15 +59,6 @@ namespace segment_v2 {
 class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 
-enum class InvertedIndexReaderType {
-    UNKNOWN = -1,
-    FULLTEXT = 0,
-    STRING_TYPE = 1,
-    BKD = 2,
-};
-
-using IndexSearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
-
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
@@ -141,7 +132,7 @@ public:
 
 private:
     Status normal_index_search(OlapReaderStatistics* stats, InvertedIndexQueryType query_type,
-                               const IndexSearcherPtr& index_searcher,
+                               const FulltextIndexSearcherPtr& index_searcher,
                                bool& null_bitmap_already_read,
                                const std::unique_ptr<lucene::search::Query>& query,
                                const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
@@ -149,10 +140,11 @@ private:
     Status match_all_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                                   const std::wstring& field_ws,
                                   const std::vector<std::string>& analyse_result,
-                                  const IndexSearcherPtr& index_searcher,
+                                  const FulltextIndexSearcherPtr& index_searcher,
                                   const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 
-    void check_null_bitmap(const IndexSearcherPtr& index_searcher, bool& null_bitmap_already_read);
+    void check_null_bitmap(const FulltextIndexSearcherPtr& index_searcher,
+                           bool& null_bitmap_already_read);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
@@ -216,25 +208,13 @@ class BkdIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(BkdIndexReader);
 
 private:
-    std::string _file_full_path;
+    std::string _index_file_name;
+    io::Path _index_dir;
 
 public:
     explicit BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
                             const TabletIndex* index_meta);
-    ~BkdIndexReader() override {
-        if (_compoundReader != nullptr) {
-            try {
-                _compoundReader->close();
-            } catch (const CLuceneError& e) {
-                // Handle exception, e.g., log it, but don't rethrow.
-                LOG(ERROR) << "Exception caught in BkdIndexReader destructor: " << e.what()
-                           << std::endl;
-            } catch (...) {
-                // Handle all other exceptions, but don't rethrow.
-                LOG(ERROR) << "Unknown exception caught in BkdIndexReader destructor." << std::endl;
-            }
-        }
-    }
+    ~BkdIndexReader() override = default;
 
     Status new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                         std::unique_ptr<InvertedIndexIterator>* iterator) override;
@@ -256,12 +236,11 @@ public:
                         roaring::Roaring* bit_map);
 
     InvertedIndexReaderType type() override;
-    Status get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_reader>* reader);
+    Status get_bkd_reader(BKDIndexSearcherPtr& reader, OlapReaderStatistics* stats);
 
 private:
     const TypeInfo* _type_info {};
     const KeyCoder* _value_key_coder {};
-    std::unique_ptr<DorisCompoundReader> _compoundReader;
 };
 
 class InvertedIndexIterator {
@@ -274,7 +253,7 @@ public:
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                     InvertedIndexQueryType query_type, uint32_t segment_num_rows,
-                                    roaring::Roaring* bit_map, bool skip_try = false);
+                                    roaring::Roaring* bit_map, bool skip_try = true);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 
