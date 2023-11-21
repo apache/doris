@@ -368,7 +368,8 @@ class AsyncWriterDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id, int node_id) : Dependency(id, node_id, "AsyncWriterDependency") {}
+    AsyncWriterDependency(int id, int node_id)
+            : Dependency(id, node_id, "AsyncWriterDependency", true) {}
     ~AsyncWriterDependency() override = default;
 };
 
