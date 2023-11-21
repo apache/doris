@@ -543,9 +543,16 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         consumer_watch.stop();
         switch (res) {
         case pulsar::ResultOk:
-            LOG(INFO) << "receive pulsar message: "
-                      << ", message id: " << msg.get()->getMessageId() << ", len: " << msg.get()->getLength();
-            if (!queue->blocking_put(msg.get())) {
+            std::string origin_str = msg.get()->getDataAsString();
+            size_t found = str.find('{');
+            LOG(INFO) << "get pulsar message: " << origin_str
+                      << ", message id: " << msg.get()->getMessageId()
+                      << ", len: " << msg.get()->getLength();
+            if (found == std::string::npos) {
+                // ignore msg with length 0.
+                // put empty msg into queue will cause the load process shutting down.
+                break;
+            } else if (!queue->blocking_put(msg.get())) {
                 // queue is shutdown
                 done = true;
             } else {

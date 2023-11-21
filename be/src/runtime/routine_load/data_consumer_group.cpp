@@ -246,19 +246,19 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
     // start all consumers
     for (auto& consumer : _consumers) {
         if (!_thread_pool.offer([this, consumer, capture0 = &_queue, capture1 = ctx->max_interval_s * 1000,
-            capture2 = [this, &result_st](const Status& st) {
-             std::unique_lock<std::mutex> lock(_mutex);
-             _counter--;
-             VLOG(1) << "group counter is: " << _counter << ", grp: " << _grp_id;
-             if (_counter == 0) {
-                 _queue.shutdown();
-                 LOG(INFO)
-                         << "all consumers are finished. shutdown queue. group id: " << _grp_id;
-             }
-             if (result_st.ok() && !st.ok()) {
-                 result_st = st;
-             }
-            }] { actual_consume(consumer, capture0, capture1, capture2); })) {
+                capture2 = [this, &result_st](const Status& st) {
+                 std::unique_lock<std::mutex> lock(_mutex);
+                 _counter--;
+                 VLOG(1) << "group counter is: " << _counter << ", grp: " << _grp_id;
+                 if (_counter == 0) {
+                     _queue.shutdown();
+                     LOG(INFO)
+                             << "all consumers are finished. shutdown queue. group id: " << _grp_id;
+                 }
+                 if (result_st.ok() && !st.ok()) {
+                     result_st = st;
+                 }
+                }] { actual_consume(consumer, capture0, capture1, capture2); })) {
             LOG(WARNING) << "failed to submit data consumer: " << consumer->id() << ", group id: " << _grp_id;
             return Status::InternalError("failed to submit data consumer");
         } else {
@@ -344,8 +344,9 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
             const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()));
             size_t  filter_len = len_of_actual_data(filter_data);
             // append filtered data
-            LOG(INFO) << "get pulsar message: " << std::string(filter_data,filter_len)
-                      << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
+            LOG(INFO) << "get pulsar message: " << std::string(filter_data, filter_len)
+                      << ", partition: " << partition << ", message id: " << msg_id
+                      << ", len: " << len << ", filter_len: " << filter_len;
             Status st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
             if (st.ok()) {
                 received_rows++;
@@ -422,7 +423,7 @@ const char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const char* d
     } else if (first_left_curly_bracket_index >= 0) {
         return data + first_left_curly_bracket_index;
     } else {
-        return "";
+        return data;
     }
 }
 
