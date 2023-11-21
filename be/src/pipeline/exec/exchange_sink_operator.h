@@ -146,6 +146,7 @@ public:
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
+    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
     RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
     RuntimeProfile::Counter* local_bytes_send_counter() { return _local_bytes_send_counter; }
     RuntimeProfile::Counter* local_sent_rows() { return _local_sent_rows; }
@@ -192,6 +193,7 @@ private:
     RuntimeProfile::Counter* _split_block_hash_compute_timer = nullptr;
     RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput = nullptr;
     // Used to counter send bytes under local data exchange
