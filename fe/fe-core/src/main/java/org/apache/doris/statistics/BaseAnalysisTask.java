@@ -57,9 +57,9 @@ public abstract class BaseAnalysisTask {
             + "         NULL AS `part_id`, "
             + "         COUNT(1) AS `row_count`, "
             + "         NDV(`${colName}`) AS `ndv`, "
-            + "         COUNT(1) - COUNT(${colName}) AS `null_count`, "
-            + "         CAST(MIN(${colName}) AS STRING) AS `min`, "
-            + "         CAST(MAX(${colName}) AS STRING) AS `max`, "
+            + "         COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
+            + "         CAST(MIN(`${colName}`) AS STRING) AS `min`, "
+            + "         CAST(MAX(`${colName}`) AS STRING) AS `max`, "
             + "         ${dataSizeFunction} AS `data_size`, "
             + "         NOW() AS `update_time` "
             + " FROM `${catalogName}`.`${dbName}`.`${tblName}`";
@@ -91,13 +91,13 @@ public abstract class BaseAnalysisTask {
             + "NULL AS `part_id`, "
             + "${rowCount} AS `row_count`, "
             + "${ndvFunction} as `ndv`, "
-            + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.count, 0)), 0) * ${scaleFactor} as `null_count`, "
+            + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
             + "'${min}' AS `min`, "
             + "'${max}' AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
             + "FROM ( "
-            + "    SELECT t0.`${colName}` as column_key, COUNT(1) as `count` "
+            + "    SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count` "
             + "    FROM "
             + "    (SELECT `${colName}` FROM `${catalogName}`.`${dbName}`.`${tblName}` "
             + "    ${sampleHints} ${limit}) as `t0` "
@@ -260,8 +260,8 @@ public abstract class BaseAnalysisTask {
     }
 
     protected String getNdvFunction(String totalRows) {
-        String sampleRows = "SUM(t1.count)";
-        String onceCount = "SUM(IF(t1.count = 1, 1, 0))";
+        String sampleRows = "SUM(`t1`.`count`)";
+        String onceCount = "SUM(IF(`t1`.`count` = 1, 1, 0))";
         String countDistinct = "COUNT(1)";
         // DUJ1 estimator: n*d / (n - f1 + f1*n/N)
         // f1 is the count of element that appears only once in the sample.
