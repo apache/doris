@@ -24,7 +24,7 @@ under the License.
 
 ## json_extract
 
-<version since="dev"></version>
+<version since="2.0"></version>
 
 ### description
 
