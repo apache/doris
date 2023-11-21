@@ -277,7 +277,7 @@ Status EnginePublishVersionTask::finish() {
                         (*_succ_tablets)[tablet_id] = 0;
                     } else {
                         add_error_tablet_id(tablet_id);
-                        if (not_continuous_mow_tablets.find(tablet_id) !=
+                        if (not_continuous_mow_tablets.find(tablet_id) ==
                             not_continuous_mow_tablets.end()) {
                             LOG(WARNING)
                                     << "publish version failed on transaction, tablet version not "
