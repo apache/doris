@@ -106,7 +106,7 @@ suite("test_routine_load","p0") {
                     '[\"$.k00\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\"]',
                     ]
 
-    def columns = [ 
+    def columns = [
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -116,8 +116,8 @@ suite("test_routine_load","p0") {
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                   ]
 
-    def timezoneColumns = 
-                  [ 
+    def timezoneColumns =
+                  [
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -140,7 +140,7 @@ suite("test_routine_load","p0") {
     def formats = [
                     "csv",
                     "json",
-                  ]            
+                  ]
 
     def loadedRows = [0,0,0,0,17,17,17]
 
@@ -216,7 +216,7 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
+
                 if (i <= 3) {
                     qt_sql_exec_mem_limit "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -538,7 +538,7 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
+
                 if (i <= 3) {
                     qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -603,7 +603,7 @@ suite("test_routine_load","p0") {
                 } else {
                     qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00"
                 }
-                
+
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -760,7 +760,8 @@ suite("test_routine_load","p0") {
                 sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
                 def name = "routine_load_" + tableName
-                sql """
+                try {
+                    sql """
                     CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
                     COLUMNS(${columns[i]})
                     PROPERTIES
@@ -777,7 +778,11 @@ suite("test_routine_load","p0") {
                         "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                     );
                 """
-                sql "sync"
+                    sql "sync"
+                }catch (Exception e) {
+                    log.info("create routine load failed: ${e.getMessage()}")
+                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = Format type is invalid. format=`test`")
+                }
                 i++
             }
 
