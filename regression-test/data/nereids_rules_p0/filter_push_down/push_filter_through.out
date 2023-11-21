@@ -44,9 +44,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 --------filter((t1.id = 1))
-----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t1] apply RFs: RF0
 --------PhysicalDistribute
 ----------filter((t2.id = 1))
 ------------PhysicalOlapScan[t2]
@@ -55,9 +55,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 --------filter((t1.id = 1))
-----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t1] apply RFs: RF0
 --------PhysicalDistribute
 ----------filter((t2.id = 1))
 ------------PhysicalOlapScan[t2]
@@ -66,8 +66,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
---------PhysicalOlapScan[t2]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------PhysicalOlapScan[t2] apply RFs: RF0
 --------PhysicalDistribute
 ----------filter((t1.msg = ''))
 ------------PhysicalOlapScan[t1]
@@ -76,7 +76,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.id = 1))
 ----------PhysicalOlapScan[t1]
 --------PhysicalDistribute
@@ -87,18 +87,18 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
---------filter((t1.id = 1))
-----------PhysicalOlapScan[t1]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------filter((t2.id = 1))
+----------PhysicalOlapScan[t2] apply RFs: RF0
 --------PhysicalDistribute
-----------filter((t2.id = 1))
-------------PhysicalOlapScan[t2]
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1]
 
 -- !filter_join_full --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.id = 1))
 ----------PhysicalOlapScan[t1]
 --------PhysicalDistribute
@@ -119,7 +119,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.id = 1))
 ----------PhysicalOlapScan[t1]
 --------PhysicalDistribute
@@ -131,9 +131,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 --------filter((t1.id = 1))
-----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t1] apply RFs: RF0
 --------PhysicalDistribute
 ----------PhysicalProject
 ------------filter((t2.id = 1))
@@ -143,7 +143,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t2.id = 1))
 ----------PhysicalOlapScan[t2]
 --------PhysicalDistribute
@@ -155,9 +155,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 --------filter((t2.id = 1))
-----------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t2] apply RFs: RF0
 --------PhysicalDistribute
 ----------PhysicalProject
 ------------filter((t1.id = 1))
@@ -167,9 +167,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 --------filter((t2.id = 1))
-----------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t2] apply RFs: RF0
 --------PhysicalDistribute
 ----------PhysicalProject
 ------------filter((t1.id = 1))
@@ -179,64 +179,61 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
---------filter((t3.id = 1))
-----------PhysicalOlapScan[t3]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+----------PhysicalDistribute
+------------filter((t2.id = 1))
+--------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
-------------filter((t1.id = 1))
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------filter((t2.id = 1))
-----------------PhysicalOlapScan[t2]
+----------filter((t3.id = 1))
+------------PhysicalOlapScan[t3]
 
 -- !filter_mixed_inner_left --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
---------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1] apply RFs: RF0
 ----------PhysicalDistribute
-------------filter((t3.id = 1))
---------------PhysicalOlapScan[t3]
-----------PhysicalDistribute
-------------filter((t1.id = 1))
---------------PhysicalOlapScan[t1]
+------------filter((t2.id = 1))
+--------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
-----------filter((t2.id = 1))
-------------PhysicalOlapScan[t2]
+----------filter((t3.id = 1))
+------------PhysicalOlapScan[t3]
 
 -- !filter_multi_left --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
---------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
-------------filter((t3.id = 1))
---------------PhysicalOlapScan[t3]
-----------PhysicalDistribute
-------------filter((t1.id = 1))
---------------PhysicalOlapScan[t1]
+------------filter((t2.id = 1))
+--------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
-----------filter((t2.id = 1))
-------------PhysicalOlapScan[t2]
+----------filter((t3.id = 1))
+------------PhysicalOlapScan[t3]
 
 -- !filter_multi_outer --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
---------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
-------------filter((t3.id = 1))
---------------PhysicalOlapScan[t3]
-----------PhysicalDistribute
-------------filter((t1.id = 1))
---------------PhysicalOlapScan[t1]
+------------filter((t2.id = 1))
+--------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
-----------filter((t2.id = 1))
-------------PhysicalOlapScan[t2]
+----------filter((t3.id = 1))
+------------PhysicalOlapScan[t3]
 
 -- !filter_multi_cross --
 PhysicalResultSink
@@ -255,20 +252,20 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id))otherCondition=()
---------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id))otherCondition=()
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t4.id))otherCondition=()
-------------filter((t4.id = 1))
---------------PhysicalOlapScan[t4]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t4.id)) otherCondition=() build RFs:RF1 id->[id]
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------------filter((t1.id = 1))
+--------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
 ------------PhysicalDistribute
---------------filter((t1.id = 1))
-----------------PhysicalOlapScan[t1]
+--------------filter((t2.id = 1))
+----------------PhysicalOlapScan[t2]
 ----------PhysicalDistribute
 ------------filter((t3.id = 1))
 --------------PhysicalOlapScan[t3]
 --------PhysicalDistribute
-----------filter((t2.id = 1))
-------------PhysicalOlapScan[t2]
+----------filter((t4.id = 1))
+------------PhysicalOlapScan[t4]
 
 -- !filter_aggregation_filtered_agg_func --
 PhysicalResultSink
@@ -378,4 +375,138 @@ PhysicalResultSink
 ------PhysicalDistribute
 --------filter((t2.id = 2))
 ----------PhysicalOlapScan[t2]
+
+-- !push_filter_union --
+PhysicalResultSink
+--PhysicalDistribute
+----hashAgg[GLOBAL]
+------PhysicalDistribute
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((cast('2023-12-01 15:05:33' as INT) = 2))
+------------------PhysicalOneRowRelation
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((t2.id = 2))
+------------------PhysicalOlapScan[t2]
+
+-- !push_filter_union_all --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalUnion
+------PhysicalDistribute
+--------PhysicalProject
+----------filter((cast('2023-12-01 15:05:33' as INT) = 2))
+------------PhysicalOneRowRelation
+------PhysicalDistribute
+--------PhysicalProject
+----------filter((t2.id = 2))
+------------PhysicalOlapScan[t2]
+
+-- !push_filter_intersect --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalIntersect
+------PhysicalDistribute
+--------PhysicalProject
+----------filter((cast('2023-12-01 15:05:33' as INT) = 2))
+------------PhysicalOneRowRelation
+------PhysicalDistribute
+--------PhysicalProject
+----------filter((t2.id = 2))
+------------PhysicalOlapScan[t2]
+
+-- !push_filter_except --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------PhysicalExcept
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((cast('2023-12-01 15:05:33' as INT) = 2))
+--------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 2))
+------------PhysicalOlapScan[t2]
+
+-- !push_filter_except --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t3.id = t.id)) otherCondition=() build RFs:RF0 id->[id]
+--------PhysicalProject
+----------PhysicalOlapScan[t3] apply RFs: RF0
+--------PhysicalDistribute
+----------PhysicalProject
+------------PhysicalExcept
+--------------PhysicalDistribute
+----------------filter((t1.id = 2))
+------------------PhysicalOlapScan[t1]
+--------------PhysicalDistribute
+----------------filter((t2.id = 2))
+------------------PhysicalOlapScan[t2]
+
+-- !push_filter_subquery --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t3.id = t.id)) otherCondition=() build RFs:RF0 id->[id]
+--------PhysicalProject
+----------PhysicalOlapScan[t3] apply RFs: RF0
+--------PhysicalDistribute
+----------PhysicalProject
+------------PhysicalExcept
+--------------PhysicalDistribute
+----------------filter((t1.id = 2))
+------------------PhysicalOlapScan[t1]
+--------------PhysicalDistribute
+----------------filter((t2.id = 2))
+------------------PhysicalOlapScan[t2]
+
+-- !filter_window_row_number --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------PhysicalWindow
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalProject
+------------filter((t1.id <= 5))
+--------------PhysicalOlapScan[t1]
+
+-- !filter_window_order_row_number --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------PhysicalWindow
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalProject
+------------filter((t1.id <= 5))
+--------------PhysicalOlapScan[t1]
+
+-- !filter_window_row_number_complex_predicate --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------PhysicalWindow
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------filter(((cast(id as DOUBLE) + cast(msg as DOUBLE)) = cast('' as DOUBLE)))
+----------------PhysicalOlapScan[t1]
+
+-- !filter_multi_window --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------PhysicalWindow
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalDistribute
+------------PhysicalWindow
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------filter((t1.msg = ''))
+----------------------PhysicalOlapScan[t1]
 
