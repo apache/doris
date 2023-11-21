@@ -47,7 +47,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -159,7 +159,8 @@ public class MaxComputeExternalTable extends ExternalTable {
         } else {
             partitionSpecs = ImmutableList.of();
         }
-        partitionNameToColumns = new HashMap<>();
+        // sort partition columns to align partitionTypes and partitionName.
+        partitionNameToColumns = new LinkedHashMap<>();
         for (com.aliyun.odps.Column partColumn : partitionColumns) {
             Column dorisCol = new Column(partColumn.getName(),
                     mcTypeToDorisType(partColumn.getTypeInfo()), true, null,

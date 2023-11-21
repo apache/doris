@@ -25,6 +25,7 @@ import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.AdminShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
+import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
@@ -1659,22 +1660,32 @@ public class ShowExecutor {
                     showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
             resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
         } else if (showStmt.getCatalog() instanceof MaxComputeExternalCatalog) {
-            MaxComputeExternalCatalog catalog = (MaxComputeExternalCatalog) (showStmt.getCatalog());
-            List<List<String>> rows = new ArrayList<>();
-            String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
-            List<String> partitionNames = catalog.listPartitionNames(dbName,
-                    showStmt.getTableName().getTbl());
-            for (String partition : partitionNames) {
-                List<String> list = new ArrayList<>();
-                list.add(partition);
-                rows.add(list);
-            }
-            // sort by partition name
-            rows.sort(Comparator.comparing(x -> x.get(0)));
-            resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+            handleShowMaxComputeTablePartitions(showStmt);
         } else {
             handleShowHMSTablePartitions(showStmt);
         }
+    }
+
+    private void handleShowMaxComputeTablePartitions(ShowPartitionsStmt showStmt) {
+        MaxComputeExternalCatalog catalog = (MaxComputeExternalCatalog) (showStmt.getCatalog());
+        List<List<String>> rows = new ArrayList<>();
+        String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
+        List<String> partitionNames;
+        LimitElement limit = showStmt.getLimitElement();
+        if (limit != null && limit.hasLimit()) {
+            partitionNames = catalog.listPartitionNames(dbName,
+                    showStmt.getTableName().getTbl(), limit.getOffset(), limit.getLimit());
+        } else {
+            partitionNames = catalog.listPartitionNames(dbName, showStmt.getTableName().getTbl());
+        }
+        for (String partition : partitionNames) {
+            List<String> list = new ArrayList<>();
+            list.add(partition);
+            rows.add(list);
+        }
+        // sort by partition name
+        rows.sort(Comparator.comparing(x -> x.get(0)));
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) {
@@ -1682,8 +1693,15 @@ public class ShowExecutor {
         List<List<String>> rows = new ArrayList<>();
         String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
 
-        List<String> partitionNames = catalog.getClient().listPartitionNames(dbName,
-                showStmt.getTableName().getTbl());
+        List<String> partitionNames;
+        LimitElement limit = showStmt.getLimitElement();
+        if (limit != null && limit.hasLimit()) {
+            // only short limit is valid on Hive
+            short limited = (short) limit.getLimit();
+            partitionNames = catalog.getClient().listPartitionNames(dbName, showStmt.getTableName().getTbl(), limited);
+        } else {
+            partitionNames = catalog.getClient().listPartitionNames(dbName, showStmt.getTableName().getTbl());
+        }
         for (String partition : partitionNames) {
             List<String> list = new ArrayList<>();
             list.add(partition);

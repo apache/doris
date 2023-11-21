@@ -24,6 +24,7 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
+import com.aliyun.odps.Partition;
 import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
@@ -34,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -144,10 +146,32 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     }
 
     public List<String> listPartitionNames(String dbName, String tbl) {
+        return listPartitionNames(dbName, tbl, 0, -1);
+    }
+
+    public List<String> listPartitionNames(String dbName, String tbl, long skip, long limit) {
         try {
             if (getClient().projects().exists(dbName)) {
-                return getClient().tables().get(tbl).getPartitions().stream()
-                        .map(p -> p.getPartitionSpec().toString(false, true))
+                List<Partition> parts;
+                if (limit < 0) {
+                    parts = getClient().tables().get(tbl).getPartitions();
+                } else {
+                    skip = skip < 0 ? 0 : skip;
+                    parts = new ArrayList<>();
+                    Iterator<Partition> it = getClient().tables().get(tbl).getPartitionIterator();
+                    int count = 0;
+                    while (it.hasNext()) {
+                        if (count < skip) {
+                            count++;
+                            it.next();
+                        } else if (parts.size() >= limit) {
+                            break;
+                        } else {
+                            parts.add(it.next());
+                        }
+                    }
+                }
+                return parts.stream().map(p -> p.getPartitionSpec().toString(false, true))
                         .collect(Collectors.toList());
             } else {
                 throw new OdpsException("Max compute project: " + dbName + " not exists.");
