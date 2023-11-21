@@ -148,6 +148,9 @@ import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.EsScanNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.GroupCommitBlockSink;
+import org.apache.doris.planner.GroupCommitOlapTableSink;
+import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.IntersectNode;
@@ -172,12 +175,14 @@ import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.MaxComputeScanNode;
+import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.tablefunction.GroupCommitTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
@@ -418,12 +423,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             slotDesc.setIsNullable(column.isAllowNull());
             slotDesc.setAutoInc(column.isAutoInc());
         }
-        OlapTableSink sink = new OlapTableSink(
+        checkInnerGroupCommit(context.getScanNodes());
+        OlapTableSink sink;
+        if (context.getConnectContext().isGroupCommitTvf()) {
+            sink = new GroupCommitOlapTableSink(olapTableSink.getTargetTable(),
+                olapTuple,
+                olapTableSink.getTargetTable().getPartitionIds(),
+                context.getSessionVariable().isEnableSingleReplicaInsert());
+        } else if (context.getConnectContext().isGroupCommitStreamLoadSql()) {
+            sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(),
+                olapTuple,
+                olapTableSink.getTargetTable().getPartitionIds(),
+                context.getSessionVariable().isEnableSingleReplicaInsert());
+        } else {
+            sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
                 olapTuple,
                 olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
-        );
+            );
+        }
         sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
         rootFragment.setSink(sink);
 
@@ -1652,10 +1671,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (requiredByProjectSlotIdSet.size() != requiredSlotIdSet.size()
                     || new HashSet<>(projectionExprs).size() != projectionExprs.size()
                     || projectionExprs.stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
-                projectionTuple = generateTupleDesc(slots,
-                                  ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
-                inputPlanNode.setProjectList(projectionExprs);
-                inputPlanNode.setOutputTupleDesc(projectionTuple);
+                if (!(inputPlanNode instanceof GroupCommitScanNode)) {
+                    projectionTuple = generateTupleDesc(slots,
+                        ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
+                    inputPlanNode.setProjectList(projectionExprs);
+                    inputPlanNode.setOutputTupleDesc(projectionTuple);
+                }
             } else {
                 for (int i = 0; i < slots.size(); ++i) {
                     context.addExprIdSlotRefPair(slots.get(i).getExprId(),
@@ -2409,5 +2430,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return root.getChildren().stream().anyMatch(child -> findOlapScanNodesByPassExchangeAndJoinNode(child));
         }
         return false;
+    }
+
+    private void checkInnerGroupCommit(List<ScanNode> scanNodes) {
+        if (scanNodes.size() == 1 && scanNodes.get(0) instanceof TVFScanNode) {
+            TVFScanNode tvfScanNode = (TVFScanNode) scanNodes.get(0);
+            if (tvfScanNode.getTableValuedFunction() instanceof GroupCommitTableValuedFunction) {
+                ConnectContext.get().setGroupCommitTvf(true);
+            }
+        }
     }
 }

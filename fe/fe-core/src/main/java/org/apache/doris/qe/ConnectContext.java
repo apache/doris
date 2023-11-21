@@ -208,6 +208,8 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
     private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
+    private boolean isGroupCommitTvf;
+    private boolean isGroupCommitStreamLoadSql;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
@@ -1028,6 +1030,22 @@ public class ConnectContext {
 
     public void setSkipAuth(boolean skipAuth) {
         this.skipAuth = skipAuth;
+    }
+
+    public boolean isGroupCommitTvf() {
+        return isGroupCommitTvf;
+    }
+
+    public void setGroupCommitTvf(boolean groupCommitTvf) {
+        isGroupCommitTvf = groupCommitTvf;
+    }
+
+    public boolean isGroupCommitStreamLoadSql() {
+        return isGroupCommitStreamLoadSql;
+    }
+
+    public void setGroupCommitStreamLoadSql(boolean groupCommitStreamLoadSql) {
+        isGroupCommitStreamLoadSql = groupCommitStreamLoadSql;
     }
 }
 
