@@ -100,12 +100,14 @@ public class HiveScanNode extends FileQueryScanNode {
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv);
         hmsTable = (HMSExternalTable) desc.getTable();
+        brokerName = hmsTable.getCatalog().bindBrokerName();
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                         StatisticalType statisticalType, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         hmsTable = (HMSExternalTable) desc.getTable();
+        brokerName = hmsTable.getCatalog().bindBrokerName();
     }
 
     @Override
