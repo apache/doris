@@ -543,6 +543,8 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         consumer_watch.stop();
         switch (res) {
         case pulsar::ResultOk:
+            LOG(INFO) << "receive pulsar message: "
+                      << ", message id: " << msg.get()->getMessageId() << ", len: " << msg.get()->getLength();
             if (!queue->blocking_put(msg.get())) {
                 // queue is shutdown
                 done = true;
@@ -550,10 +552,6 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 ++put_rows;
                 msg.release(); // release the ownership, msg will be deleted after being processed
             }
-            pulsar::MessageId msg_id = msg.get()->getMessageId();
-            std::size_t len = msg.get()->getLength();
-            LOG(INFO) << "receive pulsar message: "
-                      << ", message id: " << msg_id << ", len: " << len;
             ++received_rows;
             break;
         case pulsar::ResultTimeout:
