@@ -55,8 +55,8 @@ public class BaseAnalysisTaskTest {
         Assertions.assertEquals("NULL", maxFunction);
 
         String ndvFunction = olapAnalysisTask.getNdvFunction(String.valueOf(100));
-        Assertions.assertEquals("SUM(t1.count) * COUNT(1) / (SUM(t1.count) - SUM(IF(t1.count = 1, 1, 0)) "
-                + "+ SUM(IF(t1.count = 1, 1, 0)) * SUM(t1.count) / 100)", ndvFunction);
+        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(1) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1, 1, 0)) "
+                + "+ SUM(IF(`t1`.`count` = 1, 1, 0)) * SUM(`t1`.`count`) / 100)", ndvFunction);
         System.out.println(ndvFunction);
     }
 
