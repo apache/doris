@@ -194,7 +194,7 @@ void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_
         *dst++ = ':';
     }
 
-    *dst++ = '\0';
+    dst++;
 }
 
 } // namespace doris::vectorized
