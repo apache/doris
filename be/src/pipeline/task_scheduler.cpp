@@ -390,6 +390,9 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     task->set_close_pipeline_time();
     task->release_dependency();
     task->set_running(false);
+    // close_a_pipeline may delete fragment context and will core in some defer
+    // code, because the defer code will access fragment context it self.
+    task->fragment_context()->shared_from_this();
     task->fragment_context()->close_a_pipeline();
 }
 
