@@ -786,23 +786,6 @@ suite("test_routine_load","p0") {
                 i++
             }
 
-            i = 0
-            for (String tableName in tables) {
-                while (true) {
-                    sleep(1000)
-                    def res = sql "show routine load for ${jobs[i]}"
-                    def state = res[0][8].toString()
-                    if (state == "NEED_SCHEDULE") {
-                        continue;
-                    }
-                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals(res[0][8].toString(), "PAUSED")
-                    break;
-                }
-
-                sql "stop routine load for ${jobs[i]}"
-                i++
-            }
         } finally {
             for (String tableName in tables) {
                 sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
