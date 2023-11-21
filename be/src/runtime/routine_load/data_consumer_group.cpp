@@ -401,15 +401,18 @@ void PulsarDataConsumerGroup::get_backlog_nums(std::shared_ptr<StreamLoadContext
 
 const char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(const char* data, std::size_t size) {
     // first index of '{'
-    int prefix_end_index  = -1;
+    int first_left_curly_bracket_index  = -1;
     for (int i = 0; i < size; ++i) {
-        if (prefix_end_index == -1 && data[i] == '\0') {
-            prefix_end_index = i;
+        if (first_left_curly_bracket_index == -1 && data[i] == '{') {
+            first_left_curly_bracket_index = i;
+            if ( i+1 < size && data[i+1] == '{') {
+                first_left_curly_bracket_index = i + 1;
+            }
             break;
         }
     }
-    if (prefix_end_index >= 0) {
-        return data + prefix_end_index + 1;
+    if (first_left_curly_bracket_index >= 0) {
+        return data + first_left_curly_bracket_index;
     } else {
         return data;
     }
