@@ -147,7 +147,6 @@ void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_
             best = cur;
         }
     }
-
     if (best.base != -1 && best.len < 2) {
         best.base = -1;
     }
@@ -164,12 +163,10 @@ void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_
                 continue;
             }
         }
-
         /// Are we following an initial run of 0x00s or any real hex?
         if (i != 0) {
             *dst++ = ':';
         }
-
         /// Is this address an encapsulated IPv4?
         if (i == 6 && best.base == 0 && (best.len == 6 || (best.len == 5 && words[5] == 0xffffu))) {
             uint8_t ipv4_buffer[IPV4_BINARY_LENGTH] = {0};
@@ -184,7 +181,6 @@ void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_
             // formatIPv4 has already added a null-terminator for us.
             return;
         }
-
         print_integer<16>(dst, words[i]);
     }
 
