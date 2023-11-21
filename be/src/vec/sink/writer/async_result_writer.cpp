@@ -41,7 +41,6 @@ void AsyncResultWriter::set_dependency(pipeline::AsyncWriterDependency* dep,
                                        pipeline::FinishDependency* finish_dep) {
     _dependency = dep;
     _finish_dependency = finish_dep;
-    _finish_dependency->block_finishing();
 }
 
 Status AsyncResultWriter::sink(Block* block, bool eos) {
@@ -181,10 +180,10 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Blo
     return b;
 }
 
-pipeline::WriteDependency* AsyncResultWriter::write_blocked_by() {
+pipeline::WriteDependency* AsyncResultWriter::write_blocked_by(pipeline::PipelineXTask* task) {
     std::lock_guard l(_m);
     DCHECK(_dependency != nullptr);
-    return _dependency->write_blocked_by();
+    return _dependency->write_blocked_by(task);
 }
 
 } // namespace vectorized

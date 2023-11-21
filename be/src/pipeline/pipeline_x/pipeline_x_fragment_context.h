@@ -115,6 +115,8 @@ public:
 
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
+    std::string debug_string() override;
+
 private:
     void _close_action() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
