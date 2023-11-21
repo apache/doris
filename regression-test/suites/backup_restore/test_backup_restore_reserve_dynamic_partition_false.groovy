@@ -103,7 +103,7 @@ suite("test_backup_restore_reserve_dynamic_partition_false", "backup_restore") {
     
     def restore_properties = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
 
-    assertTrue(restore_properties[0][1].indexOf("\"dynamic_partition.enable\" = \"false\"") != -1)
+    assertTrue(restore_properties[0][1].contains("\"dynamic_partition.enable\" = \"false\""))
 
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(),20);
