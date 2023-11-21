@@ -264,7 +264,7 @@ suite("test_routine_load","p0") {
                     i++
                 } catch (Exception e) {
                     log.info("exception: ${e.toString()}".toString())
-                    assertEquals(e.toString(), "java.sql.SQLException: errCode = 2, detailMessage = exec_mem_limit must be greater than > 0")
+                    assertEquals(e.toString(), "java.sql.SQLException: errCode = 2, detailMessage = exec_mem_limit must be greater than 0")
                 }
             }
         } finally {
