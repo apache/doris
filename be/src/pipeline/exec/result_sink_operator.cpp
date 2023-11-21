@@ -64,7 +64,8 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
             state->execution_timeout()));
     _result_sink_dependency =
             ResultSinkDependency::create_shared(_parent->operator_id(), _parent->node_id());
-
+    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
+    _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
     ((PipBufferControlBlock*)_sender.get())->set_dependency(_result_sink_dependency);
     return Status::OK();
 }
@@ -131,6 +132,8 @@ Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    COUNTER_UPDATE(local_state.rows_sent_counter(), (int64_t)block->rows());
+    COUNTER_UPDATE(local_state.blocks_sent_counter(), 1);
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }

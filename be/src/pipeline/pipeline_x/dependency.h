@@ -55,12 +55,12 @@ public:
             : _id(id), _node_id(node_id), _name(std::move(name)), _ready_for_read(false) {}
     virtual ~Dependency() = default;
 
-    virtual bool is_or_dep() { return false; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
-    virtual void* shared_state() = 0;
+    virtual void* shared_state() { return nullptr; }
     virtual std::string debug_string(int indentation_level = 0);
     virtual bool is_write_dependency() { return false; }
+    virtual bool push_to_blocking_queue() { return false; }
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
     void start_read_watcher() {
@@ -146,6 +146,7 @@ public:
 protected:
     friend class Dependency;
     std::atomic<bool> _ready_for_write {true};
+    std::mutex _write_task_lock;
     MonotonicStopWatch _write_dependency_watcher;
 
 private:
@@ -173,7 +174,6 @@ public:
 
     void set_ready_to_finish();
 
-    void* shared_state() override { return nullptr; }
     std::string debug_string(int indentation_level = 0) override;
 
     void add_block_task(PipelineXTask* task) override;
@@ -223,7 +223,6 @@ public:
     RuntimeFilterDependency(int id, int node_id, std::string name)
             : Dependency(id, node_id, name) {}
     RuntimeFilterDependency* filter_blocked_by(PipelineXTask* task);
-    void* shared_state() override { return nullptr; }
     void add_filters(IRuntimeFilter* runtime_filter);
     void sub_filters();
     void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
@@ -256,8 +255,6 @@ public:
         return fmt::to_string(debug_string_buffer);
     }
 
-    void* shared_state() override { return nullptr; }
-
     std::string debug_string(int indentation_level = 0) override;
 
     [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
@@ -280,43 +277,11 @@ public:
     }
 };
 
-class OrDependency final : public WriteDependency {
-public:
-    ENABLE_FACTORY_CREATOR(OrDependency);
-    OrDependency(int id, int node_id) : WriteDependency(id, node_id, "OrDependency") {}
-
-    [[nodiscard]] std::string name() const override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "{}[", _name);
-        for (auto& child : _children) {
-            fmt::format_to(debug_string_buffer, "{}, ", child->name());
-        }
-        fmt::format_to(debug_string_buffer, "]");
-        return fmt::to_string(debug_string_buffer);
-    }
-
-    void* shared_state() override { return nullptr; }
-
-    std::string debug_string(int indentation_level = 0) override;
-
-    bool is_or_dep() override { return true; }
-
-    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override;
-
-    [[nodiscard]] WriteDependency* write_blocked_by(PipelineXTask* task) override;
-
-    void add_child(std::shared_ptr<Dependency> child) override {
-        WriteDependency::add_child(child);
-        child->set_parent(weak_from_this());
-    }
-};
-
 struct FakeSharedState {};
 struct FakeDependency final : public WriteDependency {
 public:
     FakeDependency(int id, int node_id) : WriteDependency(id, node_id, "FakeDependency") {}
     using SharedState = FakeSharedState;
-    void* shared_state() override { return nullptr; }
     [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override { return nullptr; }
     [[nodiscard]] WriteDependency* write_blocked_by(PipelineXTask* task) override {
         return nullptr;
@@ -497,6 +462,7 @@ public:
         }
         return this;
     }
+    bool push_to_blocking_queue() override { return true; }
     void block_reading() override {}
     void block_writing() override {}
 
@@ -681,6 +647,9 @@ public:
     }
 
     void set_eos() {
+        if (_eos) {
+            return;
+        }
         _eos = true;
         WriteDependency::set_ready_for_read();
     }
@@ -696,7 +665,6 @@ public:
     AsyncWriterDependency(int id, int node_id)
             : WriteDependency(id, node_id, "AsyncWriterDependency") {}
     ~AsyncWriterDependency() override = default;
-    void* shared_state() override { return nullptr; }
 };
 
 class SetDependency;
@@ -798,30 +766,10 @@ public:
 
     void set_shared_state(std::shared_ptr<SetSharedState> set_state) { _set_state = set_state; }
 
-    // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
-        if (config::enable_fuzzy_mode && !_set_state->ready_for_read &&
-            _should_log(_read_dependency_watcher.elapsed_time())) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id() << " " << _node_id << " block tasks: " << _blocked_task.size();
-        }
-        std::unique_lock<std::mutex> lc(_task_lock);
-        if (!_set_state->ready_for_read && task) {
-            add_block_task(task);
-        }
-        return _set_state->ready_for_read ? nullptr : this;
-    }
-
-    // Notify downstream pipeline tasks this dependency is ready.
-    void set_ready_for_read() override {
-        if (_set_state->ready_for_read) {
-            return;
-        }
-        _read_dependency_watcher.stop();
-        _set_state->ready_for_read = true;
-    }
+    void set_ready_for_read() override;
 
     void set_cur_child_id(int id) {
+        _child_idx = id;
         _set_state->probe_finished_children_dependency[id] = this;
         if (id != 0) {
             block_writing();
@@ -830,6 +778,7 @@ public:
 
 private:
     std::shared_ptr<SetSharedState> _set_state;
+    int _child_idx {0};
 };
 
 using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,

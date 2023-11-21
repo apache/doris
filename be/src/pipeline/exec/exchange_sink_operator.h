@@ -70,8 +70,6 @@ public:
     ExchangeSinkQueueDependency(int id, int node_id)
             : WriteDependency(id, node_id, "ResultQueueDependency") {}
     ~ExchangeSinkQueueDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
 };
 
 class BroadcastDependency final : public WriteDependency {
@@ -84,28 +82,15 @@ public:
     void set_available_block(int available_block) { _available_block = available_block; }
 
     void return_available_block() {
-        _available_block++;
-        WriteDependency::set_ready_for_write();
-    }
-
-    void take_available_block() {
-        auto old_vale = _available_block.fetch_sub(1);
-        if (old_vale == 1) {
-            WriteDependency::block_writing();
+        if (_available_block.fetch_add(1) == 0) {
+            WriteDependency::set_ready_for_write();
         }
     }
 
-    void* shared_state() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
-        return nullptr;
-    }
-
-    void set_ready_for_write() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
-    }
-
-    void block_writing() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
+    void take_available_block() {
+        if (_available_block.fetch_sub(1) == 1) {
+            WriteDependency::block_writing();
+        }
     }
 
     int available_blocks() const { return _available_block; }
@@ -138,7 +123,6 @@ public:
     LocalExchangeChannelDependency(int id, int node_id)
             : WriteDependency(id, node_id, "LocalExchangeChannelDependency") {}
     ~LocalExchangeChannelDependency() override = default;
-    void* shared_state() override { return nullptr; }
     // TODO(gabriel): blocked by memory
 };
 
@@ -162,6 +146,7 @@ public:
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
+    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
     RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
     RuntimeProfile::Counter* local_bytes_send_counter() { return _local_bytes_send_counter; }
     RuntimeProfile::Counter* local_sent_rows() { return _local_sent_rows; }
@@ -208,6 +193,7 @@ private:
     RuntimeProfile::Counter* _split_block_hash_compute_timer = nullptr;
     RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput = nullptr;
     // Used to counter send bytes under local data exchange
