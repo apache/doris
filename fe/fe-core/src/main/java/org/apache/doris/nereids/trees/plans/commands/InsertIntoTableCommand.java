@@ -32,6 +32,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.datasource.InternalCatalog;
@@ -102,6 +103,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private Transaction txn;
 
     /**
+    * only use for nereids's insert
+    */
+    public enum Mode {
+        COMMON, // common
+        GROUPCOMMIT, // group_commit
+        OVERWRITE // over_write
+    }
+
+    /**
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName, boolean isOverwrite) {
@@ -125,7 +135,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * There are some load functions that only need to the plan, such as stream_load.
      * Therefore, this section will be presented separately.
      */
-    public PhysicalOlapTableSink<?> initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public Pair<Mode, PhysicalOlapTableSink<?>> initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -166,7 +176,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
         if (isOverwrite) {
             dealOverwrite(ctx, executor, physicalOlapTableSink);
-            return physicalOlapTableSink;
+            return Pair.of(Mode.OVERWRITE, physicalOlapTableSink);
         }
 
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
@@ -174,7 +184,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             // group commit
             if (analyzeGroupCommit(sink, physicalOlapTableSink)) {
                 handleGroupCommit(ctx, sink, physicalOlapTableSink);
-                return null;
+                return Pair.of(Mode.GROUPCOMMIT, physicalOlapTableSink);
             }
         }
         Preconditions.checkArgument(!isTxnBegin, "an insert command cannot create more than one txn");
@@ -204,13 +214,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
 
         executor.setProfileType(ProfileType.LOAD);
-        return physicalOlapTableSink;
+        return Pair.of(Mode.COMMON, physicalOlapTableSink);
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        PhysicalOlapTableSink<?> physicalOlapTableSink = initPlan(ctx, executor);
-        if (ctx.getSessionVariable().enableInsertGroupCommit && null == physicalOlapTableSink) {
+        Pair<Mode, PhysicalOlapTableSink<?>> planPair = initPlan(ctx, executor);
+        if (planPair.first == Mode.OVERWRITE || planPair.first == Mode.GROUPCOMMIT) {
             return;
         }
         LOG.info("Nereids start to execute the insert command, query id: {}, txn id: {}",
@@ -221,7 +231,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
                 Env.getCurrentGlobalTransactionMgr().abortTransaction(
-                        physicalOlapTableSink.getDatabase().getId(), txn.getTxnId(),
+                        planPair.second.getDatabase().getId(), txn.getTxnId(),
                         (errMsg == null ? "unknown reason" : errMsg));
             } catch (Exception abortTxnException) {
                 LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier(), abortTxnException);
