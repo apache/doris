@@ -124,7 +124,7 @@ private:
 
     void get_backlog_nums(std::shared_ptr<StreamLoadContext> ctx);
 
-    const char* filter_invalid_prefix_of_json(const char* data);
+    const char* filter_invalid_prefix_of_json(const char* data, std::size_t size);
 
     size_t len_of_actual_data(const char* data);
 
