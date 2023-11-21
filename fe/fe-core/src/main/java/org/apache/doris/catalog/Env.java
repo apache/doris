@@ -175,6 +175,7 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -5760,25 +5761,25 @@ public class Env {
         return statisticsAutoCollector;
     }
 
-    public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) throws UserException {
-        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo());
+    public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo(), MTMVAlterOpType.ALTER_REFRESH_INFO);
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void alterMTMVProperty(AlterMTMVPropertyInfo info) throws UserException {
-        AlterMTMV alter = new AlterMTMV(info.getMvName());
+    public void alterMTMVProperty(AlterMTMVPropertyInfo info) {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), MTMVAlterOpType.ALTER_PROPERTY);
         alter.setMvProperties(info.getProperties());
         this.alter.processAlterMTMV(alter, false);
     }
 
     public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) {
-        AlterMTMV alter = new AlterMTMV(mvName);
+        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_STATUS);
         alter.setStatus(status);
         this.alter.processAlterMTMV(alter, false);
     }
 
     public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVCache cache) {
-        AlterMTMV alter = new AlterMTMV(mvName);
+        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ADD_TASK);
         alter.setTask(task);
         alter.setCache(cache);
         this.alter.processAlterMTMV(alter, false);

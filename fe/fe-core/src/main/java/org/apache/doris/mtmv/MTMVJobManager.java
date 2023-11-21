@@ -44,9 +44,17 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 
+/**
+ * when do some operation, do something about job
+ */
 public class MTMVJobManager implements MTMVHookService {
     public static final String MTMV_JOB_PREFIX = "mtmv_";
 
+    /**
+     * create MTMVJob
+     * @param mtmv
+     * @throws DdlException
+     */
     @Override
     public void createMTMV(MTMV mtmv) throws DdlException {
         MTMVJob job = new MTMVJob(mtmv.getQualifiedDbName(), mtmv.getId());
@@ -55,6 +63,16 @@ public class MTMVJobManager implements MTMVHookService {
         job.setComment(mtmv.getName());
         job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
         job.setJobStatus(JobStatus.RUNNING);
+        job.setJobConfig(getJobConfig(mtmv));
+        try {
+            Env.getCurrentEnv().getJobManager().registerJob(job);
+        } catch (JobException e) {
+            e.printStackTrace();
+            throw new DdlException(e.getMessage(), e);
+        }
+    }
+
+    private JobExecutionConfiguration getJobConfig(MTMV mtmv) {
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
                 .equals(RefreshTrigger.SCHEDULE)) {
@@ -63,14 +81,7 @@ public class MTMVJobManager implements MTMVHookService {
                 .equals(RefreshTrigger.MANUAL)) {
             setManualJobConfig(jobExecutionConfiguration, mtmv);
         }
-        job.setJobConfig(jobExecutionConfiguration);
-        //job.checkJobParams(); fixme twice check
-        try {
-            Env.getCurrentEnv().getJobManager().registerJob(job);
-        } catch (JobException e) {
-            e.printStackTrace();
-            throw new DdlException(e.getMessage());
-        }
+        return jobExecutionConfiguration;
     }
 
     private void setManualJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
@@ -100,6 +111,11 @@ public class MTMVJobManager implements MTMVHookService {
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
     }
 
+    /**
+     * drop MTMVJob
+     * @param mtmv
+     * @throws DdlException
+     */
     @Override
     public void dropMTMV(MTMV mtmv) throws DdlException {
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
@@ -125,6 +141,12 @@ public class MTMVJobManager implements MTMVHookService {
 
     }
 
+    /**
+     * drop MTMVJob and then create MTMVJob
+     * @param mtmv
+     * @param alterMTMV
+     * @throws DdlException
+     */
     @Override
     public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
         if (alterMTMV.isNeedRebuildJob()) {
@@ -133,6 +155,12 @@ public class MTMVJobManager implements MTMVHookService {
         }
     }
 
+    /**
+     * trigger MTMVJob
+     * @param info
+     * @throws DdlException
+     * @throws MetaNotFoundException
+     */
     @Override
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getMvName().getDb());

@@ -99,7 +99,8 @@ public class CreateMTMVInfo {
         this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
         this.simpleColumnDefinitions = Objects
                 .requireNonNull(simpleColumnDefinitions, "require simpleColumnDefinitions object");
-        this.envInfo = new EnvInfo(ConnectContext.get().getDefaultCatalog(), ConnectContext.get().getDatabase());
+        this.envInfo = new EnvInfo(ConnectContext.get().getCurrentCatalog().getId(),
+                ConnectContext.get().getCurrentDbId());
     }
 
     /**

@@ -23,14 +23,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVCacheManager;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
-import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -67,14 +67,15 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public void run() throws JobException {
-        ConnectContext ctx = createContext();
-        TUniqueId queryId = generateQueryId();
-
-        cache = MTMVCacheManager.generateMTMVCache(mtmv);
-        StmtExecutor executor = new StmtExecutor(ctx, sql);
         try {
+            ConnectContext ctx = createContext();
+            TUniqueId queryId = generateQueryId();
+            // Every time a task is run, the cache is regenerated because baseTables and baseViews may change,
+            // such as deleting a table and creating a view with the same name
+            cache = MTMVCacheManager.generateMTMVCache(mtmv, ctx);
+            StmtExecutor executor = new StmtExecutor(ctx, sql);
             executor.execute(queryId);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.warn(e);
             throw new JobException(e);
         }
@@ -83,19 +84,19 @@ public class MTMVTask extends AbstractTask {
     @Override
     public void onFail() throws JobException {
         super.onFail();
-        addTaskResult();
+        after();
     }
 
     @Override
     public void onSuccess() throws JobException {
         super.onSuccess();
-        addTaskResult();
+        after();
     }
 
     @Override
     public void cancel() throws JobException {
         super.cancel();
-        addTaskResult();
+        after();
     }
 
     @Override
@@ -105,8 +106,6 @@ public class MTMVTask extends AbstractTask {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
             mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
             sql = generateSql(mtmv);
-            MTMVStatus status = new MTMVStatus(MTMVRefreshState.REFRESHING);
-            Env.getCurrentEnv().alterMTMVStatus(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), status);
         } catch (UserException e) {
             LOG.warn(e);
             throw new JobException(e);
@@ -140,16 +139,18 @@ public class MTMVTask extends AbstractTask {
         return builder.toString();
     }
 
-    private ConnectContext createContext() {
+    private ConnectContext createContext() throws AnalysisException {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setQualifiedUser(Auth.ROOT_USER);
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.setQualifiedUser(Auth.ADMIN_USER);
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
-        ctx.changeDefaultCatalog(mtmv.getEnvInfo().getCtlName());
-        ctx.setDatabase(mtmv.getEnvInfo().getDbName());
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(mtmv.getEnvInfo().getCtlId());
+        ctx.changeDefaultCatalog(catalog.getName());
+        ctx.setDatabase(catalog.getDbOrAnalysisException(mtmv.getEnvInfo().getDbId()).getFullName());
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
         return ctx;
     }
@@ -159,8 +160,10 @@ public class MTMVTask extends AbstractTask {
         return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
     }
 
-    private void addTaskResult() {
+    private void after() {
         Env.getCurrentEnv()
                 .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, cache);
+        mtmv = null;
+        cache = null;
     }
 }

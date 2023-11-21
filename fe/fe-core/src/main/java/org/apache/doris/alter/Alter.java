@@ -881,15 +881,23 @@ public class Alter {
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
 
             mtmv.writeLock();
-            if (alterMTMV.getRefreshInfo() != null) {
-                mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
-            } else if (alterMTMV.getStatus() != null) {
-                mtmv.alterStatus(alterMTMV.getStatus());
-            } else if (alterMTMV.getMvProperties() != null) {
-                mtmv.alterMvProperties(alterMTMV.getMvProperties());
-            } else if (alterMTMV.getTask() != null) {
-                mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getCache());
-                Env.getCurrentEnv().getMtmvService().refreshComplete(mtmv, alterMTMV.getCache(), alterMTMV.getTask());
+            switch (alterMTMV.getOpType()) {
+                case ALTER_REFRESH_INFO:
+                    mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
+                    break;
+                case ALTER_STATUS:
+                    mtmv.alterStatus(alterMTMV.getStatus());
+                    break;
+                case ALTER_PROPERTY:
+                    mtmv.alterMvProperties(alterMTMV.getMvProperties());
+                    break;
+                case ADD_TASK:
+                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getCache());
+                    Env.getCurrentEnv().getMtmvService()
+                            .refreshComplete(mtmv, alterMTMV.getCache(), alterMTMV.getTask());
+                    break;
+                default:
+                    throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }
             // 4. log it and replay it in the follower
             if (!isReplay) {
@@ -897,6 +905,7 @@ public class Alter {
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {
+            // if MTMV has been dropped, ignore this exception
             LOG.warn(e);
         } finally {
             if (mtmv != null) {

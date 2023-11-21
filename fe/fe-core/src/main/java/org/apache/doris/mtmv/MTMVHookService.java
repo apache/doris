@@ -25,22 +25,80 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
 
+/**
+ * Contains all operations that affect the mtmv
+ */
 public interface MTMVHookService {
+    /**
+     * triggered when create mtmv, only once
+     *
+     * @param mtmv
+     * @throws DdlException
+     */
     void createMTMV(MTMV mtmv) throws DdlException;
 
+    /**
+     * triggered when drop mtmv, only once
+     *
+     * @param mtmv
+     * @throws DdlException
+     */
     void dropMTMV(MTMV mtmv) throws DdlException;
 
+    /**
+     * triggered when playing `create mtmv` logs
+     * When triggered, db has not completed playback yet, so use dbId as param
+     *
+     * @param mtmv
+     * @param dbId
+     */
     void registerMTMV(MTMV mtmv, Long dbId);
 
+    /**
+     * triggered when playing `drop mtmv` logs
+     *
+     * @param mtmv
+     */
     void deregisterMTMV(MTMV mtmv);
 
+    /**
+     * triggered when alter mtmv, only once
+     *
+     * @param mtmv
+     * @param alterMTMV
+     * @throws DdlException
+     */
     void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException;
 
+    /**
+     * triggered when refresh mtmv
+     *
+     * @param info
+     * @throws DdlException
+     * @throws MetaNotFoundException
+     */
     void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException;
 
+    /**
+     * triggered when mtmv task finish
+     *
+     * @param mtmv
+     * @param cache
+     * @param task
+     */
     void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task);
 
+    /**
+     * Triggered when baseTable is dropped
+     *
+     * @param table
+     */
     void dropTable(Table table);
 
+    /**
+     * Triggered when baseTable is altered
+     *
+     * @param table
+     */
     void alterTable(Table table);
 }
