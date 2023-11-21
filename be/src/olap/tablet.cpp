@@ -1349,8 +1349,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
 
 std::vector<RowsetSharedPtr> Tablet::collect_consecutive_empty_rowsets() {
     std::vector<RowsetSharedPtr> consecutive_empty_rowsets;
-    std::vector<RowsetSharedPtr> candidate_rowsets =
-            pick_candidate_rowsets_to_cumulative_compaction();
+    std::vector<RowsetSharedPtr> candidate_rowsets;
     traverse_rowsets([&candidate_rowsets, this](const auto& rs) {
         if (rs->is_local() && rs->start_version() >= _cumulative_point) {
             candidate_rowsets.emplace_back(rs);
@@ -1366,7 +1365,7 @@ std::vector<RowsetSharedPtr> Tablet::collect_consecutive_empty_rowsets() {
             rowset->end_version() == next_rowset->start_version() - 1) {
             consecutive_empty_rowsets.emplace_back(rowset);
             consecutive_empty_rowsets.emplace_back(next_rowset);
-
+            rowset = next_rowset;
             int next_index = i + 2;
             while (next_index < len && candidate_rowsets[next_index]->num_segments() == 0 &&
                    rowset->end_version() == candidate_rowsets[next_index]->start_version() - 1) {
