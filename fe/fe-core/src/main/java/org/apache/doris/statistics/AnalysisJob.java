@@ -30,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -45,10 +46,6 @@ public class AnalysisJob {
 
     protected List<ColStatsData> buf;
 
-    protected int totalTaskCount;
-
-    protected int queryFinishedTaskCount;
-
     protected StmtExecutor stmtExecutor;
 
     protected boolean killed;
@@ -63,10 +60,9 @@ public class AnalysisJob {
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
         }
-        this.queryingTask = new HashSet<>(queryingTask);
-        this.queryFinished = new HashSet<>();
+        this.queryingTask = Collections.synchronizedSet(new HashSet<>(queryingTask));
+        this.queryFinished = Collections.synchronizedSet(new HashSet<>());
         this.buf = new ArrayList<>();
-        totalTaskCount = queryingTask.size();
         start = System.currentTimeMillis();
         this.jobInfo = jobInfo;
         this.analysisManager = Env.getCurrentEnv().getAnalysisManager();
@@ -86,12 +82,14 @@ public class AnalysisJob {
     }
 
     protected void markOneTaskDone() {
-        queryFinishedTaskCount += 1;
-        if (queryFinishedTaskCount == totalTaskCount) {
-            writeBuf();
-            updateTaskState(AnalysisState.FINISHED, "Cost time in sec: "
-                    + (System.currentTimeMillis() - start) / 1000);
-            deregisterJob();
+        if (queryingTask.isEmpty()) {
+            try {
+                writeBuf();
+                updateTaskState(AnalysisState.FINISHED, "Cost time in sec: "
+                        + (System.currentTimeMillis() - start) / 1000);
+            } finally {
+                deregisterJob();
+            }
         } else if (buf.size() >= StatisticsUtil.getInsertMergeCount()) {
             writeBuf();
         }
@@ -175,9 +173,12 @@ public class AnalysisJob {
     }
 
     public void taskFailed(BaseAnalysisTask task, String reason) {
-        updateTaskState(AnalysisState.FAILED, reason);
-        cancel();
-        deregisterJob();
+        try {
+            updateTaskState(AnalysisState.FAILED, reason);
+            cancel();
+        } finally {
+            deregisterJob();
+        }
     }
 
     public void cancel() {
