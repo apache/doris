@@ -1649,10 +1649,12 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
             LOG_WARNING("Tablet.build_tablet_report_info.version_miss").tag("tablet id", tablet_id);
             return;
         }
-    
+
         auto miss = dp->param<bool>("version_miss", true);
-        LOG_WARNING("Tablet.build_tablet_report_info.version_miss").tag("tablet id", tablet_id).tag("version_miss", miss);
-        tablet_info->__set_version_miss(true);
+        LOG_WARNING("Tablet.build_tablet_report_info.version_miss")
+                .tag("tablet id", tablet_id)
+                .tag("version_miss", miss);
+        tablet_info->__set_version_miss(miss);
     });
 
     // find rowset with max version
@@ -1696,10 +1698,12 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
             LOG_WARNING("Tablet.build_tablet_report_info.used").tag("tablet id", tablet_id);
             return;
         }
-    
-        auto miss = dp->param<bool>("used", true);
-        LOG_WARNING("Tablet.build_tablet_report_info.used").tag("tablet id", tablet_id).tag("used", miss);
-        tablet_info->__set_used(true);
+
+        auto used = dp->param<bool>("used", true);
+        LOG_WARNING("Tablet.build_tablet_report_info.used")
+                .tag("tablet id", tablet_id)
+                .tag("used", used);
+        tablet_info->__set_used(used);
     });
 
     // the report version is the largest continuous version, same logic as in FE side
