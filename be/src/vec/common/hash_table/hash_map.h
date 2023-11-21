@@ -260,7 +260,7 @@ public:
     template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join, bool need_judge_null>
     auto find_batch(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                     int probe_idx, uint32_t build_idx, int probe_rows,
-                    uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs,
+                    uint32_t* __restrict probe_idxs, bool& probe_visited, uint32_t* __restrict build_idxs,
                     doris::vectorized::ColumnFilterHelper* mark_column) {
         if constexpr (is_mark_join) {
             return _find_batch_mark<JoinOpType>(keys, bucket_nums, probe_idx, probe_rows,
@@ -277,7 +277,7 @@ public:
                       JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                       JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN) {
             return _find_batch_inner_outer_join<JoinOpType>(keys, bucket_nums, probe_idx, build_idx,
-                                                            probe_rows, probe_idxs, build_idxs);
+                                                            probe_rows, probe_idxs, probe_visited, build_idxs);
         }
         if constexpr (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
                       JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
@@ -431,7 +431,7 @@ private:
                         build_idxs[matched_cnt++] = build_idx;
                     }
                 } else {
-                    build_idxs[matched_cnt++] = build_idx;
+                    build_idxs[matched_cnt] = build_idx;
                     matched_cnt += keys[probe_idx] == build_keys[build_idx];
                 }
                 build_idx = next[build_idx];
@@ -443,6 +443,7 @@ private:
 
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
+                // may over batch_size when emplace 0 into build_idxs
                 if (!build_idx) {
                     probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = 0;
@@ -462,9 +463,7 @@ private:
             do_the_probe();
         }
 
-        probe_idx -=
-                (matched_cnt >= batch_size &&
-                 build_idx); // FULL_OUTER_JOIN may over batch_size when emplace 0 into build_idxs
+        probe_idx -= (build_idx != 0);
         return std::tuple {probe_idx, build_idx, matched_cnt};
     }
 
@@ -473,6 +472,7 @@ private:
                                       const uint32_t* __restrict bucket_nums, int probe_idx,
                                       uint32_t build_idx, int probe_rows,
                                       uint32_t* __restrict probe_idxs,
+                                      bool& probe_visited,
                                       uint32_t* __restrict build_idxs) {
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
@@ -496,10 +496,14 @@ private:
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
                 // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
-                if (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx) {
-                    probe_idxs[matched_cnt] = probe_idx;
-                    build_idxs[matched_cnt] = 0;
-                    matched_cnt++;
+                probe_visited |= (matched_cnt && probe_idxs[matched_cnt - 1] == probe_idx);
+                if (!build_idx) {
+                    if (!probe_visited) {
+                        probe_idxs[matched_cnt] = probe_idx;
+                        build_idxs[matched_cnt] = 0;
+                        matched_cnt++;
+                    }
+                    probe_visited = false;
                 }
             }
             probe_idx++;
@@ -514,7 +518,7 @@ private:
             do_the_probe();
         }
 
-        probe_idx -= (matched_cnt == batch_size && build_idx);
+        probe_idx -= (build_idx != 0);
         return std::tuple {probe_idx, build_idx, matched_cnt};
     }
 
