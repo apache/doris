@@ -150,6 +150,7 @@ struct TCreateTabletReq {
     23: optional i64 time_series_compaction_goal_size_mbytes = 1024
     24: optional i64 time_series_compaction_file_count_threshold = 2000
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
+    26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
 }
 
 struct TDropTabletReq {
@@ -419,6 +420,7 @@ struct TTabletMetaInfo {
     14: optional bool enable_single_replica_compaction
     15: optional bool skip_write_index_on_load
     16: optional bool disable_auto_compaction
+    17: optional i64 time_series_compaction_empty_rowsets_threshold
 }
 
 struct TUpdateTabletMetaInfoReq {
