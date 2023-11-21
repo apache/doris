@@ -62,6 +62,8 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     WriteDependency* dependency() override { return _result_sink_dependency.get(); }
+    RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
+    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 
 private:
     friend class ResultSinkOperatorX;
@@ -71,6 +73,8 @@ private:
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
     std::shared_ptr<ResultSinkDependency> _result_sink_dependency;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
