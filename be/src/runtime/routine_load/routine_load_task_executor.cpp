@@ -329,7 +329,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         ctx->kafka_info.reset(new KafkaLoadInfo(task.kafka_load_info));
         break;
     case TLoadSourceType::PULSAR:
-        ctx->pulsar_info = std::make_unique<PulsarLoadInfo>(task.pulsar_load_info);
+        ctx->pulsar_info.reset(new PulsarLoadInfo(task.pulsar_load_info));
         break;
     default:
         LOG(WARNING) << "unknown load source type: " << task.type;
@@ -342,15 +342,15 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
 
     // offer the task to thread pool
     if (!_thread_pool.offer(std::bind<void>(
-                &RoutineLoadTaskExecutor::exec_task, this, ctx, &_data_consumer_pool,
-                [this](std::shared_ptr<StreamLoadContext> ctx) {
-                    std::unique_lock<std::mutex> l(_lock);
-                    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
-                    _task_map.erase(ctx->id);
-                    LOG(INFO) << "finished routine load task " << ctx->brief()
-                              << ", status: " << ctx->status
-                              << ", current tasks num: " << _task_map.size();
-                }))) {
+        &RoutineLoadTaskExecutor::exec_task, this, ctx, &_data_consumer_pool,
+        [this](std::shared_ptr<StreamLoadContext> ctx) {
+            std::unique_lock<std::mutex> l(_lock);
+            ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+            _task_map.erase(ctx->id);
+            LOG(INFO) << "finished routine load task " << ctx->brief()
+                      << ", status: " << ctx->status
+                      << ", current tasks num: " << _task_map.size();
+        }))) {
         // failed to submit task, clear and return
         LOG(WARNING) << "failed to submit routine load task: " << ctx->brief();
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);

@@ -484,7 +484,7 @@ Status PulsarDataConsumer::assign_partition(const std::string& partition, std::s
     DCHECK(_p_client);
 
     std::stringstream ss;
-    ss << "consumer: " << _id << ", grp: " << _grp_id << " assign partition: " << _topic
+    ss << "consumer: " << _id << ", grp: " << _grp_id << " topic: " << _topic
        << ", subscription: " << _subscription << ", initial_position: " << initial_position;
     LOG(INFO) << ss.str();
 
@@ -550,6 +550,10 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 ++put_rows;
                 msg.release(); // release the ownership, msg will be deleted after being processed
             }
+            pulsar::MessageId msg_id = msg.get()->getMessageId();
+            std::size_t len = msg.get()->getLength();
+            LOG(INFO) << "receive pulsar message: "
+                      << ", message id: " << msg_id << ", len: " << len;
             ++received_rows;
             break;
         case pulsar::ResultTimeout:
