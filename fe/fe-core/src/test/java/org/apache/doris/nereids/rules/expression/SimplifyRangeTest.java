@@ -154,7 +154,7 @@ public class SimplifyRangeTest {
         assertRewrite("(TA + TC > 3 and TA + TC < 1) and TB < 5", "FALSE");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "TB < 5");
 
-        assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
+        assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1");
 
     }
 
