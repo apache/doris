@@ -93,7 +93,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load1 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
