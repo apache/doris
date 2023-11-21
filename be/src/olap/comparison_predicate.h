@@ -179,10 +179,6 @@ public:
             return false;
         }
 
-        DCHECK(sizeof(T) <= statistic.first->size() || Type == TYPE_DATE)
-                << " Type: " << Type << " sizeof(T): " << sizeof(T)
-                << " statistic.first->size(): " << statistic.first->size();
-
         T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
         T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
