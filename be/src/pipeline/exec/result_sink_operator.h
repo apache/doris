@@ -43,31 +43,12 @@ public:
     bool can_write() override;
 };
 
-class ResultBufferDependency final : public WriteDependency {
+class ResultSinkDependency final : public WriteDependency {
 public:
-    ENABLE_FACTORY_CREATOR(ResultBufferDependency);
-    ResultBufferDependency(int id) : WriteDependency(id, "ResultBufferDependency") {}
-    ~ResultBufferDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
-};
-
-class ResultQueueDependency final : public WriteDependency {
-public:
-    ENABLE_FACTORY_CREATOR(ResultQueueDependency);
-    ResultQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
-    ~ResultQueueDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
-};
-
-class CancelDependency final : public WriteDependency {
-public:
-    ENABLE_FACTORY_CREATOR(CancelDependency);
-    CancelDependency(int id) : WriteDependency(id, "CancelDependency") { _ready_for_write = false; }
-    ~CancelDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
+    ENABLE_FACTORY_CREATOR(ResultSinkDependency);
+    ResultSinkDependency(int id, int node_id)
+            : WriteDependency(id, node_id, "ResultSinkDependency") {}
+    ~ResultSinkDependency() override = default;
 };
 
 class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
@@ -81,6 +62,8 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     WriteDependency* dependency() override { return _result_sink_dependency.get(); }
+    RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
+    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 
 private:
     friend class ResultSinkOperatorX;
@@ -89,15 +72,9 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
-    std::shared_ptr<OrDependency> _result_sink_dependency;
-    std::shared_ptr<pipeline::ResultBufferDependency> _buffer_dependency;
-    std::shared_ptr<pipeline::ResultQueueDependency> _queue_dependency;
-    std::shared_ptr<pipeline::CancelDependency> _cancel_dependency;
-
-    RuntimeProfile::Counter* _wait_for_queue_timer = nullptr;
-    RuntimeProfile::Counter* _wait_for_buffer_timer = nullptr;
-    // time of prefilter input block from scanner
-    RuntimeProfile::Counter* _wait_for_cancel_timer = nullptr;
+    std::shared_ptr<ResultSinkDependency> _result_sink_dependency;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {

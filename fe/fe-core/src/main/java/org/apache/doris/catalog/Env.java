@@ -147,12 +147,15 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
+import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
@@ -205,7 +208,7 @@ import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
-import org.apache.doris.planner.SingleTabletLoadRecorderMgr;
+import org.apache.doris.planner.TabletLoadIndexRecorderMgr;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
@@ -217,13 +220,8 @@ import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.scheduler.disruptor.TaskDisruptor;
-import org.apache.doris.scheduler.manager.JobTaskManager;
-import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
-import org.apache.doris.scheduler.registry.PersistentJobRegister;
-import org.apache.doris.scheduler.registry.TimerJobRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
@@ -334,8 +332,9 @@ public class Env {
     private LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
-    private SingleTabletLoadRecorderMgr singleTabletLoadRecorderMgr;
+    private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
     private RoutineLoadManager routineLoadManager;
+    private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
     private SyncJobManager syncJobManager;
@@ -349,13 +348,10 @@ public class Env {
     private CooldownConfHandler cooldownConfHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
-    private PersistentJobRegister persistentJobRegister;
     private ExportTaskRegister exportTaskRegister;
-    private TimerJobManager timerJobManager;
+    private JobManager<? extends AbstractJob> jobManager;
     private TransientTaskManager transientTaskManager;
-    private JobTaskManager jobTaskManager;
 
-    private TaskDisruptor taskDisruptor;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
     private Daemon feDiskUpdater;  // Update fe disk info
@@ -609,6 +605,7 @@ public class Env {
         this.catalogMgr = new CatalogMgr();
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
+        this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
         this.syncJobManager = new SyncJobManager();
@@ -625,13 +622,8 @@ public class Env {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
-        this.jobTaskManager = new JobTaskManager();
-        this.timerJobManager = new TimerJobManager();
+        this.jobManager = new JobManager<>();
         this.transientTaskManager = new TransientTaskManager();
-        this.taskDisruptor = new TaskDisruptor(this.timerJobManager, this.transientTaskManager);
-        this.timerJobManager.setDisruptor(taskDisruptor);
-        this.transientTaskManager.setDisruptor(taskDisruptor);
-        this.persistentJobRegister = new TimerJobRegister(timerJobManager);
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
@@ -693,7 +685,7 @@ public class Env {
         this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
-        this.singleTabletLoadRecorderMgr = new SingleTabletLoadRecorderMgr();
+        this.tabletLoadIndexRecorderMgr = new TabletLoadIndexRecorderMgr();
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
         this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
@@ -1527,8 +1519,7 @@ public class Env {
         publishVersionDaemon.start();
         // Start txn cleaner
         txnCleaner.start();
-        taskDisruptor.start();
-        timerJobManager.start();
+        jobManager.start();
         // Alter
         getAlterInstance().start();
         // Consistency checker
@@ -1561,7 +1552,7 @@ public class Env {
             cooldownConfHandler.start();
         }
         streamLoadRecordMgr.start();
-        singleTabletLoadRecorderMgr.start();
+        tabletLoadIndexRecorderMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
         if (Config.enable_hms_events_incremental_sync) {
@@ -2008,26 +1999,14 @@ public class Env {
     }
 
     public long loadAsyncJobManager(DataInputStream in, long checksum) throws IOException {
-        timerJobManager.readFields(in);
+        jobManager.readFields(in);
         LOG.info("finished replay asyncJobMgr from image");
         return checksum;
     }
 
     public long saveAsyncJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        timerJobManager.write(out);
+        jobManager.write(out);
         LOG.info("finished save analysisMgr to image");
-        return checksum;
-    }
-
-    public long loadJobTaskManager(DataInputStream in, long checksum) throws IOException {
-        jobTaskManager.readFields(in);
-        LOG.info("finished replay jobTaskMgr from image");
-        return checksum;
-    }
-
-    public long saveJobTaskManager(CountingDataOutputStream out, long checksum) throws IOException {
-        jobTaskManager.write(out);
-        LOG.info("finished save jobTaskMgr to image");
         return checksum;
     }
 
@@ -3782,8 +3761,8 @@ public class Env {
         return streamLoadRecordMgr;
     }
 
-    public SingleTabletLoadRecorderMgr getSingleTabletLoadRecorderMgr() {
-        return singleTabletLoadRecorderMgr;
+    public TabletLoadIndexRecorderMgr getTabletLoadIndexRecorderMgr() {
+        return tabletLoadIndexRecorderMgr;
     }
 
     public IcebergTableCreationRecordMgr getIcebergTableCreationRecordMgr() {
@@ -3802,6 +3781,10 @@ public class Env {
         return routineLoadManager;
     }
 
+    public GroupCommitManager getGroupCommitManager() {
+        return groupCommitManager;
+    }
+
     public SqlBlockRuleMgr getSqlBlockRuleMgr() {
         return sqlBlockRuleMgr;
     }
@@ -3818,24 +3801,17 @@ public class Env {
         return this.syncJobManager;
     }
 
-    public PersistentJobRegister getJobRegister() {
-        return persistentJobRegister;
-    }
 
     public ExportTaskRegister getExportTaskRegister() {
         return exportTaskRegister;
     }
 
-    public TimerJobManager getAsyncJobManager() {
-        return timerJobManager;
+    public JobManager getJobManager() {
+        return jobManager;
     }
 
     public TransientTaskManager getTransientTaskManager() {
         return transientTaskManager;
-    }
-
-    public JobTaskManager getJobTaskManager() {
-        return jobTaskManager;
     }
 
     public SmallFileMgr getSmallFileMgr() {
@@ -4384,7 +4360,8 @@ public class Env {
     }
 
     private void renameColumn(Database db, OlapTable table, String colName,
-                              String newColName, boolean isReplay) throws DdlException {
+                              String newColName, Map<Long, Integer> indexIdToSchemaVersion,
+                              boolean isReplay) throws DdlException {
         table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
@@ -4430,6 +4407,12 @@ public class Env {
                 Env.getCurrentEnv().getQueryStats()
                         .rename(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId(),
                                 table.getId(), entry.getKey(), colName, newColName);
+                if (!isReplay) {
+                    indexIdToSchemaVersion.put(entry.getKey(), entry.getValue().getSchemaVersion() + 1);
+                }
+                if (indexIdToSchemaVersion != null) {
+                    entry.getValue().setSchemaVersion(indexIdToSchemaVersion.get(entry.getKey()));
+                }
             }
         }
         if (!hasColumn) {
@@ -4490,7 +4473,8 @@ public class Env {
 
         if (!isReplay) {
             // log
-            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName);
+            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName,
+                    indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
         }
@@ -4501,7 +4485,8 @@ public class Env {
         try {
             String colName = renameClause.getColName();
             String newColName = renameClause.getNewColName();
-            renameColumn(db, table, colName, newColName, false);
+            Map<Long, Integer> indexIdToSchemaVersion = new HashMap<Long, Integer>();
+            renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, false);
         } finally {
             table.writeUnlock();
         }
@@ -4513,12 +4498,13 @@ public class Env {
         long tableId = info.getTableId();
         String colName = info.getColName();
         String newColName = info.getNewColName();
+        Map<Long, Integer> indexIdToSchemaVersion = info.getIndexIdToSchemaVersion();
 
         Database db = getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         table.writeLock();
         try {
-            renameColumn(db, table, colName, newColName, true);
+            renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, true);
         } catch (DdlException e) {
             // should not happen
             LOG.warn("failed to replay rename column", e);
@@ -5460,7 +5446,7 @@ public class Env {
         Env.getCurrentEnv().getLoadInstance().removeDbLoadJob(dbId);
 
         // remove database transaction manager
-        Env.getCurrentEnv().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+        Env.getCurrentGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
 
         if (needEditLog) {
             Env.getCurrentEnv().getEditLog().logEraseDb(dbId);
