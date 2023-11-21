@@ -57,8 +57,7 @@ class AsyncResultWriter : public ResultWriter {
 public:
     AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs);
 
-    void set_dependency(pipeline::AsyncWriterDependency* dep,
-                        pipeline::Dependency* finish_dep);
+    void set_dependency(pipeline::AsyncWriterDependency* dep, pipeline::Dependency* finish_dep);
 
     void force_close(Status s);
 
