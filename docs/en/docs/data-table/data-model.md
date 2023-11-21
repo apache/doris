@@ -493,11 +493,13 @@ That is to say, the Merge on Read implementation of the Unique Model is equivale
 
 The Merge on Write implementation of the Unique Model is completely different from that of the Aggregate Model. It can deliver better performance in aggregation queries with primary key limitations.
 
-In Doris 1.2.0, as a new feature, Merge on Write is disabled by default, and users can enable it by adding the following property:
+In Doris 1.2.0, as a new feature, Merge on Write is disabled by default(before version 2.1), and users can enable it by adding the following property:
 
 ```
 "enable_unique_key_merge_on_write" = "true"
 ```
+
+In Doris 2.1, Merge on Write is enabled by default.
 
 > NOTE:
 > 1. It is recommended to use version 1.2.4 or above, as this version has fixed some bugs and stability issues.
@@ -543,8 +545,8 @@ On a Unique table with the Merge on Write option enabled, during the import stag
 
 [NOTE]
 
-1. The new Merge on Write implementation is disabled by default, and can only be enabled by specifying a property when creating a new table.
-2. The old Merge on Read cannot be seamlessly upgraded to the new implementation (since they have completely different data organization). If you want to switch to the Merge on Write implementation, you need to manually execute `insert into unique-mow- table select * from source table` to load data to new table.
+1. The Merge on Write implementation is disabled by default can only be enabled by specifying a property when creating a new table. Before version 2.1, it's disabled by default. Since version 2.1, it's enabled by default.
+2. The old Merge on Read cannot be seamlessly upgraded to the Merge on Write implementation (since they have completely different data organization). If you want to switch to the Merge on Write implementation, you need to manually execute `insert into unique-mow-table select * from source table` to load data to new table.
 3. The two unique features `delete sign` and `sequence col` of the Unique Model can be used as normal in the new implementation, and their usage remains unchanged.
 
 </version>
