@@ -832,14 +832,14 @@ public class StatisticsUtil {
     private static Pair<LocalTime, LocalTime> findConfigFromGlobalSessionVar() {
         try {
             String startTime =
-                    findConfigFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
-                            .fullAutoAnalyzeStartTime;
+                    findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_START_TIME)
+                            .autoAnalyzeStartTime;
             // For compatibility
             if (StringUtils.isEmpty(startTime)) {
                 startTime = StatisticConstants.FULL_AUTO_ANALYZE_START_TIME;
             }
-            String endTime = findConfigFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
-                    .fullAutoAnalyzeEndTime;
+            String endTime = findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_END_TIME)
+                    .autoAnalyzeEndTime;
             if (StringUtils.isEmpty(startTime)) {
                 endTime = StatisticConstants.FULL_AUTO_ANALYZE_END_TIME;
             }
@@ -859,7 +859,7 @@ public class StatisticsUtil {
 
     public static boolean enableAutoAnalyze() {
         try {
-            return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_FULL_AUTO_ANALYZE).enableFullAutoAnalyze;
+            return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_AUTO_ANALYZE).enableAutoAnalyze;
         } catch (Exception e) {
             LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
         }

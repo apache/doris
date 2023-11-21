@@ -51,13 +51,21 @@ public:
     void get_resource_groups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
                              std::vector<TaskGroupPtr>* task_groups);
 
-    Status create_and_get_task_scheduler(uint64_t wg_id, std::string wg_name, int cpu_hard_limit,
-                                         int cpu_shares, ExecEnv* exec_env,
-                                         QueryContext* query_ctx_ptr);
+    Status upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
 
     void delete_task_group_by_ids(std::set<uint64_t> id_set);
 
+    TaskGroupPtr get_task_group_by_id(uint64_t tg_id);
+
     void stop();
+
+    std::atomic<bool> _enable_cpu_hard_limit = false;
+
+    bool enable_cpu_soft_limit() { return !_enable_cpu_hard_limit.load(); }
+
+    bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
+
+    bool set_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr);
 
 private:
     std::shared_mutex _group_mutex;

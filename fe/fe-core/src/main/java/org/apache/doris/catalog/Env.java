@@ -155,6 +155,7 @@ import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
+import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
@@ -333,6 +334,7 @@ public class Env {
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
     private RoutineLoadManager routineLoadManager;
+    private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
     private SyncJobManager syncJobManager;
@@ -603,6 +605,7 @@ public class Env {
         this.catalogMgr = new CatalogMgr();
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
+        this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
         this.syncJobManager = new SyncJobManager();
@@ -3778,6 +3781,10 @@ public class Env {
         return routineLoadManager;
     }
 
+    public GroupCommitManager getGroupCommitManager() {
+        return groupCommitManager;
+    }
+
     public SqlBlockRuleMgr getSqlBlockRuleMgr() {
         return sqlBlockRuleMgr;
     }
@@ -4353,7 +4360,8 @@ public class Env {
     }
 
     private void renameColumn(Database db, OlapTable table, String colName,
-                              String newColName, boolean isReplay) throws DdlException {
+                              String newColName, Map<Long, Integer> indexIdToSchemaVersion,
+                              boolean isReplay) throws DdlException {
         table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
@@ -4399,6 +4407,12 @@ public class Env {
                 Env.getCurrentEnv().getQueryStats()
                         .rename(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId(),
                                 table.getId(), entry.getKey(), colName, newColName);
+                if (!isReplay) {
+                    indexIdToSchemaVersion.put(entry.getKey(), entry.getValue().getSchemaVersion() + 1);
+                }
+                if (indexIdToSchemaVersion != null) {
+                    entry.getValue().setSchemaVersion(indexIdToSchemaVersion.get(entry.getKey()));
+                }
             }
         }
         if (!hasColumn) {
@@ -4459,7 +4473,8 @@ public class Env {
 
         if (!isReplay) {
             // log
-            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName);
+            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName,
+                    indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
         }
@@ -4470,7 +4485,8 @@ public class Env {
         try {
             String colName = renameClause.getColName();
             String newColName = renameClause.getNewColName();
-            renameColumn(db, table, colName, newColName, false);
+            Map<Long, Integer> indexIdToSchemaVersion = new HashMap<Long, Integer>();
+            renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, false);
         } finally {
             table.writeUnlock();
         }
@@ -4482,12 +4498,13 @@ public class Env {
         long tableId = info.getTableId();
         String colName = info.getColName();
         String newColName = info.getNewColName();
+        Map<Long, Integer> indexIdToSchemaVersion = info.getIndexIdToSchemaVersion();
 
         Database db = getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         table.writeLock();
         try {
-            renameColumn(db, table, colName, newColName, true);
+            renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, true);
         } catch (DdlException e) {
             // should not happen
             LOG.warn("failed to replay rename column", e);
@@ -5429,7 +5446,7 @@ public class Env {
         Env.getCurrentEnv().getLoadInstance().removeDbLoadJob(dbId);
 
         // remove database transaction manager
-        Env.getCurrentEnv().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+        Env.getCurrentGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
 
         if (needEditLog) {
             Env.getCurrentEnv().getEditLog().logEraseDb(dbId);

@@ -33,6 +33,7 @@ import java.util.Map;
  */
 public class SummaryProfile {
     // Summary
+    public static final String SUMMARY_PROFILE_NAME = "Summary";
     public static final String PROFILE_ID = "Profile ID";
     public static final String DORIS_VERSION = "Doris Version";
     public static final String TASK_TYPE = "Task Type";
@@ -53,6 +54,7 @@ public class SummaryProfile {
     public static final String WORKLOAD_GROUP = "Workload Group";
 
     // Execution Summary
+    public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
     public static final String JOIN_REORDER_TIME = "JoinReorder Time";
     public static final String CREATE_SINGLE_NODE_TIME = "CreateSingleNode Time";
@@ -140,8 +142,8 @@ public class SummaryProfile {
     private long queryWriteResultConsumeTime = 0;
 
     public SummaryProfile(RuntimeProfile rootProfile) {
-        summaryProfile = new RuntimeProfile("Summary");
-        executionSummaryProfile = new RuntimeProfile("Execution Summary");
+        summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
+        executionSummaryProfile = new RuntimeProfile(EXECUTION_SUMMARY_PROFILE_NAME);
         init();
         rootProfile.addChild(summaryProfile);
         rootProfile.addChild(executionSummaryProfile);
@@ -154,6 +156,19 @@ public class SummaryProfile {
         for (String key : EXECUTION_SUMMARY_KEYS) {
             executionSummaryProfile.addInfoString(key, "N/A");
         }
+    }
+
+    public void prettyPrint(StringBuilder builder) {
+        summaryProfile.prettyPrint(builder, "");
+        executionSummaryProfile.prettyPrint(builder, "");
+    }
+
+    public Map<String, String> getAsInfoStings() {
+        Map<String, String> infoStrings = Maps.newHashMap();
+        for (String header : SummaryProfile.SUMMARY_KEYS) {
+            infoStrings.put(header, summaryProfile.getInfoString(header));
+        }
+        return infoStrings;
     }
 
     public void update(Map<String, String> summaryInfo) {

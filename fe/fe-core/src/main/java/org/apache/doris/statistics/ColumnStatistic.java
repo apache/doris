@@ -267,6 +267,10 @@ public class ColumnStatistic {
         if (isUnKnown) {
             return 1;
         }
+        if (Double.isInfinite(minValue) || Double.isInfinite(maxValue)
+                || Double.isInfinite(other.minValue) || Double.isInfinite(other.maxValue)) {
+            return 1;
+        }
         if (maxValue == minValue) {
             if (minValue <= other.maxValue && minValue >= other.minValue) {
                 return 1;

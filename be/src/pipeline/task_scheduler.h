@@ -65,7 +65,6 @@ private:
 
     static constexpr auto EMPTY_TIMES_TO_YIELD = 64;
 
-private:
     void _schedule();
     void _make_task_run(std::list<PipelineTask*>& local_tasks,
                         std::list<PipelineTask*>::iterator& task_itr,

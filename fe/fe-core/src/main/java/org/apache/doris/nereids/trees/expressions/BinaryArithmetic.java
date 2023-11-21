@@ -59,7 +59,11 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
             return getDataTypeForDecimalV2((DecimalV2Type) t1, (DecimalV2Type) t2);
         }
         if (t1.isDecimalV3Type() && t2.isDecimalV3Type()) {
-            return getDataTypeForDecimalV3((DecimalV3Type) t1, (DecimalV3Type) t2);
+            if (this instanceof Add || this instanceof Subtract || this instanceof Mod) {
+                return t1;
+            } else {
+                return getDataTypeForDecimalV3((DecimalV3Type) t1, (DecimalV3Type) t2);
+            }
         }
         return getDataTypeForOthers(t1, t2);
     }

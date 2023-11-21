@@ -2264,6 +2264,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
+    @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
+            "the timeout threshold of checking wal_queue on be(ms)"})
+    public static int check_wal_queue_timeout_threshold = 180000;   // 3 min
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "对于自动分区表，防止用户意外创建大量分区，每个OLAP表允许的分区数量为`max_auto_partition_num`。默认2000。",
             "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "

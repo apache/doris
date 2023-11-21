@@ -965,6 +965,18 @@ public class OlapTable extends Table {
         return partition;
     }
 
+    // select the non-empty partition ids belonging to this table.
+    //
+    // ATTN: partitions not belonging to this table will be filtered.
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+        return partitionIds.stream()
+                .map(this::getPartition)
+                .filter(p -> p != null)
+                .filter(Partition::hasData)
+                .map(Partition::getId)
+                .collect(Collectors.toList());
+    }
+
     public int getPartitionNum() {
         return idToPartition.size();
     }

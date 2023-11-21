@@ -182,6 +182,12 @@ public class AnalysisInfo implements Writable {
     @SerializedName("usingSqlForPartitionColumn")
     public final boolean usingSqlForPartitionColumn;
 
+    @SerializedName("createTime")
+    public final long createTime = System.currentTimeMillis();
+
+    @SerializedName("endTime")
+    public long endTime;
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
@@ -315,5 +321,15 @@ public class AnalysisInfo implements Writable {
             }
         }
         return analysisInfo;
+    }
+
+    public void markFinished() {
+        state = AnalysisState.FINISHED;
+        endTime = System.currentTimeMillis();
+    }
+
+    public void markFailed() {
+        state = AnalysisState.FAILED;
+        endTime = System.currentTimeMillis();
     }
 }
