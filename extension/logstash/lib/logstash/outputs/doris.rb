@@ -70,7 +70,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    config :exec_mem_limit, :validate => :number, :default => -1
    # Specify the format of imported data, csv and json are supported.
    config :format, :validate => ['csv', 'json', 'csv_with_names', 'csv_with_names_and_types', 'parquet', 'orc'], :default => "csv"
-   # jsonpaths example: jsonpaths: "[\"$.category\",\"$.price\",\"$.author\"]"
+   # jsonpaths example: jsonpaths => ["$.id", "$.type", "$.actor.id", "$.actor.login"]
    config :jsonpaths, :validate => :array, :default => []
    # Specify the root node of the json document
    config :json_root, :validate => :string, :default => ""
@@ -80,6 +80,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    config :num_as_string, :validate => :boolean, :default => false
    # true means support for reading one json object per line
    config :read_json_by_line, :validate => :boolean, :default => false
+   #  
 
 
    # Custom headers to use
