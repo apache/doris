@@ -29,7 +29,7 @@ import java.util.List;
 /**
  * Equal to expression: a = b.
  */
-public class EqualTo extends ComparisonPredicate implements PropagateNullable {
+public class EqualTo extends EqualPredicate implements PropagateNullable {
 
     public EqualTo(Expression left, Expression right) {
         super(ImmutableList.of(left, right), "=");
@@ -55,7 +55,7 @@ public class EqualTo extends ComparisonPredicate implements PropagateNullable {
     }
 
     @Override
-    public ComparisonPredicate commute() {
+    public EqualTo commute() {
         return new EqualTo(right(), left());
     }
 }

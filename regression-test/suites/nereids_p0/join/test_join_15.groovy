@@ -192,7 +192,11 @@ suite("test_join_15", "nereids_p0") {
             order by a.k1, b.k1"""
         qt_right_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index}
             order by a.k1, b.k1"""
-        qt_hash_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k2=b.k2
+        qt_hash_right_join"""select * from ${null_table_1} a right join ${null_table_1} b on a.k${index}<=>b.k${index} and a.k2=b.k2
+            order by a.k1, b.k1"""
+        qt_hash_left_join"""select * from ${null_table_1} a left join ${null_table_1} b on a.k${index}<=>b.k${index} and a.k2=b.k2
+            order by a.k1, b.k1"""
+        qt_hash_inner_join"""select * from ${null_table_1} a inner join ${null_table_1} b on a.k${index}<=>b.k${index} and a.k2=b.k2
             order by a.k1, b.k1"""
         qt_cross_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k2 !=b.k2
             order by a.k1, b.k1"""
