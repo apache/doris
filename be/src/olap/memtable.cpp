@@ -35,6 +35,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "tablet_meta.h"
+#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -502,6 +503,8 @@ std::unique_ptr<vectorized::Block> MemTable::to_block() {
         !_tablet_schema->cluster_key_idxes().empty()) {
         _sort_by_cluster_keys();
     }
+    LOG(INFO) << "output block size (allocated bytes): "
+              << PrettyPrinter::print(_output_mutable_block.allocated_bytes(), TUnit::BYTES);
     return vectorized::Block::create_unique(_output_mutable_block.to_block());
 }
 
