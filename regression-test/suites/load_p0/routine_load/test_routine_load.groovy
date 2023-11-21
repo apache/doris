@@ -106,7 +106,7 @@ suite("test_routine_load","p0") {
                     '[\"$.k00\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\"]',
                     ]
 
-    def columns = [ 
+    def columns = [
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -116,8 +116,8 @@ suite("test_routine_load","p0") {
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                   ]
 
-    def timezoneColumns = 
-                  [ 
+    def timezoneColumns =
+                  [
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -140,7 +140,7 @@ suite("test_routine_load","p0") {
     def formats = [
                     "csv",
                     "json",
-                  ]            
+                  ]
 
     def loadedRows = [0,0,0,0,17,17,17]
 
@@ -216,7 +216,7 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
+
                 if (i <= 3) {
                     qt_sql_exec_mem_limit "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -225,6 +225,47 @@ suite("test_routine_load","p0") {
 
                 sql "stop routine load for ${jobs[i]}"
                 i++
+            }
+        } finally {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
+        }
+    }
+
+    i = 0
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+                def name = "routine_load_" + tableName
+                try {
+                    sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]}),
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "exec_mem_limit" = "test",
+                        "max_batch_interval" = "5",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${topics[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                    sql "sync"
+                    i++
+                } catch (Exception e) {
+                    log.info("exception: ${e.toString()}".toString())
+                    assertEquals(e.toString(), "java.sql.SQLException: errCode = 2, detailMessage = exec_mem_limitshould > 0")
+                }
             }
         } finally {
             for (String tableName in tables) {
@@ -538,7 +579,7 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
+
                 if (i <= 3) {
                     qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -603,7 +644,7 @@ suite("test_routine_load","p0") {
                 } else {
                     qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00"
                 }
-                
+
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -829,7 +870,7 @@ suite("test_routine_load","p0") {
             }
         }
     }
-    
+
     // disable_simdjson_reader and load json
     i = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -927,7 +968,7 @@ suite("test_routine_load","p0") {
             }
         }
     }
-    
+
 
     // TODO: need update kafka script
     // i = 0
@@ -1071,13 +1112,13 @@ suite("test_routine_load","p0") {
                         sleep(5000)
                         count++
                     }
-                    
+
                     if (i <= 3) {
                         qt_sql_multi_table_one_data "select * from ${tableName1} order by k00,k01"
                     } else {
                         qt_sql_multi_table_one_data "select * from ${tableName1} order by k00"
                     }
-                    
+
                     i++
                 }
             } finally {
@@ -1150,13 +1191,13 @@ suite("test_routine_load","p0") {
                         sleep(5000)
                         count++
                     }
-                    
+
                     if (i <= 3) {
                         qt_sql_multi_table "select * from ${tableName1} order by k00,k01"
                     } else {
                         qt_sql_multi_table "select * from ${tableName1} order by k00"
                     }
-                    
+
                     i++
                 }
             } finally {
