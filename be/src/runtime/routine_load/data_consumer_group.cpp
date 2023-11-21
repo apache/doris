@@ -341,7 +341,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                     << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
 
             //filter invalid prefix of json
-            const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()));
+            const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()), len);
             size_t  filter_len = len_of_actual_data(filter_data);
             // append filtered data
             LOG(INFO) << "get pulsar message: " << std::string(filter_data, filter_len)
