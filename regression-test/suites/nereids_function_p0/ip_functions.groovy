@@ -32,10 +32,10 @@ suite("ip_functions") {
     qt_ip11 "SELECT ipv4stringtonumordefault('');"
     qt_ip12 "SELECT inet_aton('192.168.0.1');"
 
-    qt_ip13 "SELECT ipv6numtostring(unhex('0A000509'));"
+    qt_ip13 "SELECT ipv6numtostring(unhex('0A0005091'));"
     qt_ip14 "SELECT ipv6numtostring(unhex('2A0206B8000000000000000000000011'));"
     qt_ip15 "SELECT ipv6numtostring(unhex('FDFE0000000000005A55CAFFFEFA9089'));"
     qt_ip16 "SELECT ipv6numtostring(unhex(''));"
-    qt_ip17 "SELECT inet6_ntoa(unhex('0A000509'));"
+    qt_ip17 "SELECT inet6_ntoa(unhex('0A0005091'));"
     qt_ip18 "SELECT inet6_ntoa(unhex('2A0206B8000000000000000000000011'));"
 }
