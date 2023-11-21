@@ -1087,4 +1087,8 @@ public class AnalysisManager implements Writable {
     public void removeJob(long id) {
         idToAnalysisJob.remove(id);
     }
+
+    public boolean hasUnFinished() {
+        return !analysisJobIdToTaskMap.isEmpty();
+    }
 }
