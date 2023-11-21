@@ -59,7 +59,6 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
             throw new JobException("job id exist,jobId:" + job.getJobId());
         }
         Env.getCurrentEnv().getEditLog().logCreateJob(job);
-        //check name exist
         jobMap.put(job.getJobId(), job);
         //check its need to scheduler
         jobScheduler.scheduleOneJob(job);
