@@ -595,8 +595,9 @@ public class DateLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
+        DateLiteral other = (DateLiteral) expr;
         // date time will not overflow when doing addition and subtraction
-        return getStringValue().compareTo(expr.getStringValue());
+        return getStringValue().compareTo(other.getStringValue());
     }
 
     @Override
@@ -748,7 +749,7 @@ public class DateLiteral extends LiteralExpr {
         } else if (targetType.isStringType()) {
             return new StringLiteral(getStringValue());
         } else if (targetType.isBigIntType()) {
-            long value = getYear() * 1000 + getMonth() * 100 + getDay();
+            long value = year * 1000 + month * 100 + day;
             return new IntLiteral(value, Type.BIGINT);
         } else {
             if (Type.isImplicitlyCastable(this.type, targetType, true, SessionVariable.getEnableDecimal256())) {
