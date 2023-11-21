@@ -115,8 +115,6 @@ Status EnginePublishVersionTask::finish() {
     }
 #endif
 
-    std::set<int64_t> not_continuous_mow_tablets;
-
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
@@ -191,7 +189,6 @@ Status EnginePublishVersionTask::finish() {
                     if (tablet->check_version_exist(version)) {
                         continue;
                     }
-                    not_continuous_mow_tablets.insert(tablet_info.tablet_id);
                     auto handle_version_not_continuous = [&]() {
                         add_error_tablet_id(tablet_info.tablet_id);
                         _discontinuous_version_tablets->emplace_back(
@@ -277,8 +274,7 @@ Status EnginePublishVersionTask::finish() {
                         (*_succ_tablets)[tablet_id] = 0;
                     } else {
                         add_error_tablet_id(tablet_id);
-                        if (not_continuous_mow_tablets.find(tablet_id) ==
-                            not_continuous_mow_tablets.end()) {
+                        if (!res.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
                             LOG(WARNING)
                                     << "publish version failed on transaction, tablet version not "
                                        "exists. "
