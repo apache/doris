@@ -85,7 +85,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             List<ExprId> exprIds = ctx.getTargetExprIdByFilterJoin(join);
             if (exprIds != null && !exprIds.isEmpty()) {
                 boolean isEffective = false;
-                for (Expression expr : join.getHashJoinConjuncts()) {
+                for (Expression expr : join.getEqualToConjuncts()) {
                     if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
                         isEffective = true;
                     }
