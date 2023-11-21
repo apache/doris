@@ -27,7 +27,6 @@ import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
-import org.apache.doris.nereids.rules.analysis.CheckLeadingJoin;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
@@ -127,7 +126,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new NormalizeAggregate()),
             bottomUp(new SemiJoinCommute()),
             bottomUp(
-                    new CheckLeadingJoin(),
                     new CollectSubQueryAlias(),
                     new CollectJoinConstraint()
             ),

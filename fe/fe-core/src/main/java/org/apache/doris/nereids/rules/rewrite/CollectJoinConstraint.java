@@ -24,8 +24,11 @@ import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -95,7 +98,22 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                 LogicalFilter filter = ctx.root;
                 Set<Expression> expressions = filter.getConjuncts();
                 for (Expression expression : expressions) {
-                    Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
+                    if (expression.containsType(AggregateFunction.class)) {
+                        // do not put aggregate function into join conditions
+                        continue;
+                    }
+                    Long filterBitMap = 0L;
+                    if (expression instanceof InSubquery) {
+                        filterBitMap = calSlotsTableBitMap(leading,
+                                ((InSubquery) expression).getCompareExpr().getInputSlots(), false);
+                    } else if (expression instanceof Exists) {
+                        continue;
+                    } else {
+                        filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
+                    }
+                    if (filterBitMap.equals(0L)) {
+                        continue;
+                    }
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
                 }
                 return ctx.root;
@@ -190,7 +208,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             if (getNotNullable && slot.nullable()) {
                 continue;
             }
-            if (!slot.isColumnFromTable() && slot.getQualifier() == null) {
+            if (!slot.isColumnFromTable() && (slot.getQualifier() == null || slot.getQualifier().isEmpty())) {
                 // we can not get info from column not from table
                 continue;
             }

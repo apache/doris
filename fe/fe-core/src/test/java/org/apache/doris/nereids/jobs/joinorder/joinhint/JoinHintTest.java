@@ -51,12 +51,29 @@ public class JoinHintTest extends TPCHTestBase {
     private List<String> failCases = new ArrayList<>();
 
     @Test
-    public void test() {
+    public void testLeading() {
         for (int t = 3; t < 10; t++) {
             for (int e = t - 1; e <= (t * (t - 1)) / 2; e++) {
                 for (int i = 0; i < 10; i++) {
                     System.out.println("TableNumber: " + String.valueOf(t) + " EdgeNumber: " + e + " Iteration: " + i);
-                    randomTest(t, e);
+                    randomTest(t, e, false, true);
+                }
+            }
+        }
+        int totalCases = successCases + unsuccessCases;
+        System.out.println("TotalCases: " + totalCases + "\tSuccessCases: " + successCases + unsuccessCases + "\tUnSuccessCases: " + 0);
+        for (String treePlan : failCases) {
+            System.out.println(treePlan);
+        }
+    }
+
+    @Test
+    public void testHintJoin() {
+        for (int t = 3; t < 10; t++) {
+            for (int e = t - 1; e <= (t * (t - 1)) / 2; e++) {
+                for (int i = 0; i < 10; i++) {
+                    System.out.println("TableNumber: " + String.valueOf(t) + " EdgeNumber: " + e + " Iteration: " + i);
+                    randomTest(t, e, true, false);
                 }
             }
         }
@@ -79,16 +96,14 @@ public class JoinHintTest extends TPCHTestBase {
         return new LogicalSelectHint<>(hints, childPlan);
     }
 
-    private void randomTest(int tableNum, int edgeNum) {
+    private void randomTest(int tableNum, int edgeNum, boolean withJoinHint, boolean withLeading) {
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
-        Plan plan = hyperGraphBuilder
-                .randomBuildPlanWith(tableNum, edgeNum);
+        Plan plan = withJoinHint ? hyperGraphBuilder.buildJoinPlanWithJoinHint(tableNum, edgeNum) :
+                hyperGraphBuilder.randomBuildPlanWith(tableNum, edgeNum);
         plan = new LogicalProject(plan.getOutput(), plan);
         Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
-        // generate select hint
-        for (int i = 0; i < (tableNum * tableNum - 1); i++) {
-            Plan leadingPlan = generateLeadingHintPlan(tableNum, plan);
-            CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, leadingPlan);
+        if (!withLeading) {
+            CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
             hyperGraphBuilder.initStats(cascadesContext);
             Plan optimizedPlan = PlanChecker.from(cascadesContext)
                     .analyze()
@@ -96,33 +111,43 @@ public class JoinHintTest extends TPCHTestBase {
                     .getBestPlanTree();
 
             Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
-            switch (cascadesContext.getHintMap().get("Leading").getStatus()) {
-                case SUCCESS:
-                    used++;
-                    break;
-                case UNUSED:
-                    unused++;
-                    break;
-                case SYNTAX_ERROR:
-                    syntaxError++;
-                    System.out.println(cascadesContext.getHintMap().get("Leading").getErrorMessage());
-                    break;
-                default:
-                    break;
-            }
-            System.out.println("HintStats\t" + "Used: " + used + "\tUnused: " + unused + "\tSyntaxError: " + syntaxError);
             if (!res1.equals(res2)) {
-                System.out.println(leadingPlan.treeString());
+                System.out.println(plan.treeString());
                 System.out.println(optimizedPlan.treeString());
                 cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
                 PlanChecker.from(cascadesContext).dpHypOptimize().getBestPlanTree();
                 System.out.println(res1);
                 System.out.println(res2);
                 unsuccessCases++;
-                failCases.add(leadingPlan.treeString());
+                failCases.add(plan.treeString());
                 failCases.add(optimizedPlan.treeString());
             }
             successCases++;
+        } else {
+            // generate select hint
+            for (int i = 0; i < (tableNum * tableNum - 1); i++) {
+                Plan leadingPlan = generateLeadingHintPlan(tableNum, plan);
+                CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, leadingPlan);
+                hyperGraphBuilder.initStats(cascadesContext);
+                Plan optimizedPlan = PlanChecker.from(cascadesContext)
+                        .analyze()
+                        .optimize()
+                        .getBestPlanTree();
+
+                Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
+                if (!res1.equals(res2)) {
+                    System.out.println(leadingPlan.treeString());
+                    System.out.println(optimizedPlan.treeString());
+                    cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+                    PlanChecker.from(cascadesContext).dpHypOptimize().getBestPlanTree();
+                    System.out.println(res1);
+                    System.out.println(res2);
+                    unsuccessCases++;
+                    failCases.add(leadingPlan.treeString());
+                    failCases.add(optimizedPlan.treeString());
+                }
+                successCases++;
+            }
         }
     }
 }
