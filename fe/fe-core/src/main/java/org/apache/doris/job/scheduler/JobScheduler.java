@@ -53,7 +53,7 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
 
     private long latestBatchSchedulerTimerTaskTimeMs = 0L;
 
-    private static final long BATCH_SCHEDULER_INTERVAL_SECONDS = 60;
+    private static final long BATCH_SCHEDULER_INTERVAL_SECONDS = 600;
 
     private static final int HASHED_WHEEL_TIMER_TICKS_PER_WHEEL = 660;
 

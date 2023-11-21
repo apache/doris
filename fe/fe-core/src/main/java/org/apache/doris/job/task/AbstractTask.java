@@ -59,6 +59,9 @@ public abstract class AbstractTask implements Task {
 
     @Override
     public void onFail() throws JobException {
+        if (TaskStatus.CANCEL.equals(status)) {
+            return;
+        }
         status = TaskStatus.FAILD;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {

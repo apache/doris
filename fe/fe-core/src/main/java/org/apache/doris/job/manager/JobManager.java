@@ -59,7 +59,6 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
             throw new JobException("job id exist,jobId:" + job.getJobId());
         }
         Env.getCurrentEnv().getEditLog().logCreateJob(job);
-        //check name exist
         jobMap.put(job.getJobId(), job);
         //check its need to scheduler
         jobScheduler.scheduleOneJob(job);
@@ -128,6 +127,16 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * query jobs by job type
+     * @param jobTypes @JobType
+     * @return List<AbstractJob> job list
+     */
+    public List<T> queryJobs(List<JobType> jobTypes) {
+        return jobMap.values().stream().filter(a -> checkItsMatch(jobTypes, a))
+                .collect(Collectors.toList());
+    }
+
     private boolean checkItsMatch(JobType jobType, String jobName, T job) {
         if (null == jobType) {
             throw new IllegalArgumentException("jobType cannot be null");
@@ -136,6 +145,13 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
             return job.getJobType().equals(jobType);
         }
         return job.getJobType().equals(jobType) && job.getJobName().equals(jobName);
+    }
+
+    private boolean checkItsMatch(List<JobType> jobTypes, T job) {
+        if (null == jobTypes) {
+            throw new IllegalArgumentException("jobType cannot be null");
+        }
+        return jobTypes.contains(job.getJobType());
     }
 
     public List<? extends AbstractTask> queryTasks(Long jobId) throws JobException {

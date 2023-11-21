@@ -2595,7 +2595,7 @@ resume_job_stmt ::=
 show_job_stmt ::=
     KW_SHOW KW_JOBS
     {:
-        RESULT = new ShowJobStmt(null,org.apache.doris.job.common.JobType.INSERT);
+        RESULT = new ShowJobStmt(null,null);
     :}
     | KW_SHOW KW_MTMV KW_JOBS
     {:

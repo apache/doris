@@ -844,7 +844,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return gson.toJson(map);
     }
 
-    protected String getResourceName() {
+    public String getResourceName() {
         return "N/A";
     }
 
@@ -1201,7 +1201,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     // unit: second
-    protected long getTimeout() {
+    public long getTimeout() {
         return (long) jobProperties.get(LoadStmt.TIMEOUT_PROPERTY);
     }
 
@@ -1213,7 +1213,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return (long) jobProperties.get(LoadStmt.EXEC_MEM_LIMIT);
     }
 
-    protected double getMaxFilterRatio() {
+    public double getMaxFilterRatio() {
         return (double) jobProperties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY);
     }
 
