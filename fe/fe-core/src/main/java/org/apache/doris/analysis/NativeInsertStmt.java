@@ -757,11 +757,13 @@ public class NativeInsertStmt extends InsertStmt {
         for (int i = 0; i < row.size(); i++) {
             Expr expr = row.get(i);
             expr.analyze(analyzer);
-            if (!(expr instanceof StringLiteral
-                    && ((StringLiteral) expr).getValue().equals(SelectStmt.DEFAULT_VALUE))) {
-                slotToIndex.put(realTargetColumnNames.get(i),
-                        expr.checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
+            if (expr instanceof DefaultValueExpr || expr instanceof StringLiteral
+                    && ((StringLiteral) expr).getValue().equals(SelectStmt.DEFAULT_VALUE)) {
+                continue;
             }
+            expr.analyze(analyzer);
+            slotToIndex.put(realTargetColumnNames.get(i),
+                    expr.checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
         }
         for (Column column : targetTable.getBaseSchema()) {
             if (!slotToIndex.containsKey(column.getName())) {
