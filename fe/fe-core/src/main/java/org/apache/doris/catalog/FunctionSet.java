@@ -1322,13 +1322,13 @@ public class FunctionSet<T> {
 
         //vec percentile and percentile_approx
         addBuiltin(AggregateFunction.createBuiltin("percentile",
-                Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
-                "",
-                "",
-                "",
-                "",
-                "",
-                false, true, false, true));
+                        Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        false, true, false, true));
 
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,

@@ -592,6 +592,14 @@ public abstract class ExternalCatalog
         return ret;
     }
 
+    public String bindBrokerName() {
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
+            return properties.get(HMSExternalCatalog.BIND_BROKER_NAME);
+        }
+        return null;
+    }
+
     @Override
     public Collection<DatabaseIf> getAllDbs() {
         makeSureInitialized();

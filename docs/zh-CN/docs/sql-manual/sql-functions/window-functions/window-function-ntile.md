@@ -40,4 +40,4 @@ select x, y, ntile(2) over(partition by x order by y) as rank from int_t;
 
 ### keywords
 
-    WINDOW,FUNCTION,NTILE
+​    WINDOW,FUNCTION,NTILE

@@ -1529,3 +1529,9 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * Description: BE 是否开启使用java-jni，开启后允许 c++  与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
 * Default value: true
+
+
+#### `be_thrift_max_pkg_bytes`
+
+* 描述: be节点thrift端口最大接收包大小(字节)
+* 默认值: 20000000

@@ -30,6 +30,7 @@ import org.apache.doris.regression.suite.event.StackEventListeners
 import org.apache.doris.regression.suite.SuiteScript
 import org.apache.doris.regression.suite.event.TeamcityEventListener
 import org.apache.doris.regression.util.Recorder
+import org.apache.doris.regression.util.TeamcityUtils
 import groovy.util.logging.Slf4j
 import org.apache.commons.cli.*
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
@@ -65,10 +66,28 @@ class RegressionTest {
         Config config = Config.fromCommandLine(cmd)
         initGroovyEnv(config)
         boolean success = true
+        Integer totalFailure = 0
+        Integer failureLimit = Integer.valueOf(config.otherConfigs.getOrDefault("max_failure_num", "-1").toString())
+        if (failureLimit <= 0) {
+            failureLimit = Integer.MAX_VALUE
+        }
+
         for (int i = 0; i < config.times; i++) {
             log.info("=== run ${i} time ===")
+            if (config.times > 1) {
+                TeamcityUtils.postfix = i.toString()
+            }
+
             Recorder recorder = runScripts(config)
-            success = printResult(config, recorder)
+            success = (success && printResult(config, recorder))
+
+            if (recorder.getFatalNum() > 0) {
+                break
+            }
+            totalFailure += recorder.getFailureOrFatalNum()
+            if (totalFailure > failureLimit) {
+                break
+            }
         }
         actionExecutors.shutdown()
         suiteExecutors.shutdown()

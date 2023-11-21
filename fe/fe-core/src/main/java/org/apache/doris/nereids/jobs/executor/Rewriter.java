@@ -61,6 +61,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
+import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubquery;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractAndNormalizeWindowExpression;
@@ -90,6 +91,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
+import org.apache.doris.nereids.rules.rewrite.PushdownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
@@ -119,6 +121,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
+                            new EliminateSortUnderSubquery(),
                             new EliminateGroupByConstant(),
                             // MergeProjects depends on this rule
                             new LogicalSubQueryAliasToLogicalProject(),
@@ -145,10 +148,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                     bottomUp(new PullUpProjectUnderApply()),
                     topDown(new PushdownFilterThroughProject()),
-                    costBased(
-                            custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
-                                    AggScalarSubQueryToWindowFunction::new)
-                    ),
+                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
+                                    AggScalarSubQueryToWindowFunction::new),
                     bottomUp(
                             new EliminateUselessPlanUnderApply(),
                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -272,6 +273,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new SplitLimit()),
                     topDown(new PushdownLimit(),
                             new PushdownTopNThroughJoin(),
+                            new PushdownLimitDistinctThroughJoin(),
                             new PushdownTopNThroughWindow(),
                             new CreatePartitionTopNFromWindow()
                     )

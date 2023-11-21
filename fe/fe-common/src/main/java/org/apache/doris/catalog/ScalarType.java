@@ -464,6 +464,18 @@ public class ScalarType extends Type {
     }
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createDatetimeV1Type() {
+        Preconditions.checkState(!Config.disable_datev1, "Datev1 is disable in fe.conf!");
+        return new ScalarType(PrimitiveType.DATETIME);
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createDateV1Type() {
+        Preconditions.checkState(!Config.disable_datev1, "Datev1 is disable in fe.conf!");
+        return new ScalarType(PrimitiveType.DATE);
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeType() {
         if (!Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.TIME);
@@ -585,7 +597,7 @@ public class ScalarType extends Type {
             return "TIMEV2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
-                return "VARCHAR(*)";
+                return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
             }
             return "VARCHAR(" + len + ")";
         } else if (type == PrimitiveType.STRING) {

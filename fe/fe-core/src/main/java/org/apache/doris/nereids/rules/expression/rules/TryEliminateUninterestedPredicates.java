@@ -109,7 +109,8 @@ public class TryEliminateUninterestedPredicates extends DefaultExpressionRewrite
     public Expression visitAnd(And and, Context parentContext) {
         Expression left = and.left();
         Context leftContext = new Context();
-        Expression newLeft = this.visit(left, leftContext);
+        Expression newLeft = left.accept(this, leftContext);
+
         if (leftContext.childrenContainsNonInterestedSlots) {
             newLeft = BooleanLiteral.TRUE;
         }
@@ -122,7 +123,7 @@ public class TryEliminateUninterestedPredicates extends DefaultExpressionRewrite
         }
         Expression expr = new And(newLeft, newRight).accept(FoldConstantRuleOnFE.INSTANCE, expressionRewriteContext);
         parentContext.childrenContainsInterestedSlots =
-                rightContext.childrenContainsInterestedSlots || leftContext.childrenContainsInterestedSlots;
+            rightContext.childrenContainsInterestedSlots || leftContext.childrenContainsInterestedSlots;
         return expr;
     }
 

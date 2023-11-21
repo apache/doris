@@ -571,6 +571,9 @@ inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
 template <PrimitiveType P, typename T>
 T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
                                   ParseResult* result) {
+    static_assert(
+            std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> || std::is_same_v<T, __int128>,
+            "Cast string to decimal only support target type int32_t, int64_t or __int128.");
     // Special cases:
     //   1) '' == Fail, an empty string fails to parse.
     //   2) '   #   ' == #, leading and trailing white space is ignored.
@@ -670,11 +673,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     return 0;
                 }
                 *result = StringParser::PARSE_SUCCESS;
-                if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-                    value *= get_scale_multiplier<__int128>(type_scale - scale);
-                } else {
-                    value *= get_scale_multiplier<T>(type_scale - scale);
-                }
+                value *= get_scale_multiplier<T>(type_scale - scale);
 
                 return is_negative ? T(-value) : T(value);
             }
@@ -762,11 +761,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
         //     scale must be set to 0 and the value set to 100 which means a precision of 3.
         precision += exponent - scale;
 
-        if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-            value *= get_scale_multiplier<__int128>(exponent - scale);
-        } else {
-            value *= get_scale_multiplier<T>(exponent - scale);
-        }
+        value *= get_scale_multiplier<T>(exponent - scale);
         scale = 0;
     } else {
         // Ex: 100e-4, the scale must be set to 4 but no adjustment to the value is needed,
@@ -795,22 +790,14 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     } else if (UNLIKELY(scale > type_scale)) {
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;
-        if (shift > 0) {
-            T divisor;
-            if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-                divisor = get_scale_multiplier<__int128>(shift);
-            } else {
-                divisor = get_scale_multiplier<T>(shift);
-            }
-            if (LIKELY(divisor > 0)) {
-                T remainder = value % divisor;
-                value /= divisor;
-                if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
-                    value += 1;
-                }
-            } else {
-                DCHECK(divisor == -1 || divisor == 0); // //DCHECK_EQ doesn't work with __int128.
-                value = 0;
+        T divisor = get_scale_multiplier<T>(shift);
+        if (UNLIKELY(divisor == std::numeric_limits<T>::max())) {
+            value = 0;
+        } else {
+            T remainder = value % divisor;
+            value /= divisor;
+            if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
+                value += 1;
             }
         }
         DCHECK(value >= 0); // //DCHECK_GE doesn't work with __int128.
@@ -819,11 +806,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     if (type_scale > scale) {
-        if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-            value *= get_scale_multiplier<__int128>(type_scale - scale);
-        } else {
-            value *= get_scale_multiplier<T>(type_scale - scale);
-        }
+        value *= get_scale_multiplier<T>(type_scale - scale);
     }
 
     return is_negative ? T(-value) : T(value);
