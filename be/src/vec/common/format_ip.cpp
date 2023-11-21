@@ -88,9 +88,9 @@ static constexpr UInt32 intLog(const UInt32 value, const UInt32 base, const bool
 /// But it doesn't matter here.
 template <UInt32 base, typename T>
 static void print_integer(char*& out, T value) {
-    if (value == 0)
+    if (value == 0) {
         *out++ = '0';
-    else {
+    } else {
         constexpr size_t buffer_size = sizeof(T) * intLog(256, base, false);
 
         char buf[buffer_size];
@@ -116,7 +116,7 @@ void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_
         Int64 base, len;
     } best {-1, 0}, cur {-1, 0};
     std::array<UInt16, IPV6_BINARY_LENGTH / sizeof(UInt16)> words {};
- 
+
     /** Preprocess:
         *    Copy the input (bytewise) array into a wordwise array.
         *    Find the longest run of 0x00's in src[] for :: shorthanding. */

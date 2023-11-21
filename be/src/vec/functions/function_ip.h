@@ -295,7 +295,7 @@ public:
         auto* pos = begin;
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        
+
         struct IPv6Address {
             unsigned char data[IPV6_BINARY_LENGTH];
         };
