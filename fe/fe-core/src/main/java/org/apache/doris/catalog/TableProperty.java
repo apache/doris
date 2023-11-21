@@ -476,6 +476,16 @@ public class TableProperty implements Writable {
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
     }
 
+    public void setGroupCommitIntervalMs(int groupCommitIntervalMs) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS, Integer.toString(groupCommitIntervalMs));
+    }
+
+    public int getGroupCommitIntervalMs() {
+        return Integer.parseInt(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS,
+                Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE)));
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property

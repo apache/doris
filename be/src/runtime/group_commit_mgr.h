@@ -38,14 +38,15 @@ public:
     LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
                    int64_t schema_version,
                    std::shared_ptr<std::atomic_size_t> all_block_queues_bytes,
-                   bool wait_internal_group_commit_finish)
+                   bool wait_internal_group_commit_finish, int64_t group_commit_interval_ms)
             : load_instance_id(load_instance_id),
               label(label),
               txn_id(txn_id),
               schema_version(schema_version),
               wait_internal_group_commit_finish(wait_internal_group_commit_finish),
               _start_time(std::chrono::steady_clock::now()),
-              _all_block_queues_bytes(all_block_queues_bytes) {
+              _all_block_queues_bytes(all_block_queues_bytes),
+              _group_commit_interval_ms(group_commit_interval_ms) {
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
@@ -79,6 +80,8 @@ private:
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
     // memory consumption of one load block queue, used for correctness check.
     std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes;
+    // group commit interval in ms, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
+    int64_t _group_commit_interval_ms;
 };
 
 class GroupCommitTable {
