@@ -244,10 +244,23 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
         return 0;
     }
 
+    std::vector<taskgroup::TaskGroupPtr> task_groups_overcommit;
+    for (const auto& task_group : task_groups) {
+        taskgroup::TaskGroupInfo tg_info;
+        task_group->task_group_info(&tg_info);
+        if (task_group->memory_used() > tg_info.memory_limit) {
+            task_groups_overcommit.push_back(task_group);
+        }
+    }
+    if (task_groups_overcommit.empty()) {
+        return 0;
+    }
+
     LOG(INFO) << fmt::format(
-            "[MemoryGC] start GC work load group that not enable overcommit, number of group: {}, "
+            "[MemoryGC] start GC work load group that not enable overcommit, number of overcommit "
+            "group: {}, "
             "if it exceeds the limit, try free size = (group used - group limit).",
-            task_groups.size());
+            task_groups_overcommit.size());
 
     Defer defer {[&]() {
         if (total_free_memory > 0) {
@@ -255,13 +268,14 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
             tg_profile->pretty_print(&ss);
             LOG(INFO) << fmt::format(
                     "[MemoryGC] end GC work load group that not enable overcommit, number of "
-                    "group: {}, free memory {}. cost(us): {}, details: {}",
-                    task_groups.size(), PrettyPrinter::print(total_free_memory, TUnit::BYTES),
+                    "overcommit group: {}, free memory {}. cost(us): {}, details: {}",
+                    task_groups_overcommit.size(),
+                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
                     watch.elapsed_time() / 1000, ss.str());
         }
     }};
 
-    for (const auto& task_group : task_groups) {
+    for (const auto& task_group : task_groups_overcommit) {
         taskgroup::TaskGroupInfo tg_info;
         task_group->task_group_info(&tg_info);
         auto used = task_group->memory_used();
