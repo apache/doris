@@ -336,7 +336,7 @@ struct CommonFindOp : BaseOp {
     }
 
     void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
-        bloom_filter.add_bytes((char*)data, sizeof(T));
+        bloom_filter.add_element(((T*)data)[0]);
     }
     bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return bloom_filter.test_element(((T*)data)[0]);
