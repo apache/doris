@@ -80,7 +80,8 @@ public:
         int64_t request_io = 0;
         int64_t merged_io = 0;
         int64_t request_bytes = 0;
-        int64_t read_bytes = 0;
+        int64_t merged_bytes = 0;
+        int64_t apply_bytes = 0;
     };
 
     struct RangeCachedData {
@@ -147,6 +148,9 @@ public:
         // Equivalent min size of each IO that can reach the maximum storage speed limit:
         // 512KB for oss, 4KB for hdfs
         _equivalent_io_size = _is_oss ? OSS_MIN_IO_SIZE : HDFS_MIN_IO_SIZE;
+        for (const PrefetchRange& range : _random_access_ranges) {
+            _statistics.apply_bytes += range.end_offset - range.start_offset;
+        }
         if (_profile != nullptr) {
             const char* random_profile = "MergedSmallIO";
             ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
@@ -158,8 +162,10 @@ public:
                                                       random_profile, 1);
             _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
                                                           random_profile, 1);
-            _read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
-                                                       random_profile, 1);
+            _merged_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
+                                                         random_profile, 1);
+            _apply_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ApplyBytes", TUnit::BYTES,
+                                                        random_profile, 1);
         }
     }
 
@@ -184,7 +190,8 @@ public:
                 COUNTER_UPDATE(_request_io, _statistics.request_io);
                 COUNTER_UPDATE(_merged_io, _statistics.merged_io);
                 COUNTER_UPDATE(_request_bytes, _statistics.request_bytes);
-                COUNTER_UPDATE(_read_bytes, _statistics.read_bytes);
+                COUNTER_UPDATE(_merged_bytes, _statistics.merged_bytes);
+                COUNTER_UPDATE(_apply_bytes, _statistics.apply_bytes);
             }
         }
         return Status::OK();
@@ -220,7 +227,8 @@ private:
     RuntimeProfile::Counter* _request_io;
     RuntimeProfile::Counter* _merged_io;
     RuntimeProfile::Counter* _request_bytes;
-    RuntimeProfile::Counter* _read_bytes;
+    RuntimeProfile::Counter* _merged_bytes;
+    RuntimeProfile::Counter* _apply_bytes;
 
     int _search_read_range(size_t start_offset, size_t end_offset);
     void _clean_cached_data(RangeCachedData& cached_data);
