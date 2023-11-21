@@ -86,8 +86,8 @@ suite("test_show_export", "p0") {
                 def json = parseJson(res[0][11])
                 assert json instanceof List
                 assertEquals("1", json.fileNumber[0][0])
-                log.info("outfile_path: ${json.url[0][0]}")
-                return json.url[0][0];
+                log.info("outfile_path: ${json.url[0]}")
+                return json.url[0];
             } else if (res[0][2] == "CANCELLED") {
                 throw new IllegalStateException("""export failed: ${res[0][10]}""")
             } else {
