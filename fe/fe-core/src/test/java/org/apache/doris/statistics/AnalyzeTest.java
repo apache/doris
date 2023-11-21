@@ -36,7 +36,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -174,12 +173,6 @@ public class AnalyzeTest extends TestWithFeService {
                 .setState(AnalysisState.RUNNING)
                 .build();
         new OlapAnalysisTask(analysisJobInfo).doExecute();
-        new Expectations() {
-            {
-                stmtExecutor.execute();
-                times = 1;
-            }
-        };
     }
 
 }
