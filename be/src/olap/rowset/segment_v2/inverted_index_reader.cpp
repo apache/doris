@@ -699,7 +699,16 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
                                  uint32_t* count) {
     auto visitor = std::make_unique<InvertedIndexVisitor>(nullptr, query_type, true);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
-    RETURN_IF_ERROR(get_bkd_reader(r, stats));
+    auto st = get_bkd_reader(r, stats);
+    if (!st.ok()) {
+        // empty bkd index file, just return
+        if (st.code() == ErrorCode::END_OF_FILE) {
+            return Status::OK();
+        }
+        LOG(WARNING) << "get bkd reader for  " << _index_dir / _index_file_name
+                     << " failed: " << st;
+        return st;
+    }
     std::string query_str;
     _value_key_coder->full_encode_ascending(query_value, &query_str);
 
@@ -751,8 +760,16 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
 
     auto visitor = std::make_unique<InvertedIndexVisitor>(bit_map, query_type);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
-    RETURN_IF_ERROR(get_bkd_reader(r, stats));
-
+    auto st = get_bkd_reader(r, stats);
+    if (!st.ok()) {
+        // empty bkd index file, just return
+        if (st.code() == ErrorCode::END_OF_FILE) {
+            return Status::OK();
+        }
+        LOG(WARNING) << "get bkd reader for  " << _index_dir / _index_file_name
+                     << " failed: " << st;
+        return st;
+    }
     std::string query_str;
     _value_key_coder->full_encode_ascending(query_value, &query_str);
 
@@ -786,19 +803,11 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
 Status BkdIndexReader::get_bkd_reader(BKDIndexSearcherPtr& bkd_reader,
                                       OlapReaderStatistics* stats) {
     InvertedIndexCacheHandle inverted_index_cache_handle;
-    auto st = InvertedIndexSearcherCache::instance()->get_index_searcher(
-            _fs, _index_dir.c_str(), _index_file_name, &inverted_index_cache_handle, stats, type());
-    if (!st.ok()) {
-        // empty bkd index file, just return
-        if (st.code() == ErrorCode::END_OF_FILE) {
-            return Status::OK();
-        }
-        LOG(WARNING) << "get_index_searcher for  " << _index_dir / _index_file_name
-                     << " failed: " << st;
-        return st;
-    }
+    RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->get_index_searcher(
+            _fs, _index_dir.c_str(), _index_file_name, &inverted_index_cache_handle, stats,
+            type()));
     auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
-    auto bkd_searcher = std::get_if<BKDIndexSearcherPtr>(&searcher_variant);
+    auto* bkd_searcher = std::get_if<BKDIndexSearcherPtr>(&searcher_variant);
     if (bkd_searcher) {
         _type_info = get_scalar_type_info((FieldType)(*bkd_searcher)->type);
         if (_type_info == nullptr) {

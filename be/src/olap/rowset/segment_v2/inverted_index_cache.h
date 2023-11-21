@@ -34,6 +34,7 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <utility>

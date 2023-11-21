@@ -27,7 +27,6 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <iostream>
-#include <optional>
 
 #include "common/logging.h"
 #include "olap/olap_common.h"
@@ -46,7 +45,7 @@ Status FulltextIndexSearcherBuilder::build(const io::FileSystemSPtr& fs,
                                            const std::string& index_dir,
                                            const std::string& file_name,
                                            OptionalIndexSearcherPtr& output_searcher) {
-    DorisCompoundReader* directory =
+    auto* directory =
             new DorisCompoundReader(DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
                                     file_name.c_str(), config::inverted_index_read_buffer_size);
     auto closeDirectory = true;
