@@ -46,6 +46,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "olap/wal_manager.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
@@ -944,6 +945,11 @@ void VTabletWriter::_send_batch_process() {
     SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
+    int sleep_time = config::olap_table_sink_send_interval_microseconds *
+                     (_vpartition->is_auto_partition()
+                              ? config::olap_table_sink_send_interval_auto_partition_factor
+                              : 1);
+
     while (true) {
         // incremental open will temporarily make channels into abnormal state. stop checking when this.
         std::unique_lock<std::mutex> l(_stop_check_channel);
@@ -986,7 +992,7 @@ void VTabletWriter::_send_batch_process() {
                 return;
             }
         }
-        bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
+        bthread_usleep(sleep_time);
     }
 }
 
