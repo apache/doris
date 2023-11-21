@@ -184,15 +184,15 @@ private:
                                      bool right_const) {
         if (left_const) {
             for (int i = 0; i < rows; ++i) {
-                result[i] &= left[0] & (left[0] == right[i]);
+                result[i] &= (left[0] == right[i]);
             }
         } else if (right_const) {
             for (int i = 0; i < rows; ++i) {
-                result[i] &= left[i] & (left[i] == right[0]);
+                result[i] &= (left[i] == right[0]);
             }
         } else {
             for (int i = 0; i < rows; ++i) {
-                result[i] &= left[i] & (left[i] == right[i]);
+                result[i] &= (left[i] == right[i]);
             }
         }
     }
