@@ -52,6 +52,13 @@ suite("test_subquery") {
         select * from nereids_test_query_db.baseall where k1 = (select k1 from nereids_test_query_db.baseall limit 1)
     """
 
+    // test uncorrelated subquery in having
+    sql """
+        select count(*) from nereids_test_query_db.baseall
+        group by k0 
+        having min(k0) in (select k0 from nereids_test_query_db.baseall)
+    """
+
     // test uncorrelated scalar subquery with more than one return rows
     test {
         sql """
