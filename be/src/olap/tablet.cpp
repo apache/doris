@@ -1645,16 +1645,16 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.version_miss", {
         auto tablet_id = dp->param<int>("tablet_id", -1);
-        if (tablet_id == -1 || tablet_id != _tablet_meta->tablet_id()) {
-            LOG_WARNING("Tablet.build_tablet_report_info.version_miss").tag("tablet id", tablet_id);
-            return;
-        }
+        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
+            auto miss = dp->param<bool>("version_miss", true);
+            LOG_WARNING("Tablet.build_tablet_report_info.version_miss")
+                    .tag("tablet id", tablet_id)
+                    .tag("version_miss", miss);
+            tablet_info->__set_version_miss(miss);
 
-        auto miss = dp->param<bool>("version_miss", true);
-        LOG_WARNING("Tablet.build_tablet_report_info.version_miss")
-                .tag("tablet id", tablet_id)
-                .tag("version_miss", miss);
-        tablet_info->__set_version_miss(miss);
+        } else {
+            LOG_WARNING("Tablet.build_tablet_report_info.version_miss").tag("tablet id", tablet_id);
+        }
     });
 
     // find rowset with max version
@@ -1694,16 +1694,15 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.used", {
         auto tablet_id = dp->param<int>("tablet_id", -1);
-        if (tablet_id == -1 || tablet_id != _tablet_meta->tablet_id()) {
+        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
+            auto used = dp->param<bool>("used", true);
+            LOG_WARNING("Tablet.build_tablet_report_info.used")
+                    .tag("tablet id", tablet_id)
+                    .tag("used", used);
+            tablet_info->__set_used(used);
+        } else {
             LOG_WARNING("Tablet.build_tablet_report_info.used").tag("tablet id", tablet_id);
-            return;
         }
-
-        auto used = dp->param<bool>("used", true);
-        LOG_WARNING("Tablet.build_tablet_report_info.used")
-                .tag("tablet id", tablet_id)
-                .tag("used", used);
-        tablet_info->__set_used(used);
     });
 
     // the report version is the largest continuous version, same logic as in FE side
