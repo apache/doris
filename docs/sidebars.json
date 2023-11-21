@@ -273,6 +273,7 @@
                             "label": "Array Functions",
                             "items": [
                                 "sql-manual/sql-functions/array-functions/array",
+                                "sql-manual/sql-functions/array-functions/array_apply",
                                 "sql-manual/sql-functions/array-functions/array-max",
                                 "sql-manual/sql-functions/array-functions/array-min",
                                 "sql-manual/sql-functions/array-functions/array-map",
@@ -344,6 +345,7 @@
                                 "sql-manual/sql-functions/date-time-functions/hour",
                                 "sql-manual/sql-functions/date-time-functions/minute",
                                 "sql-manual/sql-functions/date-time-functions/second",
+                                "sql-manual/sql-functions/date-time-functions/microsecond",
                                 "sql-manual/sql-functions/date-time-functions/from-days",
                                 "sql-manual/sql-functions/date-time-functions/last-day",
                                 "sql-manual/sql-functions/date-time-functions/to-monday",
@@ -392,7 +394,11 @@
                                 "sql-manual/sql-functions/date-time-functions/months-sub",
                                 "sql-manual/sql-functions/date-time-functions/years-add",
                                 "sql-manual/sql-functions/date-time-functions/years-diff",
-                                "sql-manual/sql-functions/date-time-functions/years-sub"
+                                "sql-manual/sql-functions/date-time-functions/years-sub",
+                                "sql-manual/sql-functions/date-time-functions/date_ceil",
+                                "sql-manual/sql-functions/date-time-functions/date_floor",
+                                "sql-manual/sql-functions/date-time-functions/from-second",
+                                "sql-manual/sql-functions/date-time-functions/second-timestamp"
                             ]
                         },
                         {
@@ -570,7 +576,9 @@
                                 "sql-manual/sql-functions/aggregate-functions/grouping-id",
                                 "sql-manual/sql-functions/aggregate-functions/count-by-enum",
                                 "sql-manual/sql-functions/aggregate-functions/histogram",
-                                "sql-manual/sql-functions/aggregate-functions/map-agg"
+                                "sql-manual/sql-functions/aggregate-functions/map-agg",
+                                "sql-manual/sql-functions/aggregate-functions/array-agg",
+                                "sql-manual/sql-functions/aggregate-functions/bitmap-agg"
                             ]
                         },
                         {
@@ -611,7 +619,9 @@
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate-count",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap-hash64",
-                                "sql-manual/sql-functions/bitmap-functions/bitmap-remove"
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-remove",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-from-base64",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-to-base64"
                             ]
                         },
                         {
@@ -715,7 +725,8 @@
                                 "sql-manual/sql-functions/numeric-functions/least",
                                 "sql-manual/sql-functions/numeric-functions/random",
                                 "sql-manual/sql-functions/numeric-functions/mod",
-                                "sql-manual/sql-functions/numeric-functions/running-difference"
+                                "sql-manual/sql-functions/numeric-functions/running-difference",
+                                "sql-manual/sql-functions/numeric-functions/uuid_numeric"
                             ]
                         },
                         {
