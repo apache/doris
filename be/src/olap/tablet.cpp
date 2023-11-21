@@ -108,6 +108,7 @@
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -1641,6 +1642,19 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     } else {
         tablet_info->__set_version_miss(cversion.second < max_version.second);
     }
+
+    DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.version_miss", {
+        auto tablet_id = dp->param<int>("tablet_id", -1);
+        if (tablet_id == -1 || tablet_id != _tablet_meta->tablet_id()) {
+            LOG_WARNING("Tablet.build_tablet_report_info.version_miss").tag("tablet id", tablet_id);
+            return;
+        }
+    
+        auto miss = dp->param<bool>("version_miss", true);
+        LOG_WARNING("Tablet.build_tablet_report_info.version_miss").tag("tablet id", tablet_id).tag("version_miss", miss);
+        tablet_info->__set_version_miss(true);
+    });
+
     // find rowset with max version
     auto iter = _rs_version_map.find(max_version);
     if (iter == _rs_version_map.end()) {
@@ -1675,6 +1689,18 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     if (tablet_state() == TABLET_SHUTDOWN) {
         tablet_info->__set_used(false);
     }
+
+    DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.used", {
+        auto tablet_id = dp->param<int>("tablet_id", -1);
+        if (tablet_id == -1 || tablet_id != _tablet_meta->tablet_id()) {
+            LOG_WARNING("Tablet.build_tablet_report_info.used").tag("tablet id", tablet_id);
+            return;
+        }
+    
+        auto miss = dp->param<bool>("used", true);
+        LOG_WARNING("Tablet.build_tablet_report_info.used").tag("tablet id", tablet_id).tag("used", miss);
+        tablet_info->__set_used(true);
+    });
 
     // the report version is the largest continuous version, same logic as in FE side
     tablet_info->__set_version(cversion.second);

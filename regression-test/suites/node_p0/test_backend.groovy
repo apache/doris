@@ -39,4 +39,14 @@ suite("test_backend") {
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
     }
+
+    if (context.config.jdbcUser.equals("root")) {
+        def result = sql """SHOW BACKENDS;"""
+        logger.info("show backends result:${result}")
+        def beId1 = result[0][0]
+        result = sql """ALTER SYSTEM DECOMMISSION BACKEND "${beId1}" """
+        logger.info("ALTER SYSTEM DECOMMISSION BACKEND ${result}")
+        result = sql """CANCEL DECOMMISSION BACKEND "${beId1}" """
+        logger.info("CANCEL DECOMMISSION BACKEND ${result}")
+    }
 }
