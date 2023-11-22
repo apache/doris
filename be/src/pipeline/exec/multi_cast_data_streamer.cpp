@@ -17,6 +17,7 @@
 
 #include "multi_cast_data_streamer.h"
 
+#include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_state.h"
 
@@ -105,13 +106,13 @@ void MultiCastDataStreamer::_set_ready_for_read(int sender_idx) {
     }
     auto* dep = _dependencies[sender_idx];
     DCHECK(dep);
-    dep->set_ready_for_read();
+    dep->set_ready();
 }
 
 void MultiCastDataStreamer::_set_ready_for_read() {
     for (auto* dep : _dependencies) {
         DCHECK(dep);
-        dep->set_ready_for_read();
+        dep->set_ready();
     }
 }
 
@@ -121,7 +122,7 @@ void MultiCastDataStreamer::_block_reading(int sender_idx) {
     }
     auto* dep = _dependencies[sender_idx];
     DCHECK(dep);
-    dep->block_reading();
+    dep->block();
 }
 
 } // namespace doris::pipeline

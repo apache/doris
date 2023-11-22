@@ -22,10 +22,19 @@
 
 namespace doris::pipeline {
 
-class LocalExchangeSinkOperatorX;
-class LocalExchangeSinkLocalState final : public PipelineXSinkLocalState<LocalExchangeDependency> {
+struct LocalExchangeSinkDependency final : public Dependency {
 public:
-    using Base = PipelineXSinkLocalState<LocalExchangeDependency>;
+    using SharedState = LocalExchangeSharedState;
+    LocalExchangeSinkDependency(int id, int node_id)
+            : Dependency(id, node_id, "LocalExchangeSinkDependency", true) {}
+    ~LocalExchangeSinkDependency() override = default;
+};
+
+class LocalExchangeSinkOperatorX;
+class LocalExchangeSinkLocalState final
+        : public PipelineXSinkLocalState<LocalExchangeSinkDependency> {
+public:
+    using Base = PipelineXSinkLocalState<LocalExchangeSinkDependency>;
     ENABLE_FACTORY_CREATOR(LocalExchangeSinkLocalState);
 
     LocalExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
