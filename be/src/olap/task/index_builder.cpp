@@ -198,6 +198,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 }
             }
 
+            if (return_columns.empty()) {
+                // no columns to read
+                break;
+            }
+
             // create iterator for each segment
             StorageReadOptions read_options;
             OlapReaderStatistics stats;
@@ -212,8 +217,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                              << "]: " << res.to_string();
                 return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
             }
-
-            std::shared_ptr<vectorized::Block> block = std::make_shared<vectorized::Block>(
+            auto block = vectorized::Block::create_unique(
                     output_rowset_schema->create_block(return_columns));
             while (true) {
                 auto st = iter->next_batch(block.get());
