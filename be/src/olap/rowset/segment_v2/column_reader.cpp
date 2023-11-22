@@ -288,6 +288,9 @@ Status ColumnReader::get_row_ranges_by_zone_map(
 }
 
 Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const {
+    if (_segment_zone_map == nullptr) {
+        return Status::InternalError("segment zonemap not exist");
+    }
     // TODO: this work to get min/max value seems should only do once
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));

@@ -38,8 +38,6 @@ static const std::string THREAD_TOTAL_TIME = "TotalWallClockTime";
 static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSwitches";
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
 
-static const std::string SPAN_ATTRIBUTE_KEY_SEPARATOR = "-";
-
 // The root counter name for all top level counters.
 static const std::string ROOT_COUNTER;
 

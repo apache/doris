@@ -24,7 +24,7 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _dependency->set_shared_state(info.local_exchange_state);
-    _shared_state = (LocalExchangeSharedState*)_dependency->shared_state();
+    _shared_state = (LocalExchangeSharedState*)_dependency->shared_state().get();
     DCHECK(_shared_state != nullptr);
     _channel_id = info.task_idx;
     _shared_state->set_dep_by_channel_id(_dependency, _channel_id);
