@@ -752,10 +752,9 @@ suite("test_stream_load_properties", "p0") {
                     log.info("Stream load result: ${result}".toString())
                     def json = parseJson(result)
                     assertEquals("fail", json.Status.toLowerCase())
-                    assertEquals(20, json.NumberTotalRows)
+                    assertTrue(json.Message.contains("too many filtered rows"))
                     assertEquals(0, json.NumberLoadedRows)
-                    assertEquals(20, json.NumberFilteredRows)
-                    assertEquals(0, json.NumberUnselectedRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberFilteredRows)
                 }
             }
             i++
