@@ -19,16 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import lombok.Getter;
 
@@ -82,13 +78,13 @@ public class ShowJobStmt extends ShowStmt {
     public ShowJobStmt(LabelName labelName, JobType jobType) {
         this.labelName = labelName;
         this.jobType = jobType;
+        this.name = labelName == null ? null : labelName.getLabelName();
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         checkAuth();
-        checkLabelName(analyzer);
     }
 
     private void checkAuth() throws AnalysisException {
@@ -96,19 +92,6 @@ public class ShowJobStmt extends ShowStmt {
         if (!userIdentity.isRootUser()) {
             throw new AnalysisException("only root user can operate");
         }
-    }
-
-    private void checkLabelName(Analyzer analyzer) throws AnalysisException {
-        String dbName = labelName == null ? null : labelName.getDbName();
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbFullName = analyzer.getContext().getDatabase();
-            if (Strings.isNullOrEmpty(dbFullName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbFullName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        }
-        name = labelName == null ? null : labelName.getLabelName();
     }
 
     public static List<String> getTitleNames() {
