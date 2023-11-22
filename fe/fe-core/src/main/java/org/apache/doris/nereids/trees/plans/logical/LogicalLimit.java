@@ -147,7 +147,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     @Override
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         FunctionalDependencies fd = child(0).getLogicalProperties().getFunctionalDependencies();
-        if (getLimit() == 1) {
+        if (getLimit() == 1 && !phase.isLocal()) {
             Builder builder = new Builder();
             outputSupplier.get().forEach(builder::addUniformSlot);
             outputSupplier.get().forEach(builder::addUniqueSlot);

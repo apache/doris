@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -44,6 +46,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -293,9 +296,9 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), normalizedChild);
     }
 
-    private void updateFuncDepsByAggFunc(NamedExpression namedExpression, Builder fdBuilder) {
-        if (namedExpression instanceof Slot) {
-            fdBuilder.addUniqueSlot(namedExpression.toSlot());
+    private void updateFuncDepsGroupByUnique(NamedExpression namedExpression, Builder fdBuilder) {
+        if (ExpressionUtils.isInjective(namedExpression)) {
+            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(namedExpression.getInputSlots()));
             return;
         }
 
@@ -317,21 +320,23 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     @Override
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        if (sourceRepeat.isPresent()) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
+        FunctionalDependencies childFd = child(0).getLogicalProperties().getFunctionalDependencies();
+        Set<Slot> outputSet = new HashSet<>(outputSupplier.get());
         Builder fdBuilder = new Builder();
         // when group by all tuples, the result only have one row
         if (groupByExpressions.isEmpty()) {
-            outputSupplier.get().forEach(s -> {
+            outputSet.forEach(s -> {
                 fdBuilder.addUniformSlot(s);
                 fdBuilder.addUniqueSlot(s);
             });
             return fdBuilder.build();
         }
 
-        if (!(groupByExpressions.stream().allMatch(Slot.class::isInstance))) {
-            fdBuilder.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies());
+        // when group by complicate expression or virtual slot, just propagate uniform slots
+        if (groupByExpressions.stream()
+                .anyMatch(s -> !(s instanceof SlotReference) || s instanceof VirtualSlotReference)) {
+            fdBuilder.addUniformSlot(childFd);
+            fdBuilder.pruneSlots(outputSet);
             return fdBuilder.build();
         }
 
@@ -339,21 +344,23 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
-        if (child().getLogicalProperties().getFunctionalDependencies().isUniformAndNotNull(groupByKeys)) {
-            fdBuilder.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies());
+        if (childFd.isUniformAndNotNull(groupByKeys)) {
+            outputSupplier.get().forEach(s -> {
+                fdBuilder.addUniformSlot(s);
+                fdBuilder.addUniqueSlot(s);
+            });
         }
 
-        // when group by all unique slot, the result depends on its agg function
-        if (child().getLogicalProperties().getFunctionalDependencies().isUniqueAndNotNull(groupByKeys)) {
+        // when group by unique slot, the result depends on agg func
+        if (childFd.isUniqueAndNotNull(groupByKeys)) {
             for (NamedExpression namedExpression : getOutputExpressions()) {
-                updateFuncDepsByAggFunc(namedExpression, fdBuilder);
+                updateFuncDepsGroupByUnique(namedExpression, fdBuilder);
             }
-            return fdBuilder.build();
         }
 
         // group by keys is unique
         fdBuilder.addUniqueSlot(groupByKeys);
-        fdBuilder.pruneSlots(new HashSet<>(outputSupplier.get()));
+        fdBuilder.pruneSlots(outputSet);
         return fdBuilder.build();
     }
 }

@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -30,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -37,17 +36,16 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * Logical partition-top-N plan.
  */
-public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements PartitionTopN {
+public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements PartitionTopN, PropagateFuncDeps {
     private final WindowFuncType function;
     private final List<Expression> partitionKeys;
     private final List<OrderExpression> orderKeys;
@@ -203,25 +201,5 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
                 groupExpression, logicalProperties, children.get(0));
-    }
-
-    @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        // if key is uniform and limit = 1, then all slot is uniform
-        FunctionalDependencies fd = child().getLogicalProperties().getFunctionalDependencies();
-        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
-            return fd;
-        }
-        ImmutableSet<Slot> keys = partitionKeys.stream()
-                .map(s -> (Slot) s)
-                .collect(ImmutableSet.toImmutableSet());
-        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniformAndNotNull(keys)
-                && getPartitionLimit() == 1) {
-            Builder builder = new Builder();
-            outputSupplier.get().forEach(builder::addUniformSlot);
-            outputSupplier.get().forEach(builder::addUniqueSlot);
-            fd = builder.build();
-        }
-        return fd;
     }
 }

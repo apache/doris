@@ -218,9 +218,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             } else if (proj.child(0) instanceof Uuid) {
                 builder.addUniqueSlot(proj.toSlot());
             } else if (ExpressionUtils.isInjective(proj.child(0))) {
-                if (childFuncDeps.isUnique(proj.getInputSlots())) {
+                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
+                if (childFuncDeps.isUnique(inputs)) {
                     builder.addUniqueSlot(proj.toSlot());
-                } else if (childFuncDeps.isUniform(ImmutableSet.copyOf(proj.getInputSlots()))) {
+                } else if (childFuncDeps.isUniform(inputs)) {
                     builder.addUniformSlot(proj.toSlot());
                 }
             }

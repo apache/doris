@@ -20,9 +20,8 @@ package org.apache.doris.nereids.postprocess;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.processor.post.PushdownFilterThroughProject;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.processor.post.PushDownFilterThroughProject;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -53,7 +52,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-public class PushdownFilterThroughProjectTest {
+public class PushDownFilterThroughProjectTest {
     /**
      * filter(y=0)
      *    |
@@ -87,7 +86,7 @@ public class PushdownFilterThroughProjectTest {
         t1Output.add(a);
         t1Output.add(b);
         t1Output.add(c);
-        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, FunctionalDependencies::new);
+        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1,
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,

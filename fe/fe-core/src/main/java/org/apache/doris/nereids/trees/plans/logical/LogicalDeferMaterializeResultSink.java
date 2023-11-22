@@ -21,8 +21,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -38,7 +38,7 @@ import java.util.Optional;
  * use for defer materialize top n
  */
 public class LogicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
-        extends LogicalSink<CHILD_TYPE> implements Sink, BlockFuncDepsPropagation {
+        extends LogicalSink<CHILD_TYPE> implements Sink, PropagateFuncDeps {
 
     private final LogicalResultSink<? extends Plan> logicalResultSink;
     private final OlapTable olapTable;

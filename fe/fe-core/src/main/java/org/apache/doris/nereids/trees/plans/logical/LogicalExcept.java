@@ -31,7 +31,9 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -106,7 +108,18 @@ public class LogicalExcept extends LogicalSetOperation {
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         FunctionalDependencies.Builder builder = new FunctionalDependencies
                 .Builder(child(0).getLogicalProperties().getFunctionalDependencies());
-        builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> output = outputSupplier.get();
+        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
+                ? child(0).getOutput()
+                : regularChildrenOutputs.get(0);
+        for (int i = 0; i < output.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), output.get(i));
+        }
+        builder.replace(replaceMap);
+        if (qualifier == Qualifier.DISTINCT) {
+            builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+        }
         return builder.build();
     }
 }

@@ -367,6 +367,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         Set<Slot> leftKeys = new HashSet<>();
         Set<Slot> rightKeys = new HashSet<>();
         for (Expression expression : hashJoinConjuncts) {
+            // Note we don't support null-safe predicate right now, because we just check uniqueness for join keys
             if (!(expression instanceof EqualTo
                     && ((EqualTo) expression).left() instanceof Slot
                     && ((EqualTo) expression).right() instanceof Slot)) {
@@ -410,10 +411,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
 
+        // Note here we only check whether the left is unique.
+        // So the hash condition can't be null-safe
+        // TODO: consider Null-safe hash condition when left and rigth is not nullable
         boolean isLeftUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUniqueAndNotNull(keys.first);
+                .getFunctionalDependencies().isUnique(keys.first);
         boolean isRightUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUniqueAndNotNull(keys.first);
+                .getFunctionalDependencies().isUnique(keys.first);
         Builder fdBuilder = new Builder();
         if (joinType.isInnerJoin()) {
             // inner join propagate uniforms slots

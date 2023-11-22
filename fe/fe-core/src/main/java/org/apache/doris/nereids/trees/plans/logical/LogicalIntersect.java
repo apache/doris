@@ -18,24 +18,29 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical Intersect.
  */
-public class LogicalIntersect extends LogicalSetOperation implements PropagateFuncDeps {
+public class LogicalIntersect extends LogicalSetOperation {
 
     public LogicalIntersect(Qualifier qualifier, List<Plan> children) {
         super(PlanType.LOGICAL_INTERSECT, qualifier, children);
@@ -98,5 +103,28 @@ public class LogicalIntersect extends LogicalSetOperation implements PropagateFu
     public LogicalIntersect withNewOutputs(List<NamedExpression> newOutputs) {
         return new LogicalIntersect(qualifier, newOutputs, regularChildrenOutputs,
                 Optional.empty(), Optional.empty(), children);
+    }
+
+    void replaceSlotInFuncDeps(FunctionalDependencies.Builder builder,
+            List<Slot> originalOutputs, List<Slot> newOutputs) {
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        for (int i = 0; i < newOutputs.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), newOutputs.get(i));
+        }
+        builder.replace(replaceMap);
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        for (Plan child : children) {
+            builder.addFunctionalDependencies(
+                    child.getLogicalProperties().getFunctionalDependencies());
+            replaceSlotInFuncDeps(builder, child.getOutput(), outputSupplier.get());
+        }
+        if (qualifier == Qualifier.DISTINCT) {
+            builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+        }
+        return builder.build();
     }
 }

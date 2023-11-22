@@ -145,10 +145,7 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     @Override
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        outputSupplier.get()
-                .stream()
-                .filter(child(0).getLogicalProperties().getFunctionalDependencies()::isUniform)
-                .forEach(builder::addUniformSlot);
+        builder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
         return builder.build();
     }
 }

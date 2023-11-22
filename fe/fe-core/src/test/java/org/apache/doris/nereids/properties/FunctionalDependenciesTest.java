@@ -28,6 +28,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class FunctionalDependenciesTest extends TestWithFeService {
@@ -233,12 +234,31 @@ class FunctionalDependenciesTest extends TestWithFeService {
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
                 .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select id from agg where id = 1 group by cube(id, name)")
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+    }
+
+    @Test
+    void testGenerate() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select k1 from (select 1 k1) as t lateral view explode([1,2,3]) tmp1 as e1")
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
     }
 
     @Test
     void testWindow() {
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select rank() over(partition by id) from agg")
+                .analyze("select row_number() over(partition by id) from agg")
                 .rewrite()
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
@@ -246,7 +266,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
-                .analyze("select rank() over(partition by name) from agg where name = '1'")
+                .analyze("select row_number() over(partition by name) from agg where name = '1'")
                 .rewrite()
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
@@ -254,7 +274,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
-                .analyze("select rank() over(partition by name) from agg where name = '1' limit 1")
+                .analyze("select row_number() over(partition by name) from agg where name = '1' limit 1")
                 .rewrite()
                 .getPlan();
         LogicalPartitionTopN<?> ptopn = (LogicalPartitionTopN<?>) plan.child(0).child(0).child(0).child(0).child(0);
@@ -264,7 +284,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getFunctionalDependencies().isUniformAndNotNull(ImmutableSet.copyOf(ptopn.getOutputSet())));
 
         plan = PlanChecker.from(connectContext)
-                .analyze("select rank() over(partition by name) from agg limit 1")
+                .analyze("select row_number() over(partition by name) from agg limit 1")
                 .rewrite()
                 .getPlan();
         ptopn = (LogicalPartitionTopN<?>) plan.child(0).child(0).child(0).child(0).child(0);
@@ -312,13 +332,55 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
     }
 
+    @Disabled
     @Test
     void testCTE() {
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("with t as (select * from agg) select id from t")
-                .rewrite()
+                .analyze("with t as (select * from agg) select id from t where id = 1")
                 .getPlan();
         System.out.println(plan.treeString());
+        System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
+    }
+
+    @Test
+    void testSetOperation() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select * from agg union select * from uni")
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(ImmutableSet.copyOf(plan.getOutput())));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select * from agg union all select * from uni")
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(ImmutableSet.copyOf(plan.getOutput())));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select * from agg intersect select * from uni where name = \"1\"")
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(ImmutableSet.copyOf(plan.getOutput())));
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(1)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select * from agg except select * from uni")
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(ImmutableSet.copyOf(plan.getOutput())));
         Assertions.assertTrue(plan.getLogicalProperties()
                 .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
     }

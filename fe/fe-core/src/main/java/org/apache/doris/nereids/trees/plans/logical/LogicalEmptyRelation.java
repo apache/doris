@@ -40,8 +40,8 @@ import java.util.Optional;
  * e.g.
  * select * from tbl limit 0
  */
-public class LogicalEmptyRelation extends LogicalRelation implements EmptyRelation, OutputPrunable,
-        BlockFuncDepsPropagation {
+public class LogicalEmptyRelation extends LogicalRelation
+        implements EmptyRelation, OutputPrunable, BlockFuncDepsPropagation {
 
     private final List<NamedExpression> projects;
 

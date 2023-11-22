@@ -125,7 +125,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
             ImmutableSet<Slot> slotSet = computeOutput().stream()
                     .filter(SlotReference.class::isInstance)
-                    .filter(s -> !s.nullable())
                     .filter(s -> ((SlotReference) s).getColumn().isPresent()
                             && ((SlotReference) s).getColumn().get().isKey())
                     .collect(ImmutableSet.toImmutableSet());
