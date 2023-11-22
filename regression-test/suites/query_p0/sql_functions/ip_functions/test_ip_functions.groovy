@@ -37,4 +37,5 @@ suite("test_ip_functions") {
     qt_sql "SELECT ipv6numtostring(unhex('ffffffffffffffffffffffffffffffffffffffffffffffffffffff'));"
     qt_sql "SELECT inet6_ntoa(unhex('0A0005091'));"
     qt_sql "SELECT inet6_ntoa(unhex('2A0206B8000000000000000000000011'));"
+    qt_sql "SELECT inet6_ntoa(unhex(NULL));"
 }
