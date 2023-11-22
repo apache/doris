@@ -23,7 +23,7 @@ import java.time.ZoneId;
 suite("test_base_insert_job") {
     def tableName = "t_test_base_insert_job"
     def jobName = "insert_recovery_test_base_insert_job"
-    sql """drop table if exists `${tableName}`"""
+    sql """drop table if exists `${tableName}` force """
     sql """
         STOP JOB for ${jobName}
     """
@@ -51,7 +51,7 @@ suite("test_base_insert_job") {
     sql """
         STOP JOB for ${jobName}
     """
-    sql """drop table if exists `${tableName}`"""
+    sql """drop table if exists `${tableName}`force """
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}`
         (
@@ -66,7 +66,7 @@ suite("test_base_insert_job") {
         );
         """
 
-    sql """drop table if exists `one_time_test_base_insert_job`"""
+    sql """drop table if exists `one_time_test_base_insert_job` force"""
     sql """
         CREATE TABLE IF NOT EXISTS `one_time_test_base_insert_job`
         (
@@ -85,15 +85,15 @@ suite("test_base_insert_job") {
     
     def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     def startTime= dateTime.format(formatter);
+    sql """ stop job for one_time """
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into one_time_test_base_insert_job (timestamp, type, user_id) values ('2023-03-18','1','12213');
+          CREATE JOB one_time  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into one_time_test_base_insert_job (timestamp, type, user_id) values ('2023-03-18','1','12213');
      """
     // Magnify the waiting time. In extreme cases, it may be on the edge of time  window and the execution may just be missed.
     Thread.sleep(5000)
-
-    def datas = sql """select * from one_time_test_base_insert_job"""
-    println datas
-    assert datas.size() == 1
+    
+    def tasks = sql """show job tasks for one_time"""
+    assert tasks.size() == 1
     try{
         sql """
             CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
