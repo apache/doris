@@ -471,9 +471,13 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         int end_idx = row_count - multi_matched_output_row_count;
         // process equal-conjuncts-matched tuples that are newly generated
         // in this run if there are any.
+        bool has_no_match = true; /// If there was no any match in right table.
         for (int i = _row_count_from_last_probe; i < end_idx; ++i) {
             auto join_hit = _visited_map[i] != nullptr;
             auto other_hit = filter_column_ptr[i];
+            if (!_same_to_prev[i]) {
+                has_no_match = true;
+            }
 
             if (!other_hit) {
                 for (size_t j = 0; j < _right_col_len; ++j) {
@@ -498,8 +502,48 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
             //       All these tuples are marked not to output.
             if (join_hit) {
                 *_visited_map[i] |= other_hit;
-                filter_map[i] = other_hit || !_same_to_prev[i] ||
-                                (!filter_column_ptr[i] && filter_map[i - 1]);
+
+                /// Assuming that a row in the left table matches N rows in the right table after scanning the hash table,
+                /// which means `_same_to_prev[1]` ... `_same_to_prev[N - 1]` are all true.
+                /// If `other_hit` is true, it is outputted as a match.
+                /// However, if `other_hit` is false the current row needs to be outputted (`filter_map[i] = true`)
+                /// and the output of the previous row is cancelled(`filter_map[i - 1] = false`).
+                /// If a row in the left table matches at least one row in the right table (after filtering through other conjunctions, `has_no_match` is true),
+                /// the rows that do not satisfy the other conjunctions do not need to be output.
+                /**
+                 * Assuming match 4 rows in right table:
+                 * ________________________________
+                 * | row index  | other conjuncts |
+                 * +------------+-----------------|
+                 * |      0     |      0          |
+                 * +------------+-----------------|
+                 * |      1     |      0          |
+                 * +------------+-----------------|
+                 * |      2     |      1          |
+                 * +------------+-----------------|
+                 * |      3     |      0          |
+                 * --------------------------------
+                 *
+                 * Scan row 0: `other_hit` is false, `!_same_to_prev[i]` is true
+                 *             set `filter_map[0]` = true
+                 * Scan row 1: `other_hit` is false, !_same_to_prev[i] is false, has_no_match is true, filter_map[i - 1] is true
+                 *             set `filter_map[1] = true`, `filter_map[0] = false`
+                 * Scan row 2: `other_hit` is true, !_same_to_prev[i] is false, has_no_match is true, filter_map[i - 1] is true
+                 *             set filter_map[2] = true, has_no_match = true
+                 *             `_same_to_prev[2] && filter_map[2] && !filter_column_ptr[2 - 1]` is true,
+                 *             so set `filter_map[2 - 1] = false`
+                 * Scan row 3: `other_hit` is false, `!_same_to_prev[i]` is false, has_no_match is true
+                 *             set `filter_map[3]` = false
+                 *
+                 * After scanned the 4 rows,
+                 *      filter_map[0]: false
+                 *      filter_map[1]: false
+                 *      filter_map[2]: true
+                 *      filter_map[3]: false
+                 */
+                filter_map[i] =
+                        other_hit || !_same_to_prev[i] || (has_no_match && filter_map[i - 1]);
+                has_no_match &= !other_hit;
                 // Here to keep only hit join conjunct and other join conjunt is true need to be output.
                 // if not, only some key must keep one row will output will null right table column
                 if (_same_to_prev[i] && filter_map[i] && !filter_column_ptr[i - 1]) {

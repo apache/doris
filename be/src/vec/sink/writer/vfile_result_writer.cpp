@@ -26,7 +26,6 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
@@ -306,6 +305,9 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string file_url;
     static_cast<void>(_get_file_url(&file_url));
+    std::stringstream ss;
+    ss << file_url << "*";
+    file_url = ss.str();
     row_buffer.push_string(file_url.c_str(), file_url.length()); // url
 
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();

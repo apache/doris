@@ -64,7 +64,6 @@ class BaseCompaction;
 class FullCompaction;
 class SingleReplicaCompaction;
 class RowsetWriter;
-struct TabletTxnInfo;
 struct RowsetWriterContext;
 class RowIdConversion;
 class TTabletInfo;
@@ -90,9 +89,6 @@ extern const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD;
 
 class Tablet final : public BaseTablet {
 public:
-    static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                   DataDir* data_dir = nullptr);
-
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
            const std::string_view& cumulative_compaction_type = "");
 
@@ -161,7 +157,7 @@ public:
 
     const RowsetSharedPtr rowset_with_max_version() const;
 
-    static RowsetMetaSharedPtr rowset_meta_with_max_schema_version(
+    static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
@@ -264,7 +260,6 @@ public:
     void check_tablet_path_exists();
 
     bool check_path(const std::string& check_path) const;
-    bool check_rowset_id(const RowsetId& rowset_id);
 
     TabletInfo get_tablet_info() const;
 
@@ -341,17 +336,14 @@ public:
 
     const TabletSchemaSPtr& tablet_schema_unlocked() const { return _max_version_schema; }
 
-    Status create_rowset_writer(RowsetWriterContext& context,
-                                std::unique_ptr<RowsetWriter>* rowset_writer) override;
+    Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(RowsetWriterContext& context,
+                                                               bool vertical) override;
 
     Status create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
                                           std::unique_ptr<RowsetWriter>* rowset_writer,
                                           std::shared_ptr<PartialUpdateInfo> partial_update_info);
     Status create_transient_rowset_writer(RowsetWriterContext& context, const RowsetId& rowset_id,
                                           std::unique_ptr<RowsetWriter>* rowset_writer);
-
-    Status create_vertical_rowset_writer(RowsetWriterContext& context,
-                                         std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset);
 
@@ -399,12 +391,6 @@ public:
 
     static void remove_unused_remote_files();
 
-    // If a rowset is to be written to remote filesystem, MUST add it to `pending_remote_rowsets` before uploading,
-    // and then erase it from `pending_remote_rowsets` after it has been insert to the Tablet.
-    // `remove_unused_remote_files` MUST NOT delete files of these pending rowsets.
-    static void add_pending_remote_rowset(std::string rowset_id);
-    static void erase_pending_remote_rowset(const std::string& rowset_id);
-
     uint32_t calc_cold_data_compaction_score() const;
 
     std::mutex& get_cold_compaction_lock() { return _cold_compaction_lock; }
@@ -438,7 +424,11 @@ public:
                                  const TabletColumn& tablet_column,
                                  vectorized::MutableColumnPtr& dst);
 
-    Status fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint32_t segid,
+    // We use the TabletSchema from the caller because the TabletSchema in the rowset'meta
+    // may be outdated due to schema change. Also note that the the cids should indicate the indexes
+    // of the columns in the TabletSchema passed in.
+    Status fetch_value_through_row_column(RowsetSharedPtr input_rowset,
+                                          const TabletSchema& tablet_schema, uint32_t segid,
                                           const std::vector<uint32_t>& rowids,
                                           const std::vector<uint32_t>& cids,
                                           vectorized::Block& block);
@@ -518,9 +508,14 @@ public:
 
     RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
 
-    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor) {
+    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
+                          bool include_stale = false) {
         std::shared_lock rlock(_meta_lock);
         for (auto& [v, rs] : _rs_version_map) {
+            visitor(rs);
+        }
+        if (!include_stale) return;
+        for (auto& [v, rs] : _stale_rs_version_map) {
             visitor(rs);
         }
     }

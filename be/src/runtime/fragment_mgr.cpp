@@ -31,9 +31,6 @@
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <stddef.h>
 #include <thrift/Thrift.h>
@@ -58,7 +55,6 @@
 #include "common/utils.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
-#include "opentelemetry/trace/scope.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
@@ -85,7 +81,6 @@
 #include "util/network_util.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
@@ -659,32 +654,28 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
             if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                taskgroup::TaskGroupInfo task_group_info;
-                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
-                                                                         &task_group_info);
-                if (status.ok()) {
-                    auto tg = _exec_env->task_group_manager()->get_or_create_task_group(
-                            task_group_info);
-                    tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    uint64_t tg_id = tg->id();
-                    std::string tg_name = tg->name();
-                    LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                              << " use task group: " << tg->debug_string()
-                              << " cpu_hard_limit: " << task_group_info.cpu_hard_limit
-                              << " cpu_share:" << task_group_info.cpu_share;
-                    if (task_group_info.cpu_hard_limit > 0) {
-                        Status ret = _exec_env->task_group_manager()->create_and_get_task_scheduler(
-                                tg_id, tg_name, task_group_info.cpu_hard_limit, _exec_env,
-                                query_ctx.get());
-                        if (!ret.ok()) {
-                            LOG(INFO) << "workload group init failed "
-                                      << ", name=" << tg_name << ", id=" << tg_id
-                                      << ", reason=" << ret.to_string();
-                        }
+                uint64_t tg_id = params.workload_groups[0].id;
+                auto* tg_mgr = _exec_env->task_group_manager();
+                if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
+                    std::stringstream ss;
+                    ss << "Query/load id: " << print_id(query_ctx->query_id());
+                    ss << " use task group " << task_group_ptr->debug_string();
+                    if (tg_mgr->enable_cpu_soft_limit() && !config::enable_cgroup_cpu_soft_limit) {
+                        query_ctx->set_task_group(task_group_ptr);
+                        ss << ", cpu soft limit based doris sche";
                     } else {
-                        query_ctx->set_task_group(tg);
+                        bool ret = tg_mgr->set_task_sche_for_query_ctx(tg_id, query_ctx.get());
+                        if (tg_mgr->enable_cpu_hard_limit()) {
+                            ss << ", cpu hard limit based cgroup";
+                        } else {
+                            ss << ", cpu soft limit based cgroup";
+                        }
+                        if (!ret) {
+                            ss << ", but cgroup init failed, scan or exec fallback to no group";
+                        }
                     }
-                }
+                    LOG(INFO) << ss.str();
+                } // else, query run with no group
             } else {
                 VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
                            << " does not use task group.";
@@ -712,12 +703,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                        const FinishCallback& cb) {
-    auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
-                                                     : telemetry::get_noop_tracer();
-    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    cur_span->SetAttribute("query_id", print_id(params.params.query_id));
-    cur_span->SetAttribute("instance_id", print_id(params.params.fragment_instance_id));
-
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -777,11 +762,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         _cv.notify_all();
     }
     auto st = _thread_pool->submit_func(
-            [this, fragment_executor, cb,
-             parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
-                OpentelemetryScope scope {parent_span};
-                _exec_actual(fragment_executor, cb);
-            });
+            [this, fragment_executor, cb] { _exec_actual(fragment_executor, cb); });
     if (!st.ok()) {
         {
             // Remove the exec state added
@@ -799,13 +780,26 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     return Status::OK();
 }
 
+std::string FragmentMgr::dump_pipeline_tasks() {
+    fmt::memory_buffer debug_string_buffer;
+    auto t = MonotonicNanos();
+    size_t i = 0;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
+                       _pipeline_map.size());
+        for (auto& it : _pipeline_map) {
+            fmt::format_to(debug_string_buffer, "No.{} (elapse time = {}, InstanceId = {}) : {}\n",
+                           i, t - it.second->create_time(), print_id(it.first),
+                           it.second->debug_string());
+            i++;
+        }
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const FinishCallback& cb) {
-    auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
-                                                     : telemetry::get_noop_tracer();
-    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    cur_span->SetAttribute("query_id", print_id(params.query_id));
-
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -854,8 +848,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 }
                 query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
             }
-            START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
-            span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
             if (!params.__isset.need_wait_execution_trigger ||
                 !params.need_wait_execution_trigger) {
@@ -891,8 +883,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 }
                 query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
             }
-            START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
-            span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
             int64_t duration_ns = 0;
             if (!params.__isset.need_wait_execution_trigger ||

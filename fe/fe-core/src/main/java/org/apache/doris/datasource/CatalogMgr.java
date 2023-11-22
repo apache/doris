@@ -650,6 +650,44 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
+    public void refreshExternalTableFromEvent(String dbName, String tableName, String catalogName,
+                                              long updateTime, boolean ignoreIfNotExists) throws DdlException {
+        CatalogIf catalog = nameToCatalog.get(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support refresh ExternalCatalog Tables");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            if (!ignoreIfNotExists) {
+                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
+            }
+            return;
+        }
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            if (!ignoreIfNotExists) {
+                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
+            }
+            return;
+        }
+        if (!(table instanceof HMSExternalTable)) {
+            return;
+        }
+        ((HMSExternalTable) table).unsetObjectCreated();
+        ((HMSExternalTable) table).setEventUpdateTime(updateTime);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        log.setLastUpdateTime(updateTime);
+        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
+    }
+
     public void refreshExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfNotExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
@@ -704,6 +742,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         table.unsetObjectCreated();
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
+        if (table instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
+            ((HMSExternalTable) table).setEventUpdateTime(log.getLastUpdateTime());
+        }
     }
 
     public void dropExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
@@ -923,8 +964,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public void addExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames,
-                                      boolean ignoreIfNotExists)
+    public void addExternalPartitions(String catalogName, String dbName, String tableName,
+                                      List<String> partitionNames, long updateTime, boolean ignoreIfNotExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -955,14 +996,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(), hmsTable, partitionNames);
-        long lastPartitionUpdateTime = System.currentTimeMillis();
-        hmsTable.setPartitionUpdateTime(lastPartitionUpdateTime);
+        hmsTable.setEventUpdateTime(updateTime);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
-        log.setLastUpdateTime(lastPartitionUpdateTime);
+        log.setLastUpdateTime(updateTime);
         Env.getCurrentEnv().getEditLog().logAddExternalPartitions(log);
     }
 
@@ -993,7 +1033,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             Env.getCurrentEnv().getExtMetaCacheMgr()
                         .addPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
-            hmsTable.setPartitionUpdateTime(log.getLastUpdateTime());
+            hmsTable.setEventUpdateTime(log.getLastUpdateTime());
         } catch (HMSClientException e) {
             LOG.warn("Network problem occurs or hms table has been deleted, fallback to invalidate table cache", e);
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(),
@@ -1001,8 +1041,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public void dropExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames,
-                                       boolean ignoreIfNotExists)
+    public void dropExternalPartitions(String catalogName, String dbName, String tableName,
+                                       List<String> partitionNames, long updateTime, boolean ignoreIfNotExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -1032,7 +1072,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
-        log.setLastUpdateTime(System.currentTimeMillis());
+        log.setLastUpdateTime(updateTime);
         replayDropExternalPartitions(log);
         Env.getCurrentEnv().getEditLog().logDropExternalPartitions(log);
     }
@@ -1062,11 +1102,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .dropPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
-        hmsTable.setPartitionUpdateTime(log.getLastUpdateTime());
+        hmsTable.setEventUpdateTime(log.getLastUpdateTime());
     }
 
     public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
-            List<String> partitionNames, boolean ignoreIfNotExists)
+            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -1099,7 +1139,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
-        log.setLastUpdateTime(System.currentTimeMillis());
+        log.setLastUpdateTime(updateTime);
         replayRefreshExternalPartitions(log);
         Env.getCurrentEnv().getEditLog().logInvalidateExternalPartitions(log);
     }
@@ -1129,7 +1169,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidatePartitionsCache(catalog.getId(), db.getFullName(), table.getName(),
                         log.getPartitionNames());
-        ((HMSExternalTable) table).setPartitionUpdateTime(log.getLastUpdateTime());
+        ((HMSExternalTable) table).setEventUpdateTime(log.getLastUpdateTime());
     }
 
     public void registerCatalogRefreshListener(Env env) {

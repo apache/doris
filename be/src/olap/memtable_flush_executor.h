@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <atomic>
+#include <cstdint>
 #include <iosfwd>
 #include <memory>
 #include <utility>
@@ -108,8 +107,9 @@ private:
 //      ...
 class MemTableFlushExecutor {
 public:
-    MemTableFlushExecutor() {}
+    MemTableFlushExecutor() = default;
     ~MemTableFlushExecutor() {
+        _deregister_metrics();
         _flush_pool->shutdown();
         _high_prio_flush_pool->shutdown();
     }
@@ -122,6 +122,9 @@ public:
                               bool should_serial, bool is_high_priority);
 
 private:
+    void _register_metrics();
+    static void _deregister_metrics();
+
     std::unique_ptr<ThreadPool> _flush_pool;
     std::unique_ptr<ThreadPool> _high_prio_flush_pool;
 };

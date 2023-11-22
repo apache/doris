@@ -29,7 +29,7 @@ public:
     ~WorkloadGroupListener() {}
     WorkloadGroupListener(ExecEnv* exec_env) : _exec_env(exec_env) {}
 
-    void handle_topic_info(const TPublishTopicRequest& topic_request) override;
+    void handle_topic_info(const std::vector<TopicInfo>& topic_info_list) override;
 
 private:
     ExecEnv* _exec_env;

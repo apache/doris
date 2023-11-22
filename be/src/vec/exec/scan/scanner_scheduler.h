@@ -76,6 +76,8 @@ public:
         return _task_group_local_scan_queue.get();
     }
 
+    int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
+
 private:
     // scheduling thread function
     void _schedule_thread(int queue_id);
@@ -86,6 +88,9 @@ private:
 
     void _task_group_scanner_scan(ScannerScheduler* scheduler,
                                   taskgroup::ScanTaskTaskGroupQueue* scan_queue);
+    void _register_metrics();
+
+    static void _deregister_metrics();
 
     // Scheduling queue number.
     // TODO: make it configurable.
@@ -106,7 +111,7 @@ private:
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
     // _limited_scan_thread_pool is a special pool for queries with resource limit
     std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
-    std::unique_ptr<ThreadPool> _remote_scan_thread_pool;
+    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
@@ -115,6 +120,7 @@ private:
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
     bool _is_init = false;
+    int _remote_thread_pool_max_size;
 };
 
 struct SimplifiedScanTask {

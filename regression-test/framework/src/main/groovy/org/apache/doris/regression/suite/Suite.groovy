@@ -59,6 +59,9 @@ import org.junit.Assert
 @Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
+    final SuiteCluster cluster
+    final DebugPoint debugPoint
+
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
@@ -69,14 +72,11 @@ class Suite implements GroovyInterceptable {
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
 
-    SuiteCluster cluster
-    DebugPoint debugPoint
-
-    Suite(String name, String group, SuiteContext context) {
+    Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
         this.group = group
         this.context = context
-        this.cluster = null
+        this.cluster = cluster;
         this.debugPoint = new DebugPoint(this)
     }
 
@@ -168,12 +168,7 @@ class Suite implements GroovyInterceptable {
             try {
                 Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
                 if (connInfo != null) {
-                    def newConnInfo = new ConnectionInfo()
-                    newConnInfo.conn = DriverManager.getConnection(connInfo.conn.getMetaData().getURL(),
-                            connInfo.username, connInfo.password)
-                    newConnInfo.username = connInfo.username
-                    newConnInfo.password = connInfo.password
-                    context.threadLocalConn.set(newConnInfo)
+                    context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
                 }
                 context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
 
@@ -218,13 +213,12 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        cluster = new SuiteCluster(name, context.config)
         try {
             cluster.destroy(true)
             cluster.init(options)
 
-            def user = "root"
-            def password = ""
+            def user = context.config.jdbcUser
+            def password = context.config.jdbcPassword
             def masterFe = cluster.getMasterFe()
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
@@ -270,6 +264,34 @@ class Suite implements GroovyInterceptable {
             result = DataUtils.sortByToString(result)
         }
         return result
+    }
+
+    List<List<Object>> insert_into_sql(String sqlStr, int num) {
+        logger.info("insert into " + num + " records")
+        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        return result
+    }
+
+    def sql_return_maparray(String sqlStr) {
+        logger.info("Execute sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+
+        // get all column names as list
+        List<String> columnNames = new ArrayList<>()
+        for (int i = 0; i < meta.getColumnCount(); i++) {
+            columnNames.add(meta.getColumnName(i + 1))
+        }
+
+        // add result to res map list, each row is a map with key is column name
+        List<Map<String, Object>> res = new ArrayList<>()
+        for (int i = 0; i < result.size(); i++) {
+            Map<String, Object> row = new HashMap<>()
+            for (int j = 0; j < columnNames.size(); j++) {
+                row.put(columnNames.get(j), result.get(i).get(j))
+            }
+            res.add(row)
+        }
+        return res;
     }
 
     List<List<Object>> target_sql(String sqlStr, boolean isOrder = false) {

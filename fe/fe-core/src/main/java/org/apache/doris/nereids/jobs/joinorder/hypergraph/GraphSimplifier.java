@@ -19,6 +19,8 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.stats.JoinEstimation;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -84,9 +86,10 @@ public class GraphSimplifier {
             BestSimplification bestSimplification = new BestSimplification();
             simplifications.add(bestSimplification);
         }
-        for (Node node : graph.getNodes()) {
-            cacheStats.put(node.getNodeMap(), node.getGroup().getStatistics());
-            cacheCost.put(node.getNodeMap(), node.getRowCount());
+        for (AbstractNode node : graph.getNodes()) {
+            DPhyperNode dPhyperNode = (DPhyperNode) node;
+            cacheStats.put(node.getNodeMap(), dPhyperNode.getGroup().getStatistics());
+            cacheCost.put(node.getNodeMap(), dPhyperNode.getRowCount());
         }
         validEdges = graph.getEdges().stream()
                 .filter(e -> {
@@ -392,26 +395,27 @@ public class GraphSimplifier {
     }
 
     private Edge constructEdge(long leftNodes, Edge edge, long rightNodes) {
+        LogicalJoin<? extends Plan, ? extends Plan> join;
         if (graph.getEdges().size() > 64 * 63 / 8) {
             // If there are too many edges, it is advisable to return the "edge" directly
             // to avoid lengthy enumeration time.
-            return edge;
+            join = edge.getJoin();
+        } else {
+            BitSet validEdgesMap = graph.getEdgesInOperator(leftNodes, rightNodes);
+            List<Expression> hashConditions = validEdgesMap.stream()
+                    .mapToObj(i -> graph.getEdge(i).getJoin().getHashJoinConjuncts())
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
+            List<Expression> otherConditions = validEdgesMap.stream()
+                    .mapToObj(i -> graph.getEdge(i).getJoin().getHashJoinConjuncts())
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
+            join = edge.getJoin().withJoinConjuncts(hashConditions, otherConditions);
         }
-        BitSet validEdgesMap = graph.getEdgesInOperator(leftNodes, rightNodes);
-        List<Expression> hashConditions = validEdgesMap.stream()
-                .mapToObj(i -> graph.getEdge(i).getJoin().getHashJoinConjuncts())
-                .flatMap(Collection::stream)
-                .collect(Collectors.toList());
-        List<Expression> otherConditions = validEdgesMap.stream()
-                .mapToObj(i -> graph.getEdge(i).getJoin().getHashJoinConjuncts())
-                .flatMap(Collection::stream)
-                .collect(Collectors.toList());
-        LogicalJoin<? extends Plan, ? extends Plan> join =
-                edge.getJoin().withJoinConjuncts(hashConditions, otherConditions);
 
         Edge newEdge = new Edge(
                 join,
-                -1, edge.getLeftChildEdges(), edge.getRightChildEdges(), edge.getSubTreeNodes());
+                edge.getIndex(), edge.getLeftChildEdges(), edge.getRightChildEdges(), edge.getSubTreeNodes());
         newEdge.setLeftRequiredNodes(edge.getLeftRequiredNodes());
         newEdge.setRightRequiredNodes(edge.getRightRequiredNodes());
         newEdge.addLeftNode(leftNodes);
@@ -462,7 +466,6 @@ public class GraphSimplifier {
         // if the left and right is overlapping, just return null.
         Preconditions.checkArgument(
                 cacheStats.containsKey(bitmap1) && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
-
         // construct new Edge
         long newLeft = LongBitmap.newBitmapUnion(bitmap1, bitmap2);
         if (LongBitmap.isOverlap(newLeft, bitmap3)) {

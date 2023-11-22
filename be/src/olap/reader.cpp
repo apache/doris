@@ -28,7 +28,6 @@
 #include <ostream>
 #include <shared_mutex>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -256,6 +255,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
+    _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
 
     return Status::OK();
 }
@@ -511,12 +511,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
-            dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
-            return true;
-        }
-
-        return false;
+        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr;
     };
 
     for (const auto& filter : read_params.function_filters) {
@@ -532,8 +528,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             auto gram_bf_size = tablet_index->get_gram_bf_size();
             auto gram_size = tablet_index->get_gram_size();
 
-            static_cast<void>(segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER,
-                                                              &ng_bf, gram_bf_size));
+            RETURN_IF_ERROR(segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf,
+                                                            gram_bf_size));
             NgramTokenExtractor _token_extractor(gram_size);
 
             if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),
@@ -662,7 +658,7 @@ Status TabletReader::init_reader_params_and_create_block(
     std::transform(input_rowsets.begin(), input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     TabletSchemaSPtr read_tablet_schema =
-            tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
+            tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*read_tablet_schema);
 

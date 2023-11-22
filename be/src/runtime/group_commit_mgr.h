@@ -37,14 +37,16 @@ class LoadBlockQueue {
 public:
     LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
                    int64_t schema_version,
-                   std::shared_ptr<std::atomic_size_t> all_block_queues_bytes)
+                   std::shared_ptr<std::atomic_size_t> all_block_queues_bytes,
+                   bool wait_internal_group_commit_finish, int64_t group_commit_interval_ms)
             : load_instance_id(load_instance_id),
               label(label),
               txn_id(txn_id),
               schema_version(schema_version),
+              wait_internal_group_commit_finish(wait_internal_group_commit_finish),
               _start_time(std::chrono::steady_clock::now()),
-              _all_block_queues_bytes(all_block_queues_bytes) {
-        _mutex = std::make_shared<doris::Mutex>();
+              _all_block_queues_bytes(all_block_queues_bytes),
+              _group_commit_interval_ms(group_commit_interval_ms) {
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
@@ -60,11 +62,13 @@ public:
     int64_t txn_id;
     int64_t schema_version;
     bool need_commit = false;
+    bool wait_internal_group_commit_finish = false;
+    doris::Mutex mutex;
+    doris::ConditionVariable internal_group_commit_finish_cv;
 
 private:
     std::chrono::steady_clock::time_point _start_time;
 
-    std::shared_ptr<doris::Mutex> _mutex;
     doris::ConditionVariable _put_cond;
     doris::ConditionVariable _get_cond;
     // the set of load ids of all blocks in this queue
@@ -76,6 +80,8 @@ private:
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
     // memory consumption of one load block queue, used for correctness check.
     std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes;
+    // group commit interval in ms, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
+    int64_t _group_commit_interval_ms;
 };
 
 class GroupCommitTable {
