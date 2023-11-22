@@ -4067,7 +4067,7 @@ public class Env {
         try {
             table.writeLockOrDdlException();
             try {
-                if (table.isOlapTable()) {
+                if (table instanceof OlapTable) {
                     OlapTable olapTable = (OlapTable) table;
                     olapTable.checkNormalStateForAlter();
                 }
