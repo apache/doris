@@ -66,7 +66,7 @@ mysql> show mtmv job tasks for mtmv_14023\G
 * CreateTime： 创建时间
 * StartTime： 运行开始时间
 * FinishTime： 运行结束时间
-* DurationMS： 耗时(ms)
+* DurationMs： 耗时(ms)
 * ExecuteSql： 任务执行的sql语句
 
 ### Example
