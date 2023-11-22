@@ -348,7 +348,7 @@ public:
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     virtual Status try_close(RuntimeState* state, Status exec_status) = 0;
 
-    [[nodiscard]] virtual std::string debug_string(int indentation_level) const =0;
+    [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
     template <class TARGET>
     TARGET& cast() {
