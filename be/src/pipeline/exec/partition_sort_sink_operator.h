@@ -53,8 +53,8 @@ public:
 class PartitionSortSinkDependency final : public Dependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "PartitionSortSinkDependency", true) {}
+    PartitionSortSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "PartitionSortSinkDependency", true, query_ctx) {}
     ~PartitionSortSinkDependency() override = default;
 };
 

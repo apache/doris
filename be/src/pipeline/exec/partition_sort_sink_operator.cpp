@@ -18,11 +18,10 @@
 #include "partition_sort_sink_operator.h"
 
 #include "common/status.h"
+#include "partition_sort_source_operator.h"
 #include "vec/common/hash_table/hash.h"
 
-namespace doris {
-
-namespace pipeline {
+namespace doris::pipeline {
 
 OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
     return std::make_shared<PartitionSortSinkOperator>(this, _node);
@@ -154,7 +153,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         COUNTER_SET(local_state._hash_table_size_counter, int64_t(local_state._num_partition));
         //so all data from child have sink completed
-        local_state._dependency->set_eos();
+        ((PartitionSortSourceDependency*)local_state._shared_state->source_dep)->set_always_ready();
     }
 
     return Status::OK();
@@ -291,5 +290,4 @@ void PartitionSortSinkLocalState::_init_hash_method() {
     }
 }
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

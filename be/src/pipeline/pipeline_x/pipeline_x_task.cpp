@@ -57,9 +57,9 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
           _local_exchange_state(local_exchange_state),
           _task_idx(task_idx) {
     _pipeline_task_watcher.start();
-    _sink->get_dependency(_downstream_dependency);
+    _sink->get_dependency(_downstream_dependency, state->get_query_ctx());
     for (auto& op : _operators) {
-        _source_dependency.insert({op->operator_id(), op->get_dependency()});
+        _source_dependency.insert({op->operator_id(), op->get_dependency(state->get_query_ctx())});
     }
 }
 
@@ -357,21 +357,24 @@ std::string PipelineXTask::debug_string() {
                    _opened ? _sink->debug_string(_state, _operators.size())
                            : _sink->debug_string(_operators.size()));
     fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
-    for (size_t i = 0; i < _read_dependencies.size(); i++) {
-        fmt::format_to(debug_string_buffer, "{}{}\n", std::string(i * 2, ' '),
-                       _read_dependencies[i]->debug_string());
+    size_t i = 0;
+    for (; i < _read_dependencies.size(); i++) {
+        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                       _read_dependencies[i]->debug_string(i + 1));
     }
 
     fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");
-    fmt::format_to(debug_string_buffer, "{}\n", _write_dependencies->debug_string());
+    fmt::format_to(debug_string_buffer, "{}. {}\n", i, _write_dependencies->debug_string(1));
+    i++;
 
     fmt::format_to(debug_string_buffer, "Runtime Filter Dependency Information: \n");
-    fmt::format_to(debug_string_buffer, "{}\n", _filter_dependency->debug_string());
+    fmt::format_to(debug_string_buffer, "{}. {}\n", i, _filter_dependency->debug_string(1));
+    i++;
 
     fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
-    for (size_t i = 0; i < _finish_dependencies.size(); i++) {
-        fmt::format_to(debug_string_buffer, "{}{}\n", std::string(i * 2, ' '),
-                       _finish_dependencies[i]->debug_string());
+    for (size_t j = 0; j < _finish_dependencies.size(); j++, i++) {
+        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                       _finish_dependencies[i]->debug_string(j + 1));
     }
     return fmt::to_string(debug_string_buffer);
 }

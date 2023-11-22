@@ -104,6 +104,16 @@ inline const char* get_state_name(PipelineTaskState idx) {
     __builtin_unreachable();
 }
 
+inline bool is_final_state(PipelineTaskState idx) {
+    switch (idx) {
+    case PipelineTaskState::FINISHED:
+    case PipelineTaskState::CANCELED:
+        return true;
+    default:
+        return false;
+    }
+}
+
 class TaskQueue;
 class PriorityTaskQueue;
 

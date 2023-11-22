@@ -53,9 +53,9 @@ public:
 struct ExchangeDataDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
-    ExchangeDataDependency(int id, int node_id,
+    ExchangeDataDependency(int id, int node_id, QueryContext* query_ctx,
                            vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
-            : Dependency(id, node_id, "DataDependency") {}
+            : Dependency(id, node_id, "DataDependency", query_ctx) {}
 };
 
 class ExchangeSourceOperatorX;

@@ -25,8 +25,8 @@ namespace doris::pipeline {
 struct LocalExchangeSinkDependency final : public Dependency {
 public:
     using SharedState = LocalExchangeSharedState;
-    LocalExchangeSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "LocalExchangeSinkDependency", true) {}
+    LocalExchangeSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "LocalExchangeSinkDependency", true, query_ctx) {}
     ~LocalExchangeSinkDependency() override = default;
 };
 

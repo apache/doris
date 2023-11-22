@@ -44,8 +44,8 @@ public:
 class MultiCastSinkDependency final : public Dependency {
 public:
     using SharedState = MultiCastSharedState;
-    MultiCastSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "MultiCastSinkDependency", true) {}
+    MultiCastSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "MultiCastSinkDependency", true, query_ctx) {}
     ~MultiCastSinkDependency() override = default;
 };
 

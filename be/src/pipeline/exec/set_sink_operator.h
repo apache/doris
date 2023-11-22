@@ -63,7 +63,8 @@ private:
 class SetSinkDependency final : public Dependency {
 public:
     using SharedState = SetSharedState;
-    SetSinkDependency(int id, int node_id) : Dependency(id, node_id, "SetSinkDependency", true) {}
+    SetSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SetSinkDependency", true, query_ctx) {}
     ~SetSinkDependency() override = default;
 
     void set_cur_child_id(int id) {

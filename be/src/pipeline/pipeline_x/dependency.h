@@ -61,30 +61,31 @@ struct BasicSharedState {
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
-    Dependency(int id, int node_id, std::string name)
+    Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : _id(id),
               _node_id(node_id),
               _name(std::move(name)),
               _is_write_dependency(false),
-              _ready(false) {}
-    Dependency(int id, int node_id, std::string name, bool ready)
+              _ready(false),
+              _query_ctx(query_ctx) {}
+    Dependency(int id, int node_id, std::string name, bool ready, QueryContext* query_ctx)
             : _id(id),
               _node_id(node_id),
               _name(std::move(name)),
               _is_write_dependency(true),
-              _ready(ready) {}
+              _ready(ready),
+              _query_ctx(query_ctx) {}
     virtual ~Dependency() = default;
 
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
-    void set_parent(std::weak_ptr<Dependency> parent) { _parent = parent; }
     void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
     std::shared_ptr<BasicSharedState> shared_state() { return _shared_state; }
     void set_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
         _shared_state = shared_state;
     }
     virtual std::string debug_string(int indentation_level = 0);
-    virtual bool push_to_blocking_queue() { return false; }
+    virtual bool push_to_blocking_queue() const { return false; }
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
     void start_watcher() {
@@ -104,26 +105,9 @@ public:
         DCHECK(_shared_state->source_dep != nullptr) << debug_string();
         _shared_state->source_dep->set_ready();
     }
-    void set_eos() {
-        if (_eos) {
-            return;
-        }
-        _eos = true;
-        set_ready();
-        if (_is_write_dependency && _shared_state->source_dep != nullptr) {
-            _shared_state->source_dep->set_eos();
-        }
-    }
-    bool eos() const { return _eos.load(); }
 
     // Notify downstream pipeline tasks this dependency is blocked.
-    virtual void block() {
-        if (_eos) {
-            return;
-        }
-        _ready = false;
-    }
-    void add_block_task(PipelineXTask* task);
+    virtual void block() { _ready = false; }
 
 protected:
     bool _should_log(uint64_t cur_time) {
@@ -136,14 +120,19 @@ protected:
         _last_log_time = cur_time;
         return true;
     }
+    void _add_block_task(PipelineXTask* task);
+    bool _is_cancelled() const {
+        return push_to_blocking_queue() ? false : _query_ctx->is_cancelled();
+    }
 
     const int _id;
     const int _node_id;
     const std::string _name;
     const bool _is_write_dependency;
+    std::atomic<bool> _ready;
+    const QueryContext* _query_ctx;
 
     std::shared_ptr<BasicSharedState> _shared_state {nullptr};
-    std::atomic<bool> _ready;
     MonotonicStopWatch _watcher;
     std::weak_ptr<Dependency> _parent;
     std::list<std::shared_ptr<Dependency>> _children;
@@ -151,7 +140,6 @@ protected:
     uint64_t _last_log_time = 0;
     std::mutex _task_lock;
     std::vector<PipelineXTask*> _blocked_task;
-    std::atomic<bool> _eos {false};
 };
 
 struct FakeSharedState : public BasicSharedState {};
@@ -159,9 +147,19 @@ struct FakeSharedState : public BasicSharedState {};
 struct FakeDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
-    FakeDependency(int id, int node_id) : Dependency(id, node_id, "FakeDependency") {}
+    FakeDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "FakeDependency", query_ctx) {}
 
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override { return nullptr; }
+};
+
+struct FinishDependency final : public Dependency {
+public:
+    using SharedState = FakeSharedState;
+    FinishDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
+            : Dependency(id, node_id, name, true, query_ctx) {}
+
+    [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override;
 };
 
 class RuntimeFilterDependency;
@@ -200,14 +198,16 @@ private:
 
 class RuntimeFilterDependency final : public Dependency {
 public:
-    RuntimeFilterDependency(int id, int node_id, std::string name)
-            : Dependency(id, node_id, name) {}
-    Dependency* is_blocked_by(PipelineXTask* task);
+    RuntimeFilterDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
+            : Dependency(id, node_id, name, query_ctx) {}
+    Dependency* is_blocked_by(PipelineXTask* task) override;
     void add_filters(IRuntimeFilter* runtime_filter);
     void sub_filters();
     void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
         _blocked_by_rf = blocked_by_rf;
     }
+
+    std::string debug_string(int indentation_level = 0) override;
 
 protected:
     std::atomic_int _filters;
@@ -218,7 +218,8 @@ class AndDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     ENABLE_FACTORY_CREATOR(AndDependency);
-    AndDependency(int id, int node_id) : Dependency(id, node_id, "AndDependency") {}
+    AndDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AndDependency", query_ctx) {}
 
     [[nodiscard]] std::string name() const override {
         fmt::memory_buffer debug_string_buffer;
@@ -371,8 +372,8 @@ class AsyncWriterDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id, int node_id)
-            : Dependency(id, node_id, "AsyncWriterDependency", true) {}
+    AsyncWriterDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AsyncWriterDependency", true, query_ctx) {}
     ~AsyncWriterDependency() override = default;
 };
 

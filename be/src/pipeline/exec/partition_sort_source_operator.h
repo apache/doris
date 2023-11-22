@@ -52,9 +52,27 @@ public:
 class PartitionSortSourceDependency final : public Dependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortSourceDependency(int id, int node_id)
-            : Dependency(id, node_id, "PartitionSortSourceDependency") {}
+    PartitionSortSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "PartitionSortSourceDependency", query_ctx) {}
     ~PartitionSortSourceDependency() override = default;
+
+    void block() override {
+        if (_always_ready) {
+            return;
+        }
+        Dependency::block();
+    }
+
+    void set_always_ready() {
+        if (_always_ready) {
+            return;
+        }
+        _always_ready = true;
+        set_ready();
+    }
+
+private:
+    std::atomic<bool> _always_ready {false};
 };
 
 class PartitionSortSourceOperatorX;

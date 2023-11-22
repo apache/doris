@@ -72,18 +72,12 @@
 
 namespace doris::pipeline {
 
-std::string PipelineXLocalStateBase::debug_string(int indentation_level) const {
-    return _parent->debug_string(indentation_level);
-}
-
 template <typename DependencyType>
 std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}",
-                   PipelineXLocalStateBase::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, "\nDependency: \n {}",
-                       _dependency->debug_string(indentation_level + 1));
+        fmt::format_to(debug_string_buffer, " Dependency: {}", _dependency->debug_string());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -91,12 +85,9 @@ std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_le
 template <typename DependencyType>
 std::string PipelineXSinkLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}",
-                   PipelineXSinkLocalStateBase::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, "\n{}Dependency: \n {}",
-                       std::string(indentation_level * 2, ' '),
-                       _dependency->debug_string(indentation_level + 1));
+        fmt::format_to(debug_string_buffer, ", Dependency: {}", _dependency->debug_string());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -245,10 +236,6 @@ std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-std::string PipelineXSinkLocalStateBase::debug_string(int indentation_level) const {
-    return _parent->debug_string(indentation_level);
-}
-
 std::string DataSinkOperatorXBase::debug_string(RuntimeState* state, int indentation_level) const {
     return state->get_sink_local_state(operator_id())->debug_string(indentation_level);
 }
@@ -294,7 +281,8 @@ template <>
 inline constexpr bool NeedToCreate<LocalExchangeSharedState> = false;
 
 template <typename LocalStateType>
-void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& dependency) {
+void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& dependency,
+                                                       QueryContext* ctx) {
     std::shared_ptr<typename LocalStateType::DependencyType::SharedState> ss = nullptr;
     if constexpr (NeedToCreate<typename LocalStateType::DependencyType::SharedState>) {
         ss.reset(new typename LocalStateType::DependencyType::SharedState());
@@ -302,8 +290,8 @@ void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& d
     if constexpr (!std::is_same_v<typename LocalStateType::DependencyType, FakeDependency>) {
         auto& dests = dests_id();
         for (auto& dest_id : dests) {
-            dependency.push_back(
-                    std::make_shared<typename LocalStateType::DependencyType>(dest_id, _node_id));
+            dependency.push_back(std::make_shared<typename LocalStateType::DependencyType>(
+                    dest_id, _node_id, ctx));
             dependency.back()->set_shared_state(ss);
         }
     } else {
@@ -312,8 +300,8 @@ void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& d
 }
 
 template <typename LocalStateType>
-DependencySPtr OperatorX<LocalStateType>::get_dependency() {
-    return std::make_shared<typename LocalStateType::DependencyType>(_operator_id, _node_id);
+DependencySPtr OperatorX<LocalStateType>::get_dependency(QueryContext* ctx) {
+    return std::make_shared<typename LocalStateType::DependencyType>(_operator_id, _node_id, ctx);
 }
 
 template <typename LocalStateType>
@@ -328,8 +316,9 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
                                                          RuntimeState* state)
         : _parent(parent),
           _state(state),
-          _finish_dependency(new Dependency(parent->operator_id(), parent->node_id(),
-                                            parent->get_name() + "_FINISH_DEPENDENCY", true)) {}
+          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
+                                                  parent->get_name() + "_FINISH_DEPENDENCY",
+                                                  state->get_query_ctx())) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
         : _num_rows_returned(0),
@@ -337,10 +326,12 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
           _peak_memory_usage_counter(nullptr),
           _parent(parent),
           _state(state),
-          _finish_dependency(new Dependency(parent->operator_id(), parent->node_id(),
-                                            parent->get_name() + "_FINISH_DEPENDENCY", true)) {
+          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
+                                                  parent->get_name() + "_FINISH_DEPENDENCY",
+                                                  state->get_query_ctx())) {
     _filter_dependency = std::make_shared<RuntimeFilterDependency>(
-            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY");
+            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY",
+            state->get_query_ctx());
 }
 
 template <typename DependencyType>
@@ -421,7 +412,7 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
         }
     } else {
         auto& deps = info.dependencys;
-        deps.front() = std::make_shared<FakeDependency>(0, 0);
+        deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());
         _dependency = (DependencyType*)deps.front().get();
     }
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
@@ -499,8 +490,8 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
                 _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
     }
     _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
-    _async_writer_dependency =
-            AsyncWriterDependency::create_shared(_parent->operator_id(), _parent->node_id());
+    _async_writer_dependency = AsyncWriterDependency::create_shared(
+            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
 
     _wait_for_dependency_timer =

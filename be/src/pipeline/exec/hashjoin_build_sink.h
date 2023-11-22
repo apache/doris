@@ -49,16 +49,16 @@ class HashJoinBuildSinkOperatorX;
 class SharedHashTableDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
-    SharedHashTableDependency(int id, int node_id)
-            : Dependency(id, node_id, "SharedHashTableDependency", true) {}
+    SharedHashTableDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SharedHashTableDependency", true, query_ctx) {}
     ~SharedHashTableDependency() override = default;
 };
 
 class HashJoinBuildSinkDependency final : public Dependency {
 public:
     using SharedState = HashJoinSharedState;
-    HashJoinBuildSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "HashJoinBuildSinkDependency", true) {}
+    HashJoinBuildSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "HashJoinBuildSinkDependency", true, query_ctx) {}
     ~HashJoinBuildSinkDependency() override = default;
 };
 

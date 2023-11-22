@@ -59,8 +59,8 @@ public:
 class ScanDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ScanDependency);
-    ScanDependency(int id, int node_id)
-            : Dependency(id, node_id, "ScanDependency"), _scanner_ctx(nullptr) {}
+    ScanDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ScanDependency", query_ctx), _scanner_ctx(nullptr) {}
 
     // TODO(gabriel):
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
@@ -71,7 +71,7 @@ public:
         return Dependency::is_blocked_by(task);
     }
 
-    bool push_to_blocking_queue() override { return true; }
+    bool push_to_blocking_queue() const override { return true; }
 
     void block() override {
         if (_scanner_done) {
@@ -384,9 +384,7 @@ protected:
     // "_colname_to_value_range" and in "_not_in_value_ranges"
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
-    RuntimeProfile::Counter* _get_next_timer = nullptr;
-    RuntimeProfile::Counter* _alloc_resource_timer = nullptr;
-    RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
+    bool _eos = false;
 
     doris::Mutex _block_lock;
 };

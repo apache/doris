@@ -72,7 +72,8 @@ private:
 class UnionSourceDependency final : public Dependency {
 public:
     using SharedState = UnionSharedState;
-    UnionSourceDependency(int id, int node_id) : Dependency(id, node_id, "UnionSourceDependency") {}
+    UnionSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "UnionSourceDependency", query_ctx) {}
     ~UnionSourceDependency() override = default;
 
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
@@ -85,7 +86,7 @@ public:
         }
         return this;
     }
-    bool push_to_blocking_queue() override { return true; }
+    bool push_to_blocking_queue() const override { return true; }
     void block() override {}
 };
 

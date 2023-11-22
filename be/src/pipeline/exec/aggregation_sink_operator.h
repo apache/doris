@@ -48,7 +48,8 @@ public:
 class AggSinkDependency final : public Dependency {
 public:
     using SharedState = AggSharedState;
-    AggSinkDependency(int id, int node_id) : Dependency(id, node_id, "AggSinkDependency", true) {}
+    AggSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AggSinkDependency", true, query_ctx) {}
     ~AggSinkDependency() override = default;
 
     void set_ready() override {

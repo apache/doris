@@ -48,8 +48,8 @@ public:
 class AnalyticSinkDependency final : public Dependency {
 public:
     using SharedState = AnalyticSharedState;
-    AnalyticSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "AnalyticSinkDependency", true) {}
+    AnalyticSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AnalyticSinkDependency", true, query_ctx) {}
     ~AnalyticSinkDependency() override = default;
 };
 

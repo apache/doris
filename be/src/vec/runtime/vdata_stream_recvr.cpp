@@ -273,7 +273,7 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
               << " #senders=" << _num_remaining_senders;
     if (_num_remaining_senders == 0) {
         if (_dependency) {
-            _dependency->set_eos();
+            _dependency->set_ready();
         }
         _data_arrival_cv.notify_one();
     }
@@ -288,7 +288,7 @@ void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
         _is_cancelled = true;
         _cancel_status = cancel_status;
         if (_dependency) {
-            _dependency->set_eos();
+            _dependency->set_ready();
         }
         VLOG_QUERY << "cancelled stream: _fragment_instance_id="
                    << print_id(_recvr->fragment_instance_id())
@@ -318,7 +318,7 @@ void VDataStreamRecvr::SenderQueue::close() {
         std::lock_guard<std::mutex> l(_lock);
         _is_cancelled = true;
         if (_dependency) {
-            _dependency->set_eos();
+            _dependency->set_ready();
         }
 
         for (auto closure_pair : _pending_closures) {
@@ -362,8 +362,8 @@ VDataStreamRecvr::VDataStreamRecvr(
         _sender_to_local_channel_dependency.resize(num_queues);
         for (size_t i = 0; i < num_queues; i++) {
             _sender_to_local_channel_dependency[i] =
-                    pipeline::LocalExchangeChannelDependency::create_shared(_dest_node_id,
-                                                                            _dest_node_id);
+                    pipeline::LocalExchangeChannelDependency::create_shared(
+                            _dest_node_id, _dest_node_id, state->get_query_ctx());
         }
     }
     _sender_queues.reserve(num_queues);

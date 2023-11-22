@@ -142,6 +142,13 @@ public:
         }
         _use_blocking_queue = false;
     }
+    void clear_blocking_state() {
+        if (!is_final_state(get_state()) && get_state() != PipelineTaskState::PENDING_FINISH &&
+            _blocked_dep) {
+            _blocked_dep->set_ready();
+            _blocked_dep = nullptr;
+        }
+    }
 
 private:
     Dependency* _write_blocked_dependency() {

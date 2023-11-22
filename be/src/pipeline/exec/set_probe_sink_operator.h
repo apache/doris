@@ -70,8 +70,8 @@ private:
 class SetProbeSinkDependency final : public Dependency {
 public:
     using SharedState = SetSharedState;
-    SetProbeSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "SetProbeSinkDependency", true) {}
+    SetProbeSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SetProbeSinkDependency", true, query_ctx) {}
     ~SetProbeSinkDependency() override = default;
 
     void set_cur_child_id(int id) {

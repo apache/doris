@@ -46,8 +46,8 @@ public:
 class ResultSinkDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultSinkDependency);
-    ResultSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "ResultSinkDependency", true) {}
+    ResultSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ResultSinkDependency", true, query_ctx) {}
     ~ResultSinkDependency() override = default;
 };
 

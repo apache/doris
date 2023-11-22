@@ -47,8 +47,8 @@ public:
 class NestedLoopJoinBuildSinkDependency final : public Dependency {
 public:
     using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinBuildSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "NestedLoopJoinBuildSinkDependency", true) {}
+    NestedLoopJoinBuildSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "NestedLoopJoinBuildSinkDependency", true, query_ctx) {}
     ~NestedLoopJoinBuildSinkDependency() override = default;
 };
 
