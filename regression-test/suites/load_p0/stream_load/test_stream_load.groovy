@@ -92,6 +92,7 @@ suite("test_stream_load", "p0") {
     }
 
     sql "sync"
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
