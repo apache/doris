@@ -490,7 +490,7 @@ Status PulsarDataConsumer::assign_partition(const std::string& partition, std::s
 
     // do subscribe
     pulsar::ConsumerConfiguration consumerConfig;
-    consumerConfig.setSubscriptionType(pulsar::SubscriptionType::Shared);
+    consumerConfig->subscriptionType = pulsar::SubscriptionType::Shared;
     pulsar::Result result;
     result = _p_client->subscribe(partition, _subscription, consumerConfig, _p_consumer);
     if (result != pulsar::ResultOk) {
