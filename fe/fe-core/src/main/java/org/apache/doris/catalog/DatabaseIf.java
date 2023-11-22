@@ -189,7 +189,7 @@ public interface DatabaseIf<T extends TableIf> {
         TableType type = Objects.requireNonNull(table.getType());
         if (type != tableType && type.getParentType() != tableType) {
             throw new MetaNotFoundException(
-                    "table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getType());
+                    "table type is not " + tableType + ", tableId=" + tableId + ", type=" + type);
         }
         return table;
     }
@@ -214,7 +214,7 @@ public interface DatabaseIf<T extends TableIf> {
         TableType type = Objects.requireNonNull(table.getType());
         if (type != tableType && type.getParentType() != tableType) {
             throw new DdlException(
-                    "table type is not " + tableType + ", tableName=" + tableName + ", type=" + table.getType());
+                    "table type is not " + tableType + ", tableName=" + tableName + ", type=" + type);
         }
         return table;
     }
@@ -228,7 +228,7 @@ public interface DatabaseIf<T extends TableIf> {
         TableType type = Objects.requireNonNull(table.getType());
         if (type != tableType && type.getParentType() != tableType) {
             throw new DdlException(
-                    "table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getType());
+                    "table type is not " + tableType + ", tableId=" + tableId + ", type=" + type);
         }
         return table;
     }
