@@ -79,28 +79,32 @@ public:
             : Dependency(id, node_id, "BroadcastDependency", true), _available_block(0) {}
     ~BroadcastDependency() override = default;
 
-    Dependency* is_blocked_by(PipelineXTask* task = nullptr) override {
-        std::unique_lock<std::mutex> lc(_task_lock);
-        auto ready = _available_block > 0;
-        if (!ready && task) {
-            add_block_task(task);
-        }
-        return ready ? nullptr : this;
-    }
-
     void set_available_block(int available_block) { _available_block = available_block; }
 
     void return_available_block() {
-        _available_block++;
-        Dependency::set_ready();
+        if (_available_block.fetch_add(1) == 0) {
+            std::lock_guard<std::mutex> lock(_lock);
+            if (_available_block == 0) {
+                return;
+            }
+            Dependency::set_ready();
+        }
     }
 
-    void take_available_block() { _available_block--; }
+    void take_available_block() {
+        if (_available_block.fetch_sub(1) == 1) {
+            std::lock_guard<std::mutex> lock(_lock);
+            if (_available_block == 0) {
+                Dependency::block();
+            }
+        }
+    }
 
     int available_blocks() const { return _available_block; }
 
 private:
     std::atomic<int> _available_block;
+    std::mutex _lock;
 };
 
 /**
