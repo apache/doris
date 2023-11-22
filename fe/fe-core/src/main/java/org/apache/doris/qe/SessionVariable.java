@@ -402,6 +402,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
+    public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
@@ -1191,6 +1192,16 @@ public class SessionVariable implements Serializable, Writable {
                     "This parameter defines the end time for the automatic ANALYZE routine."},
             flag = VariableMgr.GLOBAL)
     public String autoAnalyzeEndTime = "23:59:59";
+
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_MAX_EXPANSIONS,
+            description = {"这个参数用来限制查询时扩展的词项（terms）的数量，以此来控制查询的性能",
+                    "This parameter is used to limit the number of term expansions during a query,"
+                    + " thereby controlling query performance"})
+    public int invertedIndexMaxExpansions = 50;
+
+    @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
+            description = {"解析sql使用的方言", "The dialect used to parse sql."})
+    public String sqlDialect = "doris";
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
@@ -2435,6 +2446,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
 
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
+        tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
         tResult.setFasterFloatConvert(fasterFloatConvert);
 

@@ -309,6 +309,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("match_any", new Integer(SqlParserSymbols.KW_MATCH_ANY));
         keywordMap.put("match_all", new Integer(SqlParserSymbols.KW_MATCH_ALL));
         keywordMap.put("match_phrase", new Integer(SqlParserSymbols.KW_MATCH_PHRASE));
+        keywordMap.put("match_phrase_prefix", new Integer(SqlParserSymbols.KW_MATCH_PHRASE_PREFIX));
         keywordMap.put("element_eq", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_EQ));
         keywordMap.put("element_lt", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_LT));
         keywordMap.put("element_gt", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_GT));
