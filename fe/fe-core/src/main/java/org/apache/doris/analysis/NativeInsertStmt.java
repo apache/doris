@@ -228,7 +228,8 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
-                            List<String> hints, boolean isPartialUpdate, InsertType insertType, boolean isInsertIgnore) {
+                            List<String> hints, boolean isPartialUpdate, InsertType insertType,
+                            boolean isInsertIgnore) {
         this(target, label, cols, source, hints);
         this.isPartialUpdate = isPartialUpdate;
         this.partialUpdateCols.addAll(cols);

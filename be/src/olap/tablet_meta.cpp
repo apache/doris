@@ -1007,7 +1007,7 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
 }
 
 void DeleteBitmap::subset_ignore(const BitmapKey& start, const BitmapKey& end,
-                          DeleteBitmap* subset_rowset_map) const {
+                                 DeleteBitmap* subset_rowset_map) const {
     roaring::Roaring roaring;
     DCHECK(start < end);
     std::shared_lock l(lock);

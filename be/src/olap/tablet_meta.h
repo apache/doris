@@ -443,7 +443,7 @@ public:
      * @parma subset_delete_map output param
      */
     void subset_ignore(const BitmapKey& start, const BitmapKey& end,
-                DeleteBitmap* subset_delete_map) const;
+                       DeleteBitmap* subset_delete_map) const;
 
     /**
      * Merges the given segment delete bitmap into *this

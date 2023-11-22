@@ -2963,7 +2963,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 if (st.is<OK>() || st.is<KEY_ALREADY_EXISTS>()) {
                     delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                        row_id);
-                    delete_bitmap->add_ignore({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON});
+                    delete_bitmap->add_ignore(
+                            {rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON});
                 }
             } else {
                 if (st.is<KEY_ALREADY_EXISTS>() && (!is_partial_update || have_input_seq_column)) {
@@ -2992,7 +2993,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                     // consists of version 6's update columns and version 5's origin columns
                     // here we build 2 read plan for ori values and update values
                     prepare_to_read(loc, pos, &read_plan_ori);
-                    prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos, &read_plan_update);
+                    prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos,
+                                    &read_plan_update);
                     rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
                     ++pos;
                     // delete bitmap will be calculate when memtable flush and
@@ -3011,8 +3013,9 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                     continue;
                 }
                 // when st = ok
-                delete_bitmap->add({loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                                   loc.row_id);
+                delete_bitmap->add(
+                        {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                        loc.row_id);
             }
         }
         remaining -= num_read;
@@ -3406,7 +3409,8 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
             src.segment_id = seg_id;
             DeleteBitmap subset_map(tablet_id());
             input_delete_bitmap.subset_ignore({rowset->rowset_id(), seg_id, start_version},
-                                       {rowset->rowset_id(), seg_id, end_version}, &subset_map);
+                                       {rowset->rowset_id(), seg_id, end_version},
+                                       &subset_map);
             // traverse all versions and convert rowid
             for (auto iter = subset_map.delete_bitmap.begin();
                  iter != subset_map.delete_bitmap.end(); ++iter) {

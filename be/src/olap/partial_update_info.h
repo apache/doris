@@ -23,7 +23,8 @@ namespace doris {
 
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,
-              const std::set<string>& partial_update_cols, bool is_strict_mode, bool is_unique_key_ignore_mode) {
+              const std::set<string>& partial_update_cols, bool is_strict_mode,
+              bool is_unique_key_ignore_mode) {
         is_partial_update = partial_update;
         partial_update_input_columns = partial_update_cols;
         missing_cids.clear();
