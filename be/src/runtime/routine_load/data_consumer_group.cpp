@@ -312,22 +312,29 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
 
             if (!result_st.ok()) {
                 // some consumers encounter errors, cancel this task
+                pulsar_pipe->cancel(result_st.to_string());
                 return result_st;
             }
 
-            if (left_bytes == ctx->max_batch_size) {
-                // nothing to be consumed, we have to cancel it, because
-                // we do not allow finishing stream load pipe without data
-                pulsar_pipe->cancel("Cancelled");
-                return Status::InternalError("Cancelled");
-            } else {
-                DCHECK(left_bytes < ctx->max_batch_size);
-                static_cast<void>(pulsar_pipe->finish());
-                ctx->pulsar_info->ack_offset = std::move(ack_offset);
-                ctx->receive_bytes = ctx->max_batch_size - left_bytes;
-                get_backlog_nums(ctx);
-                return Status::OK();
-            }
+//            if (left_bytes == ctx->max_batch_size) {
+//                // nothing to be consumed, we have to cancel it, because
+//                // we do not allow finishing stream load pipe without data
+//                pulsar_pipe->cancel("Cancelled");
+//                return Status::InternalError("Cancelled");
+//            } else {
+//                DCHECK(left_bytes < ctx->max_batch_size);
+//                static_cast<void>(pulsar_pipe->finish());
+//                ctx->pulsar_info->ack_offset = std::move(ack_offset);
+//                ctx->receive_bytes = ctx->max_batch_size - left_bytes;
+//                get_backlog_nums(ctx);
+//                return Status::OK();
+//            }
+            DCHECK(left_bytes < ctx->max_batch_size);
+            static_cast<void>(pulsar_pipe->finish());
+            ctx->pulsar_info->ack_offset = std::move(ack_offset);
+            ctx->receive_bytes = ctx->max_batch_size - left_bytes;
+            get_backlog_nums(ctx);
+            return Status::OK();
         }
 
         pulsar::Message* msg;
