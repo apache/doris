@@ -88,7 +88,7 @@ suite("test_point_query_cluster_key") {
     }
 
     for (int i = 0; i < 3; i++) {
-        tableName = realDb + ".tbl_point_query" + i
+        tableName = realDb + ".tbl_point_query_cluster_key" + i
         sql """DROP TABLE IF EXISTS ${tableName}"""
         if (i == 0) {
             def sql0 = create_table_sql("")
