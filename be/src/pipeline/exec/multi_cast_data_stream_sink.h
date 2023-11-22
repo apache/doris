@@ -41,15 +41,23 @@ public:
     bool can_write() override { return _sink->can_write(); }
 };
 
+class MultiCastSinkDependency final : public Dependency {
+public:
+    using SharedState = MultiCastSharedState;
+    MultiCastSinkDependency(int id, int node_id)
+            : Dependency(id, node_id, "MultiCastSinkDependency", true) {}
+    ~MultiCastSinkDependency() override = default;
+};
+
 class MultiCastDataStreamSinkOperatorX;
 class MultiCastDataStreamSinkLocalState final
-        : public PipelineXSinkLocalState<MultiCastDependency> {
+        : public PipelineXSinkLocalState<MultiCastSinkDependency> {
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSinkLocalState);
     MultiCastDataStreamSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
     friend class MultiCastDataStreamSinkOperatorX;
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
-    using Base = PipelineXSinkLocalState<MultiCastDependency>;
+    using Base = PipelineXSinkLocalState<MultiCastSinkDependency>;
     using Parent = MultiCastDataStreamSinkOperatorX;
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     std::string id_name() override;

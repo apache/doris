@@ -176,7 +176,7 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     }
     const auto& queues = stream_recvr->sender_queues();
     for (size_t i = 0; i < deps.size(); i++) {
-        COUNTER_SET(metrics[i], deps[i]->read_watcher_elapse_time());
+        COUNTER_SET(metrics[i], deps[i]->watcher_elapse_time());
     }
     if (stream_recvr != nullptr) {
         stream_recvr->close();
