@@ -47,7 +47,7 @@ using InstanceLoId = int64_t;
 namespace pipeline {
 class BroadcastDependency;
 class ExchangeSinkQueueDependency;
-class FinishDependency;
+class Dependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -189,7 +189,7 @@ public:
     void update_profile(RuntimeProfile* profile);
 
     void set_dependency(std::shared_ptr<ExchangeSinkQueueDependency> queue_dependency,
-                        std::shared_ptr<FinishDependency> finish_dependency) {
+                        std::shared_ptr<Dependency> finish_dependency) {
         _queue_dependency = queue_dependency;
         _finish_dependency = finish_dependency;
     }
@@ -249,7 +249,7 @@ private:
     std::atomic<int> _total_queue_size = 0;
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
-    std::shared_ptr<FinishDependency> _finish_dependency = nullptr;
+    std::shared_ptr<Dependency> _finish_dependency = nullptr;
     QueryStatistics* _statistics = nullptr;
     std::atomic<bool> _should_stop {false};
 };
