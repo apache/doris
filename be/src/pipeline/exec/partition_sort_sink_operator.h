@@ -84,8 +84,6 @@ private:
 
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _emplace_key_timer;
-    RuntimeProfile::Counter* _partition_sort_timer;
-    RuntimeProfile::Counter* _get_sorted_timer;
     RuntimeProfile::Counter* _selector_block_timer;
 
     RuntimeProfile::Counter* _hash_table_size_counter;
