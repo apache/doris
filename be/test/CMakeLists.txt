@@ -53,7 +53,6 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/util/runtime_profile_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/url_coding_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/exprs/hybrid_set_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/remote_rowset_gc_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
