@@ -83,15 +83,13 @@ public:
     using Base = PipelineXLocalState<PartitionSortSourceDependency>;
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<PartitionSortSourceDependency>(state, parent),
-              _get_sorted_timer(nullptr),
-              _get_next_timer(nullptr) {}
+              _get_sorted_timer(nullptr) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class PartitionSortSourceOperatorX;
     RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _get_next_timer;
     std::atomic<int> _sort_idx = 0;
 };
 

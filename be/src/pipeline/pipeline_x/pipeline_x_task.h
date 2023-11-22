@@ -84,7 +84,9 @@ public:
 
     bool sink_can_write() override { return _write_blocked_dependency() == nullptr; }
 
-    Status finalize() override;
+    void finalize() override;
+
+    bool is_finished() const { return _finished.load(); }
 
     std::string debug_string() override;
 
@@ -101,13 +103,6 @@ public:
                 _upstream_dependency[dst_id].push_back(dep);
             }
         }
-    }
-
-    void release_dependency() override {
-        std::vector<DependencySPtr> {}.swap(_downstream_dependency);
-        DependencyMap {}.swap(_upstream_dependency);
-
-        _local_exchange_state = nullptr;
     }
 
     std::vector<DependencySPtr>& get_upstream_dependency(int id) {
@@ -212,6 +207,8 @@ private:
     Dependency* _blocked_dep {nullptr};
 
     std::atomic<bool> _use_blocking_queue {true};
+    std::atomic<bool> _finished {false};
+    std::mutex _release_lock;
 };
 
 } // namespace doris::pipeline
