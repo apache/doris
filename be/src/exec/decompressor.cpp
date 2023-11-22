@@ -382,10 +382,22 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
         remaining_input_size -= 2 * sizeof(uint32_t);
 
         // Decompress
-        int uncompressed_len = LZ4_decompress_safe(reinterpret_cast<const char*>(src),
+        auto uncompressed_len = LZ4_decompress_safe(reinterpret_cast<const char*>(src),
                                                    reinterpret_cast<char*>(output), compressed_len,
                                                    remaining_output_size);
-        if (uncompressed_len < 0 || uncompressed_len != uncompressed_block_len) {
+
+        if (uncompressed_len < 0  || uncompressed_len != uncompressed_block_len ) {
+            static std::mutex mtx;
+            {
+                std::unique_lock<std::mutex> lck(mtx);
+                std::cout <<"Input len = " << input_len<<"\n";
+                std::cout <<"Output len = " << output_max_len<<"\n";
+                std::cout << "compressed_len = " << compressed_len <<"\n";
+                std::cout << "remaining_output_size = " << remaining_output_size <<"\n";
+                std::cout << "uncompressed_len = "  << uncompressed_len <<"\n";
+                std::cout <<"is error = " <<  LZ4F_isError(uncompressed_len) <<"\n";
+                std::cout <<"error code = "<< LZ4F_getErrorName(uncompressed_len)<<"\n";
+            }
             return Status::InternalError(
                     "lz4 block decompress failed. uncompressed_len: {}, expected: {}",
                     uncompressed_len, uncompressed_block_len);
