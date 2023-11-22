@@ -51,7 +51,11 @@ class PrimaryKeyIndexMetaPB;
 class PrimaryKeyIndexBuilder {
 public:
     PrimaryKeyIndexBuilder(io::FileWriter* file_writer, size_t seq_col_length)
-            : _file_writer(file_writer), _num_rows(0), _size(0), _seq_col_length(seq_col_length) {}
+            : _file_writer(file_writer),
+              _num_rows(0),
+              _size(0),
+              _disk_size(0),
+              _seq_col_length(seq_col_length) {}
 
     Status init();
 
@@ -60,6 +64,11 @@ public:
     uint32_t num_rows() const { return _num_rows; }
 
     uint64_t size() const { return _size; }
+
+    uint64_t disk_size() const { return _disk_size; }
+
+    // used for be ut
+    uint32_t data_page_num() const { return _primary_key_index_builder->data_page_num(); }
 
     Slice min_key() { return Slice(_min_key.data(), _min_key.size() - _seq_col_length); }
     Slice max_key() { return Slice(_max_key.data(), _max_key.size() - _seq_col_length); }
@@ -70,6 +79,7 @@ private:
     io::FileWriter* _file_writer = nullptr;
     uint32_t _num_rows;
     uint64_t _size;
+    uint64_t _disk_size;
     size_t _seq_col_length;
 
     faststring _min_key;

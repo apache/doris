@@ -28,6 +28,7 @@
 #include <string_view>
 
 #include "util/hash_util.hpp"
+#include "vec/core/wide_integer.h"
 
 namespace doris {
 
@@ -49,6 +50,7 @@ enum DecimalRoundMode { HALF_UP = 1, HALF_EVEN = 2, CEILING = 3, FLOOR = 4, TRUN
 
 class DecimalV2Value {
 public:
+    using NativeType = __int128_t;
     friend DecimalV2Value operator+(const DecimalV2Value& v1, const DecimalV2Value& v2);
     friend DecimalV2Value operator-(const DecimalV2Value& v1, const DecimalV2Value& v2);
     friend DecimalV2Value operator*(const DecimalV2Value& v1, const DecimalV2Value& v2);
@@ -139,6 +141,12 @@ public:
     // ATTN: invoker must make sure no OVERFLOW
     operator int128_t() const { return static_cast<int128_t>(_value / ONE_BILLION); }
 
+    operator wide::Int256() const {
+        wide::Int256 result;
+        wide::Int256::_impl::wide_integer_from_builtin(result, _value);
+        return result;
+    }
+
     operator bool() const { return _value != 0; }
 
     operator int8_t() const { return static_cast<char>(operator int64_t()); }
@@ -171,15 +179,7 @@ public:
 
     bool operator==(const DecimalV2Value& other) const { return _value == other.value(); }
 
-    bool operator!=(const DecimalV2Value& other) const { return _value != other.value(); }
-
-    bool operator<=(const DecimalV2Value& other) const { return _value <= other.value(); }
-
-    bool operator>=(const DecimalV2Value& other) const { return _value >= other.value(); }
-
-    bool operator<(const DecimalV2Value& other) const { return _value < other.value(); }
-
-    bool operator>(const DecimalV2Value& other) const { return _value > other.value(); }
+    auto operator<=>(const DecimalV2Value& other) const { return _value <=> other.value(); }
 
     // change to maximum value for given precision and scale
     // precision/scale - see decimal_bin_size() below
@@ -326,4 +326,11 @@ std::size_t hash_value(DecimalV2Value const& value);
 template <>
 struct std::hash<doris::DecimalV2Value> {
     size_t operator()(const doris::DecimalV2Value& v) const { return doris::hash_value(v); }
+};
+
+template <>
+struct std::equal_to<doris::DecimalV2Value> {
+    bool operator()(const doris::DecimalV2Value& lhs, const doris::DecimalV2Value& rhs) const {
+        return lhs == rhs;
+    }
 };

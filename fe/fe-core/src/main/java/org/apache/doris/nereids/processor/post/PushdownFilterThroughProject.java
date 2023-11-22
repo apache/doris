@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -30,17 +31,21 @@ public class PushdownFilterThroughProject extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         Plan child = filter.child();
-        Plan newChild = child.accept(this, context);
-        if (!(newChild instanceof PhysicalProject)) {
-            return filter;
+        if (!(child instanceof PhysicalProject)) {
+            Plan newChild = child.accept(this, context);
+            if (newChild == child) {
+                return filter;
+            } else {
+                return ((AbstractPhysicalPlan) filter.withChildren(child.accept(this, context)))
+                        .copyStatsAndGroupIdFrom(filter);
+            }
         }
-        PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) newChild;
-        return project.withChildren(
-                new PhysicalFilter<>(
-                        ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
-                        filter.getLogicalProperties(),
-                        project.child()
-                )
-        );
+
+        PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
+        PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(
+                ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
+                project.child());
+        return ((PhysicalProject) project.withChildren(newFilter.accept(this, context)))
+                .copyStatsAndGroupIdFrom(project);
     }
 }

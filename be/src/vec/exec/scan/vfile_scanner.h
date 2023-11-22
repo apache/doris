@@ -30,8 +30,8 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "exec/text_converter.h"
 #include "io/io_common.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
@@ -67,6 +67,10 @@ public:
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
                  ShardedKVCache* kv_cache);
 
+    VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
+                 const TFileScanRange& scan_range, RuntimeProfile* profile,
+                 ShardedKVCache* kv_cache);
+
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
@@ -88,8 +92,7 @@ protected:
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
 protected:
-    std::unique_ptr<TextConverter> _text_converter;
-    const TFileScanRangeParams& _params;
+    const TFileScanRangeParams* _params;
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
 
@@ -129,9 +132,15 @@ protected:
     // These columns will be filled by default value or null.
     std::unordered_set<std::string> _missing_cols;
 
+    //  The col names and types of source file, such as parquet, orc files.
+    std::vector<std::string> _source_file_col_names;
+    std::vector<TypeDescriptor> _source_file_col_types;
+    std::map<std::string, TypeDescriptor*> _source_file_col_name_types;
+
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
+    std::unique_ptr<RowDescriptor> _dest_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
     // owned by scan node
@@ -149,21 +158,25 @@ protected:
     Block _src_block;
 
     VExprContextSPtrs _push_down_conjuncts;
-    bool _is_dynamic_schema = false;
-    // for tracing dynamic schema
-    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
 
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _partition_col_descs;
+    std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
+    RuntimeProfile::Counter* _open_reader_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
     RuntimeProfile::Counter* _fill_path_columns_timer = nullptr;
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
+    RuntimeProfile::Counter* _file_counter = nullptr;
+    RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts
@@ -173,24 +186,49 @@ private:
     // save the path of current scan range
     std::string _current_range_path = "";
 
+    // Only for load scan node.
+    const TupleDescriptor* _input_tuple_desc = nullptr;
+    // If _input_tuple_desc is set,
+    // the _real_tuple_desc will point to _input_tuple_desc,
+    // otherwise, point to _output_tuple_desc
+    const TupleDescriptor* _real_tuple_desc = nullptr;
+
 private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
+    Status _check_output_block_types();
     Status _cast_to_input_block(Block* block);
     Status _fill_columns_from_path(size_t rows);
     Status _fill_missing_columns(size_t rows);
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
+    Status _truncate_char_or_varchar_columns(Block* block);
+    void _truncate_char_or_varchar_column(Block* block, int idx, int len);
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
-    Status _split_conjuncts();
-    Status _split_conjuncts_expr(const VExprContextSPtr& context,
-                                 const VExprSPtr& conjunct_expr_root);
+    Status _process_conjuncts_for_dict_filter();
+    Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;
+    }
+
+    TPushAggOp::type _get_push_down_agg_type() {
+        if (get_parent() != nullptr) {
+            return _parent->get_push_down_agg_type();
+        } else {
+            return _local_state->get_push_down_agg_type();
+        }
+    }
+
+    int64_t _get_push_down_count() {
+        if (get_parent() != nullptr) {
+            return _parent->get_push_down_count();
+        } else {
+            return _local_state->get_push_down_count();
+        }
     }
 };
 } // namespace doris::vectorized

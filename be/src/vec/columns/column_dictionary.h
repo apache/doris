@@ -105,8 +105,6 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    void protect() override {}
-
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported in ColumnDictionary";
@@ -114,14 +112,11 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "ColumnDictionary get_data_type not implemeted";
-    }
-
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
-    [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
-        LOG(FATAL) << "clone_resized not supported in ColumnDictionary";
+    MutableColumnPtr clone_resized(size_t size) const override {
+        DCHECK(size == 0);
+        return this->create();
     }
 
     void insert(const Field& x) override {
@@ -150,12 +145,6 @@ public:
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported in ColumnDictionary";
     }
-
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not supported in ColumnDictionary";
-    }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
 
@@ -304,6 +293,10 @@ public:
         return _rowset_segment_id;
     }
 
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
+        LOG(FATAL) << "not support";
+    }
+
     bool is_dict_sorted() const { return _dict_sorted; }
 
     bool is_dict_empty() const { return _dict.empty(); }
@@ -314,7 +307,16 @@ public:
         if (is_dict_sorted() && !is_dict_code_converted()) {
             convert_dict_codes_if_necessary();
         }
-        auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
+        // if type is OLAP_FIELD_TYPE_CHAR, we need to construct TYPE_CHAR PredicateColumnType,
+        // because the string length will different from varchar and string which needed to be processed after.
+        auto create_column = [this]() -> MutableColumnPtr {
+            if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                return vectorized::PredicateColumnType<TYPE_CHAR>::create();
+            }
+            return vectorized::PredicateColumnType<TYPE_STRING>::create();
+        };
+
+        auto res = create_column();
         res->reserve(_codes.capacity());
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);

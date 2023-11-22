@@ -30,7 +30,9 @@ Colocation Join is a new feature introduced in Doris 0.9. The purpose of this pa
 
 The original design, implementation and effect can be referred to [ISSUE 245](https://github.com/apache/incubator-doris/issues/245).
 
-The Colocation Join function has undergone a revision, and its design and use are slightly different from the original design. This document mainly introduces Colocation Join's principle, implementation, usage and precautions.
+The Colocation Join function has undergone a revision, and its design and use are slightly different from the original design. This document mainly introduces Colocation Join's principle, implementation, usage and precautions.  
+
+Note: This property will not be synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, this property will be erased in this table.
 
 ## Noun Interpretation
 

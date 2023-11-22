@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -27,8 +26,6 @@ public class IsNullPredicateWithComplexTypeTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        Config.enable_map_type = true;
-        Config.enable_struct_type = true;
         // create database
         createDatabase("test");
 

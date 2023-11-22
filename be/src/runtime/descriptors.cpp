@@ -31,12 +31,12 @@
 #include <memory>
 
 #include "common/object_pool.h"
+#include "runtime/primitive_type.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
-using boost::algorithm::join;
 
 const int RowDescriptor::INVALID_IDX = -1;
 std::string NullIndicatorOffset::debug_string() const {
@@ -60,11 +60,15 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _col_name(tdesc.colName),
           _col_name_lower_case(to_lower(tdesc.colName)),
           _col_unique_id(tdesc.col_unique_id),
+          _col_type(thrift_to_type(tdesc.primitive_type)),
           _slot_idx(tdesc.slotIdx),
           _field_idx(-1),
           _is_materialized(tdesc.isMaterialized),
           _is_key(tdesc.is_key),
-          _need_materialize(tdesc.need_materialize) {}
+          _need_materialize(tdesc.need_materialize),
+          _column_paths(tdesc.column_paths),
+          _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
+          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
@@ -75,11 +79,13 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _col_name(pdesc.col_name()),
           _col_name_lower_case(to_lower(pdesc.col_name())),
           _col_unique_id(pdesc.col_unique_id()),
+          _col_type(static_cast<PrimitiveType>(pdesc.col_type())),
           _slot_idx(pdesc.slot_idx()),
           _field_idx(-1),
           _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
-          _need_materialize(true) {}
+          _need_materialize(true),
+          _is_auto_increment(pdesc.is_auto_increment()) {}
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_id(_id);
@@ -95,6 +101,8 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_is_materialized(_is_materialized);
     pslot->set_col_unique_id(_col_unique_id);
     pslot->set_is_key(_is_key);
+    pslot->set_is_auto_increment(_is_auto_increment);
+    pslot->set_col_type(_col_type);
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
@@ -112,7 +120,7 @@ vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
 std::string SlotDescriptor::debug_string() const {
     std::stringstream out;
     out << "Slot(id=" << _id << " type=" << _type << " col=" << _col_pos
-        << ", colname=" << _col_name << " null=" << _null_indicator_offset.debug_string() << ")";
+        << ", colname=" << _col_name << ", nullable=" << is_nullable() << ")";
     return out.str();
 }
 
@@ -140,7 +148,7 @@ std::string OlapTableDescriptor::debug_string() const {
 
 SchemaTableDescriptor::SchemaTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc), _schema_table_type(tdesc.schemaTable.tableType) {}
-SchemaTableDescriptor::~SchemaTableDescriptor() {}
+SchemaTableDescriptor::~SchemaTableDescriptor() = default;
 
 std::string SchemaTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -151,7 +159,7 @@ std::string SchemaTableDescriptor::debug_string() const {
 BrokerTableDescriptor::BrokerTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc) {}
 
-BrokerTableDescriptor::~BrokerTableDescriptor() {}
+BrokerTableDescriptor::~BrokerTableDescriptor() = default;
 
 std::string BrokerTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -161,7 +169,7 @@ std::string BrokerTableDescriptor::debug_string() const {
 
 HiveTableDescriptor::HiveTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
-HiveTableDescriptor::~HiveTableDescriptor() {}
+HiveTableDescriptor::~HiveTableDescriptor() = default;
 
 std::string HiveTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -172,7 +180,7 @@ std::string HiveTableDescriptor::debug_string() const {
 IcebergTableDescriptor::IcebergTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc) {}
 
-IcebergTableDescriptor::~IcebergTableDescriptor() {}
+IcebergTableDescriptor::~IcebergTableDescriptor() = default;
 
 std::string IcebergTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -187,9 +195,10 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
           _table(tdesc.mcTable.table),
           _access_key(tdesc.mcTable.access_key),
           _secret_key(tdesc.mcTable.secret_key),
+          _partition_spec(tdesc.mcTable.partition_spec),
           _public_access(tdesc.mcTable.public_access) {}
 
-MaxComputeTableDescriptor::~MaxComputeTableDescriptor() {}
+MaxComputeTableDescriptor::~MaxComputeTableDescriptor() = default;
 
 std::string MaxComputeTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -199,7 +208,7 @@ std::string MaxComputeTableDescriptor::debug_string() const {
 
 EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
-EsTableDescriptor::~EsTableDescriptor() {}
+EsTableDescriptor::~EsTableDescriptor() = default;
 
 std::string EsTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -272,7 +281,6 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
           _table_desc(nullptr),
           _num_null_bytes(tdesc.numNullBytes),
           _num_materialized_slots(0),
-          _slots(),
           _has_varlen_slots(false),
           _own_slots(own_slots) {
     if (false == tdesc.__isset.numNullSlots) {
@@ -288,7 +296,6 @@ TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc, bool own_slots)
           _table_desc(nullptr),
           _num_null_bytes(pdesc.num_null_bytes()),
           _num_materialized_slots(0),
-          _slots(),
           _has_varlen_slots(false),
           _own_slots(own_slots) {
     if (!pdesc.has_num_null_slots()) {

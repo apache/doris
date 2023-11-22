@@ -37,6 +37,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.planner.PartitionColumnFilter;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -188,6 +189,7 @@ public class PartitionRange {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
+                case DECIMAL256:
                 case CHAR:
                 case VARCHAR:
                 case STRING:
@@ -245,7 +247,8 @@ public class PartitionRange {
         }
 
         private Date getDateValue(LiteralExpr expr) {
-            value = expr.getLongValue() / 1000000;
+            Preconditions.checkArgument(expr.getType() == Type.DATE || expr.getType() == Type.DATEV2);
+            value = expr.getLongValue();
             Date dt = null;
             try {
                 dt = Date.from(LocalDate.parse(String.valueOf(value), df8).atStartOfDay().atZone(ZoneId.systemDefault())

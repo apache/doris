@@ -42,5 +42,10 @@ public abstract class LogicalBinary<
         super(type, groupExpression, logicalProperties, leftChild, rightChild);
     }
 
+    public LogicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        super(type, groupExpression, logicalProperties, children);
+    }
+
     public abstract List<Slot> computeOutput();
 }

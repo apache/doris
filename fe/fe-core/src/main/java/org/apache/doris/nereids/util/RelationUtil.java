@@ -23,12 +23,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -37,28 +34,6 @@ import java.util.List;
  * relation util
  */
 public class RelationUtil {
-
-    // for test only
-    private static StatementContext statementContext = new StatementContext();
-
-    public static ObjectId newRelationId() {
-        // this branch is for test only
-        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
-            return statementContext.getNextObjectId();
-        }
-        return ConnectContext.get().getStatementContext().getNextObjectId();
-    }
-
-    /**
-     *  Reset Id Generator
-     */
-    @VisibleForTesting
-    public static void clear() throws Exception {
-        if (ConnectContext.get() != null) {
-            ConnectContext.get().setStatementContext(new StatementContext());
-        }
-        statementContext = new StatementContext();
-    }
 
     /**
      * get table qualifier

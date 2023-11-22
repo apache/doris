@@ -53,6 +53,9 @@ suite("test_primary_key_partial_update_with_row_column", "p0") {
         file 'basic.csv'
         time 10000 // limit inflight 10s
     }
+
+    sql "sync"
+
     qt_select_default """
         select * from ${tableName} order by id
     """

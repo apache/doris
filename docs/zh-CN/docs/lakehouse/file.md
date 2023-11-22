@@ -27,11 +27,7 @@ under the License.
 
 # 文件分析
 
-<version since="1.2.0">
-
 通过 Table Value Function 功能，Doris 可以直接将对象存储或 HDFS 上的文件作为 Table 进行查询分析。并且支持自动的列类型推断。
-
-</version>
 
 ## 使用方式
 
@@ -45,12 +41,13 @@ under the License.
 ### 自动推断文件列类型
 
 ```
-MySQL [(none)]> DESC FUNCTION s3(
+> DESC FUNCTION s3 (
     "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
-    "ACCESS_KEY"= "minioadmin",
-    "SECRET_KEY" = "minioadmin",
-    "Format" = "parquet",
-    "use_path_style"="true");
+    "s3.access_key"= "ak",
+    "s3.secret_key" = "sk",
+    "format" = "parquet",
+    "use_path_style"="true"
+);
 +---------------+--------------+------+-------+---------+-------+
 | Field         | Type         | Null | Key   | Default | Extra |
 +---------------+--------------+------+-------+---------+-------+
@@ -71,9 +68,9 @@ MySQL [(none)]> DESC FUNCTION s3(
 ```
 s3(
     "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
-    "ACCESS_KEY"= "minioadmin",
-    "SECRET_KEY" = "minioadmin",
-    "Format" = "parquet",
+    "s3.access_key"= "ak",
+    "s3.secret_key" = "sk",
+    "format" = "parquet",
     "use_path_style"="true")
 ```
 
@@ -86,8 +83,6 @@ s3(
 目前支持对 Parquet、ORC、CSV、Json 格式进行分析和列类型推断。
 
 **CSV Schema**
-
-<version since="dev"></version>
 
 在默认情况下，对 CSV 格式文件，所有列类型均为 String。可以通过 `csv_schema` 属性单独指定列名和列类型。Doris 会使用指定的列类型进行文件读取。格式如下：
 
@@ -118,13 +113,13 @@ s3(
 
 ```
 s3 (
-    'URI' = 'https://bucket1/inventory.dat',
-    'ACCESS_KEY'= 'ak',
-    'SECRET_KEY' = 'sk',
-    'FORMAT' = 'csv',
-    'column_separator' = '|',
-    'csv_schema' = 'k1:int;k2:int;k3:int;k4:decimal(38,10)',
-    'use_path_style'='true'
+    "URI" = "https://bucket1/inventory.dat",
+    "s3.access_key"= "ak",
+    "s3.secret_key" = "sk",
+    "format" = "csv",
+    "column_separator" = "|",
+    "csv_schema" = "k1:int;k2:int;k3:int;k4:decimal(38,10)",
+    "use_path_style"="true"
 )
 ```
 
@@ -135,9 +130,9 @@ s3 (
 ```
 SELECT * FROM s3(
     "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
-    "ACCESS_KEY"= "minioadmin",
-    "SECRET_KEY" = "minioadmin",
-    "Format" = "parquet",
+    "s3.access_key"= "ak",
+    "s3.secret_key" = "sk",
+    "format" = "parquet",
     "use_path_style"="true")
 LIMIT 5;
 +-----------+------------------------------------------+----------------+----------+-------------------------+--------+-------------+---------------+---------------------+
@@ -154,17 +149,15 @@ LIMIT 5;
 Table Value Function 可以出现在 SQL 中，Table 能出现的任意位置。如 CTE 的 WITH 子句中，FROM 子句中。
 这样，你可以把文件当做一张普通的表进行任意分析。
 
-<version since="dev"></version>
-
 你也可以用过 `CREATE VIEW` 语句为 Table Value Function 创建一个逻辑视图。这样，你可以想其他视图一样，对这个 Table Value Function 进行访问、权限管理等操作，也可以让其他用户访问这个 Table Value Function。
 
 ```
 CREATE VIEW v1 AS 
 SELECT * FROM s3(
     "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
-    "ACCESS_KEY"= "minioadmin",
-    "SECRET_KEY" = "minioadmin",
-    "Format" = "parquet",
+    "s3.access_key"= "ak",
+    "s3.secret_key" = "sk",
+    "format" = "parquet",
     "use_path_style"="true");
 
 DESC v1;
@@ -193,12 +186,16 @@ PROPERTIES("replication_num" = "1");
 INSERT INTO test_table (id,name,age)
 SELECT cast(id as INT) as id, name, cast (age as INT) as age
 FROM s3(
-    "uri" = "${uri}",
-    "ACCESS_KEY"= "${ak}",
-    "SECRET_KEY" = "${sk}",
-    "format" = "${format}",
-    "strip_outer_array" = "true",
-    "read_json_by_line" = "true",
+    "uri" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
+    "s3.access_key"= "ak",
+    "s3.secret_key" = "sk",
+    "format" = "parquet",
     "use_path_style" = "true");
 ```    
+
+### 注意事项
+
+1. 如果 `S3 / hdfs` tvf指定的uri匹配不到文件，或者匹配到的所有文件都是空文件，那么 `S3 / hdfs` tvf将会返回空结果集。在这种情况下使用`DESC FUNCTION`查看这个文件的Schema，会得到一列虚假的列`__dummy_col`，可忽略这一列。
+
+2. 如果指定tvf的format为csv，所读文件不为空文件但文件第一行为空，则会提示错误`The first line is empty, can not parse column numbers`, 这因为无法通过该文件的第一行解析出schema。
 

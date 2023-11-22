@@ -102,7 +102,6 @@ public enum AggregateType {
         // all types except object stored column type, such as bitmap hll
         // quantile_state.
         EnumSet<PrimitiveType> excObjectStored = EnumSet.allOf(PrimitiveType.class);
-        excObjectStored.remove(PrimitiveType.BITMAP);
         excObjectStored.remove(PrimitiveType.HLL);
         excObjectStored.remove(PrimitiveType.QUANTILE_STATE);
         excObjectStored.remove(PrimitiveType.AGG_STATE);

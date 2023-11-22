@@ -25,7 +25,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.SchemaChangeExpr;
+// import org.apache.doris.analysis.SchemaChangeExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -36,7 +36,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf;
+// import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
@@ -255,11 +255,17 @@ public class FileLoadScanNode extends FileScanNode {
                     if (column.getDefaultValue() != null) {
                         if (column.getDefaultValueExprDef() != null) {
                             expr = column.getDefaultValueExpr();
+                            expr.analyze(analyzer);
                         } else {
                             expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
                         }
                     } else {
                         if (column.isAllowNull()) {
+                            expr = NullLiteral.create(column.getType());
+                        } else if (column.isAutoInc()) {
+                            // auto-increment column should be non-nullable
+                            // however, here we use `NullLiteral` to indicate that a cell should
+                            // be filled with generated value in `VOlapTableSink::_fill_auto_inc_cols()`
                             expr = NullLiteral.create(column.getType());
                         } else {
                             throw new AnalysisException("column has no source field, column=" + column.getName());
@@ -307,10 +313,6 @@ public class FileLoadScanNode extends FileScanNode {
                 String name = "jsonb_parse_" + nullable + "_error_to_null";
                 expr = new FunctionCallExpr(name, args);
                 expr.analyze(analyzer);
-            } else if (dstType == PrimitiveType.VARIANT) {
-                // Generate SchemaChange expr for dynamicly generating columns
-                TableIf targetTbl = desc.getTable();
-                expr = new SchemaChangeExpr((SlotRef) expr, (int) targetTbl.getId());
             } else {
                 expr = castToSlot(destSlotDesc, expr);
             }

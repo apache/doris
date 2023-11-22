@@ -22,7 +22,6 @@ package org.apache.doris.nereids.trees.expressions.functions;
  *
  * e.g. 'rand()', 'random()'.
  *
- * note: no 'uuid' function currently.
  */
-public interface Nondeterministic {
+public interface Nondeterministic extends ExpressionTrait {
 }

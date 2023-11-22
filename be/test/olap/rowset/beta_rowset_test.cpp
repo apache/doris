@@ -73,13 +73,13 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static const std::string kTestDir = "./data_test/data/beta_rowset_test";
 
 class BetaRowsetTest : public testing::Test {
 public:
     BetaRowsetTest() : _data_dir(std::make_unique<DataDir>(kTestDir)) {
-        _data_dir->update_capacity();
+        static_cast<void>(_data_dir->update_capacity());
     }
 
     static void SetUpTestSuite() {
@@ -100,21 +100,17 @@ public:
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        Status s = doris::StorageEngine::open(options, &k_engine);
+        k_engine = std::make_unique<StorageEngine>(options);
+        Status s = k_engine->open();
         EXPECT_TRUE(s.ok()) << s.to_string();
-
-        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(k_engine);
+        ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
     }
 
     static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
+        k_engine.reset();
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
 protected:
@@ -269,7 +265,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
                                  Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true));
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -284,7 +279,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
         fs->_client.reset(new S3ClientMockGetError());
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -299,7 +293,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
         fs->_client.reset(new S3ClientMockGetErrorData());
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;

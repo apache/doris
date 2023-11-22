@@ -17,20 +17,22 @@
 
 #include "io/fs/file_system.h"
 
+#include "io/fs/file_reader.h"
 #include "util/async_io.h" // IWYU pragma: keep
 
 namespace doris {
 namespace io {
 
-Status FileSystem::create_file(const Path& file, FileWriterPtr* writer) {
+Status FileSystem::create_file(const Path& file, FileWriterPtr* writer,
+                               const FileWriterOptions* opts) {
     auto path = absolute_path(file);
-    FILESYSTEM_M(create_file_impl(path, writer));
+    FILESYSTEM_M(create_file_impl(path, writer, opts));
 }
 
-Status FileSystem::open_file(const Path& file, const FileReaderOptions& reader_options,
-                             FileReaderSPtr* reader) {
+Status FileSystem::open_file(const Path& file, FileReaderSPtr* reader,
+                             const FileReaderOptions* opts) {
     auto path = absolute_path(file);
-    FILESYSTEM_M(open_file_impl(path, reader_options, reader));
+    FILESYSTEM_M(open_file_impl(path, reader, opts));
 }
 
 Status FileSystem::create_directory(const Path& dir, bool failed_if_exists) {

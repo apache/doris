@@ -73,7 +73,7 @@ void RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& argum
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
         arg->set_has_null(column.column->has_null(row_count));
         auto col = column.column->convert_to_full_column_if_const();
-        column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count);
+        static_cast<void>(column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count));
     }
 }
 
@@ -81,7 +81,7 @@ void RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t po
     auto data_type = block.get_data_type(pos);
     auto col = data_type->create_column();
     auto serde = data_type->get_serde();
-    serde->read_column_from_pb(*col, result);
+    static_cast<void>(serde->read_column_from_pb(*col, result));
     block.replace_by_position(pos, std::move(col));
 }
 
@@ -90,16 +90,20 @@ FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
         : _argument_types(argument_types), _return_type(return_type), _tfn(fn) {}
 
 Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    _fn = std::make_unique<RPCFnImpl>(_tfn);
-
-    if (!_fn->available()) {
-        return Status::InternalError("rpc env init error");
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        std::shared_ptr<RPCFnImpl> fn = std::make_shared<RPCFnImpl>(_tfn);
+        if (!fn->available()) {
+            return Status::InternalError("rpc env init error");
+        }
+        context->set_function_state(FunctionContext::FRAGMENT_LOCAL, fn);
     }
     return Status::OK();
 }
 
 Status FunctionRPC::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                             size_t result, size_t input_rows_count, bool dry_run) {
-    return _fn->vec_call(context, block, arguments, result, input_rows_count);
+    RPCFnImpl* fn = reinterpret_cast<RPCFnImpl*>(
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    return fn->vec_call(context, block, arguments, result, input_rows_count);
 }
 } // namespace doris::vectorized

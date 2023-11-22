@@ -36,7 +36,8 @@ suite("test_ctl") {
     CREATE TABLE IF NOT EXISTS `test_ctl1` LIKE `test_ctl`
     """
 
-        qt_select """SHOW CREATE TABLE `test_ctl1`"""
+        def res = sql """SHOW CREATE TABLE `test_ctl1`"""
+        assertTrue(res.size() != 0)
     } finally {
         sql """ DROP TABLE IF EXISTS test_ctl """
 

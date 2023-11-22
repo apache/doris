@@ -32,6 +32,11 @@ import java.util.List;
  */
 public class DropDatabaseEvent extends MetastoreEvent {
 
+    // for test
+    public DropDatabaseEvent(long eventId, String catalogName, String dbName) {
+        super(eventId, catalogName, dbName, null, MetastoreEventType.DROP_DATABASE);
+    }
+
     private DropDatabaseEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);

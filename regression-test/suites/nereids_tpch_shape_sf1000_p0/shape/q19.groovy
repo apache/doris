@@ -27,15 +27,12 @@ suite("q19") {
 
     sql 'set exec_mem_limit=21G'
     sql 'SET enable_pipeline_engine = true'
-
+    sql 'set parallel_pipeline_task_num=8'
 
 
     
-    def result = sql "show backends;"
-    if (result.size() != 1) {
-        print("backends num: ${result.size()}");
-        return;
-    }
+sql 'set be_number_for_test=3'
+sql 'set enable_runtime_filter_prune=false'
     
     qt_select """
     explain shape plan

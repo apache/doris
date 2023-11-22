@@ -1,6 +1,6 @@
 ---
 {
-"title": "SQL MODE",
+"title": "SQL Mode",
 "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SQL MODE
+# SQL Mode
 
 The sql mode newly supported by Doris refers to the sql mode management mechanism of Mysql. Each client can set its own sql mode, and database administrators with Admin privileges can set the global sql mode.
 ## sql mode introduce
@@ -66,6 +66,11 @@ show session variables
 1. `PIPES_AS_CONCAT`
 
 In this mode, the '||' symbol is a string concatenation symbol (same as the CONCAT() function), not a synonym for the 'OR' symbol. (e.g., `'a'||'b' = 'ab'`, `1||0 = '10'`)
+
+2. `NO_BACKSLASH_ESCAPES`
+
+Enabling this mode disables the backslash character (\\) from functioning as an escape character within strings and identifiers. When this mode is enabled, the backslash is treated as a regular character without any special meaning
+
 ## composite mode
 
 (subsequent additions)

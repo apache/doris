@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.Int32OrLessType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
@@ -49,7 +48,7 @@ public class IntegerType extends IntegralType implements Int32OrLessType {
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other instanceof IntegerType;
     }
 

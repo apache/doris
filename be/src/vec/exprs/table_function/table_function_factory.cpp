@@ -49,6 +49,8 @@ inline auto VExplodeJsonArrayDoubleCreator =
         TableFunctionCreator<VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::DOUBLE};
 inline auto VExplodeJsonArrayStringCreator =
         TableFunctionCreator<VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::STRING};
+inline auto VExplodeJsonArrayJsonCreator =
+        TableFunctionCreator<VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::JSON};
 
 const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
         TableFunctionFactory::_function_map {
@@ -57,6 +59,7 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_json_array_int", VExplodeJsonArrayIntCreator},
                 {"explode_json_array_double", VExplodeJsonArrayDoubleCreator},
                 {"explode_json_array_string", VExplodeJsonArrayStringCreator},
+                {"explode_json_array_json", VExplodeJsonArrayJsonCreator},
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode", TableFunctionCreator<VExplodeTableFunction> {}}};
 

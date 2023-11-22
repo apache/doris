@@ -77,4 +77,6 @@ suite("load") {
         }
         i++
     }
+
+    sql """ sync """
 }

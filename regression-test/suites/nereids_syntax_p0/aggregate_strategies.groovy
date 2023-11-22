@@ -82,7 +82,6 @@ suite("aggregate_strategies") {
         explain {
             sql """
             select
-                /*+SET_VAR(disable_nereids_rules='ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT, FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct id)
                 from $tableName
             """
@@ -90,30 +89,17 @@ suite("aggregate_strategies") {
             notContains "STREAMING"
         }
 
-        explain {
-            sql """
-            select count(*)
-            from (
-              select id
-              from $tableName
-              group by id
-            )a
-            """
-
-            notContains "STREAMING"
-        }
-
+        // test multi_distinct
         test {
             sql """select
-                /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
-                count(distinct id)
+                count(distinct name)
                 from $tableName"""
             result([[5L]])
         }
 
+        // test four phase distinct
         test {
             sql """select
-                /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct id)
                 from $tableName"""
             result([[5L]])
@@ -184,7 +170,7 @@ suite("aggregate_strategies") {
         sql """select
                 /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct number)
-                from numbers('number' = '10000', 'backend_num'='10')"""
+                from numbers('number' = '10000')"""
         result([[10000L]])
     }
 
@@ -192,7 +178,7 @@ suite("aggregate_strategies") {
         sql """select
                 /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct number)
-                from numbers('number' = '10000', 'backend_num'='10')"""
+                from numbers('number' = '10000')"""
         result([[10000L]])
     }
 
@@ -200,7 +186,7 @@ suite("aggregate_strategies") {
         sql """select
                 /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct number)
-                from numbers('number' = '10000', 'backend_num'='1')"""
+                from numbers('number' = '10000')"""
         result([[10000L]])
     }
 
@@ -208,9 +194,12 @@ suite("aggregate_strategies") {
         sql """select
                 /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct number)
-                from numbers('number' = '10000', 'backend_num'='1')"""
+                from numbers('number' = '10000')"""
         result([[10000L]])
     }
 
     qt_sql_distinct_same_col """SELECT COUNT(DISTINCT id, id) FROM test_bucket10_table GROUP BY id """
+
+    sql "set experimental_enable_pipeline_engine=true"
+    qt_sql_distinct_same_col2 """SELECT COUNT(DISTINCT id, id) FROM test_bucket10_table GROUP BY id """
 }

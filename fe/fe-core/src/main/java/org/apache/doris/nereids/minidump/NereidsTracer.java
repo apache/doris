@@ -21,12 +21,14 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
+import lombok.extern.slf4j.Slf4j;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -39,6 +41,7 @@ import java.util.Optional;
 /**
  * log consumer
  */
+@Slf4j
 public class NereidsTracer {
     private static long startTime;
     private static String TRACE_PATH = null;
@@ -99,7 +102,7 @@ public class NereidsTracer {
 
     /** log property and cost pair when doing cost and enforcer task */
     public static void logPropertyAndCostEvent(
-            String groupId, List<Group> children, Plan plan, PhysicalProperties requestProperty, Cost cost) {
+            GroupId groupId, List<Group> children, Plan plan, PhysicalProperties requestProperty, Cost cost) {
         if (!shouldLog) {
             return;
         }
@@ -120,13 +123,13 @@ public class NereidsTracer {
 
     /** log enforcer event when we need to add enforcer */
     public static void logEnforcerEvent(
-            String groupId, Plan plan, PhysicalProperties inputProperty, PhysicalProperties outputProperty) {
+            GroupId groupId, Plan plan, PhysicalProperties inputProperty, PhysicalProperties outputProperty) {
         if (!shouldLog) {
             return;
         }
         JSONObject enforcerEventJson = new JSONObject();
         JSONObject enforcerMsg = new JSONObject();
-        enforcerMsg.put("GroupId", groupId);
+        enforcerMsg.put("GroupId", groupId.toString());
         enforcerMsg.put("Plan", ((AbstractPlan) plan).toJson());
         enforcerMsg.put("InputProperty", inputProperty.toString());
         enforcerMsg.put("OutputProperty", outputProperty.toString());
@@ -158,10 +161,10 @@ public class NereidsTracer {
         totalTraces.put("ApplyRuleEvent", applyRuleEvent);
         totalTraces.put("PropertyAndCostPairs", propertyAndCostEvent);
         totalTraces.put("EnforcerEvent", enforcerEvent);
-        try (FileWriter file = new FileWriter(TRACE_PATH + "/" + queryId)) {
-            file.write(totalTraces.toString());
+        try (FileWriter file = new FileWriter(TRACE_PATH + "/" + queryId + ".json")) {
+            file.write(totalTraces.toString(4));
         } catch (IOException e) {
-            e.printStackTrace();
+            log.info("failed to output of tracer", e);
         }
     }
 

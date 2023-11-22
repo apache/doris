@@ -63,14 +63,16 @@ under the License.
         </mailingList>
     </mailingLists>
     <properties>
-        <palo.home>${basedir}/../../</palo.home>
+        <doris.home>${basedir}/../../</doris.home>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <log4j2.version>2.18.0</log4j2.version>
         <project.scm.id>github</project.scm.id>
-        <hadoop.version>2.10.2</hadoop.version>
+        <hadoop.version>3.3.6</hadoop.version>
         <netty.version>4.1.65.Final</netty.version>
+        <gcs.version>hadoop2-2.2.15</gcs.version>
+        <doris.hive.catalog.shade.version>1.0.1</doris.hive.catalog.shade.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -223,6 +225,29 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-mapreduce-client-core -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <version>${hadoop.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>javax.servlet</groupId>
+                    <artifactId>servlet-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.doris/hive-catalog-shade -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
+            <version>${doris.hive.catalog.shade.version}</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -265,6 +290,13 @@ under the License.
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
             <version>${log4j2.version}</version>
+        </dependency>
+        <!-- gcs connector-->
+        <dependency>
+            <groupId>com.google.cloud.bigdataoss</groupId>
+            <artifactId>gcs-connector</artifactId>
+            <version>${gcs.version}</version>
+            <classifier>shaded</classifier>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
         <dependency>
@@ -363,7 +395,7 @@ under the License.
                         <configuration>
                             <executable>cp</executable>
                             <arguments>
-                                <argument>${palo.home}/gensrc/thrift/PaloBrokerService.thrift</argument>
+                                <argument>${doris.home}/gensrc/thrift/PaloBrokerService.thrift</argument>
                                 <argument>${basedir}/src/main/resources/thrift/</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
@@ -392,6 +424,15 @@ under the License.
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/gcs-connector-${gcs.version}.jar</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
             <!-- copy all dependency libs to target lib dir -->
             <plugin>

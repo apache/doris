@@ -54,6 +54,9 @@ public:
     void add(const std::vector<RowLocation>& rss_row_ids,
              const std::vector<uint32_t>& dst_segments_num_row) {
         for (auto& item : rss_row_ids) {
+            if (item.row_id == -1) {
+                continue;
+            }
             uint32_t id = _segment_to_id_map.at(
                     std::pair<RowsetId, uint32_t> {item.rowset_id, item.segment_id});
             if (_cur_dst_segment_id < dst_segments_num_row.size() &&

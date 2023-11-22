@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -77,6 +78,9 @@ public class LateralViewRef extends TableRef {
         desc = analyzer.registerTableRef(this);
         explodeSlotRef = new SlotRef(new TableName(null, null, viewName), columnName);
         explodeSlotRef.analyze(analyzer);
+        explodeSlotRef.getDesc().setIsNullable(
+                explodeSlotRef.getDesc().getIsNullable() || relatedTableRef.getDesc().getSlots()
+                        .stream().anyMatch(slotDescriptor -> slotDescriptor.getIsNullable()));
         isAnalyzed = true;  // true now that we have assigned desc
     }
 
@@ -99,8 +103,8 @@ public class LateralViewRef extends TableRef {
     public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
         // Create a fake catalog table for the lateral view
         List<Column> columnList = Lists.newArrayList();
-        columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(),
-                false, null, true, null, ""));
+        columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(), false, null,
+                fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, ""));
         view = new InlineView(viewName, columnList);
 
         // Create the non-materialized tuple and set the fake table in it.
@@ -136,7 +140,7 @@ public class LateralViewRef extends TableRef {
             }
             if (tableName.getDb() != null && !tableName.getDb().equalsIgnoreCase(relatedTableName.getDb())) {
                 // db2.t1 lateral view explode_split(db1.t1.k1, ",")
-                throw new AnalysisException("The column " + slotRef.toMySql()
+                throw new AnalysisException("The column " + slotRef.toSql()
                         + " in lateral view must come from the origin table "
                         + relatedTableRef.toSql());
             }
@@ -163,7 +167,7 @@ public class LateralViewRef extends TableRef {
                                 + "when config.lower_case_table_names is not 0, 1 or 2");
                 }
                 // t1 lateral view explode_split(t2.k1, ",")
-                throw new AnalysisException("The column " + slotRef.toMySql()
+                throw new AnalysisException("The column " + slotRef.toSql()
                         + " in lateral view must come from the origin table "
                         + relatedTableName.toSql());
             }

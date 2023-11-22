@@ -80,7 +80,7 @@ suite ("test_agg_mv_schema_change") {
                     `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
                     `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
                 AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-                BUCKETS 1
+                BUCKETS 8
                 PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
             """
 
@@ -94,7 +94,7 @@ suite ("test_agg_mv_schema_change") {
 
         //add materialized view
         def mvName = "mv1"
-        sql "create materialized view ${mvName} as select user_id, date, city, age, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
+        sql "create materialized view ${mvName} as select user_id, date, city, age, sum(cost) from ${tableName} group by user_id, date, city, age;"
 
         waitForJob(tableName, 3000)
 
@@ -102,7 +102,10 @@ suite ("test_agg_mv_schema_change") {
         sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
         def mvName2 = "mv2"
-        sql "create materialized view ${mvName2} as select user_id, date, city, cost, max(age) from ${tableName} group by user_id, date, city, cost, sex;"
+        test{
+            sql "create materialized view ${mvName2} as select user_id, date, city, cost, max(age) from ${tableName} group by user_id, date, city, cost, sex;"
+            exception "err"
+        }
 
         waitForJob(tableName, 3000)
 
@@ -115,7 +118,14 @@ suite ("test_agg_mv_schema_change") {
 
         qt_sc """ select * from ${tableName} order by user_id"""
 
-        // drop value column with mv, not light schema change
+        test {
+            sql "ALTER TABLE ${tableName} DROP COLUMN cost"
+            exception "Can not drop column contained by mv, mv=mv1"
+        }
+
+        sql""" drop materialized view mv1 on ${tableName}; """
+
+        // drop column
         sql """
             ALTER TABLE ${tableName} DROP COLUMN cost
             """

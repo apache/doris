@@ -33,6 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TPaloNodesInfo;
@@ -76,7 +77,7 @@ public class SystemInfoService {
     private volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
     private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
 
-    private volatile ImmutableMap<Long, DiskInfo> pathHashToDishInfoRef = ImmutableMap.of();
+    private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
 
     public static class HostInfo implements Comparable<HostInfo> {
         public String host;
@@ -104,7 +105,7 @@ public class SystemInfoService {
         }
 
         public String getIdent() {
-            return host;
+            return host + "_" + port;
         }
 
         @Override
@@ -230,13 +231,23 @@ public class SystemInfoService {
         for (HostInfo hostInfo : hostInfos) {
             // check is already exist
             if (getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort()) == null) {
-                String backendIdentifier = hostInfo.getHost() + ":" + hostInfo.getPort();
+                String backendIdentifier = NetUtils
+                        .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort());
                 throw new DdlException("backend does not exists[" + backendIdentifier + "]");
             }
-        }
-        for (HostInfo hostInfo : hostInfos) {
             dropBackend(hostInfo.getHost(), hostInfo.getPort());
         }
+    }
+
+    public void dropBackendsByIds(List<String> ids) throws DdlException {
+
+        for (String id : ids) {
+            if (getBackend(Long.parseLong(id)) == null) {
+                throw new DdlException("backend does not exists[" + id + "]");
+            }
+            dropBackend(Long.parseLong(id));
+        }
+
     }
 
     // for decommission
@@ -246,17 +257,14 @@ public class SystemInfoService {
             throw new DdlException("Backend[" + backendId + "] does not exist");
         }
         dropBackend(backend.getHost(), backend.getHeartbeatPort());
-        // update BeInfoCollector
-        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-        beinfoCollector.dropBeInfo(backendId);
     }
 
     // final entry of dropping backend
     public void dropBackend(String host, int heartbeatPort) throws DdlException {
         Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
         if (droppedBackend == null) {
-            throw new DdlException("backend does not exists[" + host
-                    + ":" + heartbeatPort + "]");
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, heartbeatPort) + "]");
         }
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
@@ -354,6 +362,14 @@ public class SystemInfoService {
 
     public List<Long> getAllBackendIds() {
         return getAllBackendIds(false);
+    }
+
+    public int getBackendsNumber(boolean needAlive) {
+        int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
+        if (beNumber < 0) {
+            beNumber = getAllBackendIds(needAlive).size();
+        }
+        return beNumber;
     }
 
     public List<Long> getAllBackendIds(boolean needAlive) {
@@ -522,11 +538,14 @@ public class SystemInfoService {
      *
      * @param replicaAlloc
      * @param storageMedium
+     * @param isStorageMediumSpecified
+     * @param isOnlyForCheck set true if only used for check available backend
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
-            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium)
+            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium, boolean isStorageMediumSpecified,
+            boolean isOnlyForCheck)
             throws DdlException {
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
@@ -551,6 +570,14 @@ public class SystemInfoService {
 
                 BeSelectionPolicy policy = builder.build();
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+                // first time empty, retry with different storage medium
+                // if only for check, no need to retry different storage medium to get backend
+                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
+                    storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
+                    policy = builder.setStorageMedium(storageMedium).build();
+                    beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+                }
+                // after retry different storage medium, it's still empty
                 if (beIds.isEmpty()) {
                     LOG.error("failed backend(s) for policy:" + policy);
                     String errorReplication = "replication tag: " + entry.getKey()
@@ -566,7 +593,8 @@ public class SystemInfoService {
             if (!failedEntries.isEmpty()) {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
-                        + "replication tag and storage medium.\n" + "Create failed replications:\n" + failedMsg);
+                        + "replication tag and storage medium and avail capacity of backends.\n"
+                        + "Create failed replications:\n" + failedMsg);
             }
         }
 
@@ -701,11 +729,6 @@ public class SystemInfoService {
             throw new AnalysisException("Invalid host port: " + hostPort);
         }
 
-        String[] pair = hostPort.split(":");
-        if (pair.length != 2) {
-            throw new AnalysisException("Invalid host port: " + hostPort);
-        }
-
         HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
 
         String host = hostInfo.getHost();
@@ -761,9 +784,6 @@ public class SystemInfoService {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
-        // update BeInfoCollector
-        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-        beinfoCollector.dropBeInfo(backend.getId());
     }
 
     public void updateBackendState(Backend be) {
@@ -779,9 +799,12 @@ public class SystemInfoService {
             memoryBe.setHttpPort(be.getHttpPort());
             memoryBe.setBeRpcPort(be.getBeRpcPort());
             memoryBe.setBrpcPort(be.getBrpcPort());
+            memoryBe.setArrowFlightSqlPort(be.getArrowFlightSqlPort());
             memoryBe.setLastUpdateMs(be.getLastUpdateMs());
             memoryBe.setLastStartTime(be.getLastStartTime());
             memoryBe.setDisks(be.getDisks());
+            memoryBe.setCpuCores(be.getCputCores());
+            memoryBe.setPipelineExecutorSize(be.getPipelineExecutorSize());
         }
     }
 
@@ -803,7 +826,7 @@ public class SystemInfoService {
 
     public void checkAvailableCapacity() throws DdlException {
         if (getAvailableCapacityB() <= 0L) {
-            throw new DdlException("System has no available disk capacity");
+            throw new DdlException("System has no available disk capacity or no available BE nodes");
         }
     }
 
@@ -837,13 +860,14 @@ public class SystemInfoService {
      */
     public Status checkExceedDiskCapacityLimit(Multimap<Long, Long> bePathsMap, boolean floodStage) {
         LOG.debug("pathBeMap: {}", bePathsMap);
-        ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDishInfoRef;
+        ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDiskInfoRef;
         for (Long beId : bePathsMap.keySet()) {
             for (Long pathHash : bePathsMap.get(beId)) {
                 DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
                 if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
                     return new Status(TStatusCode.CANCELLED,
-                            "disk " + pathHash + " on backend " + beId + " exceed limit usage");
+                            "disk " + diskInfo.getRootPath() + " on backend "
+                                    + beId + " exceed limit usage, path hash: " + pathHash);
                 }
             }
         }
@@ -853,7 +877,7 @@ public class SystemInfoService {
     // update the path info when disk report
     // there is only one thread can update path info, so no need to worry about concurrency control
     public void updatePathInfo(List<DiskInfo> addedDisks, List<DiskInfo> removedDisks) {
-        Map<Long, DiskInfo> copiedPathInfos = Maps.newHashMap(pathHashToDishInfoRef);
+        Map<Long, DiskInfo> copiedPathInfos = Maps.newHashMap(pathHashToDiskInfoRef);
         for (DiskInfo diskInfo : addedDisks) {
             copiedPathInfos.put(diskInfo.getPathHash(), diskInfo);
         }
@@ -861,14 +885,15 @@ public class SystemInfoService {
             copiedPathInfos.remove(diskInfo.getPathHash());
         }
         ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
-        pathHashToDishInfoRef = newPathInfos;
+        pathHashToDiskInfoRef = newPathInfos;
         LOG.debug("update path infos: {}", newPathInfos);
     }
 
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
         Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
         if (be == null) {
-            throw new DdlException("backend does not exists[" + clause.getHost() + ":" + clause.getPort() + "]");
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(clause.getHost(), clause.getPort()) + "]");
         }
         if (be.getHost().equals(clause.getNewHost())) {
             // no need to modify
@@ -881,13 +906,26 @@ public class SystemInfoService {
     public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
         List<HostInfo> hostInfos = alterClause.getHostInfos();
         List<Backend> backends = Lists.newArrayList();
-        for (HostInfo hostInfo : hostInfos) {
-            Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
-            if (be == null) {
-                throw new DdlException(
-                        "backend does not exists[" + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+        if (hostInfos.isEmpty()) {
+            List<String> ids = alterClause.getIds();
+            for (String id : ids) {
+                long backendId = Long.parseLong(id);
+                Backend be = getBackend(backendId);
+                if (be == null) {
+                    throw new DdlException("backend does not exists[" + backendId + "]");
+                }
+                backends.add(be);
             }
-            backends.add(be);
+        } else {
+            for (HostInfo hostInfo : hostInfos) {
+                Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
+                if (be == null) {
+                    throw new DdlException(
+                            "backend does not exists[" + NetUtils
+                                    .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
+                }
+                backends.add(be);
+            }
         }
 
         for (Backend be : backends) {
@@ -953,5 +991,23 @@ public class SystemInfoService {
     public List<Backend> getBackendsByTag(Tag tag) {
         List<Backend> bes = getMixBackends();
         return bes.stream().filter(b -> b.getLocationTag().equals(tag)).collect(Collectors.toList());
+    }
+
+    public int getMinPipelineExecutorSize() {
+        if (idToBackendRef.size() == 0) {
+            return 1;
+        }
+        int minPipelineExecutorSize = Integer.MAX_VALUE;
+        for (Backend be : idToBackendRef.values()) {
+            int size = be.getPipelineExecutorSize();
+            if (size > 0) {
+                minPipelineExecutorSize = Math.min(minPipelineExecutorSize, size);
+            }
+        }
+        return minPipelineExecutorSize;
+    }
+
+    public long aliveBECount() {
+        return idToBackendRef.values().stream().filter(Backend::isAlive).count();
     }
 }

@@ -31,8 +31,10 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.MapType;
 
 import java.util.HashMap;
 import java.util.List;
@@ -49,25 +51,27 @@ public class PaimonExternalTable extends ExternalTable {
     }
 
     public String getPaimonCatalogType() {
-        return ((PaimonExternalCatalog) catalog).getPaimonCatalogType();
+        return ((PaimonExternalCatalog) catalog).getCatalogType();
     }
 
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
+            originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
+            schemaUpdateTime = System.currentTimeMillis();
             objectCreated = true;
         }
     }
 
     public Table getOriginTable() {
-        if (originTable == null) {
-            originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
-        }
+        makeSureInitialized();
         return originTable;
     }
 
     @Override
     public List<Column> initSchema() {
+        //init schema need update lastUpdateTime and get latest schema
+        objectCreated = false;
         Table table = getOriginTable();
         TableSchema schema = ((AbstractFileStoreTable) table).schema();
         List<DataField> columns = schema.fields();
@@ -92,9 +96,14 @@ public class PaimonExternalTable extends ExternalTable {
                 return Type.FLOAT;
             case DOUBLE:
                 return Type.DOUBLE;
+            case SMALLINT:
+                return Type.SMALLINT;
+            case TINYINT:
+                return Type.TINYINT;
             case VARCHAR:
             case BINARY:
             case CHAR:
+            case VARBINARY:
                 return Type.STRING;
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;
@@ -104,6 +113,14 @@ public class PaimonExternalTable extends ExternalTable {
             case TIMESTAMP_WITHOUT_TIME_ZONE:
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                 return ScalarType.createDatetimeV2Type(PAIMON_DATETIME_SCALE_MS);
+            case ARRAY:
+                ArrayType arrayType = (ArrayType) dataType;
+                Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType());
+                return org.apache.doris.catalog.ArrayType.create(innerType, true);
+            case MAP:
+                MapType mapType = (MapType) dataType;
+                return new org.apache.doris.catalog.MapType(
+                        paimonTypeToDorisType(mapType.getKeyType()), paimonTypeToDorisType(mapType.getValueType()));
             case TIME_WITHOUT_TIME_ZONE:
                 return Type.UNSUPPORTED;
             default:
@@ -118,15 +135,16 @@ public class PaimonExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
-        if (getPaimonCatalogType().equals("hms")) {
+        if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType()) || PaimonExternalCatalog.PAIMON_FILESYSTEM
+                .equals(getPaimonCatalogType())) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
             tTableDescriptor.setHiveTable(tHiveTable);
             return tTableDescriptor;
         } else {
-            throw new IllegalArgumentException("Currently only supports hms catalog,not support :"
-                + getPaimonCatalogType());
+            throw new IllegalArgumentException("Currently only supports hms/filesystem catalog,not support :"
+                    + getPaimonCatalogType());
         }
     }
 }

@@ -21,16 +21,22 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -50,11 +56,40 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     private static final Map<Class<? extends LogicalPlan>, Set<Class<? extends Expression>>>
             UNEXPECTED_EXPRESSION_TYPE_MAP = ImmutableMap.<Class<? extends LogicalPlan>,
                 Set<Class<? extends Expression>>>builder()
+            .put(LogicalAggregate.class, ImmutableSet.of(
+                    TableGeneratingFunction.class))
             .put(LogicalFilter.class, ImmutableSet.of(
-                AggregateFunction.class,
-                GroupingScalarFunction.class,
-                WindowExpression.class))
-            .put(LogicalJoin.class, ImmutableSet.of(SubqueryExpr.class))
+                    AggregateFunction.class,
+                    GroupingScalarFunction.class,
+                    TableGeneratingFunction.class,
+                    WindowExpression.class))
+            .put(LogicalGenerate.class, ImmutableSet.of(
+                    AggregateFunction.class,
+                    GroupingScalarFunction.class,
+                    WindowExpression.class))
+            .put(LogicalHaving.class, ImmutableSet.of(
+                    TableGeneratingFunction.class,
+                    WindowExpression.class))
+            .put(LogicalJoin.class, ImmutableSet.of(
+                    AggregateFunction.class,
+                    GroupingScalarFunction.class,
+                    TableGeneratingFunction.class,
+                    WindowExpression.class))
+            .put(LogicalOneRowRelation.class, ImmutableSet.of(
+                    GroupingScalarFunction.class,
+                    TableGeneratingFunction.class,
+                    WindowExpression.class))
+            .put(LogicalProject.class, ImmutableSet.of(
+                    TableGeneratingFunction.class))
+            .put(LogicalSort.class, ImmutableSet.of(
+                    AggregateFunction.class,
+                    GroupingScalarFunction.class,
+                    TableGeneratingFunction.class,
+                    WindowExpression.class))
+            .put(LogicalWindow.class, ImmutableSet.of(
+                    GroupingScalarFunction.class,
+                    TableGeneratingFunction.class
+            ))
             .build();
 
     @Override
@@ -105,8 +140,25 @@ public class CheckAnalysis implements AnalysisRuleFactory {
 
     private void checkAggregate(LogicalAggregate<? extends Plan> aggregate) {
         Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
-        boolean distinctMultiColumns = aggregateFunctions.stream()
-                .anyMatch(fun -> fun.isDistinct() && fun.arity() > 1);
+        boolean distinctMultiColumns = false;
+        for (AggregateFunction func : aggregateFunctions) {
+            if (!func.isDistinct()) {
+                continue;
+            }
+            if (func.arity() <= 1) {
+                continue;
+            }
+            for (int i = 1; i < func.arity(); i++) {
+                if (!func.child(i).getInputSlots().isEmpty()) {
+                    // think about group_concat(distinct col_1, ',')
+                    distinctMultiColumns = true;
+                    break;
+                }
+            }
+            if (distinctMultiColumns) {
+                break;
+            }
+        }
         long distinctFunctionNum = aggregateFunctions.stream()
                 .filter(AggregateFunction::isDistinct)
                 .count();

@@ -23,10 +23,11 @@
 #include <string>
 #include <vector>
 
+#include "agent/topic_subscriber.h"
+
 namespace doris {
 
 class TaskWorkerPool;
-class TopicSubscriber;
 class ExecEnv;
 class TAgentPublishRequest;
 class TAgentResult;
@@ -51,6 +52,8 @@ public:
     // TODO(lingbin): This method is deprecated, should be removed later.
     // [[deprecated]]
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
+
+    TopicSubscriber* get_topic_subscriber() { return _topic_subscriber.get(); }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
@@ -89,6 +92,7 @@ private:
 
     std::unique_ptr<TaskWorkerPool> _push_storage_policy_workers;
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
+    std::unique_ptr<TaskWorkerPool> _gc_binlog_workers;
 };
 
 } // end namespace doris

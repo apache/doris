@@ -64,8 +64,10 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
+    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override;
 
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
 
     std::string get_name() override;
 
@@ -85,7 +87,16 @@ protected:
 
     PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr() override {
+        return _state->enable_common_expr_pushdown() && _storage_no_merge();
+    }
+
+    bool _storage_no_merge() override {
+        return (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
+                (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
+                 _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
+                 _olap_scan_node.enable_unique_key_merge_on_write));
+    }
 
     Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
@@ -135,6 +146,7 @@ private:
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
     RuntimeProfile::Counter* _conditions_filtered_counter = nullptr;
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
@@ -182,13 +194,12 @@ private:
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
-    // number of created olap scanners
-    RuntimeProfile::Counter* _num_scanners = nullptr;
-
     // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
+
+    std::mutex _profile_mtx;
 };
 
 } // namespace doris::vectorized

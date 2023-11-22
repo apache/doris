@@ -17,14 +17,23 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 
 /** CommandVisitor. */
 public interface CommandVisitor<R, C> {
+
     R visitCommand(Command command, C context);
 
     default R visitExplainCommand(ExplainCommand explain, C context) {
@@ -35,12 +44,44 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createPolicy, context);
     }
 
-    default R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
+    default R visitInsertIntoTableCommand(InsertIntoTableCommand insertIntoSelectCommand,
             C context) {
         return visitCommand(insertIntoSelectCommand, context);
     }
 
     default R visitUpdateCommand(UpdateCommand updateCommand, C context) {
         return visitCommand(updateCommand, context);
+    }
+
+    default R visitDeleteCommand(DeleteCommand deleteCommand, C context) {
+        return visitCommand(deleteCommand, context);
+    }
+
+    default R visitLoadCommand(LoadCommand loadCommand, C context) {
+        return visitCommand(loadCommand, context);
+    }
+
+    default R visitExportCommand(ExportCommand exportCommand, C context) {
+        return visitCommand(exportCommand, context);
+    }
+
+    default R visitCreateTableCommand(CreateTableCommand createTableCommand, C context) {
+        return visitCommand(createTableCommand, context);
+    }
+
+    default R visitCreateMTMVCommand(CreateMTMVCommand createMTMVCommand, C context) {
+        return visitCommand(createMTMVCommand, context);
+    }
+
+    default R visitAlterMTMVCommand(AlterMTMVCommand alterMTMVCommand, C context) {
+        return visitCommand(alterMTMVCommand, context);
+    }
+
+    default R visitRefreshMTMVCommand(RefreshMTMVCommand refreshMTMVCommand, C context) {
+        return visitCommand(refreshMTMVCommand, context);
+    }
+
+    default R visitDropMTMVCommand(DropMTMVCommand dropMTMVCommand, C context) {
+        return visitCommand(dropMTMVCommand, context);
     }
 }

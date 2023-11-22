@@ -17,6 +17,7 @@
 
 #include "olap/rowset/vertical_beta_rowset_writer.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
@@ -26,11 +27,8 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "olap/rowset/beta_rowset.h"
@@ -45,8 +43,8 @@ using namespace ErrorCode;
 
 VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
     if (!_already_built) {
-        auto fs = _rowset_meta->fs();
-        if (!fs) {
+        const auto& fs = _rowset_meta->fs();
+        if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
         }
         for (auto& segment_writer : _segment_writers) {
@@ -57,8 +55,7 @@ VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
-            WARN_IF_ERROR(fs->delete_file(path),
-                          strings::Substitute("Failed to delete file=$0", path));
+            WARN_IF_ERROR(fs->delete_file(path), fmt::format("Failed to delete file={}", path));
         }
     }
 }
@@ -99,19 +96,34 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
         uint32_t num_rows_written = _segment_writers[_cur_writer_idx]->num_rows_written();
         VLOG_NOTICE << "num_rows_written: " << num_rows_written
                     << ", _cur_writer_idx: " << _cur_writer_idx;
+        uint32_t num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
         // init if it's first value column write in current segment
         if (_cur_writer_idx == 0 && num_rows_written == 0) {
             VLOG_NOTICE << "init first value column segment writer";
             RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
         }
-        if (num_rows_written > max_rows_per_segment) {
+        // when splitting segment, need to make rows align between key columns and value columns
+        size_t start_offset = 0;
+        size_t limit = num_rows;
+        if (num_rows_written + num_rows >= num_rows_key_group &&
+            _cur_writer_idx < _segment_writers.size() - 1) {
+            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(
+                    block, 0, num_rows_key_group - num_rows_written));
             RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx]));
-            // switch to next writer
+            start_offset = num_rows_key_group - num_rows_written;
+            limit = num_rows - start_offset;
             ++_cur_writer_idx;
-            VLOG_NOTICE << "init next value column segment writer: " << _cur_writer_idx;
+            // switch to next writer
             RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
+            num_rows_written = 0;
+            num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
         }
-        RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
+        if (limit > 0) {
+            RETURN_IF_ERROR(
+                    _segment_writers[_cur_writer_idx]->append_block(block, start_offset, limit));
+            DCHECK(_segment_writers[_cur_writer_idx]->num_rows_written() <=
+                   _segment_writers[_cur_writer_idx]->row_count());
+        }
     }
     if (is_key) {
         _num_rows_written += num_rows;
@@ -126,6 +138,7 @@ Status VerticalBetaRowsetWriter::_flush_columns(
     RETURN_IF_ERROR((*segment_writer)->finalize_columns_data());
     RETURN_IF_ERROR((*segment_writer)->finalize_columns_index(&index_size));
     if (is_key) {
+        _total_key_group_rows += (*segment_writer)->row_count();
         // record segment key bound
         KeyBoundsPB key_bounds;
         Slice min_key = (*segment_writer)->min_encoded_key();
@@ -137,7 +150,8 @@ Status VerticalBetaRowsetWriter::_flush_columns(
         _segment_num_rows.resize(_cur_writer_idx + 1);
         _segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
     }
-    _total_index_size += static_cast<int64_t>(index_size);
+    _total_index_size +=
+            static_cast<int64_t>(index_size) + (*segment_writer)->get_inverted_index_file_size();
     return Status::OK();
 }
 
@@ -146,7 +160,7 @@ Status VerticalBetaRowsetWriter::flush_columns(bool is_key) {
         return Status::OK();
     }
 
-    DCHECK(_segment_writers[_cur_writer_idx]);
+    DCHECK(_cur_writer_idx < _segment_writers.size() && _segment_writers[_cur_writer_idx]);
     RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx], is_key));
     _cur_writer_idx = 0;
     return Status::OK();
@@ -155,16 +169,11 @@ Status VerticalBetaRowsetWriter::flush_columns(bool is_key) {
 Status VerticalBetaRowsetWriter::_create_segment_writer(
         const std::vector<uint32_t>& column_ids, bool is_key,
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
-    // TODO: just for pass DCHECK now, we should align the meaning
-    // of _num_segment and _next_segment_id with BetaRowsetWriter.
-    // i.e. _next_segment_id means next available segment id,
-    // and _num_segment means num of flushed segments.
-    allocate_segment_id();
     auto path =
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, _num_segment++);
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("get fs failed");
     }
     io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
@@ -203,7 +212,7 @@ Status VerticalBetaRowsetWriter::final_flush() {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
             return st;
         }
-        _total_data_size += segment_size;
+        _total_data_size += segment_size + segment_writer->get_inverted_index_file_size();
         segment_writer.reset();
     }
     return Status::OK();

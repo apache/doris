@@ -30,6 +30,8 @@
 namespace doris {
 namespace pipeline {
 
+class Dependency;
+
 class DataQueue {
 public:
     //always one is enough, but in union node it's has more children
@@ -58,8 +60,17 @@ public:
     int64_t max_size_of_queue() const { return _max_size_of_queue; }
 
     bool data_exhausted() const { return _data_exhausted; }
+    void set_dependency(Dependency* source_dependency, Dependency* sink_dependency) {
+        _source_dependency = source_dependency;
+        _sink_dependency = sink_dependency;
+    }
 
 private:
+    friend class AggSourceDependency;
+    friend class UnionSourceDependency;
+    friend class AggSinkDependency;
+    friend class UnionSinkDependency;
+
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
     std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _queue_blocks;
 
@@ -68,14 +79,14 @@ private:
 
     //how many deque will be init, always will be one
     int _child_count = 0;
-    std::deque<std::atomic<bool>> _is_finished;
-    std::deque<std::atomic<bool>> _is_canceled;
+    std::vector<std::atomic_bool> _is_finished;
+    std::vector<std::atomic_bool> _is_canceled;
     // int64_t just for counter of profile
-    std::deque<std::atomic<int64_t>> _cur_bytes_in_queue;
-    std::deque<std::atomic<uint32_t>> _cur_blocks_nums_in_queue;
+    std::vector<std::atomic_int64_t> _cur_bytes_in_queue;
+    std::vector<std::atomic_uint32_t> _cur_blocks_nums_in_queue;
 
     //this will be indicate which queue has data, it's useful when have many queues
-    std::atomic<int> _flag_queue_idx = 0;
+    std::atomic_int _flag_queue_idx = 0;
     // only used by streaming agg source operator
     bool _data_exhausted = false;
 
@@ -83,6 +94,10 @@ private:
     int64_t _max_bytes_in_queue = 0;
     int64_t _max_size_of_queue = 0;
     static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
+
+    Dependency* _source_dependency = nullptr;
+    Dependency* _sink_dependency = nullptr;
 };
+
 } // namespace pipeline
 } // namespace doris

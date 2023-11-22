@@ -99,13 +99,13 @@ public class Transaction {
         try {
             coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
             coordinator.setQueryType(TQueryType.LOAD);
-            executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
+            executor.getProfile().setExecutionProfile(coordinator.getExecutionProfile());
 
             QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), coordinator);
 
             coordinator.exec();
             int execTimeout = ctx.getExecTimeout();
-            LOG.debug("Insert execution timeout:{}", execTimeout);
+            LOG.info("Insert {} execution timeout:{}", DebugUtil.printId(ctx.queryId()), execTimeout);
             boolean notTimeout = coordinator.join(execTimeout);
             if (!coordinator.isDone()) {
                 coordinator.cancel();
@@ -198,7 +198,8 @@ public class Transaction {
         // 2. transaction failed but Config.using_old_load_usage_pattern is true.
         // we will record the load job info for these 2 cases
         try {
-            StatementBase statement = planner.getCascadesContext().getStatementContext().getParsedStatement();
+            // the statement parsed by Nereids is saved at executor::parsedStmt.
+            StatementBase statement = executor.getParsedStmt();
             ctx.getEnv().getLoadManager()
                     .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
                             table.getId(),

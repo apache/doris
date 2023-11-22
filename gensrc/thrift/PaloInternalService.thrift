@@ -176,7 +176,7 @@ struct TQueryOptions {
   51: optional bool enable_new_shuffle_hash_method
 
   52: optional i32 be_exec_version = 0
-  
+
   53: optional i32 partitioned_hash_join_rows_threshold = 0
 
   54: optional bool enable_share_hash_table_for_broadcast_join
@@ -196,7 +196,7 @@ struct TQueryOptions {
   60: optional i32 partitioned_hash_agg_rows_threshold = 0
 
   61: optional bool enable_file_cache = false
-  
+
   62: optional i32 insert_timeout = 14400
 
   63: optional i32 execution_timeout = 3600
@@ -225,8 +225,40 @@ struct TQueryOptions {
   74: optional bool enable_scan_node_run_serial = false; 
 
   75: optional bool enable_insert_strict = false;
+
+  76: optional bool enable_inverted_index_query = true;
+
+  77: optional bool truncate_char_or_varchar_columns = false
+
+  78: optional bool enable_hash_join_early_start_probe = false
+
+  79: optional bool enable_pipeline_x_engine = false;
+
+  80: optional bool enable_memtable_on_sink_node = false;
+
+  81: optional bool enable_delete_sub_predicate_v2 = false;
+
+  // A tag used to distinguish fe start epoch.
+  82: optional i64 fe_process_uuid = 0;
+
+  83: optional i32 inverted_index_conjunction_opt_threshold = 1000;
+  // A seperate flag to indicate whether to enable profile, not
+  // use is_report_success any more
+  84: optional bool enable_profile = false;
+  85: optional bool enable_page_cache = false;
+  86: optional i32 analyze_timeout = 43200;
+
+  87: optional bool faster_float_convert = false;
+
+  88: optional bool enable_decimal256 = false;
+
+  89: optional bool enable_local_shuffle = false;
+  // For emergency use, skip missing version when reading rowsets
+  90: optional bool skip_missing_version = false;
+
+  91: optional bool runtime_filter_wait_infinitely = false;
 }
-    
+
 
 // A scan range plus the parameters needed to execute that scan.
 struct TScanRangeParams {
@@ -297,7 +329,7 @@ struct TPlanFragmentExecParams {
   11: optional bool send_query_statistics_with_every_batch
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
-
+  13: optional bool group_commit
 }
 
 // Global query parameters assigned by the coordinator.
@@ -307,7 +339,7 @@ struct TQueryGlobals {
   1: required string now_string
 
   // To support timezone in Doris. timestamp_ms is the millisecond uinix timestamp for
-  // this query to calculate time zone relative function 
+  // this query to calculate time zone relative function
   2: optional i64 timestamp_ms
 
   // time_zone is the timezone this query used.
@@ -419,6 +451,20 @@ struct TExecPlanFragmentParams {
   21: optional bool build_hash_table_for_broadcast_join = false;
 
   22: optional list<Types.TUniqueId> instances_sharing_hash_table;
+  23: optional string table_name;
+
+  // scan node id -> scan range params, only for external file scan
+  24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
+
+  25: optional i64 wal_id
+
+  // num load stream for each sink backend
+  26: optional i32 load_stream_per_node
+
+  // total num of load streams the downstream backend will see
+  27: optional i32 total_load_streams
+
+  28: optional i32 num_local_sink
 }
 
 struct TExecPlanFragmentParamsList {
@@ -630,6 +676,13 @@ struct TPipelineFragmentParams {
   24: list<TPipelineInstanceParams> local_params
   26: optional list<TPipelineWorkloadGroup> workload_groups
   27: optional TTxnParams txn_conf
+  28: optional string table_name
+  // scan node id -> scan range params, only for external file scan
+  29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
+  30: optional bool group_commit = false;
+  31: optional i32 load_stream_per_node // num load stream for each sink backend
+  32: optional i32 total_load_streams // total num of load streams the downstream backend will see
+  33: optional i32 num_local_sink
 }
 
 struct TPipelineFragmentParamsList {

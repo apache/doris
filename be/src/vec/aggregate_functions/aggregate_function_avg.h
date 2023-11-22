@@ -58,7 +58,8 @@ namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionAvgData {
-    T sum = 0;
+    using ResultType = T;
+    T sum {};
     UInt64 count = 0;
 
     AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
@@ -87,7 +88,11 @@ struct AggregateFunctionAvgData {
             Decimal128 ret(cal_ret.value());
             return ret;
         } else {
-            return static_cast<ResultT>(sum) / count;
+            if constexpr (IsDecimal256<T>) {
+                return static_cast<ResultT>(sum / T(count));
+            } else {
+                return static_cast<ResultT>(sum) / count;
+            }
         }
     }
 
@@ -107,16 +112,18 @@ template <typename T, typename Data>
 class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
-    using ResultType = DisposeDecimal<T, Float64>;
-    using ResultDataType =
-            std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
-                               std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<Decimal128I>,
-                                                  DataTypeNumber<Float64>>>;
+    using ResultType = std::conditional_t<
+            IsDecimalV2<T>, Decimal128,
+            std::conditional_t<IsDecimalNumber<T>, typename Data::ResultType, Float64>>;
+    using ResultDataType = std::conditional_t<
+            IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
+            std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<typename Data::ResultType>,
+                               DataTypeNumber<Float64>>>;
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
-    using ColVecResult =
-            std::conditional_t<IsDecimalV2<T>, ColumnDecimal<Decimal128>,
-                               std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128I>,
-                                                  ColumnVector<Float64>>>;
+    using ColVecResult = std::conditional_t<
+            IsDecimalV2<T>, ColumnDecimal<Decimal128>,
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<typename Data::ResultType>,
+                               ColumnVector<Float64>>>;
 
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
@@ -135,6 +142,9 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
+#ifdef __clang__
+#pragma clang fp reassociate(on)
+#endif
         const auto& column = assert_cast<const ColVecType&>(*columns[0]);
         if constexpr (IsDecimalNumber<T>) {
             this->data(place).sum += column.get_data()[row_num].value;
@@ -145,7 +155,7 @@ public:
     }
 
     void reset(AggregateDataPtr place) const override {
-        this->data(place).sum = 0;
+        this->data(place).sum = {};
         this->data(place).count = 0;
     }
 
@@ -202,7 +212,7 @@ public:
         auto* data = dst_col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&data[sizeof(Data) * i]);
-            state.sum = src_data[i];
+            state.sum = typename Data::ResultType(src_data[i]);
             state.count = 1;
         }
     }
@@ -220,12 +230,42 @@ public:
         }
     }
 
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena* arena) const override {
+        DCHECK(end <= column.size() && begin <= end)
+                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        for (size_t i = begin; i <= end; ++i) {
+            this->data(place).sum += data[i].sum;
+            this->data(place).count += data[i].count;
+        }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+    }
+
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         col.set_item_size(sizeof(Data));
-        col.resize(1);
-        *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);
+        size_t old_size = col.size();
+        col.resize(old_size + 1);
+        *(reinterpret_cast<Data*>(col.get_data().data()) + old_size) = this->data(place);
     }
 
     MutableColumnPtr create_serialize_column() const override {

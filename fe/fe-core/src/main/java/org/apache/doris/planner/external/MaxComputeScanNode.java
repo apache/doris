@@ -37,12 +37,17 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
     private final MaxComputeExternalCatalog catalog;
     public static final int MIN_SPLIT_SIZE = 4096;
+
+    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
+    }
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                               StatisticalType statisticalType, boolean needCheckColumnPriv) {
@@ -53,6 +58,11 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     @Override
     protected TFileType getLocationType() throws UserException {
+        return getLocationType(null);
+    }
+
+    @Override
+    protected TFileType getLocationType(String location) throws UserException {
         return TFileType.FILE_NET;
     }
 
@@ -87,7 +97,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
         try {
             List<Pair<Long, Long>> sliceRange = new ArrayList<>();
-            long totalRows = catalog.getTotalRows(table.getDbName(), table.getName());
+            Optional<String> partitionSpec = table.getPartitionSpec(conjuncts);
+            long totalRows = catalog.getTotalRows(table.getDbName(), table.getName(), partitionSpec);
             long fileNum = odpsTable.getFileNum();
             long start = 0;
             long splitSize = (long) Math.ceil((double) totalRows / fileNum);

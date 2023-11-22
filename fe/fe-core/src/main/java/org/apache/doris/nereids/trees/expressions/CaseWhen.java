@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -29,7 +30,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -51,9 +51,7 @@ public class CaseWhen extends Expression {
     }
 
     public CaseWhen(List<WhenClause> whenClauses, Expression defaultValue) {
-        super(ImmutableList.<Expression>builder()
-                .addAll(whenClauses).add(defaultValue).build()
-                .toArray(new Expression[0]));
+        super(ImmutableList.<Expression>builder().addAll(whenClauses).add(defaultValue).build());
         this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
         this.defaultValue = Optional.of(Objects.requireNonNull(defaultValue));
     }
@@ -70,12 +68,6 @@ public class CaseWhen extends Expression {
         return Stream.concat(whenClauses.stream(), defaultValue.map(Stream::of).orElseGet(Stream::empty))
                 .map(ExpressionTrait::getDataType)
                 .collect(ImmutableList.toImmutableList());
-    }
-
-    public List<Expression> expressionForCoercion() {
-        List<Expression> ret = whenClauses.stream().map(WhenClause::getResult).collect(Collectors.toList());
-        defaultValue.ifPresent(ret::add);
-        return ret;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -99,7 +91,16 @@ public class CaseWhen extends Expression {
 
     @Override
     public String toString() {
-        return toSql();
+        StringBuilder output = new StringBuilder("CASE");
+        for (Expression child : children()) {
+            if (child instanceof WhenClause) {
+                output.append(child.toString());
+            } else {
+                output.append(" ELSE ").append(child.toString());
+            }
+        }
+        output.append(" END");
+        return output.toString();
     }
 
     @Override
@@ -118,7 +119,7 @@ public class CaseWhen extends Expression {
 
     @Override
     public CaseWhen withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
+        Preconditions.checkArgument(!children.isEmpty(), "case when should has at least 1 child");
         List<WhenClause> whenClauseList = new ArrayList<>();
         Expression defaultValue = null;
         for (int i = 0; i < children.size(); i++) {
@@ -127,7 +128,7 @@ public class CaseWhen extends Expression {
             } else if (children.size() - 1 == i) {
                 defaultValue = children.get(i);
             } else {
-                throw new IllegalArgumentException("The children format needs to be [WhenClause+, DefaultValue?]");
+                throw new AnalysisException("The children format needs to be [WhenClause+, DefaultValue?]");
             }
         }
         if (defaultValue == null) {

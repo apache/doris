@@ -74,8 +74,12 @@ public:
     Status sink(RuntimeState*, vectorized::Block*, SourceState) override { return Status::OK(); }
 
     Status close(RuntimeState* state) override {
-        _exec_node->close(state);
+        static_cast<void>(_exec_node->close(state));
         return Status::OK();
+    }
+
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
+        return _exec_node->runtime_profile();
     }
 
 private:

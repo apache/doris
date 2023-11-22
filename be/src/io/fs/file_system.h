@@ -17,41 +17,36 @@
 
 #pragma once
 
-#include <bthread/bthread.h>
 #include <butil/macros.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
-#include <filesystem>
-#include <functional>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "io/fs/file_reader_options.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 
 namespace doris {
 namespace io {
-class FileSystem;
 
 #ifndef FILESYSTEM_M
-#define FILESYSTEM_M(stmt)                    \
-    do {                                      \
-        Status _s;                            \
-        if (bthread_self() == 0) {            \
-            _s = (stmt);                      \
-        } else {                              \
-            auto task = [&] { _s = (stmt); }; \
-            AsyncIO::run_task(task, _type);   \
-        }                                     \
-        if (!_s) {                            \
-            LOG(WARNING) << _s;               \
-        }                                     \
-        return _s;                            \
+#define FILESYSTEM_M(stmt)                                  \
+    do {                                                    \
+        Status _s;                                          \
+        if (bthread_self() == 0) {                          \
+            _s = (stmt);                                    \
+        } else {                                            \
+            auto task = [&] { _s = (stmt); };               \
+            AsyncIO::run_task(task, _type);                 \
+        }                                                   \
+        if (!_s) {                                          \
+            LOG(WARNING) << _s;                             \
+            _s = Status::Error<false>(_s.code(), _s.msg()); \
+        }                                                   \
+        return _s;                                          \
     } while (0);
 #endif
 
@@ -73,12 +68,10 @@ class FileSystem : public std::enable_shared_from_this<FileSystem> {
 public:
     // The following are public interface.
     // And derived classes should implement all xxx_impl methods.
-    Status create_file(const Path& file, FileWriterPtr* writer);
-    Status open_file(const Path& file, FileReaderSPtr* reader) {
-        return open_file(file, FileReaderOptions::DEFAULT, reader);
-    }
-    Status open_file(const Path& file, const FileReaderOptions& reader_options,
-                     FileReaderSPtr* reader);
+    Status create_file(const Path& file, FileWriterPtr* writer,
+                       const FileWriterOptions* opts = nullptr);
+    Status open_file(const Path& file, FileReaderSPtr* reader,
+                     const FileReaderOptions* opts = nullptr);
     Status create_directory(const Path& dir, bool failed_if_exists = false);
     Status delete_file(const Path& file);
     Status delete_directory(const Path& dir);
@@ -109,11 +102,12 @@ public:
 
 protected:
     /// create file and return a FileWriter
-    virtual Status create_file_impl(const Path& file, FileWriterPtr* writer) = 0;
+    virtual Status create_file_impl(const Path& file, FileWriterPtr* writer,
+                                    const FileWriterOptions* opts) = 0;
 
     /// open file and return a FileReader
-    virtual Status open_file_impl(const Path& file, const FileReaderOptions& reader_options,
-                                  FileReaderSPtr* reader) = 0;
+    virtual Status open_file_impl(const Path& file, FileReaderSPtr* reader,
+                                  const FileReaderOptions* opts) = 0;
 
     /// create directory recursively
     virtual Status create_directory_impl(const Path& dir, bool failed_if_exists = false) = 0;

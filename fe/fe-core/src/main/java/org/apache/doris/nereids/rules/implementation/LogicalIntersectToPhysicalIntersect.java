@@ -29,6 +29,8 @@ public class LogicalIntersectToPhysicalIntersect extends OneImplementationRuleFa
     public Rule build() {
         return logicalIntersect().then(intersect ->
                 new PhysicalIntersect(intersect.getQualifier(),
+                        intersect.getOutputs(),
+                        intersect.getRegularChildrenOutputs(),
                         intersect.getLogicalProperties(),
                         intersect.children())
         ).toRule(RuleType.LOGICAL_INTERSECT_TO_PHYSICAL_INTERSECT);

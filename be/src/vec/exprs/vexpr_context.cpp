@@ -21,10 +21,8 @@
 #include <ostream>
 #include <string>
 
-#include "common/daemon.h"
-
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/object_pool.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -45,18 +43,19 @@ VExprContext::VExprContext(const VExprSPtr& expr)
           _is_clone(false),
           _prepared(false),
           _opened(false),
-          _closed(false),
           _last_result_column_id(-1) {}
 
 VExprContext::~VExprContext() {
-    // Do not delete this code, this code here is used to check if forget to close the opened context
-    // Or there will be memory leak
-    DCHECK(!_prepared || _closed || k_doris_exit)
-            << " prepare:" << _prepared << " closed:" << _closed
-            << " expr:" << _root->debug_string();
+    // In runtime filter, only create expr context to get expr root, will not call
+    // prepare or open, so that it is not need to call close. And call close may core
+    // because the function context in expr is not set.
+    if (!_prepared || !_opened) {
+        return;
+    }
+    close();
 }
 
-doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
+Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
     Status st;
     RETURN_IF_CATCH_EXCEPTION({
         st = _root->execute(this, block, result_column_id);
@@ -65,13 +64,14 @@ doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result
     return st;
 }
 
-doris::Status VExprContext::prepare(doris::RuntimeState* state,
-                                    const doris::RowDescriptor& row_desc) {
+Status VExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     _prepared = true;
-    return _root->prepare(state, row_desc, this);
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->prepare(state, row_desc, this); });
+    return st;
 }
 
-doris::Status VExprContext::open(doris::RuntimeState* state) {
+Status VExprContext::open(RuntimeState* state) {
     DCHECK(_prepared);
     if (_opened) {
         return Status::OK();
@@ -81,18 +81,22 @@ doris::Status VExprContext::open(doris::RuntimeState* state) {
     // original's fragment state and only need to have thread-local state initialized.
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
-    return _root->open(state, this, scope);
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->open(state, this, scope); });
+    return st;
 }
 
-void VExprContext::close(doris::RuntimeState* state) {
-    DCHECK(!_closed);
+void VExprContext::close() {
+    // Sometimes expr context may not have a root, then it need not call close
+    if (_root == nullptr) {
+        return;
+    }
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
-    _root->close(state, this, scope);
-    _closed = true;
+    _root->close(this, scope);
 }
 
-doris::Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
+Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
     DCHECK(_prepared) << "expr context not prepared";
     DCHECK(_opened);
     DCHECK(new_ctx.get() == nullptr);
@@ -115,9 +119,8 @@ void VExprContext::clone_fn_contexts(VExprContext* other) {
     }
 }
 
-int VExprContext::register_function_context(RuntimeState* state,
-                                            const doris::TypeDescriptor& return_type,
-                                            const std::vector<doris::TypeDescriptor>& arg_types) {
+int VExprContext::register_function_context(RuntimeState* state, const TypeDescriptor& return_type,
+                                            const std::vector<TypeDescriptor>& arg_types) {
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
     return _fn_contexts.size() - 1;
@@ -221,6 +224,10 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
             for (size_t i = 0; i < size; ++i) {
                 result_filter_data[i] &= filter_data[i];
             }
+            if (memchr(result_filter_data, 0x1, size) == nullptr) {
+                *can_filter_all = true;
+                return Status::OK();
+            }
         }
     }
     return Status::OK();
@@ -240,8 +247,21 @@ Status VExprContext::execute_conjuncts_and_filter_block(
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
         }
     } else {
-        RETURN_IF_CATCH_EXCEPTION(
-                Block::filter_block_internal(block, columns_to_filter, result_filter));
+        try {
+            Block::filter_block_internal(block, columns_to_filter, result_filter);
+        } catch (const Exception& e) {
+            std::string str;
+            for (auto ctx : ctxs) {
+                if (str.length()) {
+                    str += ",";
+                }
+                str += ctx->root()->debug_string();
+            }
+
+            return Status::InternalError(
+                    "filter_block_internal meet exception, exprs=[{}], exception={}", str,
+                    e.what());
+        }
     }
     Block::erase_useless_column(block, column_to_keep);
     return Status::OK();
@@ -266,15 +286,27 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
     return Status::OK();
 }
 
+// do_projection: for some query(e.g. in MultiCastDataStreamerSourceOperator::get_block()),
+// output_vexpr_ctxs will output the same column more than once, and if the output_block
+// is mem-reused later, it will trigger DCHECK_EQ(d.column->use_count(), 1) failure when
+// doing Block::clear_column_data, set do_projection to true to copy the column data to
+// avoid this problem.
 Status VExprContext::get_output_block_after_execute_exprs(
-        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block) {
+        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block,
+        bool do_projection) {
+    auto rows = input_block.rows();
     vectorized::Block tmp_block(input_block.get_columns_with_type_and_name());
     vectorized::ColumnsWithTypeAndName result_columns;
     for (auto& vexpr_ctx : output_vexpr_ctxs) {
         int result_column_id = -1;
         RETURN_IF_ERROR(vexpr_ctx->execute(&tmp_block, &result_column_id));
         DCHECK(result_column_id != -1);
-        result_columns.emplace_back(tmp_block.get_by_position(result_column_id));
+        const auto& col = tmp_block.get_by_position(result_column_id);
+        if (do_projection) {
+            result_columns.emplace_back(col.column->clone_resized(rows), col.type, col.name);
+        } else {
+            result_columns.emplace_back(tmp_block.get_by_position(result_column_id));
+        }
     }
     *output_block = {result_columns};
     return Status::OK();

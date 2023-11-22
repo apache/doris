@@ -19,6 +19,7 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -33,8 +34,11 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import org.apache.commons.lang3.NotImplementedException;
@@ -44,9 +48,14 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /**
  * External table represent tables that are not self-managed by Doris.
@@ -66,7 +75,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected long timestamp;
     @SerializedName(value = "dbName")
     protected String dbName;
+    // this field will be refreshed after reloading schema
+    protected volatile long schemaUpdateTime;
 
+    protected long dbId;
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
@@ -108,6 +120,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         try {
             // getDbOrAnalysisException will call makeSureInitialized in ExternalCatalog.
             ExternalDatabase db = catalog.getDbOrAnalysisException(dbName);
+            dbId = db.getId();
             db.makeSureInitialized();
         } catch (AnalysisException e) {
             Util.logAndThrowRuntimeException(LOG, String.format("Exception to get db %s", dbName), e);
@@ -283,9 +296,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 0;
     }
 
+    // return schema update time as default
+    // override this method if there is some other kinds of update time
+    // use getSchemaUpdateTime if just need the schema update time
     @Override
     public long getUpdateTime() {
-        return 0;
+        return this.schemaUpdateTime;
     }
 
     @Override
@@ -317,6 +333,21 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 1;
     }
 
+    @Override
+    public DatabaseIf getDatabase() {
+        return catalog.getDbNullable(dbName);
+    }
+
+    @Override
+    public List<Column> getColumns() {
+        return getFullSchema();
+    }
+
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        return Optional.empty();
+    }
+
     /**
      * Should only be called in ExternalCatalog's getSchema(),
      * which is called from schema cache.
@@ -324,6 +355,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *
      * @return
      */
+    public List<Column> initSchemaAndUpdateTime() {
+        schemaUpdateTime = System.currentTimeMillis();
+        return initSchema();
+    }
+
     public List<Column> initSchema() {
         throw new NotImplementedException("implement in sub class");
     }
@@ -347,5 +383,25 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         rwLock = new ReentrantReadWriteLock(true);
         objectCreated = false;
+    }
+
+    @Override
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        // TODO: Find a way to decide if this external table need to be reanalyzed.
+        // For now, simply return true for all external tables.
+        return true;
+    }
+
+    @Override
+    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
+        HashSet<String> partitions = Sets.newHashSet();
+        // TODO: Find a way to collect external table partitions that need to be analyzed.
+        partitions.add("Dummy Partition");
+        return getBaseSchema().stream().collect(Collectors.toMap(Column::getName, k -> partitions));
+    }
+
+    @Override
+    public List<Long> getChunkSizes() {
+        throw new NotImplementedException("getChunkSized not implemented");
     }
 }

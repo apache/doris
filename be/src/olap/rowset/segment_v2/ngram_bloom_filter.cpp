@@ -20,8 +20,8 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
+#include "gutil/hash/city.h"
 #include "gutil/strings/substitute.h"
-#include "util/cityhash102/city.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -54,8 +54,8 @@ Status NGramBloomFilter::init(const char* buf, uint32_t size, HashStrategyPB str
 }
 
 void NGramBloomFilter::add_bytes(const char* data, uint32_t len) {
-    size_t hash1 = CityHash_v1_0_2::CityHash64WithSeed(data, len, 0);
-    size_t hash2 = CityHash_v1_0_2::CityHash64WithSeed(data, len, SEED_GEN);
+    size_t hash1 = util_hash::CityHash64WithSeed(data, len, 0);
+    size_t hash2 = util_hash::CityHash64WithSeed(data, len, SEED_GEN);
 
     for (size_t i = 0; i < HASH_FUNCTIONS; ++i) {
         size_t pos = (hash1 + i * hash2 + i * i) % (8 * _size);

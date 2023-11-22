@@ -52,6 +52,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/group_commit_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/message_body_sink.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -60,6 +61,7 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
 #include "util/doris_metrics.h"
+#include "util/load_util.h"
 #include "util/metrics.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -74,68 +76,12 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
+static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
+static const string CHUNK = "chunked";
+
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
-
-static void parse_format(const std::string& format_str, const std::string& compress_type_str,
-                         TFileFormatType::type* format_type,
-                         TFileCompressType::type* compress_type) {
-    if (format_str.empty()) {
-        parse_format("CSV", compress_type_str, format_type, compress_type);
-        return;
-    }
-    *compress_type = TFileCompressType::PLAIN;
-    *format_type = TFileFormatType::FORMAT_UNKNOWN;
-    if (iequal(format_str, "CSV")) {
-        if (compress_type_str.empty()) {
-            *format_type = TFileFormatType::FORMAT_CSV_PLAIN;
-        } else if (iequal(compress_type_str, "GZ")) {
-            *format_type = TFileFormatType::FORMAT_CSV_GZ;
-            *compress_type = TFileCompressType::GZ;
-        } else if (iequal(compress_type_str, "LZO")) {
-            *format_type = TFileFormatType::FORMAT_CSV_LZO;
-            *compress_type = TFileCompressType::LZO;
-        } else if (iequal(compress_type_str, "BZ2")) {
-            *format_type = TFileFormatType::FORMAT_CSV_BZ2;
-            *compress_type = TFileCompressType::BZ2;
-        } else if (iequal(compress_type_str, "LZ4")) {
-            *format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
-            *compress_type = TFileCompressType::LZ4FRAME;
-        } else if (iequal(compress_type_str, "LZOP")) {
-            *format_type = TFileFormatType::FORMAT_CSV_LZOP;
-            *compress_type = TFileCompressType::LZO;
-        } else if (iequal(compress_type_str, "DEFLATE")) {
-            *format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
-            *compress_type = TFileCompressType::DEFLATE;
-        }
-    } else if (iequal(format_str, "JSON")) {
-        if (compress_type_str.empty()) {
-            *format_type = TFileFormatType::FORMAT_JSON;
-        }
-    } else if (iequal(format_str, "PARQUET")) {
-        *format_type = TFileFormatType::FORMAT_PARQUET;
-    } else if (iequal(format_str, "ORC")) {
-        *format_type = TFileFormatType::FORMAT_ORC;
-    }
-    return;
-}
-
-static bool is_format_support_streaming(TFileFormatType::type format) {
-    switch (format) {
-    case TFileFormatType::FORMAT_CSV_PLAIN:
-    case TFileFormatType::FORMAT_CSV_BZ2:
-    case TFileFormatType::FORMAT_CSV_DEFLATE:
-    case TFileFormatType::FORMAT_CSV_GZ:
-    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-    case TFileFormatType::FORMAT_CSV_LZO:
-    case TFileFormatType::FORMAT_CSV_LZOP:
-    case TFileFormatType::FORMAT_JSON:
-        return true;
-    default:
-        return false;
-    }
-}
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
     _stream_load_entity =
@@ -198,18 +144,22 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
         return Status::InternalError("receive body don't equal with body bytes");
     }
+
+    // if we use non-streaming, MessageBodyFileSink.finish will close the file
+    RETURN_IF_ERROR(ctx->body_sink->finish());
     if (!ctx->use_streaming) {
-        // if we use non-streaming, we need to close file first,
-        // then execute_plan_fragment here
-        // this will close file
+        // we need to close file first, then execute_plan_fragment here
         ctx->body_sink.reset();
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx));
-    } else {
-        RETURN_IF_ERROR(ctx->body_sink->finish());
     }
 
     // wait stream load finish
     RETURN_IF_ERROR(ctx->future.get());
+
+    if (ctx->group_commit) {
+        LOG(INFO) << "skip commit because this is group commit, pipe_id=" << ctx->id.to_string();
+        return Status::OK();
+    }
 
     if (ctx->two_phase_commit) {
         int64_t pre_commit_start_time = MonotonicNanos();
@@ -236,8 +186,17 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     url_decode(req->param(HTTP_DB_KEY), &ctx->db);
     url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
     ctx->label = req->header(HTTP_LABEL_KEY);
-    if (ctx->label.empty()) {
-        ctx->label = generate_uuid_string();
+    Status st = Status::OK();
+    if (iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
+        config::wait_internal_group_commit_finish) {
+        if (iequal(req->header(HTTP_GROUP_COMMIT), "true") && !ctx->label.empty()) {
+            st = Status::InternalError("label and group_commit can't be set at the same time");
+        }
+        ctx->group_commit = true;
+    } else {
+        if (ctx->label.empty()) {
+            ctx->label = generate_uuid_string();
+        }
     }
 
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true" ? true : false;
@@ -245,7 +204,9 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
               << ", tbl=" << ctx->table;
 
-    auto st = _on_header(req, ctx);
+    if (st.ok()) {
+        st = _on_header(req, ctx);
+    }
     if (!st.ok()) {
         ctx->status = std::move(st);
         if (ctx->need_rollback) {
@@ -290,8 +251,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         //treat as CSV
         format_str = BeConsts::CSV;
     }
-    parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
-                 &ctx->compress_type);
+    if (iequal(format_str, "hive_text")) {
+        ctx->header_type = format_str;
+        format_str = BeConsts::CSV;
+    }
+    LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
+                           &ctx->compress_type);
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
         return Status::InternalError("unknown data format, format={}",
                                      http_req->header(HTTP_FORMAT_KEY));
@@ -330,6 +295,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 #endif
     }
 
+    if (!http_req->header(HttpHeaders::TRANSFER_ENCODING).empty()) {
+        if (http_req->header(HttpHeaders::TRANSFER_ENCODING).find(CHUNK) != std::string::npos) {
+            ctx->is_chunked_transfer = true;
+        }
+    }
+
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
         try {
             ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
@@ -341,9 +312,11 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         ctx->load_comment = http_req->header(HTTP_COMMENT);
     }
     // begin transaction
-    int64_t begin_txn_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx.get()));
-    ctx->begin_txn_cost_nanos = MonotonicNanos() - begin_txn_start_time;
+    if (!ctx->group_commit) {
+        int64_t begin_txn_start_time = MonotonicNanos();
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx.get()));
+        ctx->begin_txn_cost_nanos = MonotonicNanos() - begin_txn_start_time;
+    }
 
     // process put file
     return _process_put(http_req, ctx);
@@ -392,7 +365,7 @@ void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
 Status StreamLoadAction::_process_put(HttpRequest* http_req,
                                       std::shared_ptr<StreamLoadContext> ctx) {
     // Now we use stream
-    ctx->use_streaming = is_format_support_streaming(ctx->format);
+    ctx->use_streaming = LoadUtil::is_format_support_streaming(ctx->format);
 
     // put request
     TStreamLoadPutRequest request;
@@ -405,9 +378,15 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
-        auto pipe = std::make_shared<io::StreamLoadPipe>(
-                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
-                ctx->body_bytes /* total_length */);
+        std::shared_ptr<io::StreamLoadPipe> pipe;
+        if (ctx->is_chunked_transfer) {
+            pipe = std::make_shared<io::StreamLoadPipe>(
+                    io::kMaxPipeBufferedBytes /* max_buffered_bytes */);
+        } else {
+            pipe = std::make_shared<io::StreamLoadPipe>(
+                    io::kMaxPipeBufferedBytes /* max_buffered_bytes */,
+                    MIN_CHUNK_SIZE /* min_chunk_size */, ctx->body_bytes /* total_length */);
+        }
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
         ctx->pipe = pipe;
@@ -432,6 +411,22 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     }
     if (!http_req->header(HTTP_LINE_DELIMITER).empty()) {
         request.__set_line_delimiter(http_req->header(HTTP_LINE_DELIMITER));
+    }
+    if (!http_req->header(HTTP_ENCLOSE).empty() && http_req->header(HTTP_ENCLOSE).size() > 0) {
+        const auto& enclose_str = http_req->header(HTTP_ENCLOSE);
+        if (enclose_str.length() != 1) {
+            return Status::InvalidArgument("enclose must be single-char, actually is {}",
+                                           enclose_str);
+        }
+        request.__set_enclose(http_req->header(HTTP_ENCLOSE)[0]);
+    }
+    if (!http_req->header(HTTP_ESCAPE).empty() && http_req->header(HTTP_ESCAPE).size() > 0) {
+        const auto& escape_str = http_req->header(HTTP_ESCAPE);
+        if (escape_str.length() != 1) {
+            return Status::InvalidArgument("escape must be single-char, actually is {}",
+                                           escape_str);
+        }
+        request.__set_escape(http_req->header(HTTP_ESCAPE)[0]);
     }
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_PARTITIONS));
@@ -527,7 +522,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_send_batch_parallelism(
                     std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid send_batch_parallelism format, {}", e.what());
+            return Status::InvalidArgument("send_batch_parallelism must be an integer, {}",
+                                           e.what());
+        } catch (const std::out_of_range& e) {
+            return Status::InvalidArgument("send_batch_parallelism out of range, {}", e.what());
         }
     }
 
@@ -599,6 +597,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_partial_update(false);
         }
     }
+    if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
+        bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
+        request.__set_memtable_on_sink_node(value);
+    }
+    request.__set_group_commit(ctx->group_commit);
 
 #ifndef BE_TEST
     // plan this load
@@ -613,7 +616,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
 #else
     ctx->put_result = k_stream_load_put_result;
 #endif
-    Status plan_status(ctx->put_result.status);
+    Status plan_status(Status::create(ctx->put_result.status));
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;

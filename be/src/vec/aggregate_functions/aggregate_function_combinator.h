@@ -50,8 +50,6 @@ class IAggregateFunctionCombinator {
 public:
     virtual String get_name() const = 0;
 
-    virtual bool is_for_internal_usage_only() const { return false; }
-
     /** From the arguments for combined function (ex: UInt64, UInt8 for sumIf),
       *  get the arguments for nested function (ex: UInt64 for sum).
       * If arguments are not suitable for combined function, throw an exception.

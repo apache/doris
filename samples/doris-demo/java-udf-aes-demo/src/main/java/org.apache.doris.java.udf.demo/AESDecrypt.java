@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.udf.demo;
+package org.apache.doris.java.udf.demo;
 
-import org.apache.hadoop.hive.ql.exec.UDF;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.hive.ql.exec.UDF;
 
 public class AESDecrypt extends UDF {
 

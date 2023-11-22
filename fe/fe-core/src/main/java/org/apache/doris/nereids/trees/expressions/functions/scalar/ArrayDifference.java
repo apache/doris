@@ -53,10 +53,8 @@ public class ArrayDifference extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE)).args(ArrayType.of(LargeIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(FloatType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
-                    .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD))
-                    .args(ArrayType.of(DecimalV3Type.WILDCARD))
+            FunctionSignature.retArgType(0).args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
+            FunctionSignature.retArgType(0).args(ArrayType.of(DecimalV3Type.WILDCARD))
     );
 
     /**

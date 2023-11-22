@@ -62,8 +62,6 @@ public:
         external_sort_bytes_threshold_ = state->external_sort_bytes_threshold();
         if (profile != nullptr) {
             block_spill_profile_ = profile->create_child("BlockSpill", true, true);
-            profile->add_child(block_spill_profile_, false, nullptr);
-
             spilled_block_count_ = ADD_COUNTER(block_spill_profile_, "BlockCount", TUnit::UNIT);
             spilled_original_block_size_ =
                     ADD_COUNTER(block_spill_profile_, "BlockBytes", TUnit::BYTES);

@@ -21,7 +21,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 
-add_library(geo_type STATIC geo_types.cpp)
+add_library(GeoType STATIC geo_types.cpp)
 
 add_library(Geo STATIC
     geo_common.cpp
@@ -35,7 +35,7 @@ add_library(Geo STATIC
 )
 pch_reuse(Geo)
 
-target_link_libraries(Geo geo_type)
+target_link_libraries(Geo GeoType)
 include(CheckCXXCompilerFlag)
 set(WARNING_OPTION "-Wno-unused-but-set-variable")
 check_cxx_compiler_flag(${WARNING_OPTION} HAS_WARNING_OPTION)

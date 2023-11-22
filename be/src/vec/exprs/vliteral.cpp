@@ -66,6 +66,7 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* r
 }
 
 std::string VLiteral::value() const {
+    //TODO: dcheck the equality of size with 1. then use string with size to replace the ss.
     std::stringstream out;
     for (size_t i = 0; i < _column_ptr->size(); i++) {
         if (i != 0) {

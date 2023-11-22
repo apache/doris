@@ -27,7 +27,6 @@
 #include <utility>
 #include <vector>
 
-#include "exec/text_converter.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
@@ -46,7 +45,7 @@ class SlotDescriptor;
 class TupleDescriptor;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
@@ -98,6 +97,8 @@ public:
         std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
         // lazy read missing columns or all missing columns
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+        // should turn off filtering by page index, lazy read and dict filter if having complex type
+        bool has_complex_type = false;
     };
 
     /**
@@ -141,9 +142,9 @@ public:
         PositionDeleteContext(const PositionDeleteContext& filter) = default;
     };
 
-    RowGroupReader(io::FileReaderSPtr file_reader,
-                   const std::vector<ParquetReadColumn>& read_columns, const int32_t row_group_id,
-                   const tparquet::RowGroup& row_group, cctz::time_zone* ctz, io::IOContext* io_ctx,
+    RowGroupReader(io::FileReaderSPtr file_reader, const std::vector<std::string>& read_columns,
+                   const int32_t row_group_id, const tparquet::RowGroup& row_group,
+                   cctz::time_zone* ctz, io::IOContext* io_ctx,
                    const PositionDeleteContext& position_delete_ctx,
                    const LazyReadContext& lazy_read_ctx, RuntimeState* state);
 
@@ -158,6 +159,8 @@ public:
     int64_t lazy_read_filtered_rows() const { return _lazy_read_filtered_rows; }
 
     ParquetColumnReader::Statistics statistics();
+    void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
+    int64_t get_remaining_rows() { return _remaining_rows; }
 
 private:
     void _merge_read_ranges(std::vector<RowRange>& row_ranges);
@@ -189,7 +192,7 @@ private:
 
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
-    const std::vector<ParquetReadColumn>& _read_columns;
+    const std::vector<std::string>& _read_columns;
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
     int64_t _remaining_rows;
@@ -203,12 +206,12 @@ private:
     int64_t _lazy_read_filtered_rows = 0;
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
-    std::unique_ptr<TextConverter> _text_converter = nullptr;
     std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr = nullptr;
     int64_t _total_read_rows = 0;
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
+    VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;

@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_struct_functions_by_literal") {
+    // struct-nested
+    qt_sql "select s from (select struct('a', 1, 'doris', 'aaaaa', 1.32) as s) t"
+
     // struct constructor
     qt_sql "select struct(1, 2, 3)"
     qt_sql "select struct(1, 1000, 10000000000)"

@@ -19,9 +19,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("case_ignore") {
 
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
-
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

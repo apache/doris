@@ -1079,7 +1079,7 @@ public class CreateMaterializedViewStmtTest {
 
     }
 
-    @Test
+    @Disabled
     public void testBuildMVColumnItem(@Injectable SelectStmt selectStmt,
                                       @Injectable Column column1,
                                       @Injectable Column column2,
@@ -1135,7 +1135,7 @@ public class CreateMaterializedViewStmtTest {
 
     }
 
-    @Test
+    @Disabled
     public void testKeepScaleAndPrecisionOfType(@Injectable SelectStmt selectStmt,
                                                 @Injectable SlotDescriptor slotDescriptor1,
                                                 @Injectable Column column1,

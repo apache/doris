@@ -21,10 +21,12 @@ import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -34,6 +36,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class PrivInfo implements Writable {
     @SerializedName(value = "userIdent")
@@ -42,12 +46,16 @@ public class PrivInfo implements Writable {
     private TablePattern tblPattern;
     @SerializedName(value = "resourcePattern")
     private ResourcePattern resourcePattern;
+    @SerializedName(value = "workloadGroupPattern")
+    private WorkloadGroupPattern workloadGroupPattern;
     @SerializedName(value = "privs")
     private PrivBitSet privs;
     @SerializedName(value = "passwd")
     private byte[] passwd;
     @SerializedName(value = "role")
     private String role;
+    @SerializedName(value = "colPrivileges")
+    private Map<ColPrivilegeKey, Set<String>> colPrivileges;
     @SerializedName(value = "passwordOptions")
     private PasswordOptions passwordOptions;
     // Indicates that these roles are granted to a user
@@ -72,13 +80,15 @@ public class PrivInfo implements Writable {
 
     // For grant/revoke
     public PrivInfo(UserIdentity userIdent, TablePattern tablePattern, PrivBitSet privs,
-            byte[] passwd, String role) {
+            byte[] passwd, String role, Map<ColPrivilegeKey, Set<String>> colPrivileges) {
         this.userIdent = userIdent;
         this.tblPattern = tablePattern;
         this.resourcePattern = null;
+        this.workloadGroupPattern = null;
         this.privs = privs;
         this.passwd = passwd;
         this.role = role;
+        this.colPrivileges = colPrivileges;
     }
 
     // For grant/revoke resource priv
@@ -86,7 +96,19 @@ public class PrivInfo implements Writable {
             byte[] passwd, String role) {
         this.userIdent = userIdent;
         this.tblPattern = null;
+        this.workloadGroupPattern = null;
         this.resourcePattern = resourcePattern;
+        this.privs = privs;
+        this.passwd = passwd;
+        this.role = role;
+    }
+
+    public PrivInfo(UserIdentity userIdent, WorkloadGroupPattern workloadGroupPattern, PrivBitSet privs,
+            byte[] passwd, String role) {
+        this.userIdent = userIdent;
+        this.tblPattern = null;
+        this.resourcePattern = null;
+        this.workloadGroupPattern = workloadGroupPattern;
         this.privs = privs;
         this.passwd = passwd;
         this.role = role;
@@ -110,6 +132,10 @@ public class PrivInfo implements Writable {
         return resourcePattern;
     }
 
+    public WorkloadGroupPattern getWorkloadGroupPattern() {
+        return workloadGroupPattern;
+    }
+
     public PrivBitSet getPrivs() {
         return privs;
     }
@@ -128,6 +154,10 @@ public class PrivInfo implements Writable {
 
     public List<String> getRoles() {
         return roles;
+    }
+
+    public Map<ColPrivilegeKey, Set<String>> getColPrivileges() {
+        return colPrivileges;
     }
 
     public static PrivInfo read(DataInput in) throws IOException {

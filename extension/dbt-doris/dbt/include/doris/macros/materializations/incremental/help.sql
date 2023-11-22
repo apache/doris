@@ -56,7 +56,12 @@
     show create table {{ target_relation }}
 {%- endmacro %}
 
-{% macro is_unique_model( table_create_obj ) %}
+{% macro is_unique_model( target_relation ) %}
+    {% set build_show_create = show_create( target_relation, statement_name='table_model') %}
+    {% call statement('table_model' , fetch_result=True)  %}
+        {{ build_show_create }}
+    {% endcall %}
+    {%- set table_create_obj = load_result('table_model') -%}
     {% set create_table = table_create_obj['data'][0][1]%}
     {{ return('\nUNIQUE KEY(' in create_table  and '\nDUPLICATE KEY(' not in create_table and '\nAGGREGATE KEY(' not in create_table) }}
 {%- endmacro %}

@@ -37,7 +37,8 @@ public:
     // This class will take the ownership of input data's memory. It will
     // free it when deconstructs.
     PageHandle(DataPage* data) : _is_data_owner(true), _data(data) {
-        ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(_data->capacity());
+        _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
+        _page_tracker->consume(_data->capacity());
     }
 
     // This class will take the content of cache data, and will make input
@@ -50,18 +51,20 @@ public:
         // we can use std::exchange if we switch c++14 on
         std::swap(_is_data_owner, other._is_data_owner);
         std::swap(_data, other._data);
+        _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
     }
 
     PageHandle& operator=(PageHandle&& other) noexcept {
         std::swap(_is_data_owner, other._is_data_owner);
         std::swap(_data, other._data);
         _cache_data = std::move(other._cache_data);
+        _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
         return *this;
     }
 
     ~PageHandle() {
         if (_is_data_owner) {
-            ExecEnv::GetInstance()->page_no_cache_mem_tracker()->release(_data->capacity());
+            _page_tracker->release(_data->capacity());
             delete _data;
         } else {
             DCHECK(_data == nullptr);
@@ -82,6 +85,7 @@ private:
     // otherwise _cache_data is valid, and data is belong to cache.
     bool _is_data_owner = false;
     DataPage* _data = nullptr;
+    std::shared_ptr<MemTracker> _page_tracker;
     PageCacheHandle _cache_data;
 
     // Don't allow copy and assign

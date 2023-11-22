@@ -78,13 +78,20 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        computeColumnFilter();
+        computeColumnsFilter();
         computePartitionInfo();
     }
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
+        createScanRangeLocations();
+    }
+
+    @Override
+    public void finalizeForNereids() throws UserException {
+        computeColumnsFilter();
+        computePartitionInfo();
         createScanRangeLocations();
     }
 

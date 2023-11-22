@@ -44,7 +44,6 @@ public:
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     [[nodiscard]] Status open(RuntimeState* state);
-    void close(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
 
@@ -61,8 +60,11 @@ public:
     /// Retrieves a registered FunctionContext. 'i' is the index returned by the call to
     /// register_function_context(). This should only be called by VExprs.
     FunctionContext* fn_context(int i) {
-        DCHECK_GE(i, 0);
-        DCHECK_LT(i, _fn_contexts.size());
+        if (i < 0 || i >= _fn_contexts.size()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "fn_context index invalid, index={}, _fn_contexts.size()={}", i,
+                            _fn_contexts.size());
+        }
         return _fn_contexts[i].get();
     }
 
@@ -91,7 +93,8 @@ public:
                                                      int column_to_keep, IColumn::Filter& filter);
 
     [[nodiscard]] static Status get_output_block_after_execute_exprs(const VExprContextSPtrs&,
-                                                                     const Block&, Block*);
+                                                                     const Block&, Block*,
+                                                                     bool do_projection = false);
 
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
@@ -117,7 +120,6 @@ public:
         _is_clone = other._is_clone;
         _prepared = other._prepared;
         _opened = other._opened;
-        _closed = other._closed;
 
         for (auto& fn : other._fn_contexts) {
             _fn_contexts.emplace_back(fn->clone());
@@ -134,7 +136,6 @@ public:
         _is_clone = other._is_clone;
         _prepared = other._prepared;
         _opened = other._opened;
-        _closed = other._closed;
         _fn_contexts = std::move(other._fn_contexts);
         _last_result_column_id = other._last_result_column_id;
         _depth_num = other._depth_num;
@@ -142,6 +143,9 @@ public:
     }
 
 private:
+    // Close method is called in vexpr context dector, not need call expicility
+    void close();
+
     friend class VExpr;
 
     /// The expr tree this context is for.
@@ -153,7 +157,6 @@ private:
     /// Variables keeping track of current state.
     bool _prepared;
     bool _opened;
-    bool _closed;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.

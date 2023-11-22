@@ -18,6 +18,7 @@
 package org.apache.doris.binlog;
 
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -51,6 +52,8 @@ public class AddPartitionRecord {
     private boolean isTempPartition = false;
     @SerializedName(value = "isMutable")
     private boolean isMutable = true;
+    @SerializedName(value = "sql")
+    private String sql;
 
     public AddPartitionRecord(long commitSeq, PartitionPersistInfo partitionPersistInfo) {
         this.commitSeq = commitSeq;
@@ -64,6 +67,26 @@ public class AddPartitionRecord {
         this.isInMemory = partitionPersistInfo.isInMemory();
         this.isTempPartition = partitionPersistInfo.isTempPartition();
         this.isMutable = partitionPersistInfo.isMutable();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("ADD PARTITION ").append("`").append(partition.getName()).append("`").append(" VALUES ");
+        if (this.listPartitionItem.equals(ListPartitionItem.DUMMY_ITEM)) {
+            // range
+            sb.append("[");
+            sb.append(range.lowerEndpoint().toSql());
+            sb.append(", ");
+            sb.append(range.upperEndpoint().toSql());
+            sb.append(")");
+        } else {
+            // list
+            sb.append("IN (");
+            sb.append(((ListPartitionItem) listPartitionItem).toSql());
+            sb.append(")");
+        }
+        sb.append("(\"version_info\" = \"");
+        sb.append(partition.getVisibleVersion()).append("\"");
+        sb.append(");");
+        this.sql = sb.toString();
     }
 
     public long getCommitSeq() {

@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vempty_set_node.h"
 
 namespace doris {
@@ -40,6 +41,27 @@ class EmptySetSourceOperator final : public SourceOperator<EmptySetSourceOperato
 public:
     EmptySetSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* empty_set_node);
     bool can_read() override { return true; }
+};
+
+class EmptySetLocalState final : public PipelineXLocalState<FakeDependency> {
+public:
+    ENABLE_FACTORY_CREATOR(EmptySetLocalState);
+
+    EmptySetLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<FakeDependency>(state, parent) {}
+    ~EmptySetLocalState() = default;
+};
+
+class EmptySetSourceOperatorX final : public OperatorX<EmptySetLocalState> {
+public:
+    EmptySetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                            const DescriptorTbl& descs)
+            : OperatorX<EmptySetLocalState>(pool, tnode, operator_id, descs) {}
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+    [[nodiscard]] bool is_source() const override { return true; }
 };
 
 } // namespace pipeline

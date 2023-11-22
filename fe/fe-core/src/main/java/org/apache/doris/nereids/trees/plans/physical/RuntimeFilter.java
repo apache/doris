@@ -20,7 +20,14 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * runtime filter
@@ -32,47 +39,62 @@ public class RuntimeFilter {
     private final Expression srcSlot;
     //bitmap filter support target expression like  k1+1, abs(k1)
     //targetExpression is an expression on targetSlot, in which there is only one non-const slot
-    private final Expression targetExpression;
-    private final Slot targetSlot;
+    private final List<Expression> targetExpressions;
+    private final List<Slot> targetSlots;
     private final int exprOrder;
     private final AbstractPhysicalJoin builderNode;
 
     private final boolean bitmapFilterNotIn;
 
     private final long buildSideNdv;
+    // use for min-max filter only. specify if the min or max side is valid
+    private final TMinMaxRuntimeFilterType tMinMaxType;
 
     /**
      * constructor
      */
-    public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, TRuntimeFilterType type,
+    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, TRuntimeFilterType type,
             int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv) {
-        this(id, src, target, target, type, exprOrder, builderNode, false, buildSideNdv);
+        this(id, src, targets, ImmutableList.copyOf(targets), type, exprOrder,
+                builderNode, false, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX);
+    }
+
+    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
+                         boolean bitmapFilterNotIn, long buildSideNdv) {
+        this(id, src, targets, targetExpressions, type, exprOrder,
+                builderNode, bitmapFilterNotIn, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX);
     }
 
     /**
      * constructor
      */
-    public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, Expression targetExpression,
-            TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, boolean bitmapFilterNotIn,
-            long buildSideNdv) {
+    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
+                         boolean bitmapFilterNotIn, long buildSideNdv, TMinMaxRuntimeFilterType tMinMaxType) {
         this.id = id;
         this.srcSlot = src;
-        this.targetSlot = target;
-        this.targetExpression = targetExpression;
+        this.targetSlots = Lists.newArrayList(targets);
+        this.targetExpressions = Lists.newArrayList(targetExpressions);
         this.type = type;
         this.exprOrder = exprOrder;
         this.builderNode = builderNode;
         this.bitmapFilterNotIn = bitmapFilterNotIn;
         this.buildSideNdv = buildSideNdv <= 0 ? -1L : buildSideNdv;
+        this.tMinMaxType = tMinMaxType;
         builderNode.addRuntimeFilter(this);
+    }
+
+    public TMinMaxRuntimeFilterType gettMinMaxType() {
+        return tMinMaxType;
     }
 
     public Expression getSrcExpr() {
         return srcSlot;
     }
 
-    public Slot getTargetExpr() {
-        return targetSlot;
+    public List<Slot> getTargetExprs() {
+        return targetSlots;
     }
 
     public RuntimeFilterId getId() {
@@ -95,22 +117,47 @@ public class RuntimeFilter {
         return bitmapFilterNotIn;
     }
 
-    public Expression getTargetExpression() {
-        return targetExpression;
+    public List<Expression> getTargetExpressions() {
+        return targetExpressions;
     }
 
     public long getBuildSideNdv() {
         return buildSideNdv;
     }
 
+    public void addTargetSlot(Slot target) {
+        targetSlots.add(target);
+    }
+
+    public List<Slot> getTargetSlots() {
+        return targetSlots;
+    }
+
+    public void addTargetExpression(Expression targetExpr) {
+        targetExpressions.add(targetExpr);
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("RF").append(id.asInt())
-                .append("[").append(getSrcExpr()).append("->").append(targetSlot)
+                .append("[").append(getSrcExpr()).append("->").append(targetSlots)
                 .append("(ndv/size = ").append(buildSideNdv).append("/")
                 .append(org.apache.doris.planner.RuntimeFilter.expectRuntimeFilterSize(buildSideNdv))
                 .append(")");
+        return sb.toString();
+    }
+
+    /**
+     * print rf in explain shape plan
+     * @return brief version of toString()
+     */
+    public String shapeInfo() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("RF").append(id.asInt())
+                .append(" ").append(getSrcExpr().toSql()).append("->[").append(
+                        targetSlots.stream().map(slot -> slot.getName()).collect(Collectors.joining(",")))
+                .append("]");
         return sb.toString();
     }
 }

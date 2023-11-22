@@ -19,7 +19,6 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
@@ -50,11 +49,6 @@ public class CharType extends CharacterType {
     @Override
     public Type toCatalogDataType() {
         return ScalarType.createChar(len);
-    }
-
-    @Override
-    public boolean acceptsType(AbstractDataType other) {
-        return other instanceof CharType;
     }
 
     @Override

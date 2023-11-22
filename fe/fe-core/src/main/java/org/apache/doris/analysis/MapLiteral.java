@@ -20,12 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
@@ -44,6 +46,15 @@ public class MapLiteral extends LiteralExpr {
         children = new ArrayList<>();
     }
 
+    public MapLiteral(Type type, List<LiteralExpr> keys, List<LiteralExpr> values) {
+        this.type = type;
+        children = Lists.newArrayList();
+        for (int i = 0; i < keys.size(); i++) {
+            children.add(keys.get(i));
+            children.add(values.get(i));
+        }
+    }
+
     public MapLiteral(LiteralExpr... exprs) throws AnalysisException {
         Type keyType = Type.NULL;
         Type valueType = Type.NULL;
@@ -55,8 +66,9 @@ public class MapLiteral extends LiteralExpr {
             if (!MapType.MAP.supportSubType(exprs[idx].getType())) {
                 throw new AnalysisException("Invalid key type in Map, not support " + exprs[idx].getType());
             }
-            keyType = Type.getAssignmentCompatibleType(keyType, exprs[idx].getType(), true);
-            valueType = Type.getAssignmentCompatibleType(valueType, exprs[idx + 1].getType(), true);
+            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
+            keyType = Type.getAssignmentCompatibleType(keyType, exprs[idx].getType(), true, enableDecimal256);
+            valueType = Type.getAssignmentCompatibleType(valueType, exprs[idx + 1].getType(), true, enableDecimal256);
         }
 
         if (keyType == Type.INVALID) {

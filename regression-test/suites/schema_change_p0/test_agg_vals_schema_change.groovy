@@ -61,7 +61,7 @@ suite ("test_agg_vals_schema_change") {
                 `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
                 `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
             AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            BUCKETS 1
+            BUCKETS 8
             PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
         """
 

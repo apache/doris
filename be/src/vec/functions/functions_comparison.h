@@ -35,7 +35,6 @@
 #include "vec/core/decimal_comparison.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/functions_logical.h"
@@ -62,10 +61,10 @@ struct NumComparisonImpl {
     static void NO_INLINE vector_vector(const PaddedPODArray<A>& a, const PaddedPODArray<B>& b,
                                         PaddedPODArray<UInt8>& c) {
         size_t size = a.size();
-        const A* a_pos = a.data();
-        const B* b_pos = b.data();
-        UInt8* c_pos = c.data();
-        const A* a_end = a_pos + size;
+        const A* __restrict a_pos = a.data();
+        const B* __restrict b_pos = b.data();
+        UInt8* __restrict c_pos = c.data();
+        const A* __restrict a_end = a_pos + size;
 
         while (a_pos < a_end) {
             *c_pos = Op::apply(*a_pos, *b_pos);
@@ -78,9 +77,9 @@ struct NumComparisonImpl {
     static void NO_INLINE vector_constant(const PaddedPODArray<A>& a, B b,
                                           PaddedPODArray<UInt8>& c) {
         size_t size = a.size();
-        const A* a_pos = a.data();
-        UInt8* c_pos = c.data();
-        const A* a_end = a_pos + size;
+        const A* __restrict a_pos = a.data();
+        UInt8* __restrict c_pos = c.data();
+        const A* __restrict a_end = a_pos + size;
 
         while (a_pos < a_end) {
             *c_pos = Op::apply(*a_pos, b);
@@ -273,7 +272,7 @@ public:
 private:
     template <typename T0, typename T1>
     bool execute_num_right_type(Block& block, size_t result, const ColumnVector<T0>* col_left,
-                                const IColumn* col_right_untyped) {
+                                const IColumn* col_right_untyped) const {
         if (const ColumnVector<T1>* col_right =
                     check_and_get_column<ColumnVector<T1>>(col_right_untyped)) {
             auto col_res = ColumnUInt8::create();
@@ -303,7 +302,7 @@ private:
 
     template <typename T0, typename T1>
     bool execute_num_const_right_type(Block& block, size_t result, const ColumnConst* col_left,
-                                      const IColumn* col_right_untyped) {
+                                      const IColumn* col_right_untyped) const {
         if (const ColumnVector<T1>* col_right =
                     check_and_get_column<ColumnVector<T1>>(col_right_untyped)) {
             auto col_res = ColumnUInt8::create();
@@ -332,7 +331,7 @@ private:
 
     template <typename T0>
     bool execute_num_left_type(Block& block, size_t result, const IColumn* col_left_untyped,
-                               const IColumn* col_right_untyped) {
+                               const IColumn* col_right_untyped) const {
         if (const ColumnVector<T0>* col_left =
                     check_and_get_column<ColumnVector<T0>>(col_left_untyped)) {
             if (execute_num_right_type<T0, UInt8>(block, result, col_left, col_right_untyped) ||
@@ -387,7 +386,7 @@ private:
     }
 
     Status execute_decimal(Block& block, size_t result, const ColumnWithTypeAndName& col_left,
-                           const ColumnWithTypeAndName& col_right) {
+                           const ColumnWithTypeAndName& col_right) const {
         TypeIndex left_number = col_left.type->get_type_id();
         TypeIndex right_number = col_right.type->get_type_id();
 
@@ -408,7 +407,7 @@ private:
         return Status::OK();
     }
 
-    Status execute_string(Block& block, size_t result, const IColumn* c0, const IColumn* c1) {
+    Status execute_string(Block& block, size_t result, const IColumn* c0, const IColumn* c1) const {
         const ColumnString* c0_string = check_and_get_column<ColumnString>(c0);
         const ColumnString* c1_string = check_and_get_column<ColumnString>(c1);
         const ColumnConst* c0_const = check_and_get_column_const_string_or_fixedstring(c0);
@@ -480,7 +479,7 @@ private:
     }
 
     void execute_generic_identical_types(Block& block, size_t result, const IColumn* c0,
-                                         const IColumn* c1) {
+                                         const IColumn* c1) const {
         bool c0_const = is_column_const(*c0);
         bool c1_const = is_column_const(*c1);
 
@@ -494,19 +493,20 @@ private:
             ColumnUInt8::Container& vec_res = c_res->get_data();
             vec_res.resize(c0->size());
 
-            if (c0_const)
+            if (c0_const) {
                 GenericComparisonImpl<Op<int, int>>::constant_vector(*c0, *c1, vec_res);
-            else if (c1_const)
+            } else if (c1_const) {
                 GenericComparisonImpl<Op<int, int>>::vector_constant(*c0, *c1, vec_res);
-            else
+            } else {
                 GenericComparisonImpl<Op<int, int>>::vector_vector(*c0, *c1, vec_res);
+            }
 
             block.replace_by_position(result, std::move(c_res));
         }
     }
 
     Status execute_generic(Block& block, size_t result, const ColumnWithTypeAndName& c0,
-                           const ColumnWithTypeAndName& c1) {
+                           const ColumnWithTypeAndName& c1) const {
         execute_generic_identical_types(block, result, c0.column.get(), c1.column.get());
         return Status::OK();
     }
@@ -522,7 +522,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& col_with_type_and_name_left = block.get_by_position(arguments[0]);
         const auto& col_with_type_and_name_right = block.get_by_position(arguments[1]);
         const IColumn* col_left_untyped = col_with_type_and_name_left.column.get();
@@ -590,25 +590,39 @@ public:
                   execute_num_left_type<Float32>(block, result, col_left_untyped,
                                                  col_right_untyped) ||
                   execute_num_left_type<Float64>(block, result, col_left_untyped,
-                                                 col_right_untyped)))
-
+                                                 col_right_untyped))) {
                 return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                             col_left_untyped->get_name(), get_name());
-        } else if (is_decimal_v2(left_type) || is_decimal_v2(right_type)) {
+            }
+            return Status::OK();
+        }
+        if (is_decimal_v2(left_type) || is_decimal_v2(right_type)) {
             if (!allow_decimal_comparison(left_type, right_type)) {
                 return Status::RuntimeError("No operation {} between {} and {}", get_name(),
                                             left_type->get_name(), right_type->get_name());
             }
             return execute_decimal(block, result, col_with_type_and_name_left,
                                    col_with_type_and_name_right);
-        } else if (is_decimal(left_type) || is_decimal(right_type)) {
+        }
+
+        if (is_decimal(left_type) || is_decimal(right_type)) {
             if (!allow_decimal_comparison(left_type, right_type)) {
                 return Status::RuntimeError("No operation {} between {} and {}", get_name(),
                                             left_type->get_name(), right_type->get_name());
             }
             return execute_decimal(block, result, col_with_type_and_name_left,
                                    col_with_type_and_name_right);
-        } else if (left_is_string && right_is_string) {
+        }
+
+        if (which_left.idx != which_right.idx) {
+            return Status::InternalError(
+                    "comparison must input two same type column or column type is "
+                    "decimalv3/numeric, lhs={}, rhs={}",
+                    col_with_type_and_name_left.type->get_name(),
+                    col_with_type_and_name_right.type->get_name());
+        }
+
+        if (left_is_string && right_is_string) {
             return execute_string(block, result, col_with_type_and_name_left.column.get(),
                                   col_with_type_and_name_right.column.get());
         } else {

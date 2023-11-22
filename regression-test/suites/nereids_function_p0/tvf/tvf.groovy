@@ -20,5 +20,16 @@ suite("nereids_tvf") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     qt_sql_number '''
-        select * from numbers("number" = "10")'''
+        select * from numbers("number" = "10")
+    '''
+
+    // when we set numbers to gather, coordinator could not process and set none scan range in thrift
+    // so we add this test case to ensure this sql do not core dump
+    sql """
+        select * from numbers("number"="10") a right join numbers("number"="10") b on true;
+    """
+
+    sql """
+        select QueryId from queries() where `Sql` like "%test_queries_tvf%";
+    """
 }

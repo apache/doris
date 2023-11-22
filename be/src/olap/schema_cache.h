@@ -44,11 +44,11 @@ using SegmentIteratorUPtr = std::unique_ptr<SegmentIterator>;
 // eliminating the need for frequent allocation and deallocation during usage.
 // This caching mechanism proves immensely advantageous, particularly in scenarios
 // with high concurrency, where queries are executed simultaneously.
-class SchemaCache {
+class SchemaCache : public LRUCachePolicy {
 public:
     enum class Type { TABLET_SCHEMA = 0, SCHEMA = 1 };
 
-    static SchemaCache* instance() { return _s_instance; }
+    static SchemaCache* instance();
 
     static void create_global_instance(size_t capacity);
 
@@ -62,14 +62,13 @@ public:
     // Get a shared cached schema from cache, schema_key is a subset of column unique ids
     template <typename SchemaType>
     SchemaType get_schema(const std::string& schema_key) {
-        if (!_s_instance || schema_key.empty()) {
+        if (!instance() || schema_key.empty()) {
             return {};
         }
-        auto lru_handle = _schema_cache->lookup(schema_key);
+        auto lru_handle = _cache->lookup(schema_key);
         if (lru_handle) {
-            Defer release(
-                    [cache = _schema_cache.get(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)_schema_cache->value(lru_handle);
+            Defer release([cache = _cache.get(), lru_handle] { cache->release(lru_handle); });
+            auto value = (CacheValue*)_cache->value(lru_handle);
             value->last_visit_time = UnixMillis();
             VLOG_DEBUG << "use cache schema";
             if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
@@ -85,7 +84,7 @@ public:
     // Insert a shared Schema into cache, schema_key is full column unique ids
     template <typename SchemaType>
     void insert_schema(const std::string& key, SchemaType schema) {
-        if (!_s_instance || key.empty()) {
+        if (!instance() || key.empty()) {
             return;
         }
         CacheValue* value = new CacheValue;
@@ -101,27 +100,27 @@ public:
             CacheValue* cache_value = (CacheValue*)value;
             delete cache_value;
         };
-        auto lru_handle = _schema_cache->insert(key, value, sizeof(CacheValue), deleter,
-                                                CachePriority::NORMAL, schema->mem_size());
-        _schema_cache->release(lru_handle);
+        auto lru_handle = _cache->insert(key, value, sizeof(CacheValue), deleter,
+                                         CachePriority::NORMAL, schema->mem_size());
+        _cache->release(lru_handle);
     }
 
     // Try to prune the cache if expired.
     Status prune();
 
-    struct CacheValue {
+    struct CacheValue : public LRUCacheValueBase {
         Type type;
-        std::atomic<int64_t> last_visit_time = 0;
         // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;
         SchemaSPtr schema = nullptr;
     };
 
+    SchemaCache(size_t capacity)
+            : LRUCachePolicy(CachePolicy::CacheType::SCHEMA_CACHE, capacity, LRUCacheType::NUMBER,
+                             config::schema_cache_sweep_time_sec) {}
+
 private:
-    SchemaCache(size_t capacity);
     static constexpr char SCHEMA_DELIMITER = '-';
-    std::unique_ptr<Cache> _schema_cache = nullptr;
-    static SchemaCache* _s_instance;
 };
 
 } // namespace doris

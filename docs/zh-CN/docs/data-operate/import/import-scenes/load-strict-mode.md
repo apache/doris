@@ -93,7 +93,7 @@ under the License.
 
 ## 严格模式的作用
 
-严格模式的意思是，对于导入过程中的列类型转换进行严格过滤。
+- 对于导入过程中的列类型转换进行严格过滤。
 
 严格过滤的策略如下：
 
@@ -131,3 +131,50 @@ under the License.
    > 1. 表中的列允许导入空值
    > 2. `abc` 在转换为 Decimal 后，会因类型问题变为 NULL。在严格模式开启的情况下，这类数据将会被过滤。而如果是关闭状态，则会导入 `null`。
    > 3. `10` 虽然是一个超过范围的值，但是因为其类型符合 decimal 的要求，所以严格模式对其不产生影响。`10` 最后会在其他导入处理流程中被过滤。但不会被严格模式过滤。
+
+- 限定部分列更新只能更新已有的列
+
+在严格模式下，部分列更新插入的每一行数据必须满足该行数据的key在表中已经存在。而在而非严格模式下，进行部分列更新时可以更新key已经存在的行，也可以插入key不存在的新行。
+
+例如有表结构如下：
+```
+mysql> desc user_profile;
++------------------+-----------------+------+-------+---------+-------+
+| Field            | Type            | Null | Key   | Default | Extra |
++------------------+-----------------+------+-------+---------+-------+
+| id               | INT             | Yes  | true  | NULL    |       |
+| name             | VARCHAR(10)     | Yes  | false | NULL    | NONE  |
+| age              | INT             | Yes  | false | NULL    | NONE  |
+| city             | VARCHAR(10)     | Yes  | false | NULL    | NONE  |
+| balance          | DECIMALV3(9, 0) | Yes  | false | NULL    | NONE  |
+| last_access_time | DATETIME        | Yes  | false | NULL    | NONE  |
++------------------+-----------------+------+-------+---------+-------+
+```
+
+表中有一条数据如下：
+
+```
+1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00"
+```
+
+当用户使用非严格模式的stram load部分列更新向表中插入如下数据时
+
+```
+1,500,2023-07-03 12:00:01
+3,23,2023-07-03 12:00:02
+18,9999999,2023-07-03 12:00:03
+```
+
+```
+curl  --location-trusted -u root -H "partial_columns:true" -H "strict_mode:false" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://host:port/api/db1/user_profile/_stream_load
+```
+
+表中原有的一条数据将会被更新，此外还向表中插入了两条新数据。对于插入的数据中用户没有指定的列，如果该列有默认值，则会以默认值填充；否则，如果该列可以为NULL，则将以NULL值填充；否则本次插入不成功。
+
+而当用户使用严格模式的stram load部分列更新向表中插入上述数据时
+
+```
+curl  --location-trusted -u root -H "partial_columns:true" -H "strict_mode:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://host:port/api/db1/user_profile/_stream_load
+```
+
+此时，由于开启了严格模式且第二、三行的数据的key(`(3)`, `(18)`)不在原表中，所以本次导入会失败。

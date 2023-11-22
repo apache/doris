@@ -34,6 +34,7 @@
 #include "olap/olap_common.h"
 #include "olap/types.h"
 #include "util/slice.h"
+#include "vec/core/types.h"
 
 namespace doris {
 
@@ -80,8 +81,12 @@ template <FieldType field_type, typename Enable = void>
 class KeyCoderTraits {};
 
 template <FieldType field_type>
-class KeyCoderTraits<field_type, typename std::enable_if<std::is_integral<typename CppTypeTraits<
-                                         field_type>::CppType>::value>::type> {
+class KeyCoderTraits<
+        field_type,
+        typename std::enable_if<
+                std::is_integral<typename CppTypeTraits<field_type>::CppType>::value ||
+                field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
+                vectorized::IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
@@ -89,20 +94,24 @@ public:
 private:
     // Swap value's endian from/to big endian
     static UnsignedCppType swap_big_endian(UnsignedCppType val) {
-        switch (sizeof(UnsignedCppType)) {
-        case 1:
-            return val;
-        case 2:
-            return BigEndian::FromHost16(val);
-        case 4:
-            return BigEndian::FromHost32(val);
-        case 8:
-            return BigEndian::FromHost64(val);
-        case 16:
-            return BigEndian::FromHost128(val);
-        default:
-            LOG(FATAL) << "Invalid type to big endian, type=" << int(field_type)
-                       << ", size=" << sizeof(UnsignedCppType);
+        if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256) {
+            return BigEndian::FromHost256(val);
+        } else {
+            switch (sizeof(UnsignedCppType)) {
+            case 1:
+                return val;
+            case 2:
+                return BigEndian::FromHost16(val);
+            case 4:
+                return BigEndian::FromHost32(val);
+            case 8:
+                return BigEndian::FromHost64(val);
+            case 16:
+                return BigEndian::FromHost128(val);
+            default:
+                LOG(FATAL) << "Invalid type to big endian, type=" << int(field_type)
+                           << ", size=" << sizeof(UnsignedCppType);
+            }
         }
     }
 

@@ -42,6 +42,7 @@
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/pb_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
@@ -56,14 +57,10 @@
 #include "runtime/thread_context.h"
 #include "util/uid_util.h"
 
-using std::filesystem::path;
-using std::map;
 using std::nothrow;
-using std::set;
 using std::string;
 using std::stringstream;
 using std::vector;
-using std::list;
 
 namespace doris {
 using namespace ErrorCode;
@@ -86,15 +83,13 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be null";
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
     TabletSharedPtr ref_tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (ref_tablet == nullptr) {
-        LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id;
-        return Status::Error<TABLE_NOT_FOUND>();
+        return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}", request.tablet_id);
     }
 
     res = _create_snapshot_files(ref_tablet, request, snapshot_path, allow_incremental_clone);
@@ -109,8 +104,8 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 }
 
 Status SnapshotManager::release_snapshot(const string& snapshot_path) {
-    // 如果请求的snapshot_path位于root/snapshot文件夹下，则认为是合法的，可以删除
-    // 否则认为是非法请求，返回错误结果
+    // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
+    // Otherwise, it is considered an illegal request and returns an error result.
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {
@@ -125,31 +120,27 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
         }
     }
 
-    LOG(WARNING) << "released snapshot path illegal. [path='" << snapshot_path << "']";
-    return Status::Error<CE_CMD_PARAMS_ERROR>();
+    return Status::Error<CE_CMD_PARAMS_ERROR>("released snapshot path illegal. [path='{}']",
+                                              snapshot_path);
 }
 
-Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
-                                           int64_t replica_id, const int32_t& schema_hash) {
+Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
+        const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t partition_id,
+        int32_t schema_hash) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    Status res = Status::OK();
+    std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
     bool exists = true;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(clone_dir, &exists));
+    RETURN_IF_ERROR_RESULT(io::global_local_filesystem()->exists(clone_dir, &exists));
     if (!exists) {
-        res = Status::Error<DIR_NOT_EXIST>();
-        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" << clone_dir;
-        return res;
+        return unexpected(Status::Error<DIR_NOT_EXIST>(
+                "clone dir not existed when convert rowsetids. clone_dir={}", clone_dir));
     }
 
     // load original tablet meta
     auto cloned_meta_file = fmt::format("{}/{}.hdr", clone_dir, tablet_id);
     TabletMeta cloned_tablet_meta;
-    if ((res = cloned_tablet_meta.create_from_file(cloned_meta_file)) != Status::OK()) {
-        LOG(WARNING) << "fail to load original tablet meta after clone. "
-                     << ", cloned_meta_file=" << cloned_meta_file;
-        return res;
-    }
+    RETURN_IF_ERROR_RESULT(cloned_tablet_meta.create_from_file(cloned_meta_file));
     TabletMetaPB cloned_tablet_meta_pb;
     cloned_tablet_meta.to_meta_pb(&cloned_tablet_meta_pb);
 
@@ -165,6 +156,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
+    if (partition_id != -1) {
+        new_tablet_meta_pb.set_partition_id(partition_id);
+    }
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchemaSPtr tablet_schema;
     tablet_schema =
@@ -172,14 +166,16 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
     std::unordered_map<RowsetId, RowsetId, HashOfRowsetId> rowset_id_mapping;
-    for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
+    guards.reserve(cloned_tablet_meta_pb.rs_metas_size() +
+                   cloned_tablet_meta_pb.stale_rs_metas_size());
+    for (auto&& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
-
         if (!visible_rowset.has_resource_id()) {
             // src be local rowset
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
-            RETURN_IF_ERROR(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema, rowset_id,
-                                              rowset_meta));
+            guards.push_back(StorageEngine::instance()->pending_local_rowsets().add(rowset_id));
+            RETURN_IF_ERROR_RESULT(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema,
+                                                     rowset_id, rowset_meta));
             RowsetId src_rs_id;
             if (visible_rowset.rowset_id() > 0) {
                 src_rs_id.init(visible_rowset.rowset_id());
@@ -195,7 +191,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         rs_version_map[rowset_version] = rowset_meta;
     }
 
-    for (auto& stale_rowset : cloned_tablet_meta_pb.stale_rs_metas()) {
+    for (auto&& stale_rowset : cloned_tablet_meta_pb.stale_rs_metas()) {
         Version rowset_version = {stale_rowset.start_version(), stale_rowset.end_version()};
         auto exist_rs = rs_version_map.find(rowset_version);
         if (exist_rs != rs_version_map.end()) {
@@ -206,8 +202,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         if (!stale_rowset.has_resource_id()) {
             // src be local rowset
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
-            RETURN_IF_ERROR(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema, rowset_id,
-                                              rowset_meta));
+            guards.push_back(StorageEngine::instance()->pending_local_rowsets().add(rowset_id));
+            RETURN_IF_ERROR_RESULT(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema,
+                                                     rowset_id, rowset_meta));
             RowsetId src_rs_id;
             if (stale_rowset.rowset_id() > 0) {
                 src_rs_id.init(stale_rowset.rowset_id());
@@ -222,7 +219,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     }
 
     if (!rowset_id_mapping.empty() && cloned_tablet_meta_pb.has_delete_bitmap()) {
-        auto& cloned_del_bitmap_pb = cloned_tablet_meta_pb.delete_bitmap();
+        const auto& cloned_del_bitmap_pb = cloned_tablet_meta_pb.delete_bitmap();
         DeleteBitmapPB* new_del_bitmap_pb = new_tablet_meta_pb.mutable_delete_bitmap();
         int rst_ids_size = cloned_del_bitmap_pb.rowset_ids_size();
         for (size_t i = 0; i < rst_ids_size; ++i) {
@@ -236,13 +233,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         }
     }
 
-    res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir;
-        return res;
-    }
+    RETURN_IF_ERROR_RESULT(TabletMeta::save(cloned_meta_file, new_tablet_meta_pb));
 
-    return Status::OK();
+    return guards;
 }
 
 Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
@@ -284,14 +277,12 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                      << " id = " << org_rowset->rowset_id() << " to rowset " << rowset_id;
         return res;
     }
-    RowsetSharedPtr new_rowset = rs_writer->build();
-    if (new_rowset == nullptr) {
-        LOG(WARNING) << "failed to build rowset when rename rowset id";
-        return Status::Error<MEM_ALLOC_FAILED>();
-    }
+    RowsetSharedPtr new_rowset;
+    RETURN_NOT_OK_STATUS_WITH_WARN(rs_writer->build(new_rowset),
+                                   "failed to build rowset when rename rowset id");
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
-    org_rowset->remove();
+    RETURN_IF_ERROR(org_rowset->remove());
     return Status::OK();
 }
 
@@ -301,8 +292,7 @@ Status SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet, in
                                                std::string* out_path) {
     Status res = Status::OK();
     if (out_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be null";
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
     // get current timestamp string
@@ -347,6 +337,23 @@ Status SnapshotManager::_link_index_and_data_files(
     return res;
 }
 
+// `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
+Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
+    if (rowsets.size() < 2) {
+        return Status::OK();
+    }
+    auto prev = rowsets.begin();
+    for (auto it = rowsets.begin() + 1; it != rowsets.end(); ++it) {
+        if ((*prev)->end_version() + 1 != (*it)->start_version()) {
+            return Status::InternalError("versions are not continuity: prev={} cur={}",
+                                         (*prev)->version().to_string(),
+                                         (*it)->version().to_string());
+        }
+        prev = it;
+    }
+    return Status::OK();
+}
+
 Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet,
                                                const TSnapshotRequest& request,
                                                string* snapshot_path,
@@ -357,8 +364,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
               << ", snapshot_version is " << snapshot_version;
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be null";
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
     // snapshot_id_path:
@@ -374,6 +380,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                      << ref_tablet->data_dir()->path();
         return res;
     }
+
+    bool is_copy_binlog = request.__isset.is_copy_binlog ? request.is_copy_binlog : false;
 
     // schema_full_path_desc.filepath:
     //      /snapshot_id_path/tablet_id/schema_hash/
@@ -397,8 +405,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
-            LOG(WARNING) << "fail to malloc TabletMeta.";
-            res = Status::Error<MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>("fail to malloc TabletMeta.");
             break;
         }
         std::vector<RowsetSharedPtr> consistent_rowsets;
@@ -441,10 +448,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     if (rowset != nullptr) {
                         if (!rowset->is_local()) {
                             // MUST make full snapshot to ensure `cooldown_meta_id` is consistent with the cooldowned rowsets after clone.
-                            LOG(INFO) << "missed version is a cooldowned rowset, must make full "
-                                         "snapshot. missed_version="
-                                      << missed_version << " tablet_id=" << ref_tablet->tablet_id();
-                            res = Status::Error<ErrorCode::INTERNAL_ERROR>();
+                            res = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                    "missed version is a cooldowned rowset, must make full "
+                                    "snapshot. missed_version={}, tablet_id={}",
+                                    missed_version, ref_tablet->tablet_id());
                             break;
                         }
                         consistent_rowsets.push_back(rowset);
@@ -478,33 +485,52 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 const RowsetSharedPtr last_version = ref_tablet->rowset_with_max_version();
                 if (last_version == nullptr) {
                     res = Status::InternalError("tablet has not any version. path={}",
-                                                ref_tablet->full_name());
+                                                ref_tablet->tablet_id());
                     break;
                 }
                 // get snapshot version, use request.version if specified
                 version = last_version->end_version();
                 if (request.__isset.version) {
                     if (last_version->end_version() < request.version) {
-                        LOG(WARNING) << "invalid make snapshot request. "
-                                     << " version=" << last_version->end_version()
-                                     << " req_version=" << request.version;
-                        res = Status::Error<INVALID_ARGUMENT>();
+                        res = Status::Error<INVALID_ARGUMENT>(
+                                "invalid make snapshot request. version={}, req_version={}",
+                                last_version->version().to_string(), request.version);
                         break;
                     }
                     version = request.version;
                 }
-                // get shortest version path
-                // it very important!!!!
-                // it means 0-version has to be a readable version graph
-                res = ref_tablet->capture_consistent_rowsets(Version(0, version),
-                                                             &consistent_rowsets);
+                if (ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+                    // Tablet has cooldowned data, MUST pick consistent rowsets with continuous cooldowned version
+                    // Get max cooldowned version
+                    int64_t max_cooldowned_version = -1;
+                    for (auto& [v, rs] : ref_tablet->rowset_map()) {
+                        if (rs->is_local()) {
+                            continue;
+                        }
+                        consistent_rowsets.push_back(rs);
+                        max_cooldowned_version = std::max(max_cooldowned_version, v.second);
+                    }
+                    DCHECK_GE(max_cooldowned_version, 1) << "tablet_id=" << ref_tablet->tablet_id();
+                    std::sort(consistent_rowsets.begin(), consistent_rowsets.end(),
+                              Rowset::comparator);
+                    res = check_version_continuity(consistent_rowsets);
+                    if (res.ok() && max_cooldowned_version < version) {
+                        // Pick consistent rowsets of remaining required version
+                        res = ref_tablet->capture_consistent_rowsets(
+                                {max_cooldowned_version + 1, version}, &consistent_rowsets);
+                    }
+                } else {
+                    // get shortest version path
+                    res = ref_tablet->capture_consistent_rowsets(Version(0, version),
+                                                                 &consistent_rowsets);
+                }
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to select versions to span. res=" << res;
                     break;
                 }
                 *allow_incremental_clone = false;
             } else {
-                version = ref_tablet->max_version().second;
+                version = ref_tablet->max_version_unlocked().second;
                 *allow_incremental_clone = true;
             }
 
@@ -556,7 +582,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 res = new_tablet_meta->save_as_json(json_header_path, ref_tablet->data_dir());
             }
         } else {
-            res = Status::Error<INVALID_SNAPSHOT_VERSION>();
+            res = Status::Error<INVALID_SNAPSHOT_VERSION>(
+                    "snapshot_version not equal to g_Types_constants.TSNAPSHOT_REQ_VERSION2");
         }
 
         if (!res.ok()) {
@@ -568,7 +595,65 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             break;
         }
 
-    } while (0);
+    } while (false);
+
+    // link all binlog files to snapshot path
+    do {
+        if (!res.ok()) {
+            break;
+        }
+
+        if (!is_copy_binlog) {
+            break;
+        }
+
+        RowsetBinlogMetasPB rowset_binlog_metas_pb;
+        if (request.__isset.missing_version) {
+            res = ref_tablet->get_rowset_binlog_metas(request.missing_version,
+                                                      &rowset_binlog_metas_pb);
+        } else {
+            std::vector<TVersion> missing_versions;
+            res = ref_tablet->get_rowset_binlog_metas(missing_versions, &rowset_binlog_metas_pb);
+        }
+        if (!res.ok()) {
+            break;
+        }
+        if (rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
+            break;
+        }
+
+        // write to pb file
+        auto rowset_binlog_metas_pb_filename =
+                fmt::format("{}/rowset_binlog_metas.pb", schema_full_path);
+        res = write_pb(rowset_binlog_metas_pb_filename, rowset_binlog_metas_pb);
+        if (!res.ok()) {
+            break;
+        }
+
+        for (auto& rowset_binlog_meta : rowset_binlog_metas_pb.rowset_binlog_metas()) {
+            std::string segment_file_path;
+            auto num_segments = rowset_binlog_meta.num_segments();
+            std::string_view rowset_id = rowset_binlog_meta.rowset_id();
+
+            for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+                segment_file_path = ref_tablet->get_segment_filepath(rowset_id, segment_index);
+                auto snapshot_segment_file_path =
+                        fmt::format("{}/{}_{}.binlog", schema_full_path, rowset_id, segment_index);
+
+                res = io::global_local_filesystem()->link_file(segment_file_path,
+                                                               snapshot_segment_file_path);
+                if (!res.ok()) {
+                    LOG(WARNING) << "fail to link binlog file. [src=" << segment_file_path
+                                 << ", dest=" << snapshot_segment_file_path << "]";
+                    break;
+                }
+            }
+
+            if (!res.ok()) {
+                break;
+            }
+        }
+    } while (false);
 
     if (!res.ok()) {
         LOG(WARNING) << "fail to make snapshot, try to delete the snapshot path. path="

@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.types.DataType;
 
+import java.util.Objects;
+
 /** StringLikeLiteral. */
 public abstract class StringLikeLiteral extends Literal {
     public final String value;
@@ -36,11 +38,33 @@ public abstract class StringLikeLiteral extends Literal {
     public double getDouble() {
         long v = 0;
         int pos = 0;
-        int len = Math.min(value.length(), 8);
+        int len = Math.min(value.length(), 7);
         while (pos < len) {
-            v += ((long) value.charAt(pos)) << ((7 - pos) * 8);
+            v += Byte.toUnsignedLong(value.getBytes()[pos]) << ((6 - pos) * 8);
             pos++;
         }
         return (double) v;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof StringLikeLiteral)) {
+            return false;
+        }
+        StringLikeLiteral that = (StringLikeLiteral) o;
+        return Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(value);
+    }
+
+    @Override
+    public String toString() {
+        return "'" + value + "'";
     }
 }

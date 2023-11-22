@@ -107,7 +107,6 @@ private:
     DataTypes _argument_types;
     DataTypePtr _return_type;
     TFunction _tfn;
-    std::unique_ptr<RPCFnImpl> _fn;
 };
 
 } // namespace doris::vectorized

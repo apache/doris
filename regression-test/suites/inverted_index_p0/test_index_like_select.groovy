@@ -206,5 +206,61 @@ suite("test_index_like_select", "inverted_index_select"){
                 order by name
             """
         qt_sql """select 22222222"""
+
+        // create DUP KEY table with bitmap index
+        def indexTbName2 = "bitmap_index_like"
+        sql "DROP TABLE IF EXISTS ${indexTbName2}"
+        sql """
+                CREATE TABLE IF NOT EXISTS ${indexTbName2} (
+                    ${varchar_colume1} varchar(50),
+                    ${varchar_colume2} varchar(30) NOT NULL,
+                    ${varchar_colume3} varchar(50),
+                    ${varchar_colume4} varchar(50),
+                    ${int_colume1} int NOT NULL,
+                    INDEX ${varchar_colume3}_idx(${varchar_colume3}) USING BITMAP COMMENT ' ${varchar_colume3} index'
+                )
+                DUPLICATE KEY(`${varchar_colume1}`, `${varchar_colume2}`, `${varchar_colume3}`, `${varchar_colume4}`)
+                DISTRIBUTED BY HASH(`${varchar_colume1}`) BUCKETS 10
+                properties("replication_num" = "1");
+        """
+        sql """ insert into ${indexTbName2} VALUES
+                ("zhang san", "grade 5", "zhang yi", "chen san", 10),
+                ("zhang san yi", "grade 5", "zhang yi", "chen san", 11),
+                ("li si", "grade 4", "li er", "wan jiu", 9),
+                ("san zhang", "grade 5", "", "", 10),
+                ("li sisi", "grade 6", "li ba", "li liuliu", 11)
+            """
+        sql """ set enable_function_pushdown=true; """
+        qt_sql """
+            select * from ${indexTbName2} where ${varchar_colume3} like "zhang%" order by ${varchar_colume1}
+            """
+
+        // create AGG KEY table with bitmap index
+        def indexTbName3 = "bitmap_index_like2"
+        sql "DROP TABLE IF EXISTS ${indexTbName3}"
+        sql """
+                CREATE TABLE IF NOT EXISTS ${indexTbName3} (
+                    ${varchar_colume1} varchar(50),
+                    ${varchar_colume2} varchar(30) NOT NULL,
+                    ${varchar_colume3} varchar(50),
+                    ${varchar_colume4} varchar(50),
+                    ${int_colume1} int SUM NULL DEFAULT "0",
+                    INDEX ${varchar_colume3}_idx(${varchar_colume3}) USING BITMAP COMMENT ' ${varchar_colume3} index'
+                )
+                AGGREGATE KEY(`${varchar_colume1}`, `${varchar_colume2}`, `${varchar_colume3}`, `${varchar_colume4}`)
+                DISTRIBUTED BY HASH(`${varchar_colume1}`) BUCKETS 10
+                properties("replication_num" = "1");
+        """
+        sql """ insert into ${indexTbName3} VALUES
+                ("zhang san", "grade 5", "zhang yi", "chen san", 10),
+                ("zhang san yi", "grade 5", "zhang yi", "chen san", 11),
+                ("li si", "grade 4", "li er", "wan jiu", 9),
+                ("san zhang", "grade 5", "", "", 10),
+                ("li sisi", "grade 6", "li ba", "li liuliu", 11)
+            """
+        sql """ set enable_function_pushdown=true; """
+        qt_sql """
+            select * from ${indexTbName3} where ${varchar_colume3} like "zhang%" order by ${varchar_colume1}
+            """
     }
 }

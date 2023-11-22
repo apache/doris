@@ -152,7 +152,7 @@ private:
     }
 
     [[nodiscard]] Status _lazy_init();
-
+    [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
@@ -187,7 +187,7 @@ private:
             ColumnPredicate* pred, roaring::Roaring* output_result);
     [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
             ColumnPredicate* pred, roaring::Roaring* output_result);
-    bool _column_has_fulltext_index(int32_t unique_id);
+    bool _column_has_fulltext_index(int32_t cid);
     bool _downgrade_without_index(Status res, bool need_remaining = false);
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
@@ -201,6 +201,7 @@ private:
     // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
     // so segment iterator need to shrink char column before output it. only use in vec query engine.
     void _vec_init_char_column_id();
+    bool _has_char_type(const Field& column_desc);
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -258,7 +259,7 @@ private:
     std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
     std::string _gen_predicate_result_sign(ColumnPredicateInfo* predicate_info);
 
-    void _build_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
+    void _build_index_result_column(const uint16_t* sel_rowid_idx, uint16_t select_size,
                                     vectorized::Block* block, const std::string& pred_result_sign,
                                     const roaring::Roaring& index_result);
     void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
@@ -269,7 +270,8 @@ private:
                        size_t num_of_defaults);
 
     // return true means one column's predicates all pushed down
-    bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false);
+    bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false,
+                                          bool is_match = false);
     void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr);
 
     // todo(wb) remove this method after RowCursor is removed
@@ -330,17 +332,14 @@ private:
 
     std::shared_ptr<Segment> _segment;
     SchemaSPtr _schema;
-    // _column_iterators_map.size() == _schema.num_columns()
-    // map<unique_id, ColumnIterator*> _column_iterators_map/_bitmap_index_iterators;
-    // can use _schema get unique_id by cid
-    std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators;
-    std::map<int32_t, std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
-    std::map<int32_t, std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
+    // vector idx -> column iterarator
+    std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
+    std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
+    std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
     std::unordered_map<std::string, std::pair<bool, roaring::Roaring>> _rowid_result_for_index;
-    std::vector<std::pair<uint32_t, uint32_t>> _split_row_ranges;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
@@ -431,6 +430,7 @@ private:
     std::vector<ColumnPredicate*> _filter_info_id;
     bool _record_rowids = false;
     int32_t _tablet_id = 0;
+    std::set<int32_t> _output_columns;
 };
 
 } // namespace segment_v2

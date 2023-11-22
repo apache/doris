@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.mysql.privilege.PasswordPolicy.ExpirePolicy;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
@@ -93,6 +94,12 @@ public class PasswordPolicyManager implements Writable {
     public void updatePassword(UserIdentity curUser, byte[] password) {
         PasswordPolicy passwordPolicy = getOrCreatePolicy(curUser);
         passwordPolicy.updatePassword(password);
+
+        // Compatible with setting the password expiration time and changing the password again
+        ExpirePolicy expirePolicy = passwordPolicy.getExpirePolicy();
+        if (expirePolicy.passwordCreateTime != 0) {
+            expirePolicy.setPasswordCreateTime();
+        }
     }
 
     public List<List<String>> getPolicyInfo(UserIdentity userIdent) {

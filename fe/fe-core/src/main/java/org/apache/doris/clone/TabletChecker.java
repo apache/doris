@@ -32,7 +32,6 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.GaugeMetric;
@@ -127,7 +126,7 @@ public class TabletChecker extends MasterDaemon {
 
     public TabletChecker(Env env, SystemInfoService infoService, TabletScheduler tabletScheduler,
                          TabletSchedulerStat stat) {
-        super("tablet checker", FeConstants.tablet_checker_interval_ms);
+        super("tablet checker", Config.tablet_checker_interval_ms);
         this.env = env;
         this.infoService = infoService;
         this.tabletScheduler = tabletScheduler;
@@ -214,7 +213,7 @@ public class TabletChecker extends MasterDaemon {
         LOG.debug(stat.incrementalBrief());
     }
 
-    private static class CheckerCounter {
+    public static class CheckerCounter {
         public long totalTabletNum = 0;
         public long unhealthyTabletNum = 0;
         public long addToSchedulerTabletNum = 0;
@@ -281,7 +280,7 @@ public class TabletChecker extends MasterDaemon {
                 continue;
             }
 
-            if (db.isInfoSchemaDb()) {
+            if (db.isMysqlCompatibleDatabase()) {
                 continue;
             }
 
@@ -372,9 +371,7 @@ public class TabletChecker extends MasterDaemon {
                 }
 
                 counter.unhealthyTabletNum++;
-
-                if (!tablet.readyToBeRepaired(statusWithPrio.second)) {
-                    counter.tabletNotReady++;
+                if (!tablet.readyToBeRepaired(infoService, statusWithPrio.second)) {
                     continue;
                 }
 
@@ -386,7 +383,7 @@ public class TabletChecker extends MasterDaemon {
                         System.currentTimeMillis());
                 // the tablet status will be set again when being scheduled
                 tabletCtx.setTabletStatus(statusWithPrio.first);
-                tabletCtx.setOrigPriority(statusWithPrio.second);
+                tabletCtx.setPriority(statusWithPrio.second);
 
                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
                 if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {

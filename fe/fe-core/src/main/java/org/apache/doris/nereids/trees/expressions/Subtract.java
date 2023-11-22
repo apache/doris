@@ -24,6 +24,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -33,18 +34,24 @@ import java.util.List;
 public class Subtract extends BinaryArithmetic implements CheckOverflowNullable {
 
     public Subtract(Expression left, Expression right) {
-        super(left, right, Operator.SUBTRACT);
+        super(ImmutableList.of(left, right), Operator.SUBTRACT);
+    }
+
+    private Subtract(List<Expression> children) {
+        super(children, Operator.SUBTRACT);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Subtract(children.get(0), children.get(1));
+        return new Subtract(children);
     }
 
     @Override
     public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
-        return (DecimalV3Type) DecimalV3Type.widerDecimalV3Type(t1, t2, false);
+        DecimalV3Type decimalV3Type = (DecimalV3Type) DecimalV3Type.widerDecimalV3Type(t1, t2, false);
+        return DecimalV3Type.createDecimalV3Type(decimalV3Type.getPrecision() + 1,
+                decimalV3Type.getScale());
     }
 
     @Override

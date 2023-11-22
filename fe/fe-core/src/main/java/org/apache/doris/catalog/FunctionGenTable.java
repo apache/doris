@@ -22,7 +22,7 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import java.util.List;
 
 public class FunctionGenTable extends Table {
-    private TableValuedFunctionIf tvf;
+    private final TableValuedFunctionIf tvf;
 
     public FunctionGenTable(long id, String tableName, TableType type, List<Column> fullSchema,
                             TableValuedFunctionIf tvf) {

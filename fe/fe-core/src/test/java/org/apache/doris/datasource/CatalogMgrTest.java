@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
@@ -239,17 +240,21 @@ public class CatalogMgrTest extends TestWithFeService {
         Map<String, String> alterProps2 = Maps.newHashMap();
         alterProps2.put("dfs.nameservices", "service1");
         alterProps2.put("dfs.ha.namenodes.service1", "nn1,nn2");
+        alterProps2.put("dfs.namenode.rpc-address.service1.nn1", "nn1_host:rpc_port");
+        alterProps2.put("dfs.namenode.rpc-address.service1.nn2", "nn2_host:rpc_port");
+        alterProps2.put("dfs.client.failover.proxy.provider.service1",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
         AlterCatalogPropertyStmt alterStmt = new AlterCatalogPropertyStmt(MY_CATALOG, alterProps2);
         mgr.alterCatalogProps(alterStmt);
         catalog = env.getCatalogMgr().getCatalog(MY_CATALOG);
-        Assert.assertEquals(6, catalog.getProperties().size());
+        Assert.assertEquals(9, catalog.getProperties().size());
         Assert.assertEquals("service1", catalog.getProperties().get("dfs.nameservices"));
 
         String showDetailCatalog = "SHOW CATALOG my_catalog";
         ShowCatalogStmt showDetailStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showDetailCatalog);
         showResultSet = mgr.showCatalogs(showDetailStmt);
 
-        Assert.assertEquals(6, showResultSet.getResultRows().size());
+        Assert.assertEquals(9, showResultSet.getResultRows().size());
         for (List<String> row : showResultSet.getResultRows()) {
             Assertions.assertEquals(2, row.size());
             if (row.get(0).equalsIgnoreCase("type")) {
@@ -318,7 +323,7 @@ public class CatalogMgrTest extends TestWithFeService {
 
         CatalogIf hms = mgr2.getCatalog(MY_CATALOG);
         properties = hms.getProperties();
-        Assert.assertEquals(6, properties.size());
+        Assert.assertEquals(9, properties.size());
         Assert.assertEquals("hms", properties.get("type"));
         Assert.assertEquals("thrift://172.16.5.9:9083", properties.get("hive.metastore.uris"));
 
@@ -649,6 +654,72 @@ public class CatalogMgrTest extends TestWithFeService {
         ExceptionChecker.expectThrowsNoException(() -> mgr.createCatalog(createStmt7));
     }
 
+    @Test
+    public void testInvalidAndValidAlterCatalogProperties() throws Exception {
+
+        String catalogName = "test_hive1";
+        String createCatalogSql = "CREATE CATALOG test_hive1 PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://127.0.0.1:7007',\n"
+                + "    'dfs.nameservices' = 'HANN',\n"
+                + "    'dfs.ha.namenodes.HANN'='nn1,nn2',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn1'='127.0.0.1:4007',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn2'='127.0.0.1:4008',\n"
+                + "    'dfs.client.failover.proxy.provider.HANN'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        CreateCatalogStmt createStmt = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        mgr.createCatalog(createStmt);
+
+        String alterCatalogSql = "ALTER CATALOG test_hive1 SET PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://127.0.0.1:7007',\n"
+                + "    'dfs.nameservices' = 'HANN',\n"
+                + "    'dfs.ha.namenodes.HANN'='',\n"
+                + "    'dfs.client.failover.proxy.provider.HANN'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        AlterCatalogPropertyStmt alterCatalogPropertyStmt1 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(
+                alterCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Missing dfs.ha.namenodes.HANN property",
+                () -> mgr.alterCatalogProps(alterCatalogPropertyStmt1));
+
+        alterCatalogSql = "ALTER CATALOG test_hive1 SET PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://127.0.0.1:7007',\n"
+                + "    'dfs.nameservices' = 'HANN',\n"
+                + "    'dfs.ha.namenodes.HANN'='nn1,nn3',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn1'='127.0.0.1:4007',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn3'='127.0.0.1:4007',\n"
+                + "    'dfs.client.failover.proxy.provider.HANN'"
+                + "=''\n"
+                + ");";
+        AlterCatalogPropertyStmt alterCatalogPropertyStmt2 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(
+                alterCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Missing dfs.client.failover.proxy.provider.HANN property",
+                () -> mgr.alterCatalogProps(alterCatalogPropertyStmt2));
+
+        alterCatalogSql = "ALTER CATALOG test_hive1 SET PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://127.0.0.1:7007',\n"
+                + "    'dfs.nameservices' = 'HANN',\n"
+                + "    'dfs.ha.namenodes.HANN'='nn1,nn3',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn1'='127.0.0.1:4007',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn3'='127.0.0.1:4007',\n"
+                + "    'dfs.client.failover.proxy.provider.HANN'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        AlterCatalogPropertyStmt alterCatalogPropertyStmt3 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(
+                alterCatalogSql);
+        mgr.alterCatalogProps(alterCatalogPropertyStmt3);
+
+        CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogName);
+        Assert.assertEquals(10, catalog.getProperties().size());
+        Assert.assertEquals("nn1,nn3", catalog.getProperties().get("dfs.ha.namenodes.HANN"));
+    }
+
     public void testAlterFileCache() throws Exception {
         String catalogName = "good_hive_3";
         String createCatalogSql = "CREATE CATALOG " + catalogName
@@ -703,6 +774,22 @@ public class CatalogMgrTest extends TestWithFeService {
         String alterComment = "ALTER CATALOG hive_c SET PROPERTIES"
                 + " (\"comment\" = \"alter comment\");";
         mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterComment));
-        Assertions.assertEquals(env.getCatalogMgr().getCatalog("hive_c").getComment(), "alter comment");
+        // we do not set `comment` auto by `comment in properties`
+        Assertions.assertEquals("create", env.getCatalogMgr().getCatalog("hive_c").getComment());
+    }
+
+    @Test
+    public void testAlterCatalogComment() throws Exception {
+        ConnectContext rootCtx = createDefaultCtx();
+        CreateCatalogStmt catalogWithComment = (CreateCatalogStmt) parseAndAnalyzeStmt(
+                "create catalog hive_c1 comment 'create' properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
+                rootCtx);
+        env.getCatalogMgr().createCatalog(catalogWithComment);
+        Assertions.assertEquals("create", env.getCatalogMgr().getCatalog("hive_c1").getComment());
+
+        String alterComment = "ALTER CATALOG hive_c1 MODIFY COMMENT 'new_comment';";
+        mgr.alterCatalogComment((AlterCatalogCommentStmt) parseAndAnalyzeStmt(alterComment));
+        // we do not set `comment` auto by `comment in properties`
+        Assertions.assertEquals("new_comment", env.getCatalogMgr().getCatalog("hive_c1").getComment());
     }
 }

@@ -43,9 +43,8 @@ namespace doris::vectorized {
 
 DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
         : nested_data_type {nested_data_type_} {
-    if (!nested_data_type->can_be_inside_nullable()) {
-        LOG(FATAL) << fmt::format("Nested type {} cannot be inside Nullable type",
-                                  nested_data_type->get_name());
+    if (!nested_data_type) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "DataTypeNullable input nested type is nullptr");
     }
 }
 
@@ -165,7 +164,9 @@ bool DataTypeNullable::equals(const IDataType& rhs) const {
 }
 
 DataTypePtr make_nullable(const DataTypePtr& type) {
-    if (type->is_nullable()) return type;
+    if (type->is_nullable()) {
+        return type;
+    }
     return std::make_shared<DataTypeNullable>(type);
 }
 
@@ -178,7 +179,9 @@ DataTypes make_nullable(const DataTypes& types) {
 }
 
 DataTypePtr remove_nullable(const DataTypePtr& type) {
-    if (type->is_nullable()) return static_cast<const DataTypeNullable&>(*type).get_nested_type();
+    if (type->is_nullable()) {
+        return assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
+    }
     return type;
 }
 

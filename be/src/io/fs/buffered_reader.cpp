@@ -22,8 +22,8 @@
 #include <string.h>
 
 #include <algorithm>
+#include <chrono>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -33,7 +33,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 // add bvar to capture the download bytes per second by buffered reader
 bvar::Adder<uint64_t> g_bytes_downloaded("buffered_reader", "bytes_downloaded");
@@ -48,7 +48,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     if (result.size == 0) {
         return Status::OK();
     }
-    int range_index = _search_read_range(offset, offset + result.size);
+    const int range_index = _search_read_range(offset, offset + result.size);
     if (range_index < 0) {
         SCOPED_RAW_TIMER(&_statistics.read_time);
         Status st = _reader->read_at(offset, result, bytes_read, io_ctx);
@@ -98,6 +98,8 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     // merge small IO
     size_t merge_start = offset + has_read;
     const size_t merge_end = merge_start + READ_SLICE_SIZE;
+    // <slice_size, is_content>
+    std::vector<std::pair<size_t, bool>> merged_slice;
     size_t content_size = 0;
     size_t hollow_size = 0;
     if (merge_start > _random_access_ranges[range_index].end_offset) {
@@ -117,12 +119,14 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             size_t add_content = std::min(merge_end - merge_start, content_max);
             content_size += add_content;
             merge_start += add_content;
+            merged_slice.emplace_back(add_content, true);
             break;
         }
         size_t add_content =
                 std::min(_random_access_ranges[merge_index].end_offset - merge_start, content_max);
         content_size += add_content;
         merge_start += add_content;
+        merged_slice.emplace_back(add_content, true);
         if (merge_start != _random_access_ranges[merge_index].end_offset) {
             break;
         }
@@ -135,18 +139,9 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             }
             if (gap < merge_end - merge_start && content_size < _remaining &&
                 !_range_cached_data[merge_index + 1].has_read) {
-                size_t next_content =
-                        std::min(_random_access_ranges[merge_index + 1].end_offset, merge_end) -
-                        _random_access_ranges[merge_index + 1].start_offset;
-                next_content = std::min(next_content, _remaining - content_size);
-                double amplified_ratio = config::max_amplified_read_ratio;
-                if ((content_size + hollow_size) > MIN_READ_SIZE &&
-                    (hollow_size + gap) > (next_content + content_size) * amplified_ratio) {
-                    // too large gap
-                    break;
-                }
                 hollow_size += gap;
                 merge_start = _random_access_ranges[merge_index + 1].start_offset;
+                merged_slice.emplace_back(gap, false);
             } else {
                 // there's no enough memory to read hollow data
                 break;
@@ -154,7 +149,35 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         }
         merge_index++;
     }
-    if (content_size + hollow_size == to_read) {
+    content_size = 0;
+    hollow_size = 0;
+    std::vector<std::pair<double, size_t>> ratio_and_size;
+    // Calculate the read amplified ratio for each merge operation and the size of the merged data.
+    // Find the largest size of the merged data whose amplified ratio is less than config::max_amplified_read_ratio
+    for (const std::pair<size_t, bool>& slice : merged_slice) {
+        if (slice.second) {
+            content_size += slice.first;
+            if (slice.first > 0) {
+                ratio_and_size.emplace_back((double)hollow_size / content_size,
+                                            content_size + hollow_size);
+            }
+        } else {
+            hollow_size += slice.first;
+        }
+    }
+    size_t best_merged_size = 0;
+    for (int i = 0; i < ratio_and_size.size(); ++i) {
+        const std::pair<double, size_t>& rs = ratio_and_size[i];
+        size_t equivalent_size = rs.second / (i + 1);
+        if (rs.second > best_merged_size) {
+            if (rs.first <= _max_amplified_ratio ||
+                (_max_amplified_ratio < 1 && equivalent_size <= _equivalent_io_size)) {
+                best_merged_size = rs.second;
+            }
+        }
+    }
+
+    if (best_merged_size == to_read) {
         // read directly to avoid copy operation
         SCOPED_RAW_TIMER(&_statistics.read_time);
         size_t read_size = 0;
@@ -169,8 +192,8 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
 
     merge_start = offset + has_read;
     size_t merge_read_size = 0;
-    RETURN_IF_ERROR(_fill_box(range_index, merge_start, content_size + hollow_size,
-                              &merge_read_size, io_ctx));
+    RETURN_IF_ERROR(
+            _fill_box(range_index, merge_start, best_merged_size, &merge_read_size, io_ctx));
     if (cached_data.start_offset != merge_start) {
         return Status::IOError("Wrong start offset in merged IO");
     }
@@ -363,13 +386,23 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
     return Status::OK();
 }
 
+// the condition variable would wait at most 10 seconds
+// otherwise it would quit the procedure and treat it
+// as one time out error status and would make the load
+// task failed
+constexpr static int WAIT_TIME_OUT_MS = 10000;
+
 // there exists occasions where the buffer is already closed but
 // some prior tasks are still queued in thread pool, so we have to check whether
 // the buffer is closed each time the condition variable is notified.
 void PrefetchBuffer::reset_offset(size_t offset) {
     {
         std::unique_lock lck {_lock};
-        _prefetched.wait(lck, [this]() { return _buffer_status != BufferStatus::PENDING; });
+        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+                                  [this]() { return _buffer_status != BufferStatus::PENDING; })) {
+            _prefetch_status = Status::TimedOut("time out when reset prefetch buffer");
+            return;
+        }
         if (UNLIKELY(_buffer_status == BufferStatus::CLOSED)) {
             _prefetched.notify_all();
             return;
@@ -385,17 +418,21 @@ void PrefetchBuffer::reset_offset(size_t offset) {
     } else {
         _exceed = false;
     }
-    ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
-            [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); });
+    static_cast<void>(ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
+            [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); }));
 }
 
 // only this function would run concurrently in another thread
 void PrefetchBuffer::prefetch_buffer() {
     {
         std::unique_lock lck {_lock};
-        _prefetched.wait(lck, [this]() {
-            return _buffer_status == BufferStatus::RESET || _buffer_status == BufferStatus::CLOSED;
-        });
+        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
+                return _buffer_status == BufferStatus::RESET ||
+                       _buffer_status == BufferStatus::CLOSED;
+            })) {
+            _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
+            return;
+        }
         // in case buffer is already closed
         if (UNLIKELY(_buffer_status == BufferStatus::CLOSED)) {
             _prefetched.notify_all();
@@ -432,7 +469,11 @@ void PrefetchBuffer::prefetch_buffer() {
     _statis.prefetch_request_io += 1;
     _statis.prefetch_request_bytes += _len;
     std::unique_lock lck {_lock};
-    _prefetched.wait(lck, [this]() { return _buffer_status == BufferStatus::PENDING; });
+    if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+                              [this]() { return _buffer_status == BufferStatus::PENDING; })) {
+        _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
+        return;
+    }
     if (!s.ok() && _offset < _reader->size()) {
         _prefetch_status = std::move(s);
     }
@@ -509,10 +550,13 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     {
         std::unique_lock lck {_lock};
         // buffer must be prefetched or it's closed
-        _prefetched.wait(lck, [this]() {
-            return _buffer_status == BufferStatus::PREFETCHED ||
-                   _buffer_status == BufferStatus::CLOSED;
-        });
+        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
+                return _buffer_status == BufferStatus::PREFETCHED ||
+                       _buffer_status == BufferStatus::CLOSED;
+            })) {
+            _prefetch_status = Status::TimedOut("time out when read prefetch buffer");
+            return _prefetch_status;
+        }
         if (UNLIKELY(BufferStatus::CLOSED == _buffer_status)) {
             return Status::OK();
         }
@@ -545,7 +589,11 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
 void PrefetchBuffer::close() {
     std::unique_lock lck {_lock};
     // in case _reader still tries to write to the buf after we close the buffer
-    _prefetched.wait(lck, [this]() { return _buffer_status != BufferStatus::PENDING; });
+    if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+                              [this]() { return _buffer_status != BufferStatus::PENDING; })) {
+        _prefetch_status = Status::TimedOut("time out when close prefetch buffer");
+        return;
+    }
     _buffer_status = BufferStatus::CLOSED;
     _prefetched.notify_all();
     if (_sync_profile != nullptr) {
@@ -598,8 +646,11 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
 }
 
 PrefetchBufferedReader::~PrefetchBufferedReader() {
-    close();
-    _closed = true;
+    /// set `_sync_profile` to nullptr to avoid updating counter after the runtime profile has been released.
+    std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
+                  [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->_sync_profile = nullptr; });
+    /// Better not to call virtual functions in a destructor.
+    static_cast<void>(_close_internal());
 }
 
 Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -628,6 +679,10 @@ Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t*
 }
 
 Status PrefetchBufferedReader::close() {
+    return _close_internal();
+}
+
+Status PrefetchBufferedReader::_close_internal() {
     if (!_closed) {
         _closed = true;
         std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
@@ -643,10 +698,14 @@ InMemoryFileReader::InMemoryFileReader(io::FileReaderSPtr reader) : _reader(std:
 }
 
 InMemoryFileReader::~InMemoryFileReader() {
-    close();
+    static_cast<void>(_close_internal());
 }
 
 Status InMemoryFileReader::close() {
+    return _close_internal();
+}
+
+Status InMemoryFileReader::_close_internal() {
     if (!_closed) {
         _closed = true;
         return _reader->close();
@@ -734,15 +793,19 @@ Status BufferedFileStreamReader::read_bytes(Slice& slice, uint64_t offset,
 Status DelegateReader::create_file_reader(RuntimeProfile* profile,
                                           const FileSystemProperties& system_properties,
                                           const FileDescription& file_description,
+                                          const io::FileReaderOptions& reader_options,
                                           std::shared_ptr<io::FileSystem>* file_system,
                                           io::FileReaderSPtr* file_reader, AccessMode access_mode,
-                                          io::FileReaderOptions reader_options,
                                           const IOContext* io_ctx, const PrefetchRange file_range) {
     io::FileReaderSPtr reader;
-    RETURN_IF_ERROR(FileFactory::create_file_reader(profile, system_properties, file_description,
-                                                    file_system, &reader, reader_options));
-    if (reader->size() < IN_MEMORY_FILE_SIZE) {
-        *file_reader = std::make_shared<InMemoryFileReader>(reader);
+    RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
+                                                    reader_options, file_system, &reader, profile));
+    if (reader->size() < config::in_memory_file_size) {
+        if (typeid_cast<io::S3FileReader*>(reader.get())) {
+            *file_reader = std::make_shared<InMemoryFileReader>(reader);
+        } else {
+            *file_reader = std::move(reader);
+        }
     } else if (access_mode == AccessMode::SEQUENTIAL) {
         bool is_thread_safe = false;
         if (typeid_cast<io::S3FileReader*>(reader.get())) {

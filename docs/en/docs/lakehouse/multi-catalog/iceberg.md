@@ -53,60 +53,93 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ### Create Catalog based on Iceberg API
 
-Use the Iceberg API to access metadata, and support services such as Hive, REST, and Glue as Iceberg's Catalog.
+Use the Iceberg API to access metadata, and support services such as Hadoop File System, Hive, REST, DLF and Glue as Iceberg's Catalog.
 
-- Hive Metastore
+#### Hadoop Catalog
 
-    ```sql
-    CREATE CATALOG iceberg PROPERTIES (
-        'type'='iceberg',
-        'iceberg.catalog.type'='hms',
-        'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-        'hadoop.username' = 'hive',
-        'dfs.nameservices'='your-nameservice',
-        'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-        'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-        'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
-        'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
-    );
-    ```
-
-- Glue Catalog
-
-    ```sql
-    CREATE CATALOG glue PROPERTIES (
-        "type"="iceberg",
-        "iceberg.catalog.type" = "glue",
-        "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
-        "glue.access_key" = "ak",
-        "glue.secret_key" = "sk"
-    );
-    ```
-
-    For Iceberg properties, see [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
-
-- REST Catalog
-
-    This method needs to provide REST services in advance, and users need to implement the REST interface for obtaining Iceberg metadata.
-    
-    ```sql
-    CREATE CATALOG iceberg PROPERTIES (
-        'type'='iceberg',
-        'iceberg.catalog.type'='rest',
-        'uri' = 'http://172.21.0.1:8181',
-    );
-    ```
-
-If the data is stored on S3, the following parameters can be used in properties:
-
-```
-"s3.access_key" = "ak"
-"s3.secret_key" = "sk"
-"s3.endpoint" = "http://endpoint-uri"
-"s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
+```sql
+CREATE CATALOG iceberg_hadoop PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-host:8020/dir/key'
+);
 ```
 
-#### Google Dataproc Metastore 作为元数据服务
+```sql
+CREATE CATALOG iceberg_hadoop_ha PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-nameservice/dir/key',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
+
+#### Hive Metastore
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
+
+#### AWS Glue
+
+```sql
+CREATE CATALOG glue PROPERTIES (
+    "type"="iceberg",
+    "iceberg.catalog.type" = "glue",
+    "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+    "glue.access_key" = "ak",
+    "glue.secret_key" = "sk"
+);
+```
+
+For Iceberg properties, see [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+
+#### Alibaba Cloud DLF
+
+see [Alibaba Cloud DLF Catalog](dlf.md)
+
+#### REST Catalog
+
+This method needs to provide REST services in advance, and users need to implement the REST interface for obtaining Iceberg metadata.
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181'
+);
+```
+
+If the data is on HDFS and High Availability (HA) is set up, need to add HA configuration to the Catalog.
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.1:8020',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.2:8020',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
+
+#### Google Dataproc Metastore
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -122,6 +155,44 @@ CREATE CATALOG iceberg PROPERTIES (
 ```
 
 `hive.metastore.uris`: Dataproc Metastore URI，See in Metastore Services ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
+
+### Iceberg On Object Storage
+
+If the data is stored on S3, the following parameters can be used in properties:
+
+```
+"s3.access_key" = "ak"
+"s3.secret_key" = "sk"
+"s3.endpoint" = "s3.us-east-1.amazonaws.com"
+"s3.region" = "us-east-1"
+```
+
+The data is stored on Alibaba Cloud OSS:
+
+```
+"oss.access_key" = "ak"
+"oss.secret_key" = "sk"
+"oss.endpoint" = "oss-cn-beijing-internal.aliyuncs.com"
+"oss.region" = "oss-cn-beijing"
+```
+
+The data is stored on Tencent Cloud COS:
+
+```
+"cos.access_key" = "ak"
+"cos.secret_key" = "sk"
+"cos.endpoint" = "cos.ap-beijing.myqcloud.com"
+"cos.region" = "ap-beijing"
+```
+
+The data is stored on Huawei Cloud OBS:
+
+```
+"obs.access_key" = "ak"
+"obs.secret_key" = "sk"
+"obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com"
+"obs.region" = "cn-north-4"
+```
 
 ## Column type mapping
 

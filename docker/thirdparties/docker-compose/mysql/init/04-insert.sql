@@ -15,6 +15,12 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
+insert into show_test_do_not_modify.ex_tb0 values (111, 'abc'), (112, 'abd'), (113, 'abe'),(114, 'abf'),(115, 'abg');
+
+insert into show_test_do_not_modify.ex_tb1 values ('{"k1":"v1", "k2":"v2"}');
+
+insert into show_test_do_not_modify.ex_tb2 values (123, '10'), (123, '15'), (123, '20');
+
 insert into doris_test.test1 values
 (true, 'abc', 'efg', '2022-10-01', 3.4, 1, 2, 0, 100000, 1.2, '2022-10-02 12:59:01', 24.000),
 (true, 'abc', 'efg', '2022-10-01', 3.4, 1, 2, 1, 100000, 1.2, '2022-10-02 12:59:01', 24.000),
@@ -1138,3 +1144,19 @@ INSERT INTO doris_test.all_types VALUES
 (203, 303, 403, 503, 603, 7.14159, 8.1415926, 9.141592, false, null, -402, 2017, -602, -902, -1102, '2012-11-02', null, '2013-10-27 08:11:18.3456712',
  -5.14145000001, -6.1400000000001, -7.140000000001, 'row3', 'line3', '09:11:09.56782346', 'text3', X'E86F6C6C6F20576F726C67', '{"name": "ChenQi", "age": 24, "city": "ChongQing"}',
  'Option2', b'101111', X'58676C6C6F', null, 'Value1');
+
+INSERT INTO doris_test.dt (`timestamp0`, `timestamp1`, `timestamp2`, `timestamp3`, `timestamp4`, `timestamp5`, `timestamp6`)
+VALUES ('2023-06-17 10:00:00', '2023-06-17 10:00:01.1', '2023-06-17 10:00:02.22', '2023-06-17 10:00:03.333', 
+        '2023-06-17 10:00:04.4444', '2023-06-17 10:00:05.55555', '2023-06-17 10:00:06.666666');
+
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES',''));
+INSERT INTO doris_test.dt_null
+VALUES ('2023-06-17 10:00:00'),('0000-00-00 00:00:00');
+
+
+insert into doris_test.test_key_word values (1, 1), (2, 2);
+
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE',''));
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE',''));
+
+insert into doris_test.test_zd (id,d_z) VALUES (1,'0000-00-00'),(2,'2022-01-01');

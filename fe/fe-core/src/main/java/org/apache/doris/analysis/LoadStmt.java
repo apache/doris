@@ -81,6 +81,7 @@ public class LoadStmt extends DdlStmt {
     public static final String TIMEZONE = "timezone";
     public static final String LOAD_PARALLELISM = "load_parallelism";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+    public static final String PRIORITY = "priority";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
     // temp property, just make regression test happy.
     // should remove when Config.enable_new_load_scan_node is set to true by default.
@@ -120,8 +121,13 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
     public static final String KEY_SKIP_LINES = "skip_lines";
     public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+    public static final String PARTIAL_COLUMNS = "partial_columns";
 
     public static final String KEY_COMMENT = "comment";
+
+    public static final String KEY_ENCLOSE = "enclose";
+
+    public static final String KEY_ESCAPE = "escape";
 
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
@@ -156,6 +162,12 @@ public class LoadStmt extends DdlStmt {
                 }
             })
             .put(STRICT_MODE, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(PARTIAL_COLUMNS, new Function<String, Boolean>() {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);
@@ -209,6 +221,7 @@ public class LoadStmt extends DdlStmt {
                     return Boolean.valueOf(s);
                 }
             })
+            .put(PRIORITY, (Function<String, LoadTask.Priority>) s -> LoadTask.Priority.valueOf(s))
             .build();
 
     public LoadStmt(DataDescription dataDescription, Map<String, String> properties, String comment) {
@@ -344,6 +357,15 @@ public class LoadStmt extends DdlStmt {
             }
         }
 
+        // partial update
+        final String partialColumnsProperty = properties.get(PARTIAL_COLUMNS);
+        if (partialColumnsProperty != null) {
+            if (!partialColumnsProperty.equalsIgnoreCase("true")
+                    && !partialColumnsProperty.equalsIgnoreCase("false")) {
+                throw new DdlException(PARTIAL_COLUMNS + " is not a boolean");
+            }
+        }
+
         // time zone
         final String timezone = properties.get(TIMEZONE);
         if (timezone != null) {
@@ -361,6 +383,16 @@ public class LoadStmt extends DdlStmt {
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException(SEND_BATCH_PARALLELISM + " is not a number.");
+            }
+        }
+
+        // priority
+        final String priority = properties.get(PRIORITY);
+        if (priority != null) {
+            try {
+                LoadTask.Priority.valueOf(priority);
+            } catch (IllegalArgumentException | NullPointerException e) {
+                throw new DdlException(PRIORITY + " must be in [LOW/NORMAL/HIGH].");
             }
         }
     }
@@ -401,8 +433,9 @@ public class LoadStmt extends DdlStmt {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
                     String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
                     dataDescription.getFilePaths().set(i, location);
-                    dataDescription.getFilePaths().set(i,
-                            ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
+                    StorageBackend.checkPath(dataDescription.getFilePaths().get(i),
+                            brokerDesc.getStorageType());
+                    dataDescription.getFilePaths().set(i, dataDescription.getFilePaths().get(i));
                 }
             }
         }

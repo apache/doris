@@ -56,10 +56,8 @@ suite("bucket-shuffle-join") {
     sql """insert into shuffle_join_t2 values("1","1","1");"""
     sql """insert into shuffle_join_t2 values("1","1","1");"""
 
-    sql """analyze table shuffle_join_t1;"""
-    sql """analyze table shuffle_join_t2;"""
-
-    Thread.sleep(2000)
+    sql """analyze table shuffle_join_t1 with sync;"""
+    sql """analyze table shuffle_join_t2 with sync;"""
 
     explain {
         sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.a;")
@@ -74,9 +72,7 @@ suite("bucket-shuffle-join") {
     explain {
         sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.c;")
         contains "BUCKET_SHUFFLE"
-        contains "BUCKET_SHFFULE_HASH_PARTITIONED: expr_cast(c as VARCHAR(*))"
+        contains "BUCKET_SHFFULE_HASH_PARTITIONED: c"
     }
 
-    sql """ DROP TABLE IF EXISTS shuffle_join_t1 """
-    sql """ DROP TABLE IF EXISTS shuffle_join_t2 """
 }

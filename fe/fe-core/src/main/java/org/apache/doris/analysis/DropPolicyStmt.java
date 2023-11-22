@@ -31,7 +31,7 @@ import lombok.Getter;
 /**
  * Drop policy statement.
  * syntax:
- * DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table [FOR user]
+ * DROP [ROW] POLICY [IF EXISTS] test_row_policy
  **/
 @AllArgsConstructor
 public class DropPolicyStmt extends DdlStmt {
@@ -45,25 +45,9 @@ public class DropPolicyStmt extends DdlStmt {
     @Getter
     private final String policyName;
 
-    @Getter
-    private final TableName tableName;
-
-    @Getter
-    private final UserIdentity user;
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        switch (type) {
-            case STORAGE:
-                break;
-            case ROW:
-            default:
-                tableName.analyze(analyzer);
-                if (user != null) {
-                    user.analyze(analyzer.getClusterName());
-                }
-        }
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
@@ -78,16 +62,6 @@ public class DropPolicyStmt extends DdlStmt {
             sb.append("IF EXISTS ");
         }
         sb.append(policyName);
-        switch (type) {
-            case STORAGE:
-                break;
-            case ROW:
-            default:
-                sb.append(" ON ").append(tableName.toSql());
-                if (user != null) {
-                    sb.append(" FOR ").append(user.getQualifiedUser());
-                }
-        }
         return sb.toString();
     }
 }

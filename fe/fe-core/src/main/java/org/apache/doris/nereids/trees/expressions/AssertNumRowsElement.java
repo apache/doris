@@ -23,9 +23,11 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Number of rows returned by inspection in subquery.
@@ -49,6 +51,7 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
 
     public AssertNumRowsElement(long desiredNumOfRows, String subqueryString,
             Assertion assertion) {
+        super(ImmutableList.of());
         this.desiredNumOfRows = desiredNumOfRows;
         this.subqueryString = subqueryString;
         this.assertion = assertion;
@@ -68,7 +71,7 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
 
     @Override
     public AssertNumRowsElement withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0);
+        Preconditions.checkArgument(children.isEmpty());
         return this;
     }
 
@@ -83,6 +86,14 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
     @Override
     public String toSql() {
         return toString();
+    }
+
+    @Override
+    public String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(assertion.name().toLowerCase(), DEFAULT_EXPRESSION_NAME));
+        }
+        return this.exprName.get();
     }
 
     @Override

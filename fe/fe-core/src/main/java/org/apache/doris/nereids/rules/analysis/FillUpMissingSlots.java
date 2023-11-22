@@ -115,7 +115,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                             if (notChanged && a.equals(agg)) {
                                 return null;
                             }
-                            return notChanged ? sort.withChildren(a) : new LogicalSort<>(newOrderKeys, a);
+                            return notChanged ? sort.withChildren(sort.child().withChildren(a))
+                                    : new LogicalSort<>(newOrderKeys, sort.child().withChildren(a));
                         });
                     })
             ),
@@ -238,7 +239,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         }
 
         private void generateAliasForNewOutputSlots(Expression expression) {
-            Alias alias = new Alias(expression, expression.toSql());
+            Alias alias = new Alias(expression);
             newOutputSlots.add(alias);
             substitution.put(expression, alias.toSlot());
         }

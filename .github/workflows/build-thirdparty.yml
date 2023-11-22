@@ -51,6 +51,21 @@ jobs:
     if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout easimon/maximize-build-space
+        run: |
+          git clone -b v7 https://github.com/easimon/maximize-build-space
+
+      - name: Maximize build space
+        uses: ./maximize-build-space
+        with:
+            root-reserve-mb: 4096
+            swap-size-mb: 8192
+            remove-dotnet: 'true'
+            remove-android: 'true'
+            remove-haskell: 'true'
+            remove-codeql: 'true'
+            remove-docker-images: 'true'
+
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v3
 
@@ -95,7 +110,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes "${packages[@]}"
 
           mkdir -p "${DEFAULT_DIR}"
-          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.17/ldb_toolchain_gen.sh \
+          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
             -q -O /tmp/ldb_toolchain_gen.sh
           bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
 

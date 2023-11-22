@@ -56,7 +56,11 @@ public:
         ss.flags(std::ios::fixed);
         switch (unit) {
         case TUnit::NONE: {
-            ss << value;
+            // TUnit::NONE is used as a special counter, it is just a label
+            //         - PeakMemoryUsage:
+            //              - BuildKeyArena: 0
+            //              - ProbeKeyArena: 0
+            // So do not need output its value
             return ss.str();
         }
 

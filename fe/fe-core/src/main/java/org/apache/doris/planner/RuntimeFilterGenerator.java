@@ -317,10 +317,12 @@ public final class RuntimeFilterGenerator {
      * destination node for that filter.
      */
     private void registerRuntimeFilter(RuntimeFilter filter) {
-        Map<TupleId, List<SlotId>> targetSlotsByTid = filter.getTargetSlots();
-        Preconditions.checkState(targetSlotsByTid != null && !targetSlotsByTid.isEmpty());
-        for (TupleId tupleId : targetSlotsByTid.keySet()) {
-            registerRuntimeFilter(filter, tupleId);
+        List<Map<TupleId, List<SlotId>>> targetSlotsByTids = filter.getTargetSlots();
+        for (Map<TupleId, List<SlotId>> targetSlotsByTid : targetSlotsByTids) {
+            Preconditions.checkState(targetSlotsByTid != null && !targetSlotsByTid.isEmpty());
+            for (TupleId tupleId : targetSlotsByTid.keySet()) {
+                registerRuntimeFilter(filter, tupleId);
+            }
         }
     }
 
@@ -328,7 +330,7 @@ public final class RuntimeFilterGenerator {
      * Registers a runtime filter with a specific target tuple id.
      */
     private void registerRuntimeFilter(RuntimeFilter filter, TupleId targetTid) {
-        Preconditions.checkState(filter.getTargetSlots().containsKey(targetTid));
+        Preconditions.checkState(filter.getTargetSlots().stream().anyMatch(e -> e.containsKey(targetTid)));
         List<RuntimeFilter> filters = runtimeFiltersByTid.computeIfAbsent(targetTid, k -> new ArrayList<>());
         Preconditions.checkState(!filter.isFinalized());
         filters.add(filter);
@@ -344,9 +346,11 @@ public final class RuntimeFilterGenerator {
         for (RuntimeFilter.RuntimeFilterTarget target : runtimeFilter.getTargets()) {
             targetTupleIds.addAll(target.node.getTupleIds());
         }
-        for (TupleId tupleId : runtimeFilter.getTargetSlots().keySet()) {
-            if (!targetTupleIds.contains(tupleId)) {
-                runtimeFiltersByTid.get(tupleId).remove(runtimeFilter);
+        for (Map<TupleId, List<SlotId>> slots : runtimeFilter.getTargetSlots()) {
+            for (TupleId tupleId : slots.keySet()) {
+                if (!targetTupleIds.contains(tupleId)) {
+                    runtimeFiltersByTid.get(tupleId).remove(runtimeFilter);
+                }
             }
         }
         runtimeFilter.markFinalized();
@@ -424,14 +428,22 @@ public final class RuntimeFilterGenerator {
      * the scan node with target tuple descriptor 'targetTid'.
      */
     private Expr computeTargetExpr(RuntimeFilter filter, TupleId targetTid) {
-        Expr targetExpr = filter.getOrigTargetExpr();
+        Preconditions.checkState(filter.getTargetSlots().size() == filter.getOrigTargetExprs().size());
+        Expr targetExpr = null;
+        for (int i = 0; i < filter.getOrigTargetExprs().size(); i++) {
+            if (filter.getTargetSlots().get(i).containsKey(targetTid)) {
+                targetExpr = filter.getOrigTargetExprs().get(i);
+                break;
+            }
+        }
+        Preconditions.checkState(targetExpr != null);
         // if there is a subquery on the left side of join, in order to push to scan in the subquery,
         // targetExpr will return false as long as there is a slotref parent node that is not targetTid.
         // But when this slotref can be transferred to the targetTid slot, such as Aa + Bb = Cc,
         // targetTid is B, if Aa can be transferred to Ba, that is, Aa and Ba are equivalent columns,
         // then replace Aa with Ba, and then calculate for targetTid targetExpr
         if (!targetExpr.isBound(targetTid)) {
-            Preconditions.checkState(filter.getTargetSlots().containsKey(targetTid));
+            Preconditions.checkState(filter.getTargetSlots().stream().anyMatch(e -> e.containsKey(targetTid)));
             // Modify the filter target expr using the equivalent slots from the scan node
             // on which the filter will be applied.
             ExprSubstitutionMap smap = new ExprSubstitutionMap();
@@ -440,7 +452,14 @@ public final class RuntimeFilterGenerator {
             // all slots of targetSlotsByTid.
             targetExpr.collect(SlotRef.class, exprSlots);
             // targetExpr specifies the id of the slotRef node in the `tupleID`
-            List<SlotId> sids = filter.getTargetSlots().get(targetTid);
+            List<SlotId> sids = new ArrayList<>();
+            for (Map<TupleId, List<SlotId>> map : filter.getTargetSlots()) {
+                if (map.containsKey(targetTid)) {
+                    sids = map.get(targetTid);
+                    break;
+                }
+            }
+            Preconditions.checkState(!sids.isEmpty());
             for (SlotRef slotRef : exprSlots) {
                 for (SlotId sid : sids) {
                     if (analyzer.hasValueTransfer(slotRef.getSlotId(), sid)) {

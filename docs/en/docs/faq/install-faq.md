@@ -83,7 +83,7 @@ Here we provide 3 ways to solve this problem:
 
 3. Manually migrate data using the API
 
-   Doris provides [HTTP API](../admin-manual/http-actions/be/tablet-migration-action.md), which can manually specify the migration of data shards on one disk to another disk.
+   Doris provides [HTTP API](https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/be/tablet-migration), which can manually specify the migration of data shards on one disk to another disk.
 
 ### Q5. How to read FE/BE logs correctly?
 
@@ -163,7 +163,7 @@ In many cases, we need to troubleshoot problems through logs. The format and vie
 
 Doris supports one BE node to configure multiple storage paths. Usually, one storage path can be configured for each disk. At the same time, Doris supports storage media properties that specify paths, such as SSD or HDD. SSD stands for high-speed storage device and HDD stands for low-speed storage device.
 
-If doris cluster has only one storage medium type, the practice is not specify storage medium in be.conf configuration file. ```Failed to find enough host with storage medium and tag```, generally we got this error for only config SSD medium in be.conf, but default parameter ```default_storage_medium``` in fe is HDD, so there is no HDD storage medium in cluster. There are several ways to fix this, one is modify the parameter in fe.conf and restart fe; the other way is take the SSD config in be.conf away,and the third way is add properties when create table ```{"storage_medium" = "ssd"}```
+If the cluster only has one type of medium, such as all HDD or all SSD, the best practice is not to explicitly specify the medium property in be.conf. If encountering the error ```Failed to find enough host with storage medium and tag``` mentioned above, it is generally because be.conf only configures the SSD medium, while the table creation stage explicitly specifies ```properties {"storage_medium" = "hdd"}```; similarly, if be.conf only configures the HDD medium, and the table creation stage explicitly specifies ```properties {"storage_medium" = "ssd"}```, the same error will occur. The solution is to modify the properties parameter in the table creation to match the configuration; or remove the explicit configuration of SSD/HDD in be.conf.
 
 By specifying the storage medium properties of the path, we can take advantage of Doris's hot and cold data partition storage function to store hot data in SSD at the partition level, while cold data is automatically transferred to HDD.
 
@@ -309,7 +309,7 @@ If the following `Failed to initialize JNI` error occurs when starting BE after 
 ```
 Failed to initialize JNI: Failed to find the library libjvm.so.
 ```
-You need to set the `JAVA_HOME` environment variable, or add `export JAVA_HOME=your_java_home_path` in the first line of the `start_be.sh` startup script, and then restart the BE node.
+You need to set the `JAVA_HOME` environment variable, or set `JAVA_HOME` variable in be.conf and restart the BE node.
 
 ### Q17. Docker: backend fails to start
 This may be due to the CPU not supporting AVX2, check the backend logs with `docker logs -f be`.

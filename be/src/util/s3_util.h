@@ -18,6 +18,7 @@
 #pragma once
 
 #include <aws/core/Aws.h>
+#include <aws/core/client/ClientConfiguration.h>
 #include <fmt/format.h>
 #include <stdint.h>
 
@@ -35,8 +36,24 @@ namespace S3 {
 class S3Client;
 } // namespace S3
 } // namespace Aws
+namespace bvar {
+template <typename T>
+class Adder;
+}
 
 namespace doris {
+
+namespace s3_bvar {
+extern bvar::Adder<uint64_t> s3_get_total;
+extern bvar::Adder<uint64_t> s3_put_total;
+extern bvar::Adder<uint64_t> s3_delete_total;
+extern bvar::Adder<uint64_t> s3_head_total;
+extern bvar::Adder<uint64_t> s3_multi_part_upload_total;
+extern bvar::Adder<uint64_t> s3_list_total;
+extern bvar::Adder<uint64_t> s3_list_object_versions_total;
+extern bvar::Adder<uint64_t> s3_get_bucket_version_total;
+extern bvar::Adder<uint64_t> s3_copy_object_total;
+}; // namespace s3_bvar
 
 class S3URI;
 
@@ -47,11 +64,12 @@ const static std::string S3_REGION = "AWS_REGION";
 const static std::string S3_TOKEN = "AWS_TOKEN";
 const static std::string S3_MAX_CONN_SIZE = "AWS_MAX_CONN_SIZE";
 const static std::string S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
-const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONN_TIMEOUT_MS";
+const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
 
 struct S3Conf {
     std::string ak;
     std::string sk;
+    std::string token;
     std::string endpoint;
     std::string region;
     std::string bucket;
@@ -63,9 +81,10 @@ struct S3Conf {
 
     std::string to_string() const {
         return fmt::format(
-                "(ak={}, sk=*, endpoint={}, region={}, bucket={}, prefix={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={})",
-                ak, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
+                "(ak={}, sk=*, token={}, endpoint={}, region={}, bucket={}, prefix={}, "
+                "max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, "
+                "use_virtual_addressing={})",
+                ak, token, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
                 connect_timeout_ms, use_virtual_addressing);
     }
 
@@ -73,6 +92,7 @@ struct S3Conf {
         uint64_t hash_code = 0;
         hash_code += Fingerprint(ak);
         hash_code += Fingerprint(sk);
+        hash_code += Fingerprint(token);
         hash_code += Fingerprint(endpoint);
         hash_code += Fingerprint(region);
         hash_code += Fingerprint(bucket);
@@ -99,6 +119,16 @@ public:
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
                                                 const S3URI& s3_uri, S3Conf* s3_conf);
+
+    static Aws::Client::ClientConfiguration& getClientConfiguration() {
+        // The default constructor of ClientConfiguration will do some http call
+        // such as Aws::Internal::GetEC2MetadataClient and other init operation,
+        // which is unnecessary.
+        // So here we use a static instance, and deep copy every time
+        // to avoid unnecessary operations.
+        static Aws::Client::ClientConfiguration instance;
+        return instance;
+    }
 
 private:
     S3ClientFactory();

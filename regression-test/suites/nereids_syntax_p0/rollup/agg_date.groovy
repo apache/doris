@@ -48,7 +48,8 @@ suite("agg_date", "rollup") {
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobRollupState(tbName)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -64,7 +65,8 @@ suite("agg_date", "rollup") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobColumnState(tbName)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {

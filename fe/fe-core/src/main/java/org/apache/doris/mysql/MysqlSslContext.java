@@ -23,6 +23,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -51,6 +52,7 @@ public class MysqlSslContext {
     private static final String trustStoreFile = Config.mysql_ssl_default_ca_certificate;
     private static final String caCertificatePassword = Config.mysql_ssl_default_ca_certificate_password;
     private static final String serverCertificatePassword = Config.mysql_ssl_default_server_certificate_password;
+    private static final String trustStoreType = Config.ssl_trust_store_type;
     private ByteBuffer serverNetData;
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
@@ -66,14 +68,18 @@ public class MysqlSslContext {
 
     private void initSslContext() {
         try {
-            KeyStore ks = KeyStore.getInstance("PKCS12");
-            KeyStore ts = KeyStore.getInstance("PKCS12");
+            KeyStore ks = KeyStore.getInstance(trustStoreType);
+            KeyStore ts = KeyStore.getInstance(trustStoreType);
 
             char[] serverPassword = serverCertificatePassword.toCharArray();
             char[] caPassword = caCertificatePassword.toCharArray();
 
-            ks.load(Files.newInputStream(Paths.get(keyStoreFile)), serverPassword);
-            ts.load(Files.newInputStream(Paths.get(trustStoreFile)), caPassword);
+            try (InputStream stream = Files.newInputStream(Paths.get(keyStoreFile))) {
+                ks.load(stream, serverPassword);
+            }
+            try (InputStream stream = Files.newInputStream(Paths.get(trustStoreFile))) {
+                ts.load(stream, caPassword);
+            }
 
             KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
             kmf.init(ks, serverPassword);

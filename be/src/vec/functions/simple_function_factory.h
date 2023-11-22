@@ -32,6 +32,7 @@ namespace doris::vectorized {
 
 class SimpleFunctionFactory;
 
+void register_function_size(SimpleFunctionFactory& factory);
 void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
 void register_function_hll_cardinality(SimpleFunctionFactory& factory);
@@ -76,6 +77,7 @@ void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
+void register_function_uuid_numeric(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
@@ -95,15 +97,17 @@ void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
 void register_function_match(SimpleFunctionFactory& factory);
+void register_function_tokenize(SimpleFunctionFactory& factory);
 
 void register_function_url(SimpleFunctionFactory& factory);
+void register_function_ip(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
-    /// @TEMPORARY: for be_exec_version=2
-    constexpr static int DATETIME_FUNCTION_NEW = 2;
+    /// @TEMPORARY: for be_exec_version=3
+    constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 3;
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
@@ -112,7 +116,6 @@ public:
         if (!types.empty()) {
             function_variadic_set.insert(name);
         }
-
         std::string key_str = name;
         if (!types.empty()) {
             for (const auto& type : types) {
@@ -133,17 +136,17 @@ public:
 
     template <class Function>
     void register_function(std::string name) {
-        function_creators[name] = &createDefaultFunction<Function>;
+        register_function(name, &createDefaultFunction<Function>);
     }
 
     void register_alias(const std::string& name, const std::string& alias) {
         function_alias[alias] = name;
     }
 
-    /// @TEMPORARY: for be_exec_version=2
+    /// @TEMPORARY: for be_exec_version=3
     template <class Function>
     void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_2_0"};
+        static std::string suffix {"_old_for_version_before_3_0"};
         function_to_replace[Function::name] = Function::name + suffix;
         register_function(Function::name + suffix, &createDefaultFunction<Function>);
     }
@@ -183,7 +186,7 @@ private:
     FunctionCreators function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=2. replace function to old version.
+    /// @TEMPORARY: for be_exec_version=3. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 
     template <typename Function>
@@ -191,10 +194,10 @@ private:
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
     }
 
-    /// @TEMPORARY: for be_exec_version=2
+    /// @TEMPORARY: for be_exec_version=3
     void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
-        if (fe_version_now < DATETIME_FUNCTION_NEW &&
+        if (fe_version_now < NEWEST_VERSION_FUNCTION_SUBSTITUTE &&
             function_to_replace.find(name) != function_to_replace.end()) {
             name = function_to_replace[name];
         }
@@ -205,6 +208,7 @@ public:
         static std::once_flag oc;
         static SimpleFunctionFactory instance;
         std::call_once(oc, []() {
+            register_function_size(instance);
             register_function_bitmap(instance);
             register_function_quantile_state(instance);
             register_function_bitmap_variadic(instance);
@@ -230,7 +234,6 @@ public:
             register_function_to_time_function(instance);
             register_function_time_of_function(instance);
             register_function_string(instance);
-            register_function_running_difference(instance);
             register_function_in(instance);
             register_function_if(instance);
             register_function_nullif(instance);
@@ -249,6 +252,7 @@ public:
             register_function_regexp(instance);
             register_function_random(instance);
             register_function_uuid(instance);
+            register_function_uuid_numeric(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);
@@ -268,6 +272,8 @@ public:
             register_function_multi_string_search(instance);
             register_function_width_bucket(instance);
             register_function_match(instance);
+            register_function_ip(instance);
+            register_function_tokenize(instance);
         });
         return instance;
     }

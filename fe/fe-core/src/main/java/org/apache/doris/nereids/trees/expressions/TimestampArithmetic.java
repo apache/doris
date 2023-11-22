@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -44,24 +46,21 @@ import java.util.Objects;
 public class TimestampArithmetic extends Expression implements BinaryExpression, PropagateNullableOnDateLikeV2Args {
 
     private final String funcName;
-    private final boolean intervalFirst;
     private final Operator op;
     private final TimeUnit timeUnit;
 
-    public TimestampArithmetic(Operator op, Expression e1, Expression e2, TimeUnit timeUnit, boolean intervalFirst) {
-        this(null, op, e1, e2, timeUnit, intervalFirst);
+    public TimestampArithmetic(Operator op, Expression e1, Expression e2, TimeUnit timeUnit) {
+        this(null, op, e1, e2, timeUnit);
     }
 
     /**
      * Full parameter constructor.
      */
-    public TimestampArithmetic(String funcName, Operator op, Expression e1, Expression e2, TimeUnit timeUnit,
-            boolean intervalFirst) {
-        super(e1, e2);
+    public TimestampArithmetic(String funcName, Operator op, Expression e1, Expression e2, TimeUnit timeUnit) {
+        super(ImmutableList.of(e1, e2));
         Preconditions.checkState(op == Operator.ADD || op == Operator.SUBTRACT);
         this.funcName = funcName;
         this.op = op;
-        this.intervalFirst = intervalFirst;
         this.timeUnit = timeUnit;
     }
 
@@ -74,21 +73,16 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
     public TimestampArithmetic withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new TimestampArithmetic(this.funcName, this.op, children.get(0), children.get(1),
-                this.timeUnit, this.intervalFirst);
+                this.timeUnit);
     }
 
     public Expression withFuncName(String funcName) {
-        return new TimestampArithmetic(funcName, this.op, children.get(0), children.get(1), this.timeUnit,
-                this.intervalFirst);
+        return new TimestampArithmetic(funcName, this.op, children.get(0), children.get(1), this.timeUnit);
     }
 
     @Override
     public DataType getDataType() throws UnboundException {
-        int dateChildIndex = 0;
-        if (intervalFirst) {
-            dateChildIndex = 1;
-        }
-        DataType childType = child(dateChildIndex).getDataType();
+        DataType childType = child(0).getDataType();
         if (childType instanceof DateTimeV2Type) {
             return childType;
         }
@@ -118,6 +112,18 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        children().forEach(c -> {
+            if (c.getDataType().isObjectType()) {
+                throw new AnalysisException("timestamp arithmetic could not contains object type: " + this.toSql());
+            }
+            if (c.getDataType().isComplexType()) {
+                throw new AnalysisException("timestamp arithmetic could not contains complex type: " + this.toSql());
+            }
+        });
+    }
+
+    @Override
     public String toString() {
         return toSql();
     }
@@ -135,21 +141,12 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
             strBuilder.append(")");
             return strBuilder.toString();
         }
-        if (intervalFirst) {
-            // Non-function-call like version with interval as first operand.
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(child(1).toSql()).append(" ");
-            strBuilder.append(timeUnit);
-            strBuilder.append(" ").append(op.toString()).append(" ");
-            strBuilder.append(child(0).toSql());
-        } else {
-            // Non-function-call like version with interval as second operand.
-            strBuilder.append(child(0).toSql());
-            strBuilder.append(" ").append(op.toString()).append(" ");
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(child(1).toSql()).append(" ");
-            strBuilder.append(timeUnit);
-        }
+        // Non-function-call like version with interval as second operand.
+        strBuilder.append(child(0).toSql());
+        strBuilder.append(" ").append(op.toString()).append(" ");
+        strBuilder.append("INTERVAL ");
+        strBuilder.append(child(1).toSql()).append(" ");
+        strBuilder.append(timeUnit);
         return strBuilder.toString();
     }
 

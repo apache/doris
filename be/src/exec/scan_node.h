@@ -83,11 +83,10 @@ public:
 
     // Convert scan_ranges into node-specific scan restrictions.  This should be
     // called after prepare()
-    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
+    virtual Status set_scan_ranges(RuntimeState* state,
+                                   const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
     bool is_scan_node() const override { return true; }
-
-    void set_no_agg_finalize() { _need_agg_finalize = false; }
 
     RuntimeProfile::Counter* bytes_read_counter() const { return _bytes_read_counter; }
     RuntimeProfile::Counter* rows_read_counter() const { return _rows_read_counter; }
@@ -105,9 +104,6 @@ protected:
     // Wall based aggregate read throughput [bytes/sec]
     RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_disks_accessed_counter;
-
-protected:
-    bool _need_agg_finalize = true;
 };
 
 } // namespace doris

@@ -17,45 +17,95 @@
  * under the License.
  */
 
-import React, {useEffect, useRef, useState} from 'react';
-import {Button, Col, Row, Typography, Space} from 'antd';
-import {queryProfile} from 'Src/api/api';
+import React, { useEffect, useRef, useState } from 'react';
+import { Button, Col, Row, Typography, Space } from 'antd';
+import { queryProfile } from 'Src/api/api';
 import Table from 'Src/components/table';
-import {useHistory} from 'react-router-dom';
-import {Result} from '@src/interfaces/http.interface';
-import {replaceToTxt} from 'Src/utils/utils';
+import { useHistory } from 'react-router-dom';
+import { Result } from '@src/interfaces/http.interface';
+import { replaceToTxt } from 'Src/utils/utils';
+import { useTranslation } from 'react-i18next';
+import SyntaxHighlighter from 'react-syntax-highlighter';
+import { docco } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 
-const {Text, Title} = Typography;
+const { Text, Title } = Typography;
 export default function QueryProfile(params: any) {
     // const [parentUrl, setParentUrl] = useState('');
     const container = useRef<HTMLDivElement>(null);
-    const [allTableData, setAllTableData] = useState({column_names: [], rows: []});
+    let { t } = useTranslation();
+    const [allTableData, setAllTableData] = useState({
+        column_names: [],
+        rows: [],
+    });
     const [profile, setProfile] = useState<any>();
     const history = useHistory();
     const doQueryProfile = function (ac?: AbortController) {
         const param = {
             path: getLastPath(),
-            signal: ac?.signal
+            signal: ac?.signal,
         };
-        queryProfile(param).then((res: Result<any>) => {
-            if (res && res.msg === 'success') {
-                if (!res.data.column_names) {
-                    setProfile(res.data);
-                    if (container.current !== null) {
-                        container.current.innerHTML = res.data;
+        queryProfile(param)
+            .then((res: Result<any>) => {
+                if (res && res.msg === 'success') {
+                    if (!res.data.column_names) {
+                        setProfile(res.data);
+                        if (container.current !== null) {
+                            container.current.innerHTML = res.data;
+                        }
+                    } else {
+                        setProfile('');
+                        res.data.column_names.push('Action');
+                        res.data.rows = res.data.rows.map((row) => {
+                            row['Sql Statement'] = (
+                                <div style={{ maxWidth: 700 }}>
+                                    <SyntaxHighlighter
+                                        language="sql"
+                                        style={docco}
+                                    >
+                                        {row['Sql Statement']}
+                                    </SyntaxHighlighter>
+                                </div>
+                            );
+                            row.Action = (
+                                <Button
+                                    size="small"
+                                    onClick={() => {
+                                        queryProfile<any>({
+                                            path: row['Profile ID'],
+                                        }).then((profileDetailRes) => {
+                                            if (
+                                                profileDetailRes &&
+                                                profileDetailRes.msg ===
+                                                    'success'
+                                            ) {
+                                                if (
+                                                    !profileDetailRes.data
+                                                        .column_names
+                                                ) {
+                                                    download(
+                                                        profileDetailRes.data,
+                                                        row['Profile ID']
+                                                    );
+                                                }
+                                            }
+                                        });
+                                    }}
+                                >
+                                    {t('Download')}
+                                </Button>
+                            );
+                            return row;
+                        });
+                        setAllTableData(res.data);
                     }
                 } else {
-                    setProfile('');
-                    setAllTableData(res.data);
+                    setAllTableData({
+                        column_names: [],
+                        rows: [],
+                    });
                 }
-            } else {
-                setAllTableData({
-                    column_names: [],
-                    rows: [],
-                });
-            }
-        }).catch(err => {
-        });
+            })
+            .catch((err) => {});
     };
     useEffect(() => {
         const ac = new AbortController();
@@ -76,14 +126,14 @@ export default function QueryProfile(params: any) {
         history.push('/QueryProfile/');
     }
 
-    function download(profile: string) {
+    function download(profile: string, profileId: string) {
         const profileTxt = replaceToTxt(profile);
         const blob = new Blob([profileTxt], {
-            type: "text/plain",
+            type: 'text/plain',
         });
-        const tagA = document.createElement("a");
-        tagA.download = `profile_${new Date().valueOf()}.txt`;
-        tagA.style.display = "none";
+        const tagA = document.createElement('a');
+        tagA.download = `profile_${profileId}.txt`;
+        tagA.style.display = 'none';
         tagA.href = URL.createObjectURL(blob);
         document.body.appendChild(tagA);
         tagA.click();
@@ -92,7 +142,7 @@ export default function QueryProfile(params: any) {
     }
     function copyToClipboard(profile: string) {
         const profileTxt = replaceToTxt(profile);
-        const textarea = document.createElement("textarea");
+        const textarea = document.createElement('textarea');
         textarea.value = profileTxt;
         document.body.appendChild(textarea);
         textarea.select();
@@ -101,38 +151,58 @@ export default function QueryProfile(params: any) {
     }
 
     return (
-        <Typography style={{padding: '30px'}}>
+        <Typography style={{ padding: '30px' }}>
             <Title>Finished Queries</Title>
 
-            <Row style={{paddingBottom: '15px'}}>
-                <Col span={12}><Text strong={true}>This table lists the latest 100 queries</Text></Col>
-                <Col span={12} style={{textAlign: 'right'}}>
-                    {profile ? <Space>
-                        <Button type="primary" onClick={goPrev}>back</Button>
-                        <Button onClick={() => {
-                            download(profile)
-                        }}>download</Button>
-                        <Button onClick={() => {
-                            copyToClipboard(profile)
-                        }}>copy profile</Button>
-                    </Space> : ''}
+            <Row style={{ paddingBottom: '15px' }}>
+                <Col span={12}>
+                    <Text strong={true}>
+                        This table lists the latest 100 queries
+                    </Text>
+                </Col>
+                <Col span={12} style={{ textAlign: 'right' }}>
+                    {profile ? (
+                        <Space>
+                            <Button type="primary" onClick={goPrev}>
+                                Back
+                            </Button>
+                            <Button
+                                onClick={() => {
+                                    const path = getLastPath();
+                                    download(profile, path as string);
+                                }}
+                            >
+                                Download
+                            </Button>
+                            <Button
+                                onClick={() => {
+                                    copyToClipboard(profile);
+                                }}
+                            >
+                                Copy Profile
+                            </Button>
+                        </Space>
+                    ) : (
+                        ''
+                    )}
                 </Col>
             </Row>
-            {
-                profile
-                    ? <div ref={container} style={{background: '#f9f9f9', padding: '20px'}}>
-                        {/* {profile} */}
-                    </div>
-                    : <Table
-                        rowKey={(record) => record['Query ID']}
-                        isSort={true}
-                        isFilter={true}
-                        isInner={'/QueryProfile'}
-                        allTableData={allTableData}
-                    />
-            }
-
+            {profile ? (
+                <div
+                    ref={container}
+                    style={{ background: '#f9f9f9', padding: '20px' }}
+                >
+                    {/* {profile} */}
+                </div>
+            ) : (
+                <Table
+                    rowKey={(record) => record['Profile ID']}
+                    isSort={true}
+                    isFilter={true}
+                    isInner={'/QueryProfile'}
+                    allTableData={allTableData}
+                />
+            )}
         </Typography>
     );
 }
- 

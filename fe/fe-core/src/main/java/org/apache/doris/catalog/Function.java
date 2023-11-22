@@ -20,12 +20,15 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -359,14 +362,16 @@ public class Function implements Writable {
             return false;
         }
         for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true)) {
+            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true,
+                    SessionVariable.getEnableDecimal256())) {
                 return false;
             }
         }
         // Check trailing varargs.
         if (this.hasVarArgs) {
             for (int i = this.argTypes.length; i < other.argTypes.length; ++i) {
-                if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true)) {
+                if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true,
+                        SessionVariable.getEnableDecimal256())) {
                     return false;
                 }
             }
@@ -541,11 +546,6 @@ public class Function implements Writable {
             fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
         }
 
-        if (realReturnType.isAggStateType()) {
-            realReturnType = Expr.createAggStateType(((AggStateType) realReturnType), Arrays.asList(realArgTypes),
-                    Arrays.asList(realArgTypeNullables));
-        }
-
         // For types with different precisions and scales, return type only indicates a
         // type with default
         // precision and scale so we need to transform it to the correct type.
@@ -669,6 +669,7 @@ public class Function implements Writable {
         }
         IOUtils.writeOptionString(output, libUrl);
         IOUtils.writeOptionString(output, checksum);
+        output.writeUTF(nullableMode.toString());
     }
 
     @Override
@@ -702,6 +703,9 @@ public class Function implements Writable {
         boolean hasChecksum = input.readBoolean();
         if (hasChecksum) {
             checksum = Text.readString(input);
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_126) {
+            nullableMode = NullableMode.valueOf(input.readUTF());
         }
     }
 
@@ -760,10 +764,6 @@ public class Function implements Writable {
             row.add(functionName());
         }
         return row;
-    }
-
-    boolean isVectorized() {
-        return vectorized;
     }
 
     public void setNullableMode(NullableMode nullableMode) {
@@ -857,19 +857,25 @@ public class Function implements Writable {
                 aggFunction.hasVarArgs(), aggFunction.isUserVisible());
         fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
-        return new FunctionCallExpr(fn, fnCall.getParams());
+        return new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()));
     }
 
     public static FunctionCallExpr convertToMergeCombinator(FunctionCallExpr fnCall) {
         Function aggFunction = fnCall.getFn();
         aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_MERGE_SUFFIX));
-        aggFunction.setArgs(Arrays.asList(Expr.createAggStateType(aggFunction.getFunctionName().getFunction(),
-                fnCall.getChildren().stream().map(expr -> {
-                    return expr.getType();
-                }).collect(Collectors.toList()), fnCall.getChildren().stream().map(expr -> {
-                    return expr.isNullable();
-                }).collect(Collectors.toList()))));
+        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
         aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return fnCall;
+    }
+
+    public static FunctionCallExpr convertToUnionCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_UNION_SUFFIX));
+        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
+        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        aggFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+        aggFunction.setReturnType(fnCall.getChildren().get(0).getType());
+        fnCall.setType(fnCall.getChildren().get(0).getType());
         return fnCall;
     }
 }

@@ -26,6 +26,7 @@ import java.util.Map;
 public class OssProperties extends BaseProperties {
 
     public static final String OSS_PREFIX = "oss.";
+    public static final String OSS_REGION_PREFIX = "oss-";
     public static final String OSS_FS_PREFIX = "fs.oss";
 
     public static final String ENDPOINT = "oss.endpoint";
@@ -33,6 +34,7 @@ public class OssProperties extends BaseProperties {
     public static final String ACCESS_KEY = "oss.access_key";
     public static final String SECRET_KEY = "oss.secret_key";
     public static final String SESSION_TOKEN = "oss.session_token";
+    public static final String OSS_HDFS_ENABLED = "oss.hdfs.enabled";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
 
     public static CloudCredential getCredential(Map<String, String> props) {

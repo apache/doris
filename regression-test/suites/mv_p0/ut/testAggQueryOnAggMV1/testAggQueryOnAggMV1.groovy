@@ -18,10 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testAggQueryOnAggMV1") {
-
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
-
+    sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -57,5 +54,9 @@ suite ("testAggQueryOnAggMV1") {
     }
     qt_select_mv "select sum(salary), deptno from emps group by deptno order by deptno;"
 
-
+    explain {
+        sql("select sum(salary) as salary from emps;")
+        contains "(emps_mv)"
+    }
+    qt_select_mv "select sum(salary) as salary from emps;"
 }

@@ -37,9 +37,13 @@ public class DecimalV3Literal extends Literal {
         this.value = Objects.requireNonNull(value);
     }
 
+    /**
+     * Constructor for DecimalV3Literal
+     */
     public DecimalV3Literal(DecimalV3Type dataType, BigDecimal value) {
-        super(DecimalV3Type.createDecimalV3Type(dataType.getPrecision(), dataType.getScale()));
+        super(DecimalV3Type.createDecimalV3TypeLooseCheck(dataType.getPrecision(), dataType.getScale()));
         Objects.requireNonNull(value, "value not be null");
+        DecimalLiteral.checkPrecisionAndScale(dataType.getPrecision(), dataType.getScale(), value);
         BigDecimal adjustedValue = value.scale() < 0 ? value
                 : value.setScale(dataType.getScale(), RoundingMode.HALF_UP);
         this.value = Objects.requireNonNull(adjustedValue);
@@ -63,5 +67,17 @@ public class DecimalV3Literal extends Literal {
     @Override
     public double getDouble() {
         return value.doubleValue();
+    }
+
+    public DecimalV3Literal roundCeiling(int newScale) {
+        return new DecimalV3Literal(DecimalV3Type
+                .createDecimalV3Type(((DecimalV3Type) dataType).getPrecision(), newScale),
+                value.setScale(newScale, RoundingMode.CEILING));
+    }
+
+    public DecimalV3Literal roundFloor(int newScale) {
+        return new DecimalV3Literal(DecimalV3Type
+                .createDecimalV3Type(((DecimalV3Type) dataType).getPrecision(), newScale),
+                value.setScale(newScale, RoundingMode.FLOOR));
     }
 }

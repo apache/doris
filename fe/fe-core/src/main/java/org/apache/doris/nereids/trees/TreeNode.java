@@ -21,6 +21,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -213,7 +215,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @param types classes array
      * @return true if it has any instance of the types
      */
-    default boolean containsType(Class...types) {
+    default boolean containsType(Class... types) {
         return anyMatch(node -> {
             for (Class type : types) {
                 if (type.isInstance(node)) {
@@ -229,15 +231,41 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @param that other tree node
      * @return true if all the tree is equals
      */
-    default boolean deepEquals(TreeNode that) {
-        if (!equals(that)) {
-            return false;
-        }
-        for (int i = 0; i < arity(); i++) {
-            if (!child(i).deepEquals(that.child(i))) {
+    default boolean deepEquals(TreeNode<?> that) {
+        Deque<TreeNode<?>> thisDeque = new ArrayDeque<>();
+        Deque<TreeNode<?>> thatDeque = new ArrayDeque<>();
+
+        thisDeque.push(this);
+        thatDeque.push(that);
+
+        while (!thisDeque.isEmpty()) {
+            if (thatDeque.isEmpty()) {
+                // The "that" tree has been fully traversed, but the "this" tree has not; hence they are not equal.
                 return false;
             }
+
+            TreeNode<?> currentNodeThis = thisDeque.pop();
+            TreeNode<?> currentNodeThat = thatDeque.pop();
+
+            // since TreeNode is immutable, use == to short circuit
+            if (currentNodeThis == currentNodeThat) {
+                continue;
+            }
+
+            // If current nodes are not equal or the number of child nodes differ, return false.
+            if (!currentNodeThis.equals(currentNodeThat)
+                    || currentNodeThis.arity() != currentNodeThat.arity()) {
+                return false;
+            }
+
+            // Add child nodes to the deque for further processing.
+            for (int i = 0; i < currentNodeThis.arity(); i++) {
+                thisDeque.push(currentNodeThis.child(i));
+                thatDeque.push(currentNodeThat.child(i));
+            }
         }
-        return true;
+
+        // If the "that" tree hasn't been fully traversed, return false.
+        return thatDeque.isEmpty();
     }
 }

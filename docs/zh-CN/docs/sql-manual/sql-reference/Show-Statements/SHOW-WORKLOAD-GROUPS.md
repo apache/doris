@@ -34,7 +34,7 @@ SHOW WORKLOAD GROUPS
 
 ### Description
 
-该语句用于展示所有资源组。
+该语句用于展示当前用户具有usage_priv权限的资源组。
 
 语法：
 

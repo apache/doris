@@ -22,7 +22,20 @@ from dbt.adapters.sql import SQLAdapter
 
 from concurrent.futures import Future
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    Union,
+)
 
 import agate
 import dbt.exceptions
@@ -37,6 +50,7 @@ from dbt.clients.agate_helper import table_from_rows
 from dbt.contracts.graph.manifest import Manifest
 from dbt.contracts.relation import RelationType
 from dbt.utils import executor
+from dbt.adapters.doris.doris_column_item import DorisColumnItem
 
 
 class Engine(str, Enum):
@@ -91,10 +105,7 @@ class DorisAdapter(SQLAdapter):
         return exists
 
     def get_relation(self, database: Optional[str], schema: str, identifier: str):
-        if not self.Relation.include_policy.database:
-            database = None
-
-        return super().get_relation(database, schema, identifier)
+        return super().get_relation(None, schema, identifier)
 
     def drop_schema(self, relation: BaseRelation):
         relations = self.list_relations(
@@ -112,7 +123,7 @@ class DorisAdapter(SQLAdapter):
         relations = []
         for row in results:
             if len(row) != 4:
-                raise dbt.exceptions.RuntimeException(
+                raise dbt.exceptions.DbtRuntimeError(
                     f"Invalid value from 'show table extended ...', "
                     f"got {len(row)} values, expected 4"
                 )
@@ -130,7 +141,7 @@ class DorisAdapter(SQLAdapter):
 
     def get_catalog(self, manifest):
         schema_map = self._get_catalog_schemas(manifest)
-        
+
         with executor(self.config) as tpe:
             futures: List[Future[agate.Table]] = []
             for info, schemas in schema_map.items():
@@ -171,10 +182,10 @@ class DorisAdapter(SQLAdapter):
         return table.where(cls._catalog_filter_schemas(manifest))
 
     def _get_one_catalog(
-        self,
-        information_schema: InformationSchema,
-        schemas: Set[str],
-        manifest: Manifest,
+            self,
+            information_schema: InformationSchema,
+            schemas: Set[str],
+            manifest: Manifest,
     ) -> agate.Table:
         if len(schemas) != 1:
             dbt.exceptions.raise_compiler_error(
@@ -189,4 +200,18 @@ class DorisAdapter(SQLAdapter):
         # default. A lot of searching has lead me to believe that the
         # '+ interval' syntax used in postgres/redshift is relatively common
         # and might even be the SQL standard's intention.
-        return f"{add_to} + interval {number} {interval}"    
+        return f"{add_to} + interval {number} {interval}"
+
+
+    @classmethod
+    def render_raw_columns_constraints(cls, raw_columns: Dict[str, Dict[str, Any]]) -> List:
+        rendered_column_constraints = []
+        for v in raw_columns.values():
+            cols_name = cls.quote(v["name"]) if v.get("quote") else v["name"]
+            data_type = v.get('data_type')
+            comment = v.get('description')
+
+            column = DorisColumnItem(cols_name, data_type, comment, "")
+            rendered_column_constraints.append(column)
+
+        return rendered_column_constraints

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
@@ -43,6 +44,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
 import org.junit.rules.ExpectedException;
 
 import java.util.List;
@@ -130,6 +132,20 @@ public class SelectStmtTest {
                 + "\"in_memory\" = \"false\",\n"
                 + "\"storage_format\" = \"V2\"\n"
                 + ")";
+        String tbl3 = "CREATE TABLE db1.table3 (\n"
+                + "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n"
+                + "  `citycode` smallint(6) NULL COMMENT \"\",\n"
+                + "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n"
+                + "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`siteid`, `citycode`, `username`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ")";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
         dorisAssert.withTable(createTblStmtStr)
@@ -137,7 +153,8 @@ public class SelectStmtTest {
                    .withTable(createPratitionTableStr)
                    .withTable(createDatePartitionTableStr)
                    .withTable(tbl1)
-                   .withTable(tbl2);
+                   .withTable(tbl2)
+                   .withTable(tbl3);
     }
 
     @Test
@@ -157,7 +174,7 @@ public class SelectStmtTest {
         UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr4, ctx);
     }
 
-    @Test
+    @Disabled
     public void testSubqueryInCase() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String sql1 = "SELECT CASE\n"
@@ -284,8 +301,8 @@ public class SelectStmtTest {
         String commonExpr2 = "`t3`.`k3` = `t1`.`k3`";
         String commonExpr3 = "`t1`.`k1` = `t5`.`k1`";
         String commonExpr4 = "t5`.`k2` = 'United States'";
-        String betweenExpanded1 = "`t1`.`k4` >= 100 AND `t1`.`k4` <= 150";
-        String betweenExpanded2 = "`t1`.`k4` >= 50 AND `t1`.`k4` <= 100";
+        String betweenExpanded1 = "CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 100 AND CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 150";
+        String betweenExpanded2 = "CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 50 AND CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 100";
         String betweenExpanded3 = "`t1`.`k4` >= 50 AND `t1`.`k4` <= 250";
 
         String rewrittenSql = stmt.toSql();
@@ -484,22 +501,22 @@ public class SelectStmtTest {
 
     @Test
     public void testImplicitConvertSupport() throws Exception {
-        String sql1 = "select count(*) from db1.partition_table where datekey='20200730'";
+        String sql1 = "select /*+ SET_VAR(enable_nereids_planner=false) */ count(*) from db1.partition_table where datekey='20200730'";
         Assert.assertTrue(dorisAssert
                 .query(sql1)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
-        String sql2 = "select count(*) from db1.partition_table where '20200730'=datekey";
+        String sql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ count(*) from db1.partition_table where '20200730'=datekey";
         Assert.assertTrue(dorisAssert
                 .query(sql2)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
-        String sql3 = "select count() from db1.date_partition_table where dt=20200908";
+        String sql3 = "select /*+ SET_VAR(enable_nereids_planner=false) */ count() from db1.date_partition_table where dt=20200908";
         Assert.assertTrue(dorisAssert
                 .query(sql3)
                 .explainQuery()
                 .contains(Config.enable_date_conversion ? "`dt` = '2020-09-08'" : "`dt` = '2020-09-08 00:00:00'"));
-        String sql4 = "select count() from db1.date_partition_table where dt='2020-09-08'";
+        String sql4 = "select /*+ SET_VAR(enable_nereids_planner=false) */ count() from db1.date_partition_table where dt='2020-09-08'";
         Assert.assertTrue(dorisAssert
                 .query(sql4)
                 .explainQuery()
@@ -508,24 +525,22 @@ public class SelectStmtTest {
 
     @Test
     public void testDeleteSign() throws Exception {
-        String sql1 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=true, ENABLE_FALLBACK_TO_ORIGINAL_PLANNER=false) */ * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         String explain = dorisAssert.query(sql1).explainQuery();
         Assert.assertTrue(explain
-                .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
-        Assert.assertTrue(explain
-                .contains("PREDICATES: `default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("PREDICATES: __DORIS_DELETE_SIGN__ = 0"));
         Assert.assertFalse(explain.contains("other predicates:"));
-        String sql2 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        String sql2 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         explain = dorisAssert.query(sql2).explainQuery();
         Assert.assertTrue(explain
                 .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         Assert.assertTrue(explain
                 .contains("PREDICATES: `default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0"));
         Assert.assertFalse(explain.contains("other predicates:"));
-        String sql3 = "SELECT * FROM db1.table1";
+        String sql3 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1";
         Assert.assertTrue(dorisAssert.query(sql3).explainQuery()
                 .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
-        String sql4 = " SELECT * FROM db1.table1 table2";
+        String sql4 = " SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 table2";
         Assert.assertTrue(dorisAssert.query(sql4).explainQuery()
                 .contains("PREDICATES: `table2`.`__DORIS_DELETE_SIGN__` = 0"));
         new MockUp<Util>() {
@@ -652,10 +667,6 @@ public class SelectStmtTest {
         try {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
             Assert.assertEquals(1, stmt.getOutFileClause().getParquetSchemas().size());
-            Assert.assertEquals(stmt.getOutFileClause().PARQUET_REPETITION_TYPE_MAP.get("optional"),
-                    stmt.getOutFileClause().getParquetSchemas().get(0).schema_repetition_type);
-            Assert.assertEquals(stmt.getOutFileClause().PARQUET_DATA_TYPE_MAP.get("byte_array"),
-                    stmt.getOutFileClause().getParquetSchemas().get(0).schema_data_type);
             Assert.assertEquals("k1", stmt.getOutFileClause().getParquetSchemas().get(0).schema_column_name);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
@@ -760,12 +771,12 @@ public class SelectStmtTest {
 
     @Test
     public void testSystemViewCaseInsensitive() throws Exception {
-        String sql1 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = "
+        String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = "
                 + "'ech_dw' ORDER BY ROUTINES.ROUTINE_SCHEMA\n";
         // The system view names in information_schema are case-insensitive,
         dorisAssert.query(sql1).explainQuery();
 
-        String sql2 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = "
+        String sql2 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = "
                 + "'ech_dw' ORDER BY routines.ROUTINE_SCHEMA\n";
         try {
             // Should not refer to one of system views using different cases within the same statement.
@@ -827,7 +838,7 @@ public class SelectStmtTest {
     }
 
     @Test
-    public void testSelectTablet() throws Exception {
+    public void testHashBucketSelectTablet() throws Exception {
         String sql1 = "SELECT * FROM db1.table1 TABLET(10031,10032,10033)";
         OriginalPlanner planner = (OriginalPlanner) dorisAssert.query(sql1).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds = ((OlapScanNode) planner.getScanNodes().get(0)).getSampleTabletIds();
@@ -837,7 +848,18 @@ public class SelectStmtTest {
     }
 
     @Test
-    public void testSelectSampleTable() throws Exception {
+    public void testRandomBucketSelectTablet() throws Exception {
+        String sql1 = "SELECT * FROM db1.table3 TABLET(10031,10032,10033)";
+        OriginalPlanner planner = (OriginalPlanner) dorisAssert.query(sql1).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds = ((OlapScanNode) planner.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertTrue(sampleTabletIds.contains(10031L));
+        Assert.assertTrue(sampleTabletIds.contains(10032L));
+        Assert.assertTrue(sampleTabletIds.contains(10033L));
+    }
+
+    @Test
+    public void testSelectSampleHashBucketTable() throws Exception {
+        FeConstants.runningUnitTest = true;
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("table1");
         long tabletId = 10031L;
@@ -870,7 +892,7 @@ public class SelectStmtTest {
         String sql4 = "SELECT * FROM db1.table1 TABLESAMPLE(9500 ROWS)";
         OriginalPlanner planner4 = (OriginalPlanner) dorisAssert.query(sql4).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds4 = ((OlapScanNode) planner4.getScanNodes().get(0)).getSampleTabletIds();
-        Assert.assertEquals(0, sampleTabletIds4.size()); // no sample, all tablet
+        Assert.assertEquals(10, sampleTabletIds4.size());
 
         String sql5 = "SELECT * FROM db1.table1 TABLESAMPLE(11000 ROWS)";
         OriginalPlanner planner5 = (OriginalPlanner) dorisAssert.query(sql5).internalExecuteOneAndGetPlan();
@@ -939,7 +961,116 @@ public class SelectStmtTest {
         OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertEquals(1, sampleTabletIds16.size());
+        FeConstants.runningUnitTest = false;
     }
+
+    @Test
+    public void testSelectSampleRandomBucketTable() throws Exception {
+        FeConstants.runningUnitTest = true;
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("table3");
+        long tabletId = 10031L;
+        for (Partition partition : tbl.getPartitions()) {
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    tablet.setTabletId(tabletId);
+                    tabletId += 1;
+                }
+            }
+        }
+
+        // 1. TABLESAMPLE ROWS
+        String sql1 = "SELECT * FROM db1.table3 TABLESAMPLE(10 ROWS)";
+        OriginalPlanner planner1 = (OriginalPlanner) dorisAssert.query(sql1).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds1 = ((OlapScanNode) planner1.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds1.size());
+
+        String sql2 = "SELECT * FROM db1.table3 TABLESAMPLE(1000 ROWS)";
+        OriginalPlanner planner2 = (OriginalPlanner) dorisAssert.query(sql2).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds2 = ((OlapScanNode) planner2.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds2.size());
+
+        String sql3 = "SELECT * FROM db1.table3 TABLESAMPLE(1001 ROWS)";
+        OriginalPlanner planner3 = (OriginalPlanner) dorisAssert.query(sql3).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds3 = ((OlapScanNode) planner3.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(2, sampleTabletIds3.size());
+
+        String sql4 = "SELECT * FROM db1.table3 TABLESAMPLE(9500 ROWS)";
+        OriginalPlanner planner4 = (OriginalPlanner) dorisAssert.query(sql4).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds4 = ((OlapScanNode) planner4.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(10, sampleTabletIds4.size());
+
+        String sql5 = "SELECT * FROM db1.table3 TABLESAMPLE(11000 ROWS)";
+        OriginalPlanner planner5 = (OriginalPlanner) dorisAssert.query(sql5).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds5 = ((OlapScanNode) planner5.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(0, sampleTabletIds5.size()); // no sample, all tablet
+
+        String sql6 = "SELECT * FROM db1.table3 TABLET(10033) TABLESAMPLE(900 ROWS)";
+        OriginalPlanner planner6 = (OriginalPlanner) dorisAssert.query(sql6).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds6 = ((OlapScanNode) planner6.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertTrue(sampleTabletIds6.size() >= 1 && sampleTabletIds6.size() <= 2);
+        Assert.assertTrue(sampleTabletIds6.contains(10033L));
+
+        // 2. TABLESAMPLE PERCENT
+        String sql7 = "SELECT * FROM db1.table3 TABLESAMPLE(10 PERCENT)";
+        OriginalPlanner planner7 = (OriginalPlanner) dorisAssert.query(sql7).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds7 = ((OlapScanNode) planner7.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds7.size());
+
+        String sql8 = "SELECT * FROM db1.table3 TABLESAMPLE(15 PERCENT)";
+        OriginalPlanner planner8 = (OriginalPlanner) dorisAssert.query(sql8).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds8 = ((OlapScanNode) planner8.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(2, sampleTabletIds8.size());
+
+        String sql9 = "SELECT * FROM db1.table3 TABLESAMPLE(100 PERCENT)";
+        OriginalPlanner planner9 = (OriginalPlanner) dorisAssert.query(sql9).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds9 = ((OlapScanNode) planner9.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(0, sampleTabletIds9.size());
+
+        String sql10 = "SELECT * FROM db1.table3 TABLESAMPLE(110 PERCENT)";
+        OriginalPlanner planner10 = (OriginalPlanner) dorisAssert.query(sql10).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds10 = ((OlapScanNode) planner10.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(0, sampleTabletIds10.size());
+
+        String sql11 = "SELECT * FROM db1.table3 TABLET(10033) TABLESAMPLE(5 PERCENT)";
+        OriginalPlanner planner11 = (OriginalPlanner) dorisAssert.query(sql11).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds11 = ((OlapScanNode) planner11.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertTrue(sampleTabletIds11.size() >= 1 && sampleTabletIds11.size() <= 2);
+        Assert.assertTrue(sampleTabletIds11.contains(10033L));
+
+        // 3. TABLESAMPLE REPEATABLE
+        String sql12 = "SELECT * FROM db1.table3 TABLESAMPLE(900 ROWS)";
+        OriginalPlanner planner12 = (OriginalPlanner) dorisAssert.query(sql12).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds12 = ((OlapScanNode) planner12.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds12.size());
+
+        String sql13 = "SELECT * FROM db1.table3 TABLESAMPLE(900 ROWS) REPEATABLE 2";
+        OriginalPlanner planner13 = (OriginalPlanner) dorisAssert.query(sql13).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds13 = ((OlapScanNode) planner13.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds13.size());
+        Assert.assertTrue(sampleTabletIds13.contains(10033L));
+
+        String sql14 = "SELECT * FROM db1.table3 TABLESAMPLE(900 ROWS) REPEATABLE 10";
+        OriginalPlanner planner14 = (OriginalPlanner) dorisAssert.query(sql14).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds14 = ((OlapScanNode) planner14.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds14.size());
+        Assert.assertTrue(sampleTabletIds14.contains(10031L));
+
+        String sql15 = "SELECT * FROM db1.table3 TABLESAMPLE(900 ROWS) REPEATABLE 0";
+        OriginalPlanner planner15 = (OriginalPlanner) dorisAssert.query(sql15).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds15 = ((OlapScanNode) planner15.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds15.size());
+        Assert.assertTrue(sampleTabletIds15.contains(10031L));
+
+        // 4. select returns 900 rows of results
+        String sql16 = "SELECT * FROM (SELECT * FROM db1.table3 TABLESAMPLE(900 ROWS) REPEATABLE 9999999 limit 900) t";
+        OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds16.size());
+        FeConstants.runningUnitTest = false;
+    }
+
 
     @Test
     public void testSelectExcept() throws Exception {

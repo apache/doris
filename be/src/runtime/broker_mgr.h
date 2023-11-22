@@ -35,8 +35,9 @@ class Thread;
 class BrokerMgr {
 public:
     BrokerMgr(ExecEnv* exec_env);
-    ~BrokerMgr();
+    ~BrokerMgr() = default;
     void init();
+    void stop();
     const std::string& get_client_id(const TNetworkAddress& address);
 
 private:

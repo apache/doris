@@ -16,10 +16,7 @@
 // under the License.
 
 suite ("testJoinOnLeftProjectToJoin") {
-
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
-
+    sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS emps; """
     sql """
             create table emps (

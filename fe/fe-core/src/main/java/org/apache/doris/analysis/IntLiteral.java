@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIntLiteral;
@@ -195,6 +196,24 @@ public class IntLiteral extends LiteralExpr {
     }
 
     @Override
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+        //it's so strange, now in write/read function, not write type info
+        if (this.type.getPrimitiveType() == Type.INVALID.getPrimitiveType()) {
+            if (this.value <= TINY_INT_MAX && this.value >= TINY_INT_MIN) {
+                type = Type.TINYINT;
+            } else if (this.value <= SMALL_INT_MAX && this.value >= SMALL_INT_MIN) {
+                type = Type.SMALLINT;
+            } else if (this.value <= INT_MAX && this.value >= INT_MIN) {
+                type = Type.INT;
+            } else if (this.value <= BIG_INT_MAX && this.value >= BIG_INT_MIN) {
+                type = Type.BIGINT;
+            } else {
+                Preconditions.checkState(false, value);
+            }
+        }
+    }
+
+    @Override
     public boolean isMinValue() {
         switch (type.getPrimitiveType()) {
             case TINYINT:
@@ -314,13 +333,16 @@ public class IntLiteral extends LiteralExpr {
                 return res;
             }
             return this;
-        } else if (targetType.isDateLike()) {
+        } else if (targetType.isDateType()) {
             try {
                 //int like 20200101 can be cast to date(2020,01,01)
                 DateLiteral res = new DateLiteral("" + value, targetType);
                 res.setType(targetType);
                 return res;
             } catch (AnalysisException e) {
+                if (ConnectContext.get() != null) {
+                    ConnectContext.get().getState().reset();
+                }
                 //invalid date format. leave it to BE to cast it as NULL
             }
         } else if (targetType.isStringType()) {

@@ -75,6 +75,10 @@ public class RemoteFile {
         return path;
     }
 
+    public void setPath(Path path) {
+        this.path = path;
+    }
+
     public boolean isFile() {
         return isFile;
     }

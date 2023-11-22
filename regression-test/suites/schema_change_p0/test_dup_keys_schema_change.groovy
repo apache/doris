@@ -62,7 +62,7 @@ suite ("test_dup_keys_schema_change") {
                     `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                     `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
                 DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-                BUCKETS 1
+                BUCKETS 8
                 PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
             """
 

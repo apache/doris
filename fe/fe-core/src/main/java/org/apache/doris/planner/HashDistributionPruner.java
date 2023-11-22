@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
@@ -58,12 +59,15 @@ public class HashDistributionPruner implements DistributionPruner {
     private Map<String, PartitionColumnFilter> distributionColumnFilters;
     private int                                hashMod;
 
+    private boolean isBaseIndexSelected;
+
     public HashDistributionPruner(List<Long> bucketsList, List<Column> columns,
-                           Map<String, PartitionColumnFilter> filters, int hashMod) {
+                           Map<String, PartitionColumnFilter> filters, int hashMod, boolean isBaseIndexSelected) {
         this.bucketsList = bucketsList;
         this.distributionColumns = columns;
         this.distributionColumnFilters = filters;
         this.hashMod = hashMod;
+        this.isBaseIndexSelected = isBaseIndexSelected;
     }
 
     // columnId: which column to compute
@@ -75,7 +79,11 @@ public class HashDistributionPruner implements DistributionPruner {
             return Lists.newArrayList(bucketsList.get((int) ((hashValue & 0xffffffff) % hashMod)));
         }
         Column keyColumn = distributionColumns.get(columnId);
-        PartitionColumnFilter filter = distributionColumnFilters.get(keyColumn.getName());
+        String columnName = isBaseIndexSelected ? keyColumn.getName()
+                : org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule
+                        .normalizeName(
+                                CreateMaterializedViewStmt.mvColumnBuilder(keyColumn.getName()));
+        PartitionColumnFilter filter = distributionColumnFilters.get(columnName);
         if (null == filter) {
             // no filter in this column, no partition Key
             // return all subPartition

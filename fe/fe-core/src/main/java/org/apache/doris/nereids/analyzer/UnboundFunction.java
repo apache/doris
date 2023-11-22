@@ -22,33 +22,56 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Joiner;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * Expression for unbound function.
  */
 public class UnboundFunction extends Function implements Unbound, PropagateNullable {
-
+    private final String dbName;
     private final String name;
     private final boolean isDistinct;
 
     public UnboundFunction(String name, List<Expression> arguments) {
-        this(name, false, arguments);
+        this(null, name, false, arguments);
+    }
+
+    public UnboundFunction(String dbName, String name, List<Expression> arguments) {
+        this(dbName, name, false, arguments);
     }
 
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
+        this(null, name, isDistinct, arguments);
+    }
+
+    public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments) {
         super(arguments);
+        this.dbName = dbName;
         this.name = Objects.requireNonNull(name, "name cannot be null");
         this.isDistinct = isDistinct;
     }
 
     public String getName() {
         return name;
+    }
+
+    @Override
+    public String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
+        }
+        return this.exprName.get();
+    }
+
+    public String getDbName() {
+        return dbName;
     }
 
     public boolean isDistinct() {
@@ -80,7 +103,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
-        return new UnboundFunction(name, isDistinct, children);
+        return new UnboundFunction(dbName, name, isDistinct, children);
     }
 
     @Override

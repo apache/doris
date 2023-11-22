@@ -67,8 +67,10 @@ public enum SchemaTableType {
     SCH_VIEWS("VIEWS", "VIEWS", TSchemaTableType.SCH_VIEWS),
     SCH_CREATE_TABLE("CREATE_TABLE", "CREATE_TABLE", TSchemaTableType.SCH_CREATE_TABLE),
     SCH_INVALID("NULL", "NULL", TSchemaTableType.SCH_INVALID),
-    SCH_ROWSETS("ROWSETS", "ROWSETS", TSchemaTableType.SCH_ROWSETS);
-
+    SCH_ROWSETS("ROWSETS", "ROWSETS", TSchemaTableType.SCH_ROWSETS),
+    SCH_PARAMETERS("PARAMETERS", "PARAMETERS", TSchemaTableType.SCH_PARAMETERS),
+    SCH_METADATA_NAME_IDS("METADATA_NAME_IDS", "METADATA_NAME_IDS", TSchemaTableType.SCH_METADATA_NAME_IDS),
+    SCH_PROFILING("PROFILING", "PROFILING", TSchemaTableType.SCH_PROFILING);
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;
 

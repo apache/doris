@@ -31,10 +31,13 @@
 
 #include "common/status.h"
 #include "exec/exec_node.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/runtime/vdata_stream_recvr.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class DataSink;
@@ -86,9 +89,16 @@ enum class SinkState : uint8_t {
 
 class OperatorBuilderBase;
 class OperatorBase;
+class OperatorXBase;
+class DataSinkOperatorXBase;
 
 using OperatorPtr = std::shared_ptr<OperatorBase>;
 using Operators = std::vector<OperatorPtr>;
+
+using OperatorXPtr = std::shared_ptr<OperatorXBase>;
+using OperatorXs = std::vector<OperatorXPtr>;
+
+using DataSinkOperatorXPtr = std::shared_ptr<DataSinkOperatorXBase>;
 
 using OperatorBuilderPtr = std::shared_ptr<OperatorBuilderBase>;
 using OperatorBuilders = std::vector<OperatorBuilderPtr>;
@@ -111,6 +121,7 @@ public:
     int32_t id() const { return _id; }
 
 protected:
+    // Exec node id.
     const int32_t _id;
     const std::string _name;
 
@@ -157,11 +168,19 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    std::string get_name() const { return _operator_builder->get_name(); }
+    virtual std::string get_name() const { return _operator_builder->get_name(); }
 
-    bool is_sink() const;
+    virtual bool is_sink() const;
 
-    bool is_source() const;
+    virtual bool is_source() const;
+
+    virtual Status collect_query_statistics(QueryStatistics* statistics) { return Status::OK(); };
+
+    virtual Status collect_query_statistics(QueryStatistics* statistics, int sender_id) {
+        return Status::OK();
+    };
+
+    virtual void set_query_statistics(std::shared_ptr<QueryStatistics>) {};
 
     virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
@@ -193,11 +212,18 @@ public:
         return Status::OK();
     }
 
+    virtual Status set_child(OperatorXPtr child) {
+        _child_x = std::move(child);
+        return Status::OK();
+    }
+
     virtual bool can_read() { return false; } // for source
 
     virtual bool runtime_filters_are_ready_or_timeout() { return true; } // for source
 
     virtual bool can_write() { return false; } // for sink
+
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
 
     /**
      * The main method to execute a pipeline task.
@@ -231,22 +257,27 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
-    virtual Status try_close() { return Status::OK(); }
+    virtual Status try_close(RuntimeState* state) { return Status::OK(); }
 
     bool is_closed() const { return _is_closed; }
 
     const OperatorBuilderBase* operator_builder() const { return _operator_builder; }
 
-    const RowDescriptor& row_desc();
+    virtual const RowDescriptor& row_desc();
 
     virtual std::string debug_string() const;
-    int32_t id() const { return _operator_builder->id(); }
+    virtual int32_t id() const { return _operator_builder->id(); }
+
+    [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
 protected:
     OperatorBuilderBase* _operator_builder;
     OperatorPtr _child;
 
-    bool _is_closed = false;
+    // Used on pipeline X
+    OperatorXPtr _child_x;
+
+    bool _is_closed;
 };
 
 /**
@@ -271,16 +302,17 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        if (in_block->rows() > 0) {
-            auto st = _sink->send(state, in_block, source_state == SourceState::FINISHED);
-            // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
-            if (st.template is<ErrorCode::END_OF_FILE>()) {
-                return Status::OK();
-            }
-            return st;
+        if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
+            return _sink->sink(state, in_block, source_state == SourceState::FINISHED);
         }
         return Status::OK();
     }
+
+    Status try_close(RuntimeState* state) override {
+        return _sink->try_close(state, state->query_status());
+    }
+
+    [[nodiscard]] bool is_pending_finish() const override { return !_sink->is_close_done(); }
 
     Status close(RuntimeState* state) override {
         if (is_closed()) {
@@ -292,6 +324,11 @@ public:
     }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
+
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
+    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override {
+        _sink->set_query_statistics(statistics);
+    }
 
 protected:
     NodeType* _sink;
@@ -310,6 +347,8 @@ public:
             : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
+
+    [[nodiscard]] bool can_terminate_early() override { return _node->can_terminate_early(); }
 
     Status prepare(RuntimeState* state) override {
         _node->increase_ref();
@@ -355,6 +394,20 @@ public:
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
     bool can_read() override { return _node->can_read(); }
+
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
+        return _node->runtime_profile();
+    }
+
+    Status collect_query_statistics(QueryStatistics* statistics) override {
+        RETURN_IF_ERROR(_node->collect_query_statistics(statistics));
+        return Status::OK();
+    }
+
+    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override {
+        RETURN_IF_ERROR(_node->collect_query_statistics(statistics, sender_id));
+        return Status::OK();
+    }
 
 protected:
     NodeType* _node;
@@ -419,7 +472,8 @@ public:
                 return Status::OK();
             }
             node->prepare_for_next();
-            node->push(state, _child_block.get(), _child_source_state == SourceState::FINISHED);
+            RETURN_IF_ERROR(node->push(state, _child_block.get(),
+                                       _child_source_state == SourceState::FINISHED));
         }
 
         if (!node->need_more_input_data()) {

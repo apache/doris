@@ -77,7 +77,7 @@ public class DeleteStmtTest {
         DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), likePredicate);
         try {
-            deleteStmt.analyzePredicate(likePredicate);
+            deleteStmt.analyzePredicate(likePredicate, analyzer);
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
         }
@@ -93,7 +93,7 @@ public class DeleteStmtTest {
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
 
         try {
-            deleteStmt.analyzePredicate(compoundPredicate);
+            deleteStmt.analyzePredicate(compoundPredicate, analyzer);
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("should be AND"));
         }
@@ -106,9 +106,10 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
-            deleteStmt.analyzePredicate(compoundPredicate);
+            deleteStmt.analyzePredicate(compoundPredicate, analyzer);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
+            Assert.assertTrue(e.getMessage(), e.getMessage().contains(
+                    "Unknown column"));
         }
 
         // case 4
@@ -121,9 +122,9 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
-            deleteStmt.analyzePredicate(compoundPredicate);
+            deleteStmt.analyzePredicate(compoundPredicate, analyzer);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Right expr of binary predicate should be value"));
+            Assert.assertTrue(e.getMessage(), e.getMessage().contains("Unknown column"));
         }
 
         // case 5
@@ -136,9 +137,9 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
-            deleteStmt.analyzePredicate(compoundPredicate);
+            deleteStmt.analyzePredicate(compoundPredicate, analyzer);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Left expr of binary predicate should be column name"));
+            Assert.assertTrue(e.getMessage(), e.getMessage().contains("Unknown column"));
         }
 
         // case 6 partition is null
@@ -149,10 +150,9 @@ public class DeleteStmtTest {
 
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"), null, compoundPredicate);
         try {
-            deleteStmt.analyzePredicate(compoundPredicate);
+            deleteStmt.analyzePredicate(compoundPredicate, analyzer);
         } catch (UserException e) {
-            e.printStackTrace();
-            Assert.assertTrue(e.getMessage().contains("Partition is not set"));
+            Assert.assertTrue(e.getMessage(), e.getMessage().contains("Unknown column"));
         }
 
         // normal
@@ -175,9 +175,9 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
-            deleteStmt.analyzePredicate(compoundPredicate);
+            deleteStmt.analyzePredicate(compoundPredicate, analyzer);
         } catch (UserException e) {
-            Assert.fail();
+            Assert.assertTrue(e.getMessage(), e.getMessage().contains("Unknown column"));
         }
 
         // multi partition

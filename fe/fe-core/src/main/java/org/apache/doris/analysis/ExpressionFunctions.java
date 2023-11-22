@@ -31,6 +31,7 @@ import org.apache.doris.rewrite.FEFunctions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -50,6 +51,10 @@ public enum ExpressionFunctions {
 
     private static final Logger LOG = LogManager.getLogger(ExpressionFunctions.class);
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
+    public static final Set<String> unfixedFn = ImmutableSet.of(
+            "uuid",
+            "random"
+    );
 
     private ExpressionFunctions() {
         registerFunctions();
@@ -67,6 +72,15 @@ public enum ExpressionFunctions {
                 || constExpr instanceof FunctionCallExpr
                 || constExpr instanceof TimestampArithmeticExpr) {
             Function fn = constExpr.getFn();
+            if (fn == null) {
+                return constExpr;
+            }
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && !ConnectContext.get().getSessionVariable().isEnableFoldNondeterministicFn()
+                    && unfixedFn.contains(fn.getFunctionName().getFunction())) {
+                return constExpr;
+            }
 
             Preconditions.checkNotNull(fn, "Expr's fn can't be null.");
 
@@ -104,6 +118,9 @@ public enum ExpressionFunctions {
                         try {
                             ((DateLiteral) dateLiteral).checkValueValid();
                         } catch (AnalysisException e) {
+                            if (ConnectContext.get() != null) {
+                                ConnectContext.get().getState().reset();
+                            }
                             return NullLiteral.create(dateLiteral.getType());
                         }
                         return dateLiteral;
@@ -111,6 +128,9 @@ public enum ExpressionFunctions {
                         return invoker.invoke(constExpr.getChildrenWithoutCast());
                     }
                 } catch (AnalysisException e) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     LOG.debug("failed to invoke", e);
                     return constExpr;
                 }

@@ -28,7 +28,7 @@ public class LogicalTVFRelationToPhysicalTVFRelation extends OneImplementationRu
     @Override
     public Rule build() {
         return logicalTVFRelation()
-                .then(relation -> new PhysicalTVFRelation(relation.getId(),
+                .then(relation -> new PhysicalTVFRelation(relation.getRelationId(),
                         relation.getFunction(), relation.getLogicalProperties()))
                 .toRule(RuleType.LOGICAL_TVF_RELATION_TO_PHYSICAL_TVF_RELATION);
     }

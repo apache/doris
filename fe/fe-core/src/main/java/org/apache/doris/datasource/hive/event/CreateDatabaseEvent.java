@@ -32,6 +32,11 @@ import java.util.List;
  */
 public class CreateDatabaseEvent extends MetastoreEvent {
 
+    // for test
+    public CreateDatabaseEvent(long eventId, String catalogName, String dbName) {
+        super(eventId, catalogName, dbName, null, MetastoreEventType.CREATE_DATABASE);
+    }
+
     private CreateDatabaseEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);

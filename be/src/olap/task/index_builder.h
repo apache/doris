@@ -20,6 +20,7 @@
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet.h"
@@ -36,7 +37,6 @@ using RowsetWriterUniquePtr = std::unique_ptr<RowsetWriter>;
 class IndexBuilder {
 public:
     IndexBuilder(const TabletSharedPtr& tablet, const std::vector<TColumn>& columns,
-                 const std::vector<TOlapTableIndex> exist_indexes,
                  const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                  bool is_drop_op = false);
     ~IndexBuilder();
@@ -60,18 +60,15 @@ private:
                          const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
                          const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
-    Status _calc_alter_column_ids();
-
 private:
     TabletSharedPtr _tablet;
     std::vector<TColumn> _columns;
-    std::vector<TOlapTableIndex> _exist_indexes;
     std::vector<doris::TOlapTableIndex> _alter_inverted_indexes;
     bool _is_drop_op;
-    std::unordered_map<std::string, std::set<int32_t>> _rowset_alter_index_column_ids;
     std::set<int32_t> _alter_index_ids;
     std::vector<RowsetSharedPtr> _input_rowsets;
     std::vector<RowsetSharedPtr> _output_rowsets;
+    std::vector<PendingRowsetGuard> _pending_rs_guards;
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // "<segment_id, index_id>" -> InvertedIndexColumnWriter

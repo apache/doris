@@ -35,6 +35,12 @@ import java.util.List;
 public class CreateTableEvent extends MetastoreTableEvent {
     private final Table hmsTbl;
 
+    // for test
+    public CreateTableEvent(long eventId, String catalogName, String dbName, String tblName) {
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.CREATE_TABLE);
+        this.hmsTbl = null;
+    }
+
     private CreateTableEvent(NotificationEvent event, String catalogName) throws MetastoreNotificationException {
         super(event, catalogName);
         Preconditions.checkArgument(MetastoreEventType.CREATE_TABLE.equals(getEventType()));
@@ -56,10 +62,21 @@ public class CreateTableEvent extends MetastoreTableEvent {
     }
 
     @Override
+    protected boolean willCreateOrDropTable() {
+        return true;
+    }
+
+    @Override
+    protected boolean willChangeTableName() {
+        return false;
+    }
+
+    @Override
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
-            Env.getCurrentEnv().getCatalogMgr().createExternalTable(dbName, hmsTbl.getTableName(), catalogName, true);
+            Env.getCurrentEnv().getCatalogMgr()
+                    .createExternalTableFromEvent(dbName, hmsTbl.getTableName(), catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

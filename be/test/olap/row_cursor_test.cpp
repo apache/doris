@@ -329,44 +329,4 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     EXPECT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23));
 }
 
-TEST_F(TestRowCursor, FullKeyCmp) {
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
-
-    RowCursor left;
-    Status res = left.init(tablet_schema);
-    EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(left.get_fixed_len(), 78);
-    EXPECT_EQ(left.get_variable_len(), 20);
-
-    Slice l_char("well");
-    int32_t l_int = 10;
-    left.set_field_content(0, reinterpret_cast<char*>(&l_char), _arena.get());
-    left.set_field_content(1, reinterpret_cast<char*>(&l_int), _arena.get());
-
-    RowCursor right_eq;
-    res = right_eq.init(tablet_schema);
-    Slice r_char_eq("well");
-    int32_t r_int_eq = 10;
-    right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _arena.get());
-    right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _arena.get());
-    EXPECT_EQ(compare_row(left, right_eq), 0);
-
-    RowCursor right_lt;
-    res = right_lt.init(tablet_schema);
-    Slice r_char_lt("well");
-    int32_t r_int_lt = 11;
-    right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _arena.get());
-    right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _arena.get());
-    EXPECT_LT(compare_row(left, right_lt), 0);
-
-    RowCursor right_gt;
-    res = right_gt.init(tablet_schema);
-    Slice r_char_gt("good");
-    int32_t r_int_gt = 10;
-    right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _arena.get());
-    right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _arena.get());
-    EXPECT_GT(compare_row(left, right_gt), 0);
-}
-
 } // namespace doris

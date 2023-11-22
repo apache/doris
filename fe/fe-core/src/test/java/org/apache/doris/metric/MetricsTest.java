@@ -58,18 +58,24 @@ public class MetricsTest {
     }
 
     @Test
-    public void testDBMetrics() {
-        MetricRepo.DB_HISTO_QUERY_LATENCY.getOrAdd("test_db").update(10L);
-        StringBuilder sb = new StringBuilder();
+    public void testUserQueryMetrics() {
+        MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
+        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
+        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
         MetricVisitor visitor = new PrometheusMetricVisitor();
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
         for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(sb, MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
         }
-        String metricResult = sb.toString();
+        String metricResult = visitor.finish();
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_total counter"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_total{user=\"test_user\"} 1"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_err counter"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_err{user=\"test_user\"} 1"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
-        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",db=\"test_db\"} 10.0"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
 
     }
 }

@@ -63,11 +63,12 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
-    std::vector<std::string_view> child_expr_name;
     for (auto child : _children) {
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
-        child_expr_name.emplace_back(child->expr_name());
     }
+
+    _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
+                             get_child_names(), _data_type->get_name());
 
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
@@ -89,7 +90,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             if (_data_type->is_nullable()) {
                 return Status::InternalError("State function's return type must be not nullable");
             }
-            if (_data_type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+            if (_data_type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "State function's return type must be agg_state but get {}",
                         _data_type->get_family_name());
@@ -106,17 +107,12 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                 _fn.name.function_name, argument_template, _data_type, state->be_exec_version());
     }
     if (_function == nullptr) {
-        std::string type_str;
-        for (auto arg : argument_template) {
-            type_str = type_str + " " + arg.type->get_name();
-        }
         return Status::InternalError(
-                "Function {} is not implemented, input param type is {}, "
+                "Function {} get failed, expr is {} "
                 "and return type is {}.",
-                _fn.name.function_name, type_str, _data_type->get_name());
+                _fn.name.function_name, _expr_name, _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
-    _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
     _function_name = _fn.name.function_name;
     _can_fast_execute = _function->can_fast_execute();
 
@@ -125,15 +121,19 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 
 Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+    }
     return Status::OK();
 }
 
-void VectorizedFnCall::close(RuntimeState* state, VExprContext* context,
-                             FunctionContext::FunctionStateScope scope) {
+void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,

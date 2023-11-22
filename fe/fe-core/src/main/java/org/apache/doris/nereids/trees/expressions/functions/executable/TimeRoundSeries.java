@@ -25,10 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
-import java.time.temporal.TemporalUnit;
 
 /**
  * executable functions:
@@ -48,49 +45,82 @@ public class TimeRoundSeries {
         SECOND
     }
 
-    private static ChronoUnit dateEnumToUnit(DATE tag) {
-        switch (tag) {
-            case YEAR:
-                return ChronoUnit.YEARS;
-            case MONTH:
-                return ChronoUnit.MONTHS;
-            case DAY:
-                return ChronoUnit.DAYS;
-            case HOUR:
-                return ChronoUnit.HOURS;
-            case MINUTE:
-                return ChronoUnit.MINUTES;
-            default:
-                return ChronoUnit.SECONDS;
-        }
-    }
-
+    // get it's from be/src/vec/functions/function_datetime_floor_ceil.cpp##time_round
     private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
             boolean getCeil) {
-        // Algorithm:
-        // Firstly, get the unit distance of the two date.
-        // Secondly, if the origin date is bigger than the date, subtract it to a date before the date by unit.
-        // Thirdly, re-calculate the distance of the two date.
-        // Fourthly, get the ceil and floor date of the date by unit and select the corresponding date as the answer.
-
-        // handle origin > date
-        TemporalUnit unit = dateEnumToUnit(tag);
-        if (origin.isAfter(date)) {
-            Duration duration = Duration.between(date, origin);
-            long hour = Math.abs(duration.get(unit));
-            long ceil = ((hour - 1) / period + 1) * period;
-            origin = origin.minus(ceil, unit);
+        DateTimeV2Literal dt = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(date);
+        DateTimeV2Literal start = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(origin);
+        long diff = 0;
+        long trivialPart = 0;
+        switch (tag) {
+            case YEAR: {
+                diff = dt.getYear() - start.getYear();
+                trivialPart = (dt.getValue() % 10000000000L) - (start.getValue() % 10000000000L);
+                break;
+            }
+            case MONTH: {
+                diff = (dt.getYear() - start.getYear()) * 12 + (dt.getMonth() - start.getMonth());
+                trivialPart = (dt.getValue() % 100000000L) - (start.getValue() % 100000000L);
+                break;
+            }
+            case DAY: {
+                diff = dt.getTotalDays() - start.getTotalDays();
+                long part2 = dt.getHour() * 3600 + dt.getMinute() * 60 + dt.getSecond();
+                long part1 = start.getHour() * 3600 + start.getMinute() * 60 + start.getSecond();
+                trivialPart = part2 - part1;
+                break;
+            }
+            case HOUR: {
+                diff = (dt.getTotalDays() - start.getTotalDays()) * 24 + (dt.getHour() - start.getHour());
+                trivialPart = (dt.getMinute() * 60 + dt.getSecond())
+                        - (start.getMinute() * 60 + start.getSecond());
+                break;
+            }
+            case MINUTE: {
+                diff = (dt.getTotalDays() - start.getTotalDays()) * 24 * 60 + (dt.getHour() - start.getHour()) * 60
+                        + (dt.getMinute() - start.getMinute());
+                trivialPart = dt.getSecond() - start.getSecond();
+                break;
+            }
+            case SECOND: {
+                diff = (dt.getTotalDays() - start.getTotalDays()) * 24 * 60 * 60
+                        + (dt.getHour() - start.getHour()) * 60 * 60
+                        + (dt.getMinute() - start.getMinute()) * 60
+                        + (dt.getSecond() - start.getSecond());
+                trivialPart = 0;
+                break;
+            }
+            default: {
+                return null;
+            }
         }
-
-        // get distance
-        Duration duration = Duration.between(origin, date);
-        long hour = Math.abs(duration.get(unit));
-        long ceil = ((hour - 1) / period + 1) * period;
-        long floor = hour / period * period;
-        LocalDateTime floorDate = origin.plus(floor, unit);
-        LocalDateTime ceilDate = origin.plus(ceil, unit);
-
-        return getCeil ? ceilDate : floorDate;
+        if (getCeil) {
+            diff = diff + (trivialPart > 0 ? 1 : 0);
+        } else {
+            diff = diff - (trivialPart < 0 ? 1 : 0);
+        }
+        long deltaInsidePeriod = (diff % period + period) % period;
+        long step = diff - deltaInsidePeriod;
+        if (getCeil) {
+            step = step + (deltaInsidePeriod == 0 ? 0 : period);
+        }
+        switch (tag) {
+            case YEAR:
+                return ((DateTimeLiteral) start.plusYears(step)).toJavaDateType();
+            case MONTH:
+                return ((DateTimeLiteral) start.plusMonths(step)).toJavaDateType();
+            case DAY:
+                return ((DateTimeLiteral) start.plusDays(step)).toJavaDateType();
+            case HOUR:
+                return ((DateTimeLiteral) start.plusHours(step)).toJavaDateType();
+            case MINUTE:
+                return ((DateTimeLiteral) start.plusMinutes(step)).toJavaDateType();
+            case SECOND:
+                return ((DateTimeLiteral) start.plusSeconds(step)).toJavaDateType();
+            default:
+                break;
+        }
+        return null;
     }
 
     /**

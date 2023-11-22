@@ -127,6 +127,12 @@ There are two ways to configure BE configuration items:
 * Description: The port of BRPC on BE, used for communication between BEs
 * Default value: 8060
 
+#### `arrow_flight_sql_port`
+
+* Type: int32
+* Description: The port of Arrow Flight SQL server on BE, used for communication between Arrow Flight Client and BE
+* Default value: -1
+
 #### `enable_https`
 
 * Type: bool
@@ -181,16 +187,15 @@ There are two ways to configure BE configuration items:
 #### `mem_limit`
 
 * Type: string
-* Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-    - `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G), 6.4G is the maximum memory reserved for the system by default.
-* Default value: auto
+* Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying too the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
+* Default value: 90%
 
 #### `cluster_id`
 
 * Type: int32
 * Description: Configure the cluster id to which the BE belongs.
     - This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Drois cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
-* Default value: - 1
+* Default value: -1
 
 #### `custom_config_dir`
 
@@ -222,7 +227,7 @@ There are two ways to configure BE configuration items:
 #### `status_report_interval`
 
 * Description: Interval between profile reports
-* Default value: 5
+* Default value: 5 seconds
 
 #### `brpc_max_body_size`
 
@@ -250,7 +255,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_rpc_timeout_ms`
 
 * Description: thrift default timeout time
-* Default value: 10000
+* Default value: 60000
 
 #### `thrift_client_retry_interval_ms`
 
@@ -275,7 +280,7 @@ There are two ways to configure BE configuration items:
 #### `txn_commit_rpc_timeout_ms`
 
 * Description:txn submit rpc timeout
-* Default value: 10,000 (ms)
+* Default value: 60,000 (ms)
 
 #### `txn_map_shard_size`
 
@@ -315,12 +320,18 @@ There are two ways to configure BE configuration items:
 * Description:  When using the odbc external table, if a column type of the odbc source table is not HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
 * Default value: 100
 
+#### `jsonb_type_length_soft_limit_bytes`
+
+* Type: int32
+* Description: The soft limit of the maximum length of JSONB type.
+* Default value: 1,048,576
+
 ### Query
 
 #### `fragment_pool_queue_size`
 
 * Description: The upper limit of query requests that can be processed on a single node
-* Default value: 2048
+* Default value: 4096
 
 #### `fragment_pool_thread_num_min`
 
@@ -330,7 +341,7 @@ There are two ways to configure BE configuration items:
 #### `fragment_pool_thread_num_max`
 
 * Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
-* Default value: 512
+* Default value: 2048
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -553,7 +564,18 @@ There are two ways to configure BE configuration items:
 Base compaction is a long time cost background task, this configuration is the threshold to logging trace information. Trace information in log file looks like:
 
 ```
-W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
+W0610 11:26:33.804431 56452 storage_engine.cpp:552] execute base compaction cost 0.00319222
+BaseCompaction:546859:
+  - filtered_rows: 0
+   - input_row_num: 10
+   - input_rowsets_count: 10
+   - input_rowsets_data_size: 2.17 KB
+   - input_segments_num: 10
+   - merge_rowsets_latency: 100000.510ms
+   - merged_rows: 0
+   - output_row_num: 10
+   - output_rowset_data_size: 224.00 B
+   - output_segments_num: 1
 0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
 0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
 0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
@@ -566,7 +588,6 @@ W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
 0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
 0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
 0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
-Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
 ```
 
 #### `cumulative_compaction_trace_threshold`
@@ -580,13 +601,13 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Type: int32
 * Description: The number of compaction tasks which execute in parallel for a disk(HDD).
-* Default value: 2
+* Default value: 4
 
 #### `compaction_task_num_per_fast_disk`
 
 * Type: int32
 * Description: The number of compaction tasks which execute in parallel for a fast disk(SSD).
-* Default value: 4
+* Default value: 8
 
 #### `cumulative_compaction_rounds_for_each_base_compaction_round`
 
@@ -613,17 +634,41 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Enable to use segment compaction during loading to avoid -238 error
 * Default value: true
 
-#### `segcompaction_threshold_segment_num`
+#### `segcompaction_batch_size`
 
 * Type: int32
-* Description: Trigger segcompaction if the num of segments in a rowset exceeds this threshold
+* Description: Max number of segments allowed in a single segcompaction task.
 * Default value: 10
 
-#### `segcompaction_small_threshold`
+#### `segcompaction_candidate_max_rows`
 
 * Type: int32
-* Description: The segment whose row number above the threshold will be compacted during segcompaction
+* Description: Max row count allowed in a single source segment, bigger segments will be skipped.
 * Default value: 1048576
+
+#### `segcompaction_candidate_max_bytes`
+
+* Type: int64
+* Description: Max file size allowed in a single source segment, bigger segments will be skipped.
+* Default value: 104857600
+
+#### `segcompaction_task_max_rows`
+
+* Type: int32
+* Description: Max total row count allowed in a single segcompaction task.
+* Default value: 1572864
+
+#### `segcompaction_task_max_bytes`
+
+* Type: int64
+* Description: Max total file size allowed in a single segcompaction task.
+* Default value: 157286400
+
+#### `segcompaction_num_threads`
+
+* Type: int32
+* Description: Global segcompaction thread pool size.
+* Default value: 5
 
 #### `disable_compaction_trace_log`
 
@@ -647,7 +692,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `update_replica_infos_interval_seconds`
 
 * Description: Minimal interval (s) to update peer replica infos
-* Default value: 10 (s)
+* Default value: 60 (s)
 
 
 ### Load
@@ -672,6 +717,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Description: Import the number of threads for processing NORMAL priority tasks
 * Default value: 3
+
+#### `enable_single_replica_load`
+
+* Description: Whether to enable the single-copy data import function
+* Default value: true
 
 #### `load_error_log_reserve_hours`
 
@@ -718,6 +768,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The number of caches for the data consumer used by the routine load.
 * Default value: 10
 
+#### `multi_table_batch_plan_threshold`
+
+* Type: int32
+* Description: For single-stream-multi-table load. When receive a batch of messages from kafka, if the size of batch is more than this threshold, we will request plans for all related tables.
+* Default value: 200
+
 #### `single_replica_load_download_num_workers`
 
 * Type: int32
@@ -756,7 +812,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Type: int64
 * Description: Used to limit the maximum amount of csv data allowed in one Stream load.
-  - Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
+  - Stream Load is generally suitable for loading data less than a few GB, not suitable for loading too large data.
 * Default value: 10240 (MB)
 * Dynamically modifiable: Yes
 
@@ -894,11 +950,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The maximum external scan cache batch count, which means that the cache max_memory_cache_batch_count * batch_size row, the default is 20, and the default value of batch_size is 1024, which means that 20 * 1024 rows will be cached
 * Default value: 20
 
-#### `memory_limitation_per_thread_for_schema_change`
-
-* Description: The maximum memory allowed for a single schema change task
-* Default value: 2 (GB)
-
 #### `memory_max_alignment`
 
 * Description: Maximum alignment memory
@@ -908,6 +959,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Description: Whether to use mmap to allocate memory
 * Default value: false
+
+#### `memtable_mem_tracker_refresh_interval_ms`
+
+* Description: Interval in milliseconds between memtable flush mgr refresh iterations
+* Default value: 100
 
 #### `download_cache_buffer_size`
 
@@ -942,7 +998,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `memory_limitation_per_thread_for_schema_change_bytes`
 
 * Description: Maximum memory allowed for a single schema change task
-* Default value: 2147483648
+* Default value: 2147483648 (2GB)
 
 #### `mem_tracker_consume_min_size_bytes`
 
@@ -971,14 +1027,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Type: int32
 * Description: The cache size used when reading files on hdfs or object storage.
   - Increasing this value can reduce the number of calls to read remote data, but it will increase memory overhead.
-* Default value: 16MB
-
-#### `segment_cache_capacity`
-
-* Type: int32
-* Description: The maximum number of Segments cached by Segment Cache.
-  - The default value is currently only an empirical value, and may need to be modified according to actual scenarios. Increasing this value can cache more segments and avoid some IO. Decreasing this value will reduce memory usage.
-* Default value: 1000000
+* Default value: 16 (MB)
 
 #### `file_cache_type`
 
@@ -1103,7 +1152,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 #### `small_file_dir`
 
-* Description: 用于保存 SmallFileMgr 下载的文件的目录
+* Description: Save files downloaded by SmallFileMgr
 * Default value: ${DORIS_HOME}/lib/small_file/
 
 #### `user_function_dir`
@@ -1141,6 +1190,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Type: int32
 * Description: Index page cache as a percentage of total storage page cache, value range is [0, 100]
 * Default value: 10
+
+#### `segment_cache_capacity`
+* Type: int32
+* Description: Max number of segment cache (the key is rowset id) entries. -1 is for backward compatibility as fd_number * 2/5.
+* Default value: -1
 
 #### `storage_strict_check_incompatible_old_format`
 
@@ -1211,8 +1265,8 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Type: int64
 * Description: It is used to control the expiration time of cleaning up the merged rowset version. When the current time now() minus the max created rowset‘s create time in a version path is greater than tablet_rowset_stale_sweep_time_sec, the current path is cleaned up and these merged rowsets are deleted, the unit is second.
-  - When writing is too frequent and the disk time is insufficient, you can configure less tablet_rowset_stale_sweep_time_sec. However, if this time is less than 5 minutes, it may cause fe to query the version that has been merged, causing a query -230 error.
-* Default value: 1800
+  - When writing is too frequent, Fe may not be able to query the merged version, resulting in a query -230 error. This problem can be avoided by increasing this parameter.
+* Default value: 300
 
 #### `tablet_writer_open_rpc_timeout_sec`
 
@@ -1226,12 +1280,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data.
 * Default value: false
 
-#### `enable_lazy_open_partition`
-
-* Type: bool
-* Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.When there is mixed deployment in the upgraded version, it needs to be set to false.
-* Default value: false
-
 #### `streaming_load_rpc_max_alive_time_sec`
 
 * Description: The lifetime of TabletsChannel. If the channel does not receive any data at this time, the channel will be deleted.
@@ -1240,6 +1288,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `alter_tablet_worker_count`
 
 * Description: The number of threads making schema changes
+* Default value: 3
+
+### `alter_index_worker_count`
+
+* Description: The number of threads making index change
 * Default value: 3
 
 #### `ignore_load_tablet_failure`
@@ -1320,7 +1373,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `sys_log_verbose_modules`
 
 * Description: Log printing module, writing olap will only print the log under the olap module
-* Default value: 空
+* Default value: empty
 
 #### `aws_log_level`
 
@@ -1340,7 +1393,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `log_buffer_level`
 
 * Description: The log flushing strategy is kept in memory by default
-* Default value: 空
+* Default value: empty
 
 ### Else
 
@@ -1377,7 +1430,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `max_runnings_transactions_per_txn_map`
 
 * Description: Max number of txns for every txn_partition_map in txn manager, this is a self protection to avoid too many txns saving in manager
-* Default value: 100
+* Default value: 2000
 
 #### `max_download_speed_kbps`
 
@@ -1419,11 +1472,31 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `enable_simdjson_reader`
 
 * Description: Whether enable simdjson to parse json while stream load
-* Default value: false
+* Default value: true
 
 </version>
 
 #### `enable_query_memory_overcommit`
 
 * Description: If true, when the process does not exceed the soft mem limit, the query memory will not be limited; when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently used memory and the exec_mem_limit will be canceled. If false, cancel query when the memory used exceeds exec_mem_limit.
+* Default value: true
+
+#### `user_files_secure_path`
+
+* Description: The storage directory for files queried by `local` table valued functions.
+* Default value: `${DORIS_HOME}`
+
+#### `brpc_streaming_client_batch_bytes`
+
+* Description: The batch size for sending data by brpc streaming client
+* Default value: 262144
+
+#### `grace_shutdown_wait_seconds`
+
+* Description: In cloud native deployment scenario, BE will be add to cluster and remove from cluster very frequently. User's query will fail if there is a fragment is running on the shuting down BE. Users could use stop_be.sh --grace, then BE will wait all running queries to stop to avoiding running query failure, but if the waiting time exceed the limit, then be will exit directly. During this period, FE will not send any queries to BE and waiting for all running queries to stop.
+* Default value: 120
+
+#### `enable_java_support`
+
+* Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
 * Default value: true

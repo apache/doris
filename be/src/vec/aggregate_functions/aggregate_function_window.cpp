@@ -43,7 +43,7 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
     if (which.idx == TypeIndex::TYPE)                      \
         return std::make_shared<AggregateFunctionTemplate< \
                 Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>>>>(argument_types);
-    TYPE_TO_BASIC_COLUMN_TYPE(DISPATCH)
+    TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 
     LOG(WARNING) << "with unknowed type, failed in  create_aggregate_function_" << name

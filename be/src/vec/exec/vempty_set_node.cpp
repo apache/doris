@@ -17,10 +17,7 @@
 
 #include "vec/exec/vempty_set_node.h"
 
-#include <opentelemetry/nostd/shared_ptr.h>
-
 #include "runtime/runtime_state.h"
-#include "util/telemetry/telemetry.h"
 
 namespace doris {
 class DescriptorTbl;

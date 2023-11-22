@@ -59,7 +59,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto col_res = ColumnString::create();
         col_res->get_offsets().reserve(input_rows_count);
         col_res->get_chars().reserve(input_rows_count * uuid_length);

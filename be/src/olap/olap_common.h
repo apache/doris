@@ -20,6 +20,7 @@
 #include <gen_cpp/Types_types.h>
 #include <netinet/in.h>
 
+#include <charconv>
 #include <cstdint>
 #include <functional>
 #include <list>
@@ -48,7 +49,7 @@ using uint128_t = unsigned __int128;
 
 using TabletUid = UniqueId;
 
-enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
+enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPACTION = 3 };
 
 struct DataDirInfo {
     std::string path;
@@ -57,6 +58,7 @@ struct DataDirInfo {
     int64_t available = 0;     // available space, in bytes unit
     int64_t local_used_capacity = 0;
     int64_t remote_used_capacity = 0;
+    int64_t trash_used_capacity = 0;
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };
@@ -73,14 +75,12 @@ struct DataDirInfoLessAvailability {
 };
 
 struct TabletInfo {
-    TabletInfo(TTabletId in_tablet_id, TSchemaHash in_schema_hash, UniqueId in_uid)
-            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_uid(in_uid) {}
+    TabletInfo(TTabletId in_tablet_id, UniqueId in_uid)
+            : tablet_id(in_tablet_id), tablet_uid(in_uid) {}
 
     bool operator<(const TabletInfo& right) const {
         if (tablet_id != right.tablet_id) {
             return tablet_id < right.tablet_id;
-        } else if (schema_hash != right.schema_hash) {
-            return schema_hash < right.schema_hash;
         } else {
             return tablet_uid < right.tablet_uid;
         }
@@ -88,21 +88,19 @@ struct TabletInfo {
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << tablet_id << "." << schema_hash << "." << tablet_uid.to_string();
+        ss << tablet_id << "." << tablet_uid.to_string();
         return ss.str();
     }
 
     TTabletId tablet_id;
-    TSchemaHash schema_hash;
     UniqueId tablet_uid;
 };
 
 struct TabletSize {
-    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size)
-            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_size(in_tablet_size) {}
+    TabletSize(TTabletId in_tablet_id, size_t in_tablet_size)
+            : tablet_id(in_tablet_id), tablet_size(in_tablet_size) {}
 
     TTabletId tablet_id;
-    TSchemaHash schema_hash;
     size_t tablet_size;
 };
 
@@ -146,7 +144,10 @@ enum class FieldType {
     OLAP_FIELD_TYPE_DECIMAL128I = 33,
     OLAP_FIELD_TYPE_JSONB = 34,
     OLAP_FIELD_TYPE_VARIANT = 35,
-    OLAP_FIELD_TYPE_AGG_STATE = 36
+    OLAP_FIELD_TYPE_AGG_STATE = 36,
+    OLAP_FIELD_TYPE_DECIMAL256 = 37,
+    OLAP_FIELD_TYPE_IPV4 = 38,
+    OLAP_FIELD_TYPE_IPV6 = 39,
 };
 
 // Define all aggregation methods supported by Field
@@ -200,6 +201,7 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
            field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
 }
 
@@ -324,6 +326,7 @@ struct OlapReaderStatistics {
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_bf_filtered = 0;
+    int64_t rows_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
     // This metric is mainly used to record the number of rows filtered by the delete condition in Segment V1,
@@ -378,11 +381,16 @@ struct RowsetId {
     int64_t mi = 0;
     int64_t lo = 0;
 
-    void init(const std::string& rowset_id_str) {
+    void init(std::string_view rowset_id_str) {
         // for new rowsetid its a 48 hex string
         // if the len < 48, then it is an old format rowset id
-        if (rowset_id_str.length() < 48) {
-            int64_t high = std::stol(rowset_id_str, nullptr, 10);
+        if (rowset_id_str.length() < 48) [[unlikely]] {
+            int64_t high;
+            auto [_, ec] = std::from_chars(rowset_id_str.data(),
+                                           rowset_id_str.data() + rowset_id_str.length(), high);
+            if (ec != std::errc {}) [[unlikely]] {
+                LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
+            }
             init(1, high, 0, 0);
         } else {
             int64_t high = 0;
@@ -458,12 +466,38 @@ struct HashOfRowsetId {
 
 using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
 
+// Extract rowset id from filename, return uninitialized rowset id if filename is invalid
+inline RowsetId extract_rowset_id(std::string_view filename) {
+    RowsetId rowset_id;
+    if (filename.ends_with(".dat")) {
+        // filename format: {rowset_id}_{segment_num}.dat
+        auto end = filename.find('_');
+        if (end == std::string::npos) {
+            return rowset_id;
+        }
+        rowset_id.init(filename.substr(0, end));
+        return rowset_id;
+    }
+    if (filename.ends_with(".idx")) {
+        // filename format: {rowset_id}_{segment_num}_{index_id}.idx
+        auto end = filename.find('_');
+        if (end == std::string::npos) {
+            return rowset_id;
+        }
+        rowset_id.init(filename.substr(0, end));
+        return rowset_id;
+    }
+    return rowset_id;
+}
+
 class DeleteBitmap;
 // merge on write context
 struct MowContext {
-    MowContext(int64_t version, const RowsetIdUnorderedSet& ids, std::shared_ptr<DeleteBitmap> db)
-            : max_version(version), rowset_ids(ids), delete_bitmap(db) {}
+    MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
+               std::shared_ptr<DeleteBitmap> db)
+            : max_version(version), txn_id(txnid), rowset_ids(ids), delete_bitmap(db) {}
     int64_t max_version;
+    int64_t txn_id;
     const RowsetIdUnorderedSet& rowset_ids;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
 };

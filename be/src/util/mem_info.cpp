@@ -38,10 +38,8 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
-#include "olap/page_cache.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "olap/segment_loader.h"
-#include "runtime/memory/chunk_allocator.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/task_group/task_group.h"
 #include "runtime/task_group/task_group_manager.h"
@@ -49,6 +47,7 @@
 #include "util/defer_op.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
+#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "util/string_parser.hpp"
 
@@ -61,14 +60,14 @@ std::string MemInfo::_s_mem_limit_str = "";
 int64_t MemInfo::_s_soft_mem_limit = -1;
 std::string MemInfo::_s_soft_mem_limit_str = "";
 
-int64_t MemInfo::_s_allocator_cache_mem = 0;
+std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
-int64_t MemInfo::_s_virtual_memory_used = 0;
-int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
+std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
+std::atomic<int64_t> MemInfo::_s_proc_mem_no_allocator_cache = -1;
 std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
-int64_t MemInfo::_s_sys_mem_available = -1;
+std::atomic<int64_t> MemInfo::_s_sys_mem_available = -1;
 std::string MemInfo::_s_sys_mem_available_str = "";
 int64_t MemInfo::_s_sys_mem_available_low_water_mark = -1;
 int64_t MemInfo::_s_sys_mem_available_warning_water_mark = -1;
@@ -77,60 +76,37 @@ int64_t MemInfo::_s_process_full_gc_size = -1;
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
+    // 'epoch' is a special mallctl -- it updates the statistics. Without it, all
+    // the following calls will return stale values. It increments and returns
+    // the current epoch number, which might be useful to log as a sanity check.
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
     jemallctl("epoch", &epoch, &sz, &epoch, sz);
 
     // https://jemalloc.net/jemalloc.3.html
-    _s_allocator_cache_mem =
-            get_je_metrics(fmt::format("stats.arenas.{}.tcache_bytes", MALLCTL_ARENAS_ALL)) +
-            get_je_metrics("stats.metadata");
-    _s_allocator_cache_mem_str =
-            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
-    _s_virtual_memory_used = get_je_metrics("stats.mapped");
+    // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
+    _s_allocator_cache_mem.store(get_je_all_arena_metrics("tcache_bytes") +
+                                         get_je_metrics("stats.metadata") +
+                                         get_je_all_arena_metrics("pdirty") * get_page_size(),
+                                 std::memory_order_relaxed);
+    _s_allocator_cache_mem_str = PrettyPrinter::print(
+            static_cast<uint64_t>(_s_allocator_cache_mem.load(std::memory_order_relaxed)),
+            TUnit::BYTES);
+    _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
 #else
-    _s_allocator_cache_mem = get_tc_metrics("tcmalloc.pageheap_free_bytes") +
-                             get_tc_metrics("tcmalloc.central_cache_free_bytes") +
-                             get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
-                             get_tc_metrics("tcmalloc.thread_cache_free_bytes");
-    _s_allocator_cache_mem_str =
-            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
-    _s_virtual_memory_used = get_tc_metrics("generic.total_physical_bytes") +
-                             get_tc_metrics("tcmalloc.pageheap_unmapped_bytes");
+    _s_allocator_cache_mem.store(get_tc_metrics("tcmalloc.pageheap_free_bytes") +
+                                         get_tc_metrics("tcmalloc.central_cache_free_bytes") +
+                                         get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
+                                         get_tc_metrics("tcmalloc.thread_cache_free_bytes"),
+                                 std::memory_order_relaxed);
+    _s_allocator_cache_mem_str = PrettyPrinter::print(
+            static_cast<uint64_t>(_s_allocator_cache_mem.load(std::memory_order_relaxed)),
+            TUnit::BYTES);
+    _s_virtual_memory_used.store(get_tc_metrics("generic.total_physical_bytes") +
+                                         get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"),
+                                 std::memory_order_relaxed);
 #endif
-}
-
-void MemInfo::process_cache_gc(int64_t& freed_mem) {
-    // TODO, free more cache, and should free a certain percentage of capacity, not all.
-    int32_t min_free_size = 33554432; // 32M
-    if (ChunkAllocator::instance()->mem_consumption() > min_free_size) {
-        freed_mem += ChunkAllocator::instance()->mem_consumption();
-        ChunkAllocator::instance()->clear();
-    }
-
-    if (StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE) >
-        min_free_size) {
-        freed_mem +=
-                StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
-        StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
-    }
-
-    if (segment_v2::InvertedIndexSearcherCache::instance()->mem_consumption() > min_free_size) {
-        freed_mem += segment_v2::InvertedIndexSearcherCache::instance()->prune();
-    }
-
-    if (segment_v2::InvertedIndexQueryCache::instance()->mem_consumption() > min_free_size) {
-        freed_mem += segment_v2::InvertedIndexQueryCache::instance()->prune();
-    }
-
-    if (StoragePageCache::instance()->get_page_cache_mem_consumption(
-                segment_v2::PRIMARY_KEY_INDEX_PAGE) > min_free_size) {
-        freed_mem += StoragePageCache::instance()->get_page_cache_mem_consumption(
-                segment_v2::PRIMARY_KEY_INDEX_PAGE);
-        StoragePageCache::instance()->prune(segment_v2::PRIMARY_KEY_INDEX_PAGE);
-    }
 }
 
 // step1: free all cache
@@ -141,35 +117,44 @@ bool MemInfo::process_minor_gc() {
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
-    std::string vm_rss_str = PerfCounters::get_vm_rss_str();
-    std::string mem_available_str = MemInfo::sys_mem_available_str();
+    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
+    std::string pre_vm_rss = PerfCounters::get_vm_rss_str();
+    std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes. cost(us): {}", freed_mem,
-                                 watch.elapsed_time() / 1000);
+        je_purge_all_arena_dirty_pages();
+        std::stringstream ss;
+        profile->pretty_print(&ss);
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] end minor GC, free memory {}. cost(us): {}, details: {}",
+                PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
+                ss.str());
     }};
 
-    MemInfo::process_cache_gc(freed_mem);
+    freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
+    je_purge_all_arena_dirty_pages();
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
     }
 
-    // TODO add freed_mem
-    SegmentLoader::instance()->prune();
-
-    freed_mem += tg_soft_memory_limit_gc(_s_process_minor_gc_size - freed_mem);
+    RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
+    freed_mem += tg_enable_overcommit_group_gc(_s_process_minor_gc_size - freed_mem, tg_profile);
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
     }
 
-    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-            "Before free top memory overcommit query in Minor GC", MemTrackerLimiter::Type::QUERY);
     if (config::enable_query_memory_overcommit) {
+        VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
+                "[MemoryGC] before free top memory overcommit query in minor GC",
+                MemTrackerLimiter::Type::QUERY);
+        RuntimeProfile* toq_profile =
+                profile->create_child("FreeTopOvercommitMemoryQuery", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-                _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
-    }
-    if (freed_mem > _s_process_minor_gc_size) {
-        return true;
+                _s_process_minor_gc_size - freed_mem, pre_vm_rss, pre_sys_mem_available,
+                toq_profile);
+        if (freed_mem > _s_process_minor_gc_size) {
+            return true;
+        }
     }
     return false;
 }
@@ -183,97 +168,145 @@ bool MemInfo::process_full_gc() {
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
-    std::string vm_rss_str = PerfCounters::get_vm_rss_str();
-    std::string mem_available_str = MemInfo::sys_mem_available_str();
+    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
+    std::string pre_vm_rss = PerfCounters::get_vm_rss_str();
+    std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes. cost(us): {}", freed_mem,
-                                 watch.elapsed_time() / 1000);
+        je_purge_all_arena_dirty_pages();
+        std::stringstream ss;
+        profile->pretty_print(&ss);
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] end full GC, free Memory {}. cost(us): {}, details: {}",
+                PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
+                ss.str());
     }};
 
-    MemInfo::process_cache_gc(freed_mem);
+    freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
+    je_purge_all_arena_dirty_pages();
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
 
-    if (SegmentLoader::instance()->segment_cache_get_usage_ratio() > 0.1) {
-        freed_mem += SegmentLoader::instance()->segment_cache_mem_consumption();
-        LOG(INFO) << "prune all " << SegmentLoader::instance()->segment_cache_get_usage()
-                  << " entries in segment cache.";
-        SegmentLoader::instance()->prune_all();
-        if (freed_mem > _s_process_full_gc_size) {
-            return true;
-        }
-    }
-
-    freed_mem += tg_soft_memory_limit_gc(_s_process_full_gc_size - freed_mem);
-    if (freed_mem > _s_process_full_gc_size) {
-        return true;
-    }
-
-    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory query in Full GC",
-                                                        MemTrackerLimiter::Type::QUERY);
-    freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
-                                                          vm_rss_str, mem_available_str);
+    RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
+    freed_mem += tg_enable_overcommit_group_gc(_s_process_full_gc_size - freed_mem, tg_profile);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
 
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-            "Before free top memory overcommit load in Full GC", MemTrackerLimiter::Type::LOAD);
+            "[MemoryGC] before free top memory query in full GC", MemTrackerLimiter::Type::QUERY);
+    RuntimeProfile* tmq_profile = profile->create_child("FreeTopMemoryQuery", true, true);
+    freed_mem += MemTrackerLimiter::free_top_memory_query(
+            _s_process_full_gc_size - freed_mem, pre_vm_rss, pre_sys_mem_available, tmq_profile);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+
     if (config::enable_query_memory_overcommit) {
+        VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
+                "[MemoryGC] before free top memory overcommit load in full GC",
+                MemTrackerLimiter::Type::LOAD);
+        RuntimeProfile* tol_profile =
+                profile->create_child("FreeTopMemoryOvercommitLoad", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
-                _s_process_full_gc_size - freed_mem, vm_rss_str, mem_available_str);
+                _s_process_full_gc_size - freed_mem, pre_vm_rss, pre_sys_mem_available,
+                tol_profile);
         if (freed_mem > _s_process_full_gc_size) {
             return true;
         }
     }
 
-    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory load in Full GC",
-                                                        MemTrackerLimiter::Type::LOAD);
-    freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem,
-                                                         vm_rss_str, mem_available_str);
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
+            "[MemoryGC] before free top memory load in full GC", MemTrackerLimiter::Type::LOAD);
+    RuntimeProfile* tml_profile = profile->create_child("FreeTopMemoryLoad", true, true);
+    freed_mem += MemTrackerLimiter::free_top_memory_load(
+            _s_process_full_gc_size - freed_mem, pre_vm_rss, pre_sys_mem_available, tml_profile);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
     return false;
 }
 
-int64_t MemInfo::tg_hard_memory_limit_gc() {
+int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
+    MonotonicStopWatch watch;
+    watch.start();
     std::vector<taskgroup::TaskGroupPtr> task_groups;
-    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+    std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
+    int64_t total_free_memory = 0;
+
+    ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
-                return !task_group->enable_memory_overcommit();
+                return task_group->is_mem_limit_valid() && !task_group->enable_memory_overcommit();
             },
             &task_groups);
+    if (task_groups.empty()) {
+        return 0;
+    }
 
-    int64_t total_free_memory = 0;
+    std::vector<taskgroup::TaskGroupPtr> task_groups_overcommit;
     for (const auto& task_group : task_groups) {
+        taskgroup::TaskGroupInfo tg_info;
+        task_group->task_group_info(&tg_info);
+        if (task_group->memory_used() > tg_info.memory_limit) {
+            task_groups_overcommit.push_back(task_group);
+        }
+    }
+    if (task_groups_overcommit.empty()) {
+        return 0;
+    }
+
+    LOG(INFO) << fmt::format(
+            "[MemoryGC] start GC work load group that not enable overcommit, number of overcommit "
+            "group: {}, "
+            "if it exceeds the limit, try free size = (group used - group limit).",
+            task_groups_overcommit.size());
+
+    Defer defer {[&]() {
+        if (total_free_memory > 0) {
+            std::stringstream ss;
+            tg_profile->pretty_print(&ss);
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] end GC work load group that not enable overcommit, number of "
+                    "overcommit group: {}, free memory {}. cost(us): {}, details: {}",
+                    task_groups_overcommit.size(),
+                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
+                    watch.elapsed_time() / 1000, ss.str());
+        }
+    }};
+
+    for (const auto& task_group : task_groups_overcommit) {
         taskgroup::TaskGroupInfo tg_info;
         task_group->task_group_info(&tg_info);
         auto used = task_group->memory_used();
         total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
                 used - tg_info.memory_limit, used, tg_info.id, tg_info.name, tg_info.memory_limit,
-                task_group->mem_tracker_limiter_pool());
+                task_group->mem_tracker_limiter_pool(), tg_profile.get());
     }
     return total_free_memory;
 }
 
-int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
+int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
+                                               RuntimeProfile* profile) {
+    MonotonicStopWatch watch;
+    watch.start();
     std::vector<taskgroup::TaskGroupPtr> task_groups;
-    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+    ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
-                return task_group->enable_memory_overcommit();
+                return task_group->is_mem_limit_valid() && task_group->enable_memory_overcommit();
             },
             &task_groups);
+    if (task_groups.empty()) {
+        return 0;
+    }
 
     int64_t total_exceeded_memory = 0;
     std::vector<int64_t> used_memorys;
     std::vector<int64_t> exceeded_memorys;
     for (const auto& task_group : task_groups) {
-        auto used_memory = task_group->memory_used();
-        auto exceeded = used_memory - task_group->memory_limit();
-        auto exceeded_memory = exceeded > 0 ? exceeded : 0;
+        int64_t used_memory = task_group->memory_used();
+        int64_t exceeded = used_memory - task_group->memory_limit();
+        int64_t exceeded_memory = exceeded > 0 ? exceeded : 0;
         total_exceeded_memory += exceeded_memory;
         used_memorys.emplace_back(used_memory);
         exceeded_memorys.emplace_back(exceeded_memory);
@@ -281,6 +314,33 @@ int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
 
     int64_t total_free_memory = 0;
     bool gc_all_exceeded = request_free_memory >= total_exceeded_memory;
+    std::string log_prefix = fmt::format(
+            "work load group that enable overcommit, number of group: {}, request_free_memory:{}, "
+            "total_exceeded_memory:{}",
+            task_groups.size(), request_free_memory, total_exceeded_memory);
+    if (gc_all_exceeded) {
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] start GC {}, request more than exceeded, try free size = (group used - "
+                "group limit).",
+                log_prefix);
+    } else {
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] start GC {}, request less than exceeded, try free size = ((group used "
+                "- group limit) / all group total_exceeded_memory) * request_free_memory.",
+                log_prefix);
+    }
+
+    Defer defer {[&]() {
+        if (total_free_memory > 0) {
+            std::stringstream ss;
+            profile->pretty_print(&ss);
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] end GC {}, free memory {}. cost(us): {}, details: {}", log_prefix,
+                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
+                    watch.elapsed_time() / 1000, ss.str());
+        }
+    }};
+
     for (int i = 0; i < task_groups.size(); ++i) {
         if (exceeded_memorys[i] == 0) {
             continue;
@@ -296,7 +356,7 @@ int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
         task_group->task_group_info(&tg_info);
         total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
                 tg_need_free_memory, used_memorys[i], tg_info.id, tg_info.name,
-                tg_info.memory_limit, task_group->mem_tracker_limiter_pool());
+                tg_info.memory_limit, task_group->mem_tracker_limiter_pool(), profile);
     }
     return total_free_memory;
 }
@@ -327,8 +387,9 @@ void MemInfo::refresh_proc_meminfo() {
     if (meminfo.is_open()) meminfo.close();
 
     if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
-        _s_sys_mem_available = _mem_info_bytes["MemAvailable"];
-        _s_sys_mem_available_str = PrettyPrinter::print(_s_sys_mem_available, TUnit::BYTES);
+        _s_sys_mem_available.store(_mem_info_bytes["MemAvailable"], std::memory_order_relaxed);
+        _s_sys_mem_available_str = PrettyPrinter::print(
+                _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
     }
 }
 
@@ -390,16 +451,13 @@ void MemInfo::init() {
         // https://serverfault.com/questions/940196/why-is-memavailable-a-lot-less-than-memfreebufferscached
         // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0ae398fc54ea69ff85ec700722c9da773
         //
-        // available_low_water_mark = p1 - p2
-        // p1: upper sys_mem_available_low_water_mark, avoid wasting too much memory.
-        // p2: vm/min_free_kbytes is usually 0.4% - 5% of the total memory, some cloud machines vm/min_free_kbytes is 5%,
-        //     in order to avoid wasting too much memory, available_low_water_mark minus 1% at most.
-        int64_t p1 = std::min<int64_t>(
-                std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
-                config::max_sys_mem_available_low_water_mark_bytes);
-        int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
-        _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
-        _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
+        // upper sys_mem_available_low_water_mark, avoid wasting too much memory.
+        _s_sys_mem_available_low_water_mark = std::max<int64_t>(
+                std::min<int64_t>(
+                        std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
+                        config::max_sys_mem_available_low_water_mark_bytes),
+                0);
+        _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;
     }
 
     // Expect vm overcommit memory value to be 1, system will no longer throw bad_alloc, memory alloc are always accepted,

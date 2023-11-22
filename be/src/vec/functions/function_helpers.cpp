@@ -44,6 +44,7 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& b
                                                                   const bool need_check_same) {
     Block res;
     ColumnNumbers res_args(args.size());
+    res.reserve(args.size() + 1);
 
     // only build temp block by args column, if args[i] == args[j]
     // just keep one
@@ -100,7 +101,7 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& b
         }
     }
 
-    return {res, res_args};
+    return {std::move(res), std::move(res_args)};
 }
 
 std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(const Block& block,
@@ -109,7 +110,7 @@ std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(const 
     auto [res, res_args] = create_block_with_nested_columns(block, args, true);
     // insert result column in temp block
     res.insert(block.get_by_position(result));
-    return {res, res_args, res.columns() - 1};
+    return {std::move(res), std::move(res_args), res.columns() - 1};
 }
 
 void validate_argument_type(const IFunction& func, const DataTypes& arguments,

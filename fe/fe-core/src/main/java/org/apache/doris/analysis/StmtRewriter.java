@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.qe.ConnectContext;
 
@@ -121,8 +120,8 @@ public class StmtRewriter {
             rewriteWhereClauseSubqueries(result, analyzer);
         }
         // Rewrite all subquery in the having clause
-        if (result.getHavingClauseAfterAnaylzed() != null
-                && result.getHavingClauseAfterAnaylzed().getSubquery() != null) {
+        if (result.getHavingClauseAfterAnalyzed() != null
+                && result.getHavingClauseAfterAnalyzed().getSubquery() != null) {
             result = rewriteHavingClauseSubqueries(result, analyzer);
         }
         result.sqlString = null;
@@ -176,7 +175,7 @@ public class StmtRewriter {
         // prepare parameters
         SelectList selectList = stmt.getSelectList();
         List<String> columnLabels = stmt.getColLabels();
-        Expr havingClause = stmt.getHavingClauseAfterAnaylzed();
+        Expr havingClause = stmt.getHavingClauseAfterAnalyzed();
         List<FunctionCallExpr> aggregateExprs = stmt.getAggInfo().getAggregateExprs();
         Preconditions.checkState(havingClause != null);
         Preconditions.checkState(havingClause.getSubquery() != null);
@@ -530,7 +529,7 @@ public class StmtRewriter {
             String slotName = stmt.getColumnAliasGenerator().getNextAlias();
             markSlot.setType(ScalarType.BOOLEAN);
             markSlot.setIsMaterialized(true);
-            markSlot.setIsNullable(false);
+            markSlot.setIsNullable(true);
             markSlot.setColumn(new Column(slotName, ScalarType.BOOLEAN));
             SlotRef markRef = new SlotRef(markSlot);
             markRef.setTblName(new TableName(null, null, markTuple.getAlias()));
@@ -864,8 +863,7 @@ public class StmtRewriter {
             // For the case of a NOT IN with an eq join conjunct, replace the join
             // conjunct with a conjunct that uses the null-matching eq operator.
             if (expr instanceof InPredicate && markTuple == null) {
-                joinOp = VectorizedUtil.isVectorized()
-                        ? JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN : JoinOperator.LEFT_ANTI_JOIN;
+                joinOp = JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
                 List<TupleId> tIds = Lists.newArrayList();
                 joinConjunct.getIds(tIds, null);
                 if (tIds.size() <= 1 || !tIds.contains(inlineView.getDesc().getId())) {
@@ -1295,13 +1293,10 @@ public class StmtRewriter {
     public static boolean rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
         Env currentEnv = Env.getCurrentEnv();
         UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
-        String user = analyzer.getQualifiedUser();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return false;
         }
-        if (!currentEnv.getPolicyMgr().existPolicy(user)) {
-            return false;
-        }
+
         if (!(statementBase instanceof SelectStmt)) {
             return false;
         }
@@ -1317,6 +1312,9 @@ public class StmtRewriter {
                 }
                 continue;
             }
+            if (!(tableRef instanceof BaseTableRef)) {
+                continue;
+            }
             TableIf table = tableRef.getTable();
             String dbName = tableRef.getName().getDb();
             if (dbName == null) {
@@ -1326,7 +1324,7 @@ public class StmtRewriter {
                     .getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
+            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, currentUserIdentity);
             if (matchPolicy == null) {
                 continue;
             }

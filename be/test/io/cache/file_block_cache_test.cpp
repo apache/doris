@@ -87,8 +87,8 @@ void download(io::FileBlockSPtr file_segment) {
 
     std::string data(size, '0');
     Slice result(data.data(), size);
-    file_segment->append(result);
-    file_segment->finalize_write();
+    static_cast<void>(file_segment->append(result));
+    static_cast<void>(file_segment->finalize_write());
 }
 
 void complete(const io::FileBlocksHolder& holder) {
@@ -532,7 +532,7 @@ void test_file_cache(io::CacheType cache_type) {
         /// Test LRUCache::restore().
 
         io::LRUFileCache cache2(cache_base_path, settings);
-        cache2.initialize();
+        static_cast<void>(cache2.initialize());
         auto holder1 = cache2.get_or_set(key, 2, 28, context); /// Get [2, 29]
 
         auto segments1 = fromHolder(holder1);
@@ -811,6 +811,151 @@ TEST(LRUFileCache, query_limit_dcheck) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
     }
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST(LRUFileCache, fd_cache_remove) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    doris::config::enable_file_cache_query_limit = true;
+    fs::create_directories(cache_base_path);
+    io::FileCacheSettings settings;
+    settings.index_queue_elements = 0;
+    settings.index_queue_size = 0;
+    settings.disposable_queue_size = 0;
+    settings.disposable_queue_elements = 0;
+    settings.query_queue_size = 15;
+    settings.query_queue_elements = 5;
+    settings.max_file_segment_size = 10;
+    settings.max_query_cache_size = 15;
+    settings.total_size = 15;
+    io::LRUFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    io::CacheContext context;
+    context.cache_type = io::CacheType::NORMAL;
+    auto key = io::LRUFileCache::hash("key1");
+    {
+        auto holder = cache.get_or_set(key, 0, 9, context); /// Add range [0, 8]
+        auto segments = fromHolder(holder);
+        ASSERT_GE(segments.size(), 1);
+        assert_range(1, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
+        download(segments[0]);
+        std::unique_ptr<char[]> buffer = std::make_unique<char[]>(9);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0));
+        EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
+    }
+    {
+        auto holder = cache.get_or_set(key, 9, 1, context); /// Add range [9, 9]
+        auto segments = fromHolder(holder);
+        ASSERT_GE(segments.size(), 1);
+        assert_range(1, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::DOWNLOADING);
+        download(segments[0]);
+        std::unique_ptr<char[]> buffer = std::make_unique<char[]>(1);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0));
+        EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 9)));
+    }
+    {
+        auto holder = cache.get_or_set(key, 10, 5, context); /// Add range [10, 14]
+        auto segments = fromHolder(holder);
+        ASSERT_GE(segments.size(), 1);
+        assert_range(3, segments[0], io::FileBlock::Range(10, 14), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(4, segments[0], io::FileBlock::Range(10, 14),
+                     io::FileBlock::State::DOWNLOADING);
+        download(segments[0]);
+        std::unique_ptr<char[]> buffer = std::make_unique<char[]>(5);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0));
+        EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 10)));
+    }
+    {
+        auto holder = cache.get_or_set(key, 15, 10, context); /// Add range [15, 24]
+        auto segments = fromHolder(holder);
+        ASSERT_EQ(segments.size(), 1);
+        assert_range(3, segments[0], io::FileBlock::Range(15, 24), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(4, segments[0], io::FileBlock::Range(15, 24),
+                     io::FileBlock::State::DOWNLOADING);
+        download(segments[0]);
+        std::unique_ptr<char[]> buffer = std::make_unique<char[]>(10);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 10), 0));
+        EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 15)));
+    }
+    EXPECT_FALSE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
+    EXPECT_EQ(io::IFileCache::file_reader_cache_size(), 2);
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST(LRUFileCache, fd_cache_evict) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    doris::config::enable_file_cache_query_limit = true;
+    fs::create_directories(cache_base_path);
+    io::FileCacheSettings settings;
+    settings.index_queue_elements = 0;
+    settings.index_queue_size = 0;
+    settings.disposable_queue_size = 0;
+    settings.disposable_queue_elements = 0;
+    settings.query_queue_size = 15;
+    settings.query_queue_elements = 5;
+    settings.max_file_segment_size = 10;
+    settings.max_query_cache_size = 15;
+    settings.total_size = 15;
+    io::LRUFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    io::CacheContext context;
+    context.cache_type = io::CacheType::NORMAL;
+    auto key = io::LRUFileCache::hash("key1");
+    config::file_cache_max_file_reader_cache_size = 2;
+    IFileCache::init();
+    {
+        auto holder = cache.get_or_set(key, 0, 9, context); /// Add range [0, 8]
+        auto segments = fromHolder(holder);
+        ASSERT_GE(segments.size(), 1);
+        assert_range(1, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
+        download(segments[0]);
+        std::unique_ptr<char[]> buffer = std::make_unique<char[]>(9);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0));
+        EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
+    }
+    {
+        auto holder = cache.get_or_set(key, 9, 1, context); /// Add range [9, 9]
+        auto segments = fromHolder(holder);
+        ASSERT_GE(segments.size(), 1);
+        assert_range(1, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::DOWNLOADING);
+        download(segments[0]);
+        std::unique_ptr<char[]> buffer = std::make_unique<char[]>(1);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0));
+        EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 9)));
+    }
+    {
+        auto holder = cache.get_or_set(key, 10, 5, context); /// Add range [10, 14]
+        auto segments = fromHolder(holder);
+        ASSERT_GE(segments.size(), 1);
+        assert_range(3, segments[0], io::FileBlock::Range(10, 14), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(4, segments[0], io::FileBlock::Range(10, 14),
+                     io::FileBlock::State::DOWNLOADING);
+        download(segments[0]);
+        std::unique_ptr<char[]> buffer = std::make_unique<char[]>(5);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0));
+        EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 10)));
+    }
+    EXPECT_FALSE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
+    EXPECT_EQ(io::IFileCache::file_reader_cache_size(), 2);
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }

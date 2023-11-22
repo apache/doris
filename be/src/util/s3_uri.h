@@ -41,6 +41,9 @@ public:
     std::string to_string() const;
 
 private:
+    static const std::string _SCHEME_S3;
+    static const std::string _SCHEME_HTTP;
+    static const std::string _SCHEME_HTTPS;
     static const std::string _SCHEME_DELIM;
     static const std::string _PATH_DELIM;
     static const std::string _QUERY_DELIM;

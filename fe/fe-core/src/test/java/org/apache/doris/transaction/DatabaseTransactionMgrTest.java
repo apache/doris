@@ -29,6 +29,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.task.PublishVersionTask;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -56,7 +57,17 @@ public class DatabaseTransactionMgrTest {
     private static Env slaveEnv;
     private static Map<String, Long> LabelToTxnId;
 
-    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+    private TransactionState.TxnCoordinator transactionSource =
+            new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+
+    public static void setTransactionFinishPublish(TransactionState transactionState, List<Long> backendIds) {
+        for (long backendId : backendIds) {
+            PublishVersionTask task = new PublishVersionTask(backendId, transactionState.getTransactionId(),
+                    transactionState.getDbId(), null, System.currentTimeMillis());
+            task.setFinished(true);
+            transactionState.addPublishVersionTask(backendId, task);
+        }
+    }
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -100,7 +111,11 @@ public class DatabaseTransactionMgrTest {
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1, transTablets);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1, null);
+        TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
+        setTransactionFinishPublish(transactionState1,
+                Lists.newArrayList(CatalogTestUtil.testBackendId1,
+                        CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1);
         labelToTxnId.put(CatalogTestUtil.testTxnLabel1, transactionId1);
 
         TransactionState.TxnCoordinator beTransactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.BE, "be1");
@@ -119,8 +134,6 @@ public class DatabaseTransactionMgrTest {
         labelToTxnId.put(CatalogTestUtil.testTxnLabel2, transactionId2);
         labelToTxnId.put(CatalogTestUtil.testTxnLabel3, transactionId3);
         labelToTxnId.put(CatalogTestUtil.testTxnLabel4, transactionId4);
-
-        TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
 
         FakeEnv.setEnv(slaveEnv);
         slaveTransMgr.replayUpsertTransactionState(transactionState1);

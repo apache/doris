@@ -56,7 +56,8 @@ export default function Logs(params: any) {
         <Typography style={{padding: '30px'}}>
             <Title>Log Configuration</Title>
             <Paragraph>
-                <p>Level: {LogConfiguration.VerboseNames}</p>
+                <p>Level: {LogConfiguration.Level}</p>
+                <p>Mode: {LogConfiguration.Mode}</p>
                 <p>Verbose Names:{LogConfiguration.VerboseNames}</p>
                 <p>Audit Names: {LogConfiguration.AuditNames}</p>
             </Paragraph>

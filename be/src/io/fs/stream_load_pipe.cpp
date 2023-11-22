@@ -23,15 +23,15 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
                                int64_t total_length, bool use_proto)
@@ -43,7 +43,6 @@ StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
           _use_proto(use_proto) {}
 
 StreamLoadPipe::~StreamLoadPipe() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     while (!_buf_queue.empty()) {
         _buf_queue.pop_front();
     }
@@ -89,7 +88,7 @@ Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* byt
     return Status::OK();
 }
 
-// If _total_length == -1, this should be a Kafka routine load task,
+// If _total_length == -1, this should be a Kafka routine load task or stream load with chunked transfer HTTP request,
 // just get the next buffer directly from the buffer queue, because one buffer contains a complete piece of data.
 // Otherwise, this should be a stream load task that needs to read the specified amount of data.
 Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length) {
@@ -228,7 +227,7 @@ Status StreamLoadPipe::_append(const ByteBufferPtr& buf, size_t proto_byte_size)
 Status StreamLoadPipe::finish() {
     if (_write_buf != nullptr) {
         _write_buf->flip();
-        _append(_write_buf);
+        RETURN_IF_ERROR(_append(_write_buf));
         _write_buf.reset();
     }
     {
@@ -248,6 +247,13 @@ void StreamLoadPipe::cancel(const std::string& reason) {
     }
     _get_cond.notify_all();
     _put_cond.notify_all();
+}
+
+TUniqueId StreamLoadPipe::calculate_pipe_id(const UniqueId& query_id, int32_t fragment_id) {
+    TUniqueId pipe_id;
+    pipe_id.lo = query_id.lo + fragment_id;
+    pipe_id.hi = query_id.hi;
+    return pipe_id;
 }
 
 } // namespace io

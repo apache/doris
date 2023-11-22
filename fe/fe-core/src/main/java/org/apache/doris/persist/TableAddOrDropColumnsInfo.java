@@ -46,9 +46,12 @@ public class TableAddOrDropColumnsInfo implements Writable {
     private List<Index> indexes;
     @SerializedName(value = "jobId")
     private long jobId;
+    @SerializedName(value = "rawSql")
+    private String rawSql;
 
-    public TableAddOrDropColumnsInfo(long dbId, long tableId,
+    public TableAddOrDropColumnsInfo(String rawSql, long dbId, long tableId,
             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes, long jobId) {
+        this.rawSql = rawSql;
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexSchemaMap = indexSchemaMap;
@@ -111,5 +114,9 @@ public class TableAddOrDropColumnsInfo implements Writable {
         sb.append(" indexes: ").append(indexes);
         sb.append(" jobId: ").append(jobId);
         return sb.toString();
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }

@@ -22,8 +22,9 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.collect.Lists;
 
@@ -59,6 +60,19 @@ public class SupportJavaDateFormatter extends AbstractExpressionRewriteRule {
         return fromUnixtime;
     }
 
+    @Override
+    public Expression visitUnixTimestamp(UnixTimestamp unixTimestamp, ExpressionRewriteContext context) {
+        Expression expr = super.visitUnixTimestamp(unixTimestamp, context);
+        if (!(expr instanceof UnixTimestamp)) {
+            return expr;
+        }
+        unixTimestamp = (UnixTimestamp) expr;
+        if (unixTimestamp.arity() > 1) {
+            return translateJavaFormatter(unixTimestamp, 1);
+        }
+        return unixTimestamp;
+    }
+
     private Expression translateJavaFormatter(Expression function, int formatterIndex) {
         Expression formatterExpr = function.getArgument(formatterIndex);
         Expression newFormatterExpr = translateJavaFormatter(formatterExpr);
@@ -75,11 +89,11 @@ public class SupportJavaDateFormatter extends AbstractExpressionRewriteRule {
             Literal literal = (Literal) formatterExpr;
             String originFormatter = literal.getStringValue();
             if (originFormatter.equals("yyyyMMdd")) {
-                return new StringLiteral("%Y%m%d");
+                return new VarcharLiteral("%Y%m%d");
             } else if (originFormatter.equals("yyyy-MM-dd")) {
-                return new StringLiteral("%Y-%m-%d");
+                return new VarcharLiteral("%Y-%m-%d");
             } else if (originFormatter.equals("yyyy-MM-dd HH:mm:ss")) {
-                return new StringLiteral("%Y-%m-%d %H:%i:%s");
+                return new VarcharLiteral("%Y-%m-%d %H:%i:%s");
             }
         }
         return formatterExpr;

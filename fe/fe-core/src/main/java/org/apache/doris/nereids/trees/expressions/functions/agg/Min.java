@@ -45,7 +45,7 @@ public class Min extends NullableAggregateFunction
     }
 
     private Min(boolean distinct, boolean alwaysNullable, Expression arg) {
-        super("min", distinct, alwaysNullable, arg);
+        super("min", false, alwaysNullable, arg);
     }
 
     @Override

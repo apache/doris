@@ -44,13 +44,17 @@ public class BackendsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(BackendsProcDir.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
-            .add("Host").add("HeartbeatPort").add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime")
-            .add("LastHeartbeat").add("Alive").add("SystemDecommissioned").add("TabletNum").add("DataUsedCapacity")
-            .add("AvailCapacity").add("TotalCapacity").add("UsedPct").add("MaxDiskUsedPct").add("RemoteUsedCapacity")
-            .add("Tag").add("ErrMsg").add("Version").add("Status").add("HeartbeatFailureCounter").add("NodeRole")
+            .add("Host").add("HeartbeatPort").add("BePort").add("HttpPort").add("BrpcPort").add("ArrowFlightSqlPort")
+            .add("LastStartTime").add("LastHeartbeat").add("Alive").add("SystemDecommissioned").add("TabletNum")
+            .add("DataUsedCapacity").add("TrashUsedCapcacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
+            .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
+            .add("HeartbeatFailureCounter").add("NodeRole")
             .build();
 
-    public static final int HOSTNAME_INDEX = 3;
+    public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("BackendId").add("Host").add("RootPath").add("DirType").add("DiskState")
+            .add("TotalCapacity").add("UsedCapacity").add("AvailableCapacity").add("UsedPct")
+            .build();
 
     private SystemInfoService systemInfoService;
 
@@ -106,6 +110,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(String.valueOf(backend.getBePort()));
             backendInfo.add(String.valueOf(backend.getHttpPort()));
             backendInfo.add(String.valueOf(backend.getBrpcPort()));
+            backendInfo.add(String.valueOf(backend.getArrowFlightSqlPort()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));
@@ -117,6 +122,11 @@ public class BackendsProcDir implements ProcDirInterface {
             long dataUsedB = backend.getDataUsedCapacityB();
             Pair<Double, String> usedCapacity = DebugUtil.getByteUint(dataUsedB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(usedCapacity.first) + " " + usedCapacity.second);
+            // trash used
+            long trashUsedB = backend.getTrashUsedCapacityB();
+            Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
+                        trashUsedCapacity.first) + " " + trashUsedCapacity.second);
             // available
             long availB = backend.getAvailableCapacityB();
             Pair<Double, String> availCapacity = DebugUtil.getByteUint(availB);

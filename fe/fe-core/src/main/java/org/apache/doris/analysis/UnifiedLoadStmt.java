@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -43,7 +45,7 @@ public class UnifiedLoadStmt extends DdlStmt {
     }
 
     public static UnifiedLoadStmt buildMysqlLoadStmt(DataDescription dataDescription, Map<String, String> properties,
-                                                     String comment) {
+            String comment) {
         final ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
             return new UnifiedLoadStmt(new MysqlLoadStmt(dataDescription, properties, comment));
@@ -52,10 +54,15 @@ public class UnifiedLoadStmt extends DdlStmt {
     }
 
     public static UnifiedLoadStmt buildBrokerLoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                                                      BrokerDesc brokerDesc,
-                                                      Map<String, String> properties, String comment) {
+            BrokerDesc brokerDesc,
+            Map<String, String> properties, String comment) throws DdlException {
+
         final ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
+            if (brokerDesc != null && brokerDesc.getStorageType() == StorageType.S3) {
+                // for tvf solution validation
+                return new UnifiedLoadStmt(new S3TvfLoadStmt(label, dataDescriptions, brokerDesc, properties, comment));
+            }
             return new UnifiedLoadStmt(new BrokerLoadStmt(label, dataDescriptions, brokerDesc, properties, comment));
         }
         return new UnifiedLoadStmt(new LoadStmt(label, dataDescriptions, brokerDesc, properties, comment));

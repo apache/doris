@@ -74,8 +74,6 @@ public:
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done) {
         // stream_mgr->transmit_block(request, &done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        attachment_transfer_request_block<PTransmitDataParams>(request, cntl);
         // The response is accessed when done->Run is called in transmit_block(),
         // give response a default value to avoid null pointers in high concurrency.
         Status st;
@@ -85,6 +83,10 @@ public:
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
                          << ", node=" << request->node_id();
+        }
+        if (done != nullptr) {
+            st.to_protobuf(response->mutable_status());
+            done->Run();
         }
     }
 
@@ -190,15 +192,13 @@ TEST_F(VDataStreamTest, BasicTest) {
         dest.__set_server(addr);
         dests.push_back(dest);
     }
-    int per_channel_buffer_size = 1024 * 1024;
     bool send_query_statistics_with_every_batch = false;
     VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
-                             dests, per_channel_buffer_size,
-                             send_query_statistics_with_every_batch);
+                             dests, send_query_statistics_with_every_batch);
     sender.set_query_statistics(std::make_shared<QueryStatistics>());
-    sender.init(tsink);
-    sender.prepare(&runtime_stat);
-    sender.open(&runtime_stat);
+    static_cast<void>(sender.init(tsink));
+    static_cast<void>(sender.prepare(&runtime_stat));
+    static_cast<void>(sender.open(&runtime_stat));
 
     auto vec = vectorized::ColumnVector<Int32>::create();
     auto& data = vec->get_data();
@@ -208,16 +208,17 @@ TEST_F(VDataStreamTest, BasicTest) {
     vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
     vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
     vectorized::Block block({type_and_name});
-    sender.send(&runtime_stat, &block);
+    static_cast<void>(sender.send(&runtime_stat, &block));
+
+    Status exec_status;
+    static_cast<void>(sender.close(&runtime_stat, exec_status));
 
     Block block_2;
     bool eos;
-    recv->get_next(&block_2, &eos);
+    static_cast<void>(recv->get_next(&block_2, &eos));
 
     EXPECT_EQ(block_2.rows(), 1024);
 
-    Status exec_status;
-    sender.close(&runtime_stat, exec_status);
     recv->close();
 }
 } // namespace doris::vectorized

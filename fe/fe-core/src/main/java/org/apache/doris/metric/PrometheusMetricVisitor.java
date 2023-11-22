@@ -60,11 +60,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void setMetricNumber(int metricNumber) {
-    }
-
-    @Override
-    public void visitJvm(StringBuilder sb, JvmStats jvmStats) {
+    public void visitJvm(JvmStats jvmStats) {
         // heap
         sb.append(Joiner.on(" ").join(HELP, JVM_HEAP_SIZE_BYTES, "jvm heap stat\n"));
         sb.append(Joiner.on(" ").join(TYPE, JVM_HEAP_SIZE_BYTES, "gauge\n"));
@@ -150,7 +146,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visit(StringBuilder sb, String prefix, @SuppressWarnings("rawtypes") Metric metric) {
+    public void visit(String prefix, @SuppressWarnings("rawtypes") Metric metric) {
         // title
         final String fullName = prefix + metric.getName();
         if (!metricNames.contains(fullName)) {
@@ -173,11 +169,10 @@ public class PrometheusMetricVisitor extends MetricVisitor {
 
         // value
         sb.append(" ").append(metric.getValue().toString()).append("\n");
-        return;
     }
 
     @Override
-    public void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram) {
+    public void visitHistogram(String prefix, String name, Histogram histogram) {
         // part.part.part.k1=v1.k2=v2
         List<String> names = new ArrayList<>();
         List<String> tags = new ArrayList<>();
@@ -191,8 +186,12 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         }
         final String fullName = prefix + String.join("_", names);
         final String fullTag = String.join(",", tags);
-        sb.append(HELP).append(fullName).append(" ").append("\n");
-        sb.append(TYPE).append(fullName).append(" ").append("summary\n");
+        // we should define metric name only once
+        if (!metricNames.contains(fullName)) {
+            sb.append(HELP).append(fullName).append(" ").append("\n");
+            sb.append(TYPE).append(fullName).append(" ").append("summary\n");
+            metricNames.add(fullName);
+        }
         String delimiter = tags.isEmpty() ? "" : ",";
         Snapshot snapshot = histogram.getSnapshot();
         sb.append(fullName).append("{quantile=\"0.75\"").append(delimiter).append(fullTag).append("} ")
@@ -206,14 +205,13 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(fullName).append("{quantile=\"0.999\"").append(delimiter).append(fullTag).append("} ")
             .append(snapshot.get999thPercentile()).append("\n");
         sb.append(fullName).append("_sum {").append(fullTag).append("} ")
-            .append(histogram.getCount() * snapshot.getMean()).append("\n");
+                .append(histogram.getCount() * snapshot.getMean()).append("\n");
         sb.append(fullName).append("_count {").append(fullTag).append("} ")
-            .append(histogram.getCount()).append("\n");
-        return;
+                .append(histogram.getCount()).append("\n");
     }
 
     @Override
-    public void getNodeInfo(StringBuilder sb) {
+    public void getNodeInfo() {
         final String NODE_INFO = "node_info";
         sb.append(Joiner.on(" ").join(TYPE, NODE_INFO, "gauge\n"));
         sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")

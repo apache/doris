@@ -35,14 +35,19 @@
 #include <vector>
 
 #include "cctz/time_zone.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
+#include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 
 namespace doris {
+
+namespace pipeline {
+class PipelineXLocalStateBase;
+class PipelineXSinkLocalStateBase;
+} // namespace pipeline
 
 class DescriptorTbl;
 class ObjectPool;
@@ -65,9 +70,13 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
 
-    RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
+
+    // Used by pipelineX. This runtime state is only used for setup.
+    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
@@ -82,8 +91,11 @@ public:
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
+    void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params) const;
+
     // for ut and non-query.
-    Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
+    void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
+    void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
 
     const TQueryOptions& query_options() const { return _query_options; }
     int64_t scan_queue_mem_limit() const {
@@ -115,8 +127,10 @@ public:
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
+    // should only be called in pipeline engine
+    int32_t fragment_id() const { return _fragment_id; }
     ExecEnv* exec_env() { return _exec_env; }
-    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const;
 
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() { return &_profile; }
@@ -132,15 +146,20 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
+    bool enable_decima256() const {
+        return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
+    }
+
     bool enable_common_expr_pushdown() const {
         return _query_options.__isset.enable_common_expr_pushdown &&
                _query_options.enable_common_expr_pushdown;
     }
 
-    Status query_status() {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        return _process_status;
+    bool enable_faster_float_convert() const {
+        return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
     }
+
+    Status query_status();
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
@@ -155,13 +174,15 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    bool is_cancelled() const { return _is_cancelled.load(); }
+    [[nodiscard]] bool is_cancelled() const;
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v) {
+    void set_is_cancelled(bool v, std::string msg) {
         _is_cancelled.store(v);
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
-        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>();
+        LOG(WARNING) << "Task is cancelled, instance: "
+                     << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
+                     << " st = " << Status::Error<ErrorCode::CANCELLED>(msg);
     }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
@@ -213,6 +234,12 @@ public:
 
     const std::string& db_name() { return _db_name; }
 
+    void set_wal_id(int64_t wal_id) { _wal_id = wal_id; }
+
+    int64_t wal_id() { return _wal_id; }
+
+    const std::string& import_label() { return _import_label; }
+
     const std::string& load_dir() const { return _load_dir; }
 
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
@@ -238,6 +265,10 @@ public:
 
     int64_t num_rows_load_unselected() { return _num_rows_load_unselected.load(); }
 
+    int64_t num_rows_filtered_in_strict_mode_partial_update() {
+        return _num_rows_filtered_in_strict_mode_partial_update;
+    }
+
     int64_t num_rows_load_success() {
         return num_rows_load_total() - num_rows_load_filtered() - num_rows_load_unselected();
     }
@@ -262,6 +293,10 @@ public:
         _num_rows_load_unselected.fetch_add(num_rows);
     }
 
+    void set_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
+        _num_rows_filtered_in_strict_mode_partial_update = num_rows;
+    }
+
     void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
 
     int per_fragment_instance_idx() const { return _per_fragment_instance_idx; }
@@ -272,6 +307,22 @@ public:
 
     int num_per_fragment_instances() const { return _num_per_fragment_instances; }
 
+    void set_load_stream_per_node(int load_stream_per_node) {
+        _load_stream_per_node = load_stream_per_node;
+    }
+
+    int load_stream_per_node() const { return _load_stream_per_node; }
+
+    void set_total_load_streams(int total_load_streams) {
+        _total_load_streams = total_load_streams;
+    }
+
+    int total_load_streams() const { return _total_load_streams; }
+
+    void set_num_local_sink(int num_local_sink) { _num_local_sink = num_local_sink; }
+
+    int num_local_sink() const { return _num_local_sink; }
+
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
@@ -280,6 +331,11 @@ public:
 
     int32_t runtime_filter_wait_time_ms() const {
         return _query_options.runtime_filter_wait_time_ms;
+    }
+
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
     }
 
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
@@ -293,6 +349,13 @@ public:
     bool enable_pipeline_exec() const {
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
+    }
+    bool enable_pipeline_x_exec() const {
+        return _query_options.__isset.enable_pipeline_x_engine &&
+               _query_options.enable_pipeline_x_engine;
+    }
+    bool enable_local_shuffle() const {
+        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
 
     bool trim_tailing_spaces_for_external_table_query() const {
@@ -328,6 +391,12 @@ public:
     bool skip_delete_bitmap() const {
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
+
+    bool skip_missing_version() const {
+        return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
+    }
+
+    bool enable_page_cache() const;
 
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
@@ -367,11 +436,9 @@ public:
         _query_mem_tracker = tracker;
     }
 
-    OpentelemetryTracer get_tracer() { return _tracer; }
-
-    void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
-
-    bool enable_profile() const { return _query_options.is_report_success; }
+    bool enable_profile() const {
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
 
     bool enable_scan_node_run_serial() const {
         return _query_options.__isset.enable_scan_node_run_serial &&
@@ -381,6 +448,11 @@ public:
     bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
+    }
+
+    bool enable_hash_join_early_start_probe() const {
+        return _query_options.__isset.enable_hash_join_early_start_probe &&
+               _query_options.enable_hash_join_early_start_probe;
     }
 
     int repeat_max_num() const {
@@ -409,16 +481,33 @@ public:
                        : 0;
     }
 
-    bool enable_insert_strict() const {
-        return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
+    inline bool enable_delete_sub_pred_v2() const {
+        return _query_options.__isset.enable_delete_sub_predicate_v2 &&
+               _query_options.enable_delete_sub_predicate_v2;
     }
+
+    using LocalState = doris::pipeline::PipelineXLocalStateBase;
+    using SinkLocalState = doris::pipeline::PipelineXSinkLocalStateBase;
+    // get result can return an error message, and we will only call it during the prepare.
+    void emplace_local_state(int id, std::unique_ptr<LocalState> state);
+
+    LocalState* get_local_state(int id);
+    Result<LocalState*> get_local_state_result(int id);
+
+    void emplace_sink_local_state(int id, std::unique_ptr<SinkLocalState> state);
+
+    SinkLocalState* get_sink_local_state(int id);
+
+    Result<SinkLocalState*> get_sink_local_state_result(int id);
+
+    void resize_op_id_to_local_state(int size);
 
 private:
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
@@ -460,6 +549,8 @@ private:
     cctz::time_zone _timezone_obj;
 
     TUniqueId _query_id;
+    // fragment id for each TPipelineFragmentParams
+    int32_t _fragment_id;
     TUniqueId _fragment_instance_id;
     TQueryOptions _query_options;
     ExecEnv* _exec_env = nullptr;
@@ -469,6 +560,9 @@ private:
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
+    int _load_stream_per_node = 0;
+    int _total_load_streams = 0;
+    int _num_local_sink = 0;
 
     // The backend id on which this fragment instance runs
     int64_t _backend_id = -1;
@@ -487,6 +581,7 @@ private:
     std::atomic<int64_t> _num_rows_load_total;      // total rows read from source
     std::atomic<int64_t> _num_rows_load_filtered;   // unqualified rows
     std::atomic<int64_t> _num_rows_load_unselected; // rows filtered by predicates
+    std::atomic<int64_t> _num_rows_filtered_in_strict_mode_partial_update;
     std::atomic<int64_t> _num_print_error_rows;
 
     std::atomic<int64_t> _num_bytes_load_total; // total bytes read from source
@@ -497,6 +592,7 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
+    int64_t _wal_id = -1;
 
     // mini load
     int64_t _normal_row_number;
@@ -506,12 +602,14 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
-    QueryContext* _query_ctx;
+    std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
+    std::vector<std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
+            _op_id_to_sink_local_state;
+
+    QueryContext* _query_ctx = nullptr;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
-
-    OpentelemetryTracer _tracer = telemetry::get_noop_tracer();
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

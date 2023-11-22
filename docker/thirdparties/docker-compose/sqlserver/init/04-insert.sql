@@ -14,6 +14,7 @@
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
+use doris_test;
 
 Insert into dbo.student values (1, 'doris', 18), (2, 'alice', 19), (3, 'bob', 20);
 
@@ -49,4 +50,50 @@ insert into dbo.test_binary values (2, 1, 0x4D616B6520446F72697320477265617421, 
 insert into dbo.test_binary values (3, -1, 0x4D616B6520446F72697320477265617421, 0x4D616B6520446F72697320477265617421);
 
 
+INSERT INTO dbo.DateAndTime
+VALUES (
+    '2023-06-25', -- DATE
+    '14:30:45', -- TIME
+    '2023-06-25T14:30:45', -- DATETIME
+    '2023-06-25T14:30:00', -- SMALLDATETIME
+    '2023-06-25T14:30:45.1234567', -- DATETIME2
+    '2023-06-25 14:30:45.1234567 -07:00' -- DATETIMEOFFSET
+);
 
+INSERT INTO dbo.t_id (ID, Name) VALUES (NEWID(), 'Data 1');
+INSERT INTO dbo.t_id (ID, Name) VALUES (NEWID(), 'Data 2');
+
+Insert into dbo.all_type values
+(
+1,
+'doris',
+18,
+0,
+1,
+1,
+123.123,
+123.123,
+123.123,
+12345678901234567890123456789012345678,
+12345678901234567890123456789012345678,
+1234567890123456789012345678.0123456789,
+1234567890123456789012345678.0123456789,
+'Make Doris Great!',
+'Make Doris Great!',
+'Make Doris Great!',
+'Make Doris Great!',
+'Make Doris Great!',
+'Make Doris Great!',
+'2023-01-17',
+'16:49:05.1234567',
+'2023-01-17 16:49:05',
+'2023-01-17 16:49:05.1234567',
+'2023-01-17 16:49:05',
+'2023-01-17 16:49:05+08:00',
+'Make Doris Great!',
+'Make Doris Great!',
+922337203685477.5807,
+214748.3647,
+0
+),
+(2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);

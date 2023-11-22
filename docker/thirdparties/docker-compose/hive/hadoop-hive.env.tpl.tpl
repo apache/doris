@@ -15,15 +15,17 @@
 # limitations under the License.
 #
 
-HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://doris--hive-metastore-postgresql:5432/metastore
+HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://externalEnvIp:5432/metastore
 HIVE_SITE_CONF_javax_jdo_option_ConnectionDriverName=org.postgresql.Driver
 HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
 HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive
 HIVE_SITE_CONF_datanucleus_autoCreateSchema=false
-HIVE_SITE_CONF_hive_metastore_uris=thrift://doris--hive-metastore:9083
+HIVE_SITE_CONF_hive_metastore_uris=thrift://externalEnvIp:9083
 HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check=false
 HIVE_SITE_CONF_hive_server2_thrift_bind_host=0.0.0.0
 HIVE_SITE_CONF_hive_server2_thrift_port=10000
+HIVE_SITE_CONF_hive_compactor_initiator_on=true
+HIVE_SITE_CONF_hive_compactor_worker_threads=2
 
 CORE_CONF_hadoop_http_staticuser_user=root
 CORE_CONF_hadoop_proxyuser_hue_hosts=*
@@ -47,4 +49,3 @@ YARN_CONF_yarn_timeline___service_hostname=historyserver
 YARN_CONF_yarn_resourcemanager_address=resourcemanager:8032
 YARN_CONF_yarn_resourcemanager_scheduler_address=resourcemanager:8030
 YARN_CONF_yarn_resourcemanager_resource__tracker_address=resourcemanager:8031
-

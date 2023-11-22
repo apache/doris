@@ -1,4 +1,0 @@
-{"name":"name1", "age": 25, "name2": "xxx","contact": {"birthday": "1993-05-09", "address": "address1"}}
-{"name":"name2", "age": 30, "contact": {"birthday": "2000-05-09"}}
-{"name":"name3", "age": 25, "name2": "xxx","contact": {"birthday": "1999-12-01", "address": "address3", "fax": 12345}}
-{"name":"name4", "age": 25, "contact": {"birthday": "1997-06-06", "address": "address4"}}

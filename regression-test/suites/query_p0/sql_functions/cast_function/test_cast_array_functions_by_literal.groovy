@@ -41,11 +41,7 @@ suite("test_cast_array_functions_by_literal") {
     // empty string is invalid array, return NULL
     qt_sql8 """select cast('' as array<string>)"""
 
-    test {
-        sql "select cast(NULL as array<int>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
+    qt_sql9 """select cast(NULL as array<int>)"""
 
     test {
         sql "select cast(1 as array<int>)"

@@ -53,22 +53,55 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_TIME; }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::TIME;
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_TIME);
+    }
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_TIMEV2;
     }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
     MutableColumnPtr create_column() const override;
 
-    bool is_summable() const override { return true; }
-    bool can_be_used_in_bit_operations() const override { return true; }
-    bool can_be_used_in_boolean_context() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
-
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeTimeSerDe>(); };
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeTimeSerDe>(nesting_level);
+    };
     TypeIndex get_type_id() const override { return TypeIndex::Time; }
+    const char* get_family_name() const override { return "time"; }
 };
 
+class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
+public:
+    DataTypeTimeV2(int scale = 0) : _scale(scale) {
+        if (UNLIKELY(scale > 6)) {
+            LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
+        }
+        if (scale == -1) {
+            _scale = 0;
+        }
+    }
+    bool equals(const IDataType& rhs) const override;
+
+    std::string to_string(const IColumn& column, size_t row_num) const override;
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_TIMEV2);
+    }
+
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+
+    MutableColumnPtr create_column() const override;
+
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeTimeV2SerDe>(_scale, nesting_level);
+    };
+    TypeIndex get_type_id() const override { return TypeIndex::TimeV2; }
+    const char* get_family_name() const override { return "timev2"; }
+    UInt32 get_scale() const override { return _scale; }
+
+private:
+    UInt32 _scale;
+};
 } // namespace doris::vectorized

@@ -66,7 +66,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
@@ -100,7 +100,7 @@ public:
 
 private:
     bool _execute(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                  IColumn& dest_column, ColumnArray::Offsets64& dest_offsets) {
+                  IColumn& dest_column, ColumnArray::Offsets64& dest_offsets) const {
         ColumnArray::Offset64 src_offsets_size = src_offsets.size();
         ColumnArray::Offset64 src_pos = 0;
         ColumnArray::Offset64 dest_pos = 0;

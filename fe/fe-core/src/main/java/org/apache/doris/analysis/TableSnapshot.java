@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 /**
  * Snapshot read for time travel
- * the version in 2022.12.28 just supports external iceberg table
+ * supports external iceberg/hudi table
  */
 public class TableSnapshot {
 
@@ -53,6 +53,10 @@ public class TableSnapshot {
 
     public String getTime() {
         return time;
+    }
+
+    public void setTime(String time) {
+        this.time = time;
     }
 
     public long getVersion() {

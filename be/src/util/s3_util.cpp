@@ -19,11 +19,11 @@
 
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
-#include <aws/core/client/ClientConfiguration.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/s3/S3Client.h>
+#include <bvar/reducer.h>
 #include <util/string_util.h>
 
 #include <atomic>
@@ -34,9 +34,23 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "runtime/exec_env.h"
 #include "s3_uri.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
+
+namespace s3_bvar {
+bvar::Adder<uint64_t> s3_get_total("s3_get", "total_num");
+bvar::Adder<uint64_t> s3_put_total("s3_put", "total_num");
+bvar::Adder<uint64_t> s3_delete_total("s3_delete", "total_num");
+bvar::Adder<uint64_t> s3_head_total("s3_head", "total_num");
+bvar::Adder<uint64_t> s3_multi_part_upload_total("s3_multi_part_upload", "total_num");
+bvar::Adder<uint64_t> s3_list_total("s3_list", "total_num");
+bvar::Adder<uint64_t> s3_list_object_versions_total("s3_list_object_versions", "total_num");
+bvar::Adder<uint64_t> s3_get_bucket_version_total("s3_get_bucket_version", "total_num");
+bvar::Adder<uint64_t> s3_copy_object_total("s3_copy_object", "total_num");
+}; // namespace s3_bvar
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
 public:
@@ -140,13 +154,26 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
 
     Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
     DCHECK(!aws_cred.IsExpiredOrEmpty());
+    if (!s3_conf.token.empty()) {
+        aws_cred.SetSessionToken(s3_conf.token);
+    }
 
-    Aws::Client::ClientConfiguration aws_config;
+    Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
     aws_config.endpointOverride = s3_conf.endpoint;
     aws_config.region = s3_conf.region;
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
+    } else {
+#ifdef BE_TEST
+        // the S3Client may shared by many threads.
+        // So need to set the number of connections large enough.
+        aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
+#else
+        aws_config.maxConnections =
+                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
+#endif
     }
+
     if (s3_conf.request_timeout_ms > 0) {
         aws_config.requestTimeoutMs = s3_conf.request_timeout_ms;
     }
@@ -174,6 +201,9 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
     s3_conf->ak = properties.find(S3_AK)->second;
     s3_conf->sk = properties.find(S3_SK)->second;
+    if (properties.find(S3_TOKEN) != properties.end()) {
+        s3_conf->token = properties.find(S3_TOKEN)->second;
+    }
     s3_conf->endpoint = properties.find(S3_ENDPOINT)->second;
     s3_conf->region = properties.find(S3_REGION)->second;
 

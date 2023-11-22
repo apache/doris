@@ -72,7 +72,7 @@ public class PartitionCache extends Cache {
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, RangePartitionInfo partitionInfo, Column partColumn,
                              CompoundPredicate partitionPredicate, String allViewExpandStmtListStr) {
         this.latestTable = latestTable;
-        this.olapTable = latestTable.olapTable;
+        this.olapTable = (OlapTable) latestTable.table;
         this.partitionInfo = partitionInfo;
         this.partColumn = partColumn;
         this.partitionPredicate = partitionPredicate;
@@ -122,6 +122,9 @@ public class PartitionCache extends Cache {
             rowBatchBuilder = new RowBatchBuilder(CacheAnalyzer.CacheMode.Partition);
             rowBatchBuilder.buildPartitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
                     partColumn, range.buildUpdatePartitionRange());
+        }
+        if (!super.checkRowLimit()) {
+            return;
         }
         rowBatchBuilder.copyRowData(rowBatch);
     }

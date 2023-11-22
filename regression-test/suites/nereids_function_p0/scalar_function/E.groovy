@@ -19,6 +19,10 @@ suite("nereids_scalar_fn_E") {
 	sql 'use regression_test_nereids_function_p0'
 	sql 'set enable_nereids_planner=true'
 	sql 'set enable_fallback_to_original_planner=false'
+
+	sql """
+		CREATE ENCRYPTKEY if not exists my_key AS "ABCD123456789";
+	"""
 	qt_sql_elt_Integer_Varchar "select elt(kint, kvchrs1) from fn_test order by kint, kvchrs1"
 	qt_sql_elt_Integer_Varchar_notnull "select elt(kint, kvchrs1) from fn_test_not_nullable order by kint, kvchrs1"
 	qt_sql_elt_Integer_String "select elt(kint, kstr) from fn_test order by kint, kstr"
@@ -31,4 +35,6 @@ suite("nereids_scalar_fn_E") {
 	qt_sql_exp_Double_notnull "select exp(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_extract_url_parameter_Varchar_Varchar "select extract_url_parameter(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
 	qt_sql_extract_url_parameter_Varchar_Varchar_notnull "select extract_url_parameter(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
+
+	qt_sql_encryptkey "select key my_key, key regression_test_nereids_function_p0.my_key"
 }

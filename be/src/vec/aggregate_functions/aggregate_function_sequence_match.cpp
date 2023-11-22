@@ -25,16 +25,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 
-namespace doris {
-namespace vectorized {
-class VecDateTimeValue;
-struct DateTimeV2ValueType;
-struct DateV2ValueType;
-template <typename T>
-class DateV2Value;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
 template <template <typename, typename> typename AggregateFunction>

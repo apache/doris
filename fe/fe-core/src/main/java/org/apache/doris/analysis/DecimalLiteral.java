@@ -213,6 +213,7 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.putLong(value.unscaledValue().longValue());
                 break;
             case DECIMAL128:
+            case DECIMAL256:
                 LargeIntLiteral tmp = new LargeIntLiteral(value.unscaledValue());
                 return tmp.getHashValue(type);
             default:
@@ -333,14 +334,6 @@ public class DecimalLiteral extends LiteralExpr {
         return fracPart.intValue();
     }
 
-    public void roundCeiling() {
-        roundCeiling(0);
-    }
-
-    public void roundFloor() {
-        roundFloor(0);
-    }
-
     public void roundCeiling(int newScale) {
         value = value.setScale(newScale, RoundingMode.CEILING);
         type = ScalarType.createDecimalType(((ScalarType) type)
@@ -382,6 +375,13 @@ public class DecimalLiteral extends LiteralExpr {
             return new LargeIntLiteral(value.toBigInteger().toString());
         }
         return super.uncheckedCastTo(targetType);
+    }
+
+    public Expr castToDecimalV3ByDivde(Type targetType) {
+        // onlye use in DecimalLiteral divide DecimalV3
+        CastExpr expr = new CastExpr(targetType, this);
+        expr.setNotFold(true);
+        return expr;
     }
 
     @Override

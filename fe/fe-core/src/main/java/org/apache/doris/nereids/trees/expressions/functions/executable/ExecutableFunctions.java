@@ -31,15 +31,15 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.math.BigInteger;
+import java.security.SecureRandom;
 import java.util.Random;
-import java.util.UUID;
 
 /**
  * functions that can be executed in FE.
  */
 public class ExecutableFunctions {
     public static final ExecutableFunctions INSTANCE = new ExecutableFunctions();
-    private static final Random RANDOM = new Random();
+    private static final Random RANDOM = new SecureRandom();
 
     /**
      * other scalar function
@@ -111,20 +111,5 @@ public class ExecutableFunctions {
     @ExecFunction(name = "p1", argTypes = {}, returnType = "DOUBLE")
     public static Expression pi() {
         return new DoubleLiteral(Math.PI);
-    }
-
-    @ExecFunction(name = "uuid", argTypes = {}, returnType = "VARCHAR")
-    public static Expression uuid() {
-        return new VarcharLiteral(UUID.randomUUID().toString());
-    }
-
-    @ExecFunction(name = "rand", argTypes = {}, returnType = "DOUBLE")
-    public static Expression rand() {
-        return new DoubleLiteral(RANDOM.nextDouble());
-    }
-
-    @ExecFunction(name = "random", argTypes = {}, returnType = "DOUBLE")
-    public static Expression random() {
-        return new DoubleLiteral(RANDOM.nextDouble());
     }
 }

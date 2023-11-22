@@ -51,17 +51,9 @@ struct decimal12_t {
         return *this;
     }
 
-    bool operator<(const decimal12_t& value) const { return cmp(value) < 0; }
-
-    bool operator<=(const decimal12_t& value) const { return cmp(value) <= 0; }
-
-    bool operator>(const decimal12_t& value) const { return cmp(value) > 0; }
-
-    bool operator>=(const decimal12_t& value) const { return cmp(value) >= 0; }
-
     bool operator==(const decimal12_t& value) const { return cmp(value) == 0; }
 
-    bool operator!=(const decimal12_t& value) const { return cmp(value) != 0; }
+    auto operator<=>(const decimal12_t& value) const { return cmp(value) <=> 0; }
 
     int32_t cmp(const decimal12_t& other) const {
         if (integer > other.integer) {
@@ -89,6 +81,8 @@ struct decimal12_t {
         return std::string(buf);
     }
 
+    // Not modify this structure, ZoneMap use this from_string and to_string
+    // to serialize decimalv2 value to segment files
     Status from_string(const std::string& str) {
         integer = 0;
         fraction = 0;
@@ -97,7 +91,8 @@ struct decimal12_t {
 
         if (sign != nullptr) {
             if (sign != value_string) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "decimal12_t::from_string meet invalid sign");
             } else {
                 ++value_string;
             }

@@ -16,6 +16,71 @@
 // under the License.
 
 suite("test_backup_restore", "backup_restore") {
-    // todo: test repository/backup/restore/cancel backup ...
-    sql "SHOW REPOSITORIES"
+    String repoName = "test_backup_restore_repo"
+    String dbName = "backup_restore_db"
+    String tableName = "test_backup_restore_table"
+
+    def syncer = getSyncer()
+    syncer.createS3Repository(repoName)
+
+    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
+    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
+    sql """
+        CREATE TABLE ${dbName}.${tableName} (
+            `id` LARGEINT NOT NULL,
+            `count` LARGEINT SUM DEFAULT "0")
+        AGGREGATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        )
+        """
+
+    List<String> values = []
+    for (int i = 1; i <= 10; ++i) {
+        values.add("(${i}, ${i})")
+    }
+    sql "INSERT INTO ${dbName}.${tableName} VALUES ${values.join(",")}"
+    def result = sql "SELECT * FROM ${dbName}.${tableName}"
+    assertEquals(result.size(), values.size());
+
+    String snapshotName = "test_backup_restore_snapshot"
+    sql """
+        BACKUP SNAPSHOT ${dbName}.${snapshotName}
+        TO `${repoName}`
+        ON (${tableName})
+    """
+
+    while (!syncer.checkSnapshotFinish(dbName)) {
+        Thread.sleep(3000)
+    }
+
+    def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    assertTrue(snapshot != null)
+
+    sql "TRUNCATE TABLE ${dbName}.${tableName}"
+
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${snapshotName}
+        FROM `${repoName}`
+        ON ( `${tableName}`)
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "replication_num" = "1"
+        )
+    """
+
+    while (!syncer.checkAllRestoreFinish(dbName)) {
+        Thread.sleep(3000)
+    }
+
+    result = sql "SELECT * FROM ${dbName}.${tableName}"
+    assertEquals(result.size(), values.size());
+
+    sql "DROP TABLE ${dbName}.${tableName} FORCE"
+    sql "DROP DATABASE ${dbName} FORCE"
+    sql "DROP REPOSITORY `${repoName}`"
 }
+

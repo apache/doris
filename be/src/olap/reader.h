@@ -42,8 +42,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
-#include "olap/tablet.h"
-#include "olap/tablet_schema.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 
@@ -90,15 +89,35 @@ class TabletReader {
     };
 
 public:
+    struct ReadSource {
+        std::vector<RowSetSplits> rs_splits;
+        std::vector<RowsetMetaSharedPtr> delete_predicates;
+        // Fill delete predicates with `rs_splits`
+        void fill_delete_predicates();
+    };
     // Params for Reader,
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
-        TabletSharedPtr tablet;
+        bool has_single_version() const {
+            return (rs_splits.size() == 1 &&
+                    rs_splits[0].rs_reader->rowset()->start_version() == 0 &&
+                    !rs_splits[0].rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) ||
+                   (rs_splits.size() == 2 &&
+                    rs_splits[0].rs_reader->rowset()->rowset_meta()->num_rows() == 0 &&
+                    rs_splits[1].rs_reader->rowset()->start_version() == 2 &&
+                    !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
+        }
+
+        void set_read_source(ReadSource read_source) {
+            rs_splits = std::move(read_source.rs_splits);
+            delete_predicates = std::move(read_source.delete_predicates);
+        }
+
+        BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
         bool aggregation = false;
-        bool need_agg_finalize = true;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query and config::disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
@@ -117,14 +136,9 @@ public:
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
 
+        std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap {nullptr};
-
-        std::vector<RowsetReaderSharedPtr> rs_readers;
-        // if rs_readers_segment_offsets is not empty, means we only scan
-        // [pair.first, pair.second) segment in rs_reader, only effective in dup key
-        // and pipeline
-        std::vector<std::pair<int, int>> rs_readers_segment_offsets;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
@@ -183,7 +197,8 @@ public:
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
-        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
+        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>(
+                "TabletReader not support next_block_with_aggregation");
     }
 
     virtual uint64_t merged_rows() const { return _merged_rows; }
@@ -240,7 +255,7 @@ protected:
 
     Status _init_return_columns(const ReaderParams& read_params);
 
-    TabletSharedPtr tablet() { return _tablet; }
+    const BaseTabletSPtr& tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
     std::unique_ptr<vectorized::Arena> _predicate_arena;
@@ -252,7 +267,7 @@ protected:
     // vec query engine
     std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
 
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     RowsetReaderContext _reader_context;
     TabletSchemaSPtr _tablet_schema;
     KeysParam _keys_param;
@@ -265,7 +280,6 @@ protected:
 
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
-    bool _need_agg_finalize = true;
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;
     bool _filter_delete = false;

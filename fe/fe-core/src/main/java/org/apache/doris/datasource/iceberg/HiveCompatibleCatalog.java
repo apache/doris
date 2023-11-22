@@ -24,13 +24,13 @@ import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.ClientPool;
-import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import shade.doris.hive.org.apache.thrift.TException;
 
@@ -57,7 +57,11 @@ public abstract class HiveCompatibleCatalog extends BaseMetastoreCatalog impleme
     protected FileIO initializeFileIO(Map<String, String> properties, Configuration hadoopConf) {
         String fileIOImpl = properties.get(CatalogProperties.FILE_IO_IMPL);
         if (fileIOImpl == null) {
-            FileIO io = new S3FileIO();
+            /* when use the S3FileIO, we need some custom configurations,
+             * so HadoopFileIO is used in the superclass by default
+             * we can add better implementations to derived class just like the implementation in DLFCatalog.
+             */
+            FileIO io = new HadoopFileIO(hadoopConf);
             io.initialize(properties);
             return io;
         } else {

@@ -49,7 +49,8 @@ SHOW [ALL] ROUTINE LOAD [FOR jobName];
            PauseTime: 最近一次作业暂停时间
              EndTime: 作业结束时间
               DbName: 对应数据库名称
-           TableName: 对应表名称
+           TableName: 对应表名称 （多表的情况下由于是动态表，因此不显示具体表名，我们统一显示 multi-table ）
+           IsMultiTbl: 是否为多表
                State: 作业运行状态
       DataSourceType: 数据源类型：KAFKA
       CurrentTaskNum: 当前子任务数量

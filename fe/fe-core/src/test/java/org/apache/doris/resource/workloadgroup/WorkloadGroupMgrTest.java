@@ -23,10 +23,14 @@ import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.collect.Maps;
 import mockit.Delegate;
@@ -48,6 +52,13 @@ public class WorkloadGroupMgrTest {
 
     @Mocked
     private Env env;
+
+    @Mocked
+    AccessControllerManager accessControllerManager;
+
+    @Mocked
+    private Auth auth;
+
 
     private AtomicLong id = new AtomicLong(10);
 
@@ -73,6 +84,26 @@ public class WorkloadGroupMgrTest {
                 Env.getCurrentEnv();
                 minTimes = 0;
                 result = env;
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessControllerManager;
+
+                accessControllerManager.checkWorkloadGroupPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
+                env.getAuth();
+                minTimes = 0;
+                result = auth;
+
+                auth.isWorkloadGroupInUse(anyString);
+                minTimes = 0;
+                result = new Delegate() {
+                    Pair<Boolean, String> list() {
+                        return Pair.of(false, "");
+                    }
+                };
             }
         };
     }
@@ -138,11 +169,11 @@ public class WorkloadGroupMgrTest {
         CreateWorkloadGroupStmt stmt1 = new CreateWorkloadGroupStmt(false, name1, properties1);
         workloadGroupMgr.createWorkloadGroup(stmt1);
         context.getSessionVariable().setWorkloadGroup(name1);
-        List<TPipelineWorkloadGroup> tWorkloadGroups1 = workloadGroupMgr.getWorkloadGroup(context);
+        List<TopicInfo> tWorkloadGroups1 = workloadGroupMgr.getPublishTopicInfo();
         Assert.assertEquals(1, tWorkloadGroups1.size());
-        TPipelineWorkloadGroup tWorkloadGroup1 = tWorkloadGroups1.get(0);
-        Assert.assertEquals(name1, tWorkloadGroup1.getName());
-        Assert.assertTrue(tWorkloadGroup1.getProperties().containsKey(WorkloadGroup.CPU_SHARE));
+        TopicInfo tWorkloadGroup1 = tWorkloadGroups1.get(0);
+        Assert.assertEquals(name1, tWorkloadGroup1.getWorkloadGroupInfo().getName());
+        Assert.assertTrue(tWorkloadGroup1.getWorkloadGroupInfo().getCpuShare() == 10);
 
         try {
             context.getSessionVariable().setWorkloadGroup("g2");
@@ -211,9 +242,9 @@ public class WorkloadGroupMgrTest {
         workloadGroupMgr.alterWorkloadGroup(stmt2);
 
         context.getSessionVariable().setWorkloadGroup(name);
-        List<TPipelineWorkloadGroup> tWorkloadGroups = workloadGroupMgr.getWorkloadGroup(context);
+        List<TopicInfo> tWorkloadGroups = workloadGroupMgr.getPublishTopicInfo();
         Assert.assertEquals(1, tWorkloadGroups.size());
-        TPipelineWorkloadGroup tWorkloadGroup1 = tWorkloadGroups.get(0);
-        Assert.assertEquals(tWorkloadGroup1.getProperties().get(WorkloadGroup.CPU_SHARE), "5");
+        TopicInfo tWorkloadGroup1 = tWorkloadGroups.get(0);
+        Assert.assertTrue(tWorkloadGroup1.getWorkloadGroupInfo().getCpuShare() == 5);
     }
 }

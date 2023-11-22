@@ -21,9 +21,11 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.thrift.TDownloadReq;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TRemoteTabletSnapshot;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import java.util.List;
 import java.util.Map;
 
 public class DownloadTask extends AgentTask {
@@ -34,6 +36,9 @@ public class DownloadTask extends AgentTask {
     private Map<String, String> brokerProperties;
     private StorageBackend.StorageType storageType;
     private String location;
+    private List<TRemoteTabletSnapshot> remoteTabletSnapshots;
+    private boolean isFromLocalSnapshot = false;
+
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
             Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties,
@@ -45,6 +50,16 @@ public class DownloadTask extends AgentTask {
         this.brokerProperties = brokerProperties;
         this.storageType = storageType;
         this.location = location;
+        this.isFromLocalSnapshot = false;
+    }
+
+    public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
+                        List<TRemoteTabletSnapshot> remoteTabletSnapshots) {
+        super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1, -1, -1, signature);
+        this.jobId = jobId;
+        this.srcToDestPath = new java.util.HashMap<String, String>();
+        this.remoteTabletSnapshots = remoteTabletSnapshots;
+        this.isFromLocalSnapshot = true;
     }
 
     public long getJobId() {
@@ -64,11 +79,22 @@ public class DownloadTask extends AgentTask {
     }
 
     public TDownloadReq toThrift() {
-        TNetworkAddress address = new TNetworkAddress(brokerAddr.host, brokerAddr.port);
-        TDownloadReq req = new TDownloadReq(jobId, srcToDestPath, address);
-        req.setBrokerProp(brokerProperties);
-        req.setStorageBackend(storageType.toThrift());
-        req.setLocation(location);
+        // these fields are required
+        // 1: required i64 job_id
+        // 2: required map<string, string> src_dest_map
+        // 3: required Types.TNetworkAddress broker_addr
+        TDownloadReq req;
+        if (isFromLocalSnapshot) {
+            TNetworkAddress brokerAddr = new TNetworkAddress("", 0); // mock broker address
+            req = new TDownloadReq(jobId, srcToDestPath, brokerAddr);
+            req.setRemoteTabletSnapshots(remoteTabletSnapshots);
+        } else {
+            TNetworkAddress address = new TNetworkAddress(brokerAddr.host, brokerAddr.port);
+            req = new TDownloadReq(jobId, srcToDestPath, address);
+            req.setBrokerProp(brokerProperties);
+            req.setStorageBackend(storageType.toThrift());
+            req.setLocation(location);
+        }
         return req;
     }
 }

@@ -105,6 +105,7 @@ public:
             return;
         }
         result |= rhs.result;
+        AggOrthBitmapBaseData<T>::first_init = false;
     }
 
     void write(BufferWritable& buf) {
@@ -139,6 +140,7 @@ public:
             return;
         }
         AggOrthBitmapBaseData<T>::bitmap.merge(rhs.bitmap);
+        AggOrthBitmapBaseData<T>::first_init = false;
     }
 
     void write(BufferWritable& buf) {
@@ -174,6 +176,7 @@ public:
             return;
         }
         result += rhs.result;
+        AggOrthBitmapBaseData<T>::first_init = false;
     }
 
     void write(BufferWritable& buf) {
@@ -252,7 +255,10 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&>(to);
-        column.get_data().emplace_back(result);
+        column.get_data().emplace_back(!result.empty()
+                                               ? result
+                                               : const_cast<AggOrthBitMapExprCal*>(this)
+                                                         ->bitmap_expr_cal.bitmap_calculate());
     }
 
 private:
@@ -286,7 +292,9 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnVector<Int64>&>(to);
-        column.get_data().emplace_back(result);
+        column.get_data().emplace_back(result ? result
+                                              : const_cast<AggOrthBitMapExprCalCount*>(this)
+                                                        ->bitmap_expr_cal.bitmap_calculate_count());
     }
 
 private:

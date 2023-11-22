@@ -185,6 +185,15 @@ suite("alter_policy") {
 
     // test when policy binding to resource
     def has_resource_policy_alter = "has_resource_policy_alter"
+    sql """
+    DROP STORAGE POLICY IF EXISTS has_resouce_policy_alter_policy
+    """
+    sql """
+    DROP STORAGE POLICY IF EXISTS has_test_policy_to_alter
+    """
+    sql """
+    DROP STORAGE POLICY IF EXISTS has_test_policy_to_alter_1
+    """
     check_resource_delete_if_exist(has_resource_policy_alter)
     create_source(has_resource_policy_alter)
     sql """

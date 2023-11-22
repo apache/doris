@@ -34,7 +34,7 @@ SHOW workload GROUPS
 
 ### Description
 
-This statement is used to display all workload groups.
+This statement is used to display the resource groups for which the current user has usage_priv privileges.
 
 grammar:
 

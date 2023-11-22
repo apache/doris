@@ -67,5 +67,8 @@ suite("load_one_step") {
             }
             sleep(5000)
         }
+        
+        sql """SET query_timeout = 1800"""
+        sql """ ANALYZE TABLE $table WITH SYNC """
     }
 }

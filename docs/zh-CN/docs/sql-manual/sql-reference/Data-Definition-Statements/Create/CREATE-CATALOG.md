@@ -37,7 +37,7 @@ CREATE CATALOG
 语法：
 
 ```sql
-CREATE CATALOG [IF NOT EXISTS] catalog_name
+CREATE CATALOG [IF NOT EXISTS] catalog_name [comment]
 	PROPERTIES ("key"="value", ...);
 ```
 
@@ -50,7 +50,7 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
 1. 新建数据目录 hive
 
 	```sql
-	CREATE CATALOG hive PROPERTIES (
+	CREATE CATALOG hive comment 'hive catalog' PROPERTIES (
 		'type'='hms',
 		'hive.metastore.uris' = 'thrift://127.0.0.1:7004',
 		'dfs.nameservices'='HANN',
@@ -118,7 +118,7 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
 		"user"="doris",
 		"password"="123456",
 		"jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-		"driver_url" = "file:///path/to/ojdbc6.jar",
+		"driver_url" = "file:///path/to/ojdbc8.jar",
 		"driver_class" = "oracle.jdbc.driver.OracleDriver"
 	);	
 	```

@@ -18,7 +18,7 @@
 suite("test_reverse") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    qt_select "select reverse(k7) from test_query_db.test order by k1"
+    qt_select "select reverse(k7) from nereids_test_query_db.test order by k1"
     qt_select "select length( cast(reverse( cast(unhex( cast(hex( cast(651603156 as bigint)) as varchar)) as varchar)) as varchar)) as c3"
 }
 

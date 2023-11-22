@@ -30,6 +30,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class ArrayLiteral extends LiteralExpr {
@@ -39,6 +40,12 @@ public class ArrayLiteral extends LiteralExpr {
         children = new ArrayList<>();
     }
 
+    public ArrayLiteral(Type type, LiteralExpr... exprs) {
+        this.type = type;
+        children = new ArrayList<>(Arrays.asList(exprs));
+        analysisDone();
+    }
+
     public ArrayLiteral(LiteralExpr... exprs) throws AnalysisException {
         Type itemType = Type.NULL;
         boolean containsNull = true;
@@ -46,7 +53,7 @@ public class ArrayLiteral extends LiteralExpr {
             if (itemType == Type.NULL) {
                 itemType = expr.getType();
             } else {
-                itemType = Type.getAssignmentCompatibleType(itemType, expr.getType(), false);
+                itemType = Type.getAssignmentCompatibleType(itemType, expr.getType(), false, false);
             }
 
             if (expr.isNullable()) {

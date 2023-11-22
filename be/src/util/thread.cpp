@@ -20,6 +20,8 @@
 
 #include "thread.h"
 
+#include <sys/resource.h>
+
 #ifndef __APPLE__
 // IWYU pragma: no_include <bits/types/struct_sched_param.h>
 #include <sched.h>
@@ -49,6 +51,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "gutil/atomicops.h"
 #include "gutil/dynamic_annotations.h"
@@ -56,6 +59,7 @@
 #include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
 #include "http/web_page_handler.h"
+#include "runtime/thread_context.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/easy_json.h"
 #include "util/os_util.h"
@@ -93,6 +97,8 @@ public:
 
 #ifndef __APPLE__
     static void set_idle_sched(int64_t tid);
+
+    static void set_thread_nice_value(int64_t tid);
 #endif
 
     // not the system TID, since pthread_t is less prone to being recycled.
@@ -172,6 +178,26 @@ void ThreadMgr::set_idle_sched(int64_t tid) {
     int err = sched_setscheduler(0, SCHED_IDLE, &sp);
     if (err < 0 && errno != EPERM) {
         LOG(ERROR) << "set_thread_idle_sched";
+    }
+}
+
+void ThreadMgr::set_thread_nice_value(int64_t tid) {
+    if (tid == getpid()) {
+        return;
+    }
+    // From Linux kernel:
+    // In the current implementation, each unit of difference in the nice values of two
+    // processes results in a factor of 1.25 in the degree to which the
+    // scheduler favors the higher priority process.  This causes very
+    // low nice values (+19) to truly provide little CPU to a process
+    // whenever there is any other higher priority load on the system,
+    // and makes high nice values (-20) deliver most of the CPU to
+    // applications that require it (e.g., some audio applications).
+
+    // Choose 5 as lower priority value, default is 0
+    int err = setpriority(PRIO_PROCESS, 0, config::scan_thread_nice_value);
+    if (err < 0 && errno != EPERM) {
+        LOG(ERROR) << "set_thread_low_priority";
     }
 }
 #endif
@@ -305,10 +331,14 @@ void Thread::set_self_name(const std::string& name) {
 void Thread::set_idle_sched() {
     ThreadMgr::set_idle_sched(current_thread_id());
 }
+
+void Thread::set_thread_nice_value() {
+    ThreadMgr::set_thread_nice_value(current_thread_id());
+}
 #endif
 
 void Thread::join() {
-    ThreadJoiner(this).join();
+    static_cast<void>(ThreadJoiner(this).join());
 }
 
 int64_t Thread::tid() const {
@@ -450,6 +480,9 @@ void* Thread::supervise_thread(void* arg) {
     // already incremented the reference count in StartThread.
     Thread::_tls = t;
 
+    // Create thread context, there is no need to create it when func is executed.
+    ThreadLocalHandle::create_thread_local_if_not_exits();
+
     // Publish our tid to '_tid', which unblocks any callers waiting in
     // WaitForTid().
     Release_Store(&t->_tid, system_tid);
@@ -485,6 +518,8 @@ void Thread::finish_thread(void* arg) {
     // NOTE: the above 'Release' call could be the last reference to 'this',
     // so 'this' could be destructed at this point. Do not add any code
     // following here!
+
+    ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
 
 void Thread::init_threadmgr() {

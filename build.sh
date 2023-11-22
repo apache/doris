@@ -38,28 +38,30 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-     [no option]        build all components
-     --fe               build Frontend and Spark DPP application. Default ON.
-     --be               build Backend. Default ON.
-     --meta-tool        build Backend meta tool. Default OFF.
-     --broker           build Broker. Default ON.
-     --audit            build audit loader. Default ON.
-     --spark-dpp        build Spark DPP application. Default ON.
-     --hive-udf         build Hive UDF library for Spark Load. Default ON.
-     --java-udf         build Java UDF. Default ON.
-     --clean            clean and build target
-     --output           specify the output directory
-     -j                 build Backend parallel
+     [no option]            build all components
+     --fe                   build Frontend and Spark DPP application. Default ON.
+     --be                   build Backend. Default ON.
+     --meta-tool            build Backend meta tool. Default OFF.
+     --index-tool           build Backend inverted index tool. Default OFF.
+     --broker               build Broker. Default ON.
+     --audit                build audit loader. Default ON.
+     --spark-dpp            build Spark DPP application. Default ON.
+     --hive-udf             build Hive UDF library for Spark Load. Default ON.
+     --be-java-extensions   build Backend java extensions. Default ON.
+     --clean                clean and build target
+     --output               specify the output directory
+     -j                     build Backend parallel
 
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
-    DISABLE_JAVA_UDF            If set DISABLE_JAVA_UDF=ON, we will do not build binary with java-udf. Default is OFF.
+    DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
     $0 --meta-tool                          build Backend meta tool
+    $0 --index-tool                         build Backend inverted index tool
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
@@ -93,6 +95,7 @@ clean_be() {
 
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
+    rm -rf "${DORIS_HOME}/zoneinfo"
     popd
 }
 
@@ -117,9 +120,10 @@ if ! OPTS="$(getopt \
     -l 'broker' \
     -l 'audit' \
     -l 'meta-tool' \
+    -l 'index-tool' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
-    -l 'java-udf' \
+    -l 'be-java-extensions' \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
@@ -137,8 +141,9 @@ BUILD_BE=0
 BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
+BUILD_INDEX_TOOL='OFF'
 BUILD_SPARK_DPP=0
-BUILD_JAVA_UDF=0
+BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -152,9 +157,10 @@ if [[ "$#" == 1 ]]; then
     BUILD_BROKER=1
     BUILD_AUDIT=1
     BUILD_META_TOOL='OFF'
+    BUILD_INDEX_TOOL='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
-    BUILD_JAVA_UDF=1
+    BUILD_BE_JAVA_EXTENSIONS=1
     CLEAN=0
 else
     while true; do
@@ -163,12 +169,12 @@ else
             BUILD_FE=1
             BUILD_SPARK_DPP=1
             BUILD_HIVE_UDF=1
-            BUILD_JAVA_UDF=1
+            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --be)
             BUILD_BE=1
-            BUILD_JAVA_UDF=1
+            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --broker)
@@ -183,6 +189,10 @@ else
             BUILD_META_TOOL='ON'
             shift
             ;;
+        --index-tool)
+            BUILD_INDEX_TOOL='ON'
+            shift
+            ;;
         --spark-dpp)
             BUILD_SPARK_DPP=1
             shift
@@ -191,8 +201,8 @@ else
             BUILD_HIVE_UDF=1
             shift
             ;;
-        --java-udf)
-            BUILD_JAVA_UDF=1
+        --be-java-extensions)
+            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --clean)
@@ -237,9 +247,10 @@ else
         BUILD_BROKER=1
         BUILD_AUDIT=1
         BUILD_META_TOOL='ON'
+        BUILD_INDEX_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
-        BUILD_JAVA_UDF=1
+        BUILD_BE_JAVA_EXTENSIONS=1
         CLEAN=0
     fi
 fi
@@ -270,16 +281,31 @@ update_submodule() {
     echo "Update ${submodule_name} submodule ..."
     git submodule update --init --recursive "${submodule_path}"
     exit_code=$?
+    if [[ "${exit_code}" -eq 0 ]]; then
+        cd "${submodule_path}"
+        submodule_commit_id=$(git rev-parse HEAD)
+        cd -
+        expect_submodule_commit_id=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+        echo "Current commit ID of ${submodule_name} submodule: ${submodule_commit_id}, expected is ${expect_submodule_commit_id}"
+    fi
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
-        echo "Update ${submodule_name} submodule failed, start to download and extract ${submodule_name} package ..."
+        set +e
+        # try to get submodule's current commit
+        submodule_commit=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+        exit_code=$?
+        if [[ "${exit_code}" = "0" ]]; then
+            commit_specific_url=$(echo "${archive_url}" | sed "s/refs\/heads/${submodule_commit}/")
+        else
+            commit_specific_url="${archive_url}"
+        fi
+        set -e
+        echo "Update ${submodule_name} submodule failed, start to download and extract ${commit_specific_url}"
+
         mkdir -p "${DORIS_HOME}/${submodule_path}"
-        curl -L "${archive_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
+        curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
-
-update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
     clean_gensrc
@@ -335,6 +361,14 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
+if [[ -z "${USE_UNWIND}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_UNWIND='ON'
+    else
+        USE_UNWIND='OFF'
+    fi
+fi
+
 if [[ -z "${DISPLAY_BUILD_TIME}" ]]; then
     DISPLAY_BUILD_TIME='OFF'
 fi
@@ -343,8 +377,12 @@ if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
     OUTPUT_BE_BINARY=${BUILD_BE}
 fi
 
-if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
-    DISABLE_JAVA_UDF='OFF'
+if [[ -n "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
+    if [[ "${DISABLE_BE_JAVA_EXTENSIONS}" == "ON" ]]; then
+        BUILD_BE_JAVA_EXTENSIONS=0
+    else
+        BUILD_BE_JAVA_EXTENSIONS=1
+    fi
 fi
 
 if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
@@ -355,7 +393,7 @@ if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
 fi
 
-if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
+if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
         CAUSE='the environment variable JAVA_HOME is not set'
     else
@@ -368,41 +406,39 @@ if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     fi
 
     if [[ -n "${CAUSE}" ]]; then
-        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with Java UDF due to ${CAUSE}.\033[0m"
-        BUILD_JAVA_UDF=0
-        DISABLE_JAVA_UDF_IN_CONF=1
+        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with BE Java extensions due to ${CAUSE}.\033[0m"
+        BUILD_BE_JAVA_EXTENSIONS=0
+        BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF=1
     fi
 fi
 
-if [[ "${DISABLE_JAVA_UDF}" == "ON" ]]; then
-    BUILD_JAVA_UDF=0
-fi
-
 echo "Get params:
-    BUILD_FE            -- ${BUILD_FE}
-    BUILD_BE            -- ${BUILD_BE}
-    BUILD_BROKER        -- ${BUILD_BROKER}
-    BUILD_AUDIT         -- ${BUILD_AUDIT}
-    BUILD_META_TOOL     -- ${BUILD_META_TOOL}
-    BUILD_SPARK_DPP     -- ${BUILD_SPARK_DPP}
-    BUILD_JAVA_UDF      -- ${BUILD_JAVA_UDF}
-    BUILD_HIVE_UDF      -- ${BUILD_HIVE_UDF}
-    PARALLEL            -- ${PARALLEL}
-    CLEAN               -- ${CLEAN}
-    WITH_MYSQL          -- ${WITH_MYSQL}
-    WITH_LZO            -- ${WITH_LZO}
-    GLIBC_COMPATIBILITY -- ${GLIBC_COMPATIBILITY}
-    USE_AVX2            -- ${USE_AVX2}
-    USE_LIBCPP          -- ${USE_LIBCPP}
-    USE_DWARF           -- ${USE_DWARF}
-    STRIP_DEBUG_INFO    -- ${STRIP_DEBUG_INFO}
-    USE_MEM_TRACKER     -- ${USE_MEM_TRACKER}
-    USE_JEMALLOC        -- ${USE_JEMALLOC}
-    USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
-    ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
-    DENABLE_CLANG_COVERAGE -- ${DENABLE_CLANG_COVERAGE}
-    DISPLAY_BUILD_TIME  -- ${DISPLAY_BUILD_TIME}
-    ENABLE_PCH          -- ${ENABLE_PCH}
+    BUILD_FE                    -- ${BUILD_FE}
+    BUILD_BE                    -- ${BUILD_BE}
+    BUILD_BROKER                -- ${BUILD_BROKER}
+    BUILD_AUDIT                 -- ${BUILD_AUDIT}
+    BUILD_META_TOOL             -- ${BUILD_META_TOOL}
+    BUILD_INDEX_TOOL            -- ${BUILD_INDEX_TOOL}
+    BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
+    BUILD_BE_JAVA_EXTENSIONS    -- ${BUILD_BE_JAVA_EXTENSIONS}
+    BUILD_HIVE_UDF              -- ${BUILD_HIVE_UDF}
+    PARALLEL                    -- ${PARALLEL}
+    CLEAN                       -- ${CLEAN}
+    WITH_MYSQL                  -- ${WITH_MYSQL}
+    WITH_LZO                    -- ${WITH_LZO}
+    GLIBC_COMPATIBILITY         -- ${GLIBC_COMPATIBILITY}
+    USE_AVX2                    -- ${USE_AVX2}
+    USE_LIBCPP                  -- ${USE_LIBCPP}
+    USE_DWARF                   -- ${USE_DWARF}
+    USE_UNWIND                  -- ${USE_UNWIND}
+    STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
+    USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
+    USE_JEMALLOC                -- ${USE_JEMALLOC}
+    USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
+    ENABLE_STACKTRACE           -- ${ENABLE_STACKTRACE}
+    DENABLE_CLANG_COVERAGE      -- ${DENABLE_CLANG_COVERAGE}
+    DISPLAY_BUILD_TIME          -- ${DISPLAY_BUILD_TIME}
+    ENABLE_PCH                  -- ${ENABLE_PCH}
 "
 
 # Clean and build generated code
@@ -424,13 +460,20 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("spark-dpp")
 fi
-if [[ "${BUILD_JAVA_UDF}" -eq 1 ]]; then
-    modules+=("fe-common")
-    modules+=("java-udf")
-fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("hive-udf")
+fi
+if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
+    modules+=("fe-common")
+    modules+=("be-java-extensions/hudi-scanner")
+    modules+=("be-java-extensions/java-common")
+    modules+=("be-java-extensions/java-udf")
+    modules+=("be-java-extensions/jdbc-scanner")
+    modules+=("be-java-extensions/paimon-scanner")
+    modules+=("be-java-extensions/max-compute-scanner")
+    modules+=("be-java-extensions/avro-scanner")
+    modules+=("be-java-extensions/preload-extensions")
 fi
 FE_MODULES="$(
     IFS=','
@@ -439,6 +482,8 @@ FE_MODULES="$(
 
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
+    update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
@@ -449,9 +494,15 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         clean_be
     fi
     MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
+
+    if [[ -z "${BUILD_FS_BENCHMARK}" ]]; then
+        BUILD_FS_BENCHMARK=OFF
+    fi
+
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
+    echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -460,13 +511,16 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
         -DMAKE_TEST=OFF \
+        -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
         -DWITH_LZO="${WITH_LZO}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
+        -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
+        -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
@@ -557,13 +611,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/bin"/*_fe.sh "${DORIS_OUTPUT}/fe/bin"/
     cp -r -p "${DORIS_HOME}/conf/fe.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
-    cp -r -p "${DORIS_HOME}/conf"/*.xml "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
-    rm -f "${DORIS_OUTPUT}/fe/lib/palo-fe.jar"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
+    cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
@@ -583,24 +636,31 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
-        "${DORIS_OUTPUT}/be/www" \
-        "${DORIS_OUTPUT}/udf/lib" \
-        "${DORIS_OUTPUT}/udf/include"
+        "${DORIS_OUTPUT}/be/www"
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
+    if [[ ! -r "${DORIS_HOME}/zoneinfo/Africa/Abidjan" ]]; then
+        rm -rf "${DORIS_HOME}/zoneinfo"
+        echo "Generating zoneinfo files"
+        tar -xzf "${DORIS_HOME}/resource/zoneinfo.tar.gz" -C "${DORIS_HOME}"/
+    fi
+    cp -r -p "${DORIS_HOME}/zoneinfo" "${DORIS_OUTPUT}/be/"
 
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
-        rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs/native/"
     fi
 
-    if [[ "${DISABLE_JAVA_UDF_IN_CONF}" -eq 1 ]]; then
+    if [[ -f "${DORIS_THIRDPARTY}/installed/lib/libz.so" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/libz.so"* "${DORIS_OUTPUT}/be/lib/"
+    fi
+
+    if [[ "${BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
 
-# Java UDF support
+# Java UDF and BE-JAVA-EXTENSION support
 enable_java_support = false
 EOF
     fi
@@ -609,6 +669,13 @@ EOF
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
     rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
     cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    if [[ -d "${DORIS_HOME}/be/output/lib/doris_be.dSYM" ]]; then
+        rm -rf "${DORIS_OUTPUT}/be/lib/doris_be.dSYM"
+        cp -r "${DORIS_HOME}/be/output/lib/doris_be.dSYM" "${DORIS_OUTPUT}/be/lib"/
+    fi
+    if [[ -f "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" "${DORIS_OUTPUT}/be/lib"/
+    fi
 
     # make a soft link palo_be point to doris_be, for forward compatibility
     cd "${DORIS_OUTPUT}/be/lib"
@@ -620,17 +687,37 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-    cp -r -p "${DORIS_HOME}/be/output/udf"/*.a "${DORIS_OUTPUT}/udf/lib"/
-    cp -r -p "${DORIS_HOME}/be/output/udf/include"/* "${DORIS_OUTPUT}/udf/include"/
+    if [[ "${BUILD_INDEX_TOOL}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/index_tool" "${DORIS_OUTPUT}/be/lib"/
+    fi
+
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
     if [[ "${STRIP_DEBUG_INFO}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-    java_udf_path="${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar"
-    if [[ -f "${java_udf_path}" ]]; then
-        cp "${java_udf_path}" "${DORIS_OUTPUT}/be/lib"/
+    if [[ "${BUILD_FS_BENCHMARK}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/bin/run-fs-benchmark.sh" "${DORIS_OUTPUT}/be/bin/"/
     fi
+
+    extensions_modules=("java-udf")
+    extensions_modules+=("jdbc-scanner")
+    extensions_modules+=("hudi-scanner")
+    extensions_modules+=("paimon-scanner")
+    extensions_modules+=("max-compute-scanner")
+    extensions_modules+=("avro-scanner")
+    extensions_modules+=("preload-extensions")
+
+    BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
+    rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
+    mkdir "${BE_JAVA_EXTENSIONS_DIR}"
+    for extensions_module in "${extensions_modules[@]}"; do
+        module_path="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
+        mkdir "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+        if [[ -f "${module_path}" ]]; then
+            cp "${module_path}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+        fi
+    done
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
@@ -656,19 +743,6 @@ if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/audit_loader"/*
     cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
-    cd "${DORIS_HOME}"
-fi
-
-if [[ "${BUILD_JAVA_UDF}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 ]]; then
-    install -d "${DORIS_OUTPUT}/be/lib"
-
-    rm -rf "${DORIS_OUTPUT}/be/lib/java-udf-jar-with-dependencies.jar"
-
-    java_udf_path="${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar"
-    if [[ -f "${java_udf_path}" ]]; then
-        cp "${java_udf_path}" "${DORIS_OUTPUT}/be/lib"/
-    fi
-
     cd "${DORIS_HOME}"
 fi
 

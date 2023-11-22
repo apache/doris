@@ -197,24 +197,8 @@ constexpr bool operator==(const unexpected<E> &lhs, const unexpected<E> &rhs) {
   return lhs.value() == rhs.value();
 }
 template <class E>
-constexpr bool operator!=(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() != rhs.value();
-}
-template <class E>
-constexpr bool operator<(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() < rhs.value();
-}
-template <class E>
-constexpr bool operator<=(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() <= rhs.value();
-}
-template <class E>
-constexpr bool operator>(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() > rhs.value();
-}
-template <class E>
-constexpr bool operator>=(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() >= rhs.value();
+constexpr auto operator<=>(const unexpected<E> &lhs, const unexpected<E> &rhs) {
+  return lhs.value() <=> rhs.value();
 }
 
 template <class E>
@@ -237,6 +221,7 @@ template <typename E>
 #ifdef _MSC_VER
   __assume(0);
 #else
+ LOG(FATAL) << "__builtin_unreachable";
   __builtin_unreachable();
 #endif
 #endif

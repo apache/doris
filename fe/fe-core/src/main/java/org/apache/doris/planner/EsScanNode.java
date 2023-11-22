@@ -72,20 +72,20 @@ public class EsScanNode extends ExternalScanNode {
 
     private static final Logger LOG = LogManager.getLogger(EsScanNode.class);
 
-    private EsTablePartitions esTablePartitions;
-    private EsTable table;
+    private final EsTablePartitions esTablePartitions;
+    private final EsTable table;
     private QueryBuilder queryBuilder;
     private boolean isFinalized = false;
 
-    public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        this(id, desc, planNodeName, false);
+    public EsScanNode(PlanNodeId id, TupleDescriptor desc) {
+        this(id, desc, false);
     }
 
     /**
      * For multicatalog es.
      **/
-    public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean esExternalTable) {
-        super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE, false);
+    public EsScanNode(PlanNodeId id, TupleDescriptor desc, boolean esExternalTable) {
+        super(id, desc, "EsScanNode", StatisticalType.ES_SCAN_NODE, false);
         if (esExternalTable) {
             EsExternalTable externalTable = (EsExternalTable) (desc.getTable());
             table = externalTable.getEsTable();

@@ -26,6 +26,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <functional>
 #include <ostream>
 
@@ -134,11 +135,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_bytes, MetricUnit::BYTES);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_duration_us, MetricUnit::MICROSECONDS);
-
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(attach_task_thread_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(add_thread_mem_tracker_consumer_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_mem_tracker_exceed_call_back_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(switch_bthread_count, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(memory_pool_bytes_total, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(process_thread_num, MetricUnit::NOUNIT);
@@ -298,11 +294,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_rows);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_bytes);
 
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, attach_task_thread_count);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, add_thread_mem_tracker_consumer_count);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, thread_mem_tracker_exceed_call_back_count);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, switch_bthread_count);
-
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, upload_total_byte);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, upload_rowset_count);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, upload_fail_count);
@@ -351,59 +342,52 @@ void DorisMetrics::_update() {
 }
 
 // get num of thread of doris_be process
-// from /proc/pid/task
+// from /proc/self/task
 void DorisMetrics::_update_process_thread_num() {
-    int64_t pid = getpid();
-    std::stringstream ss;
-    ss << "/proc/" << pid << "/task/";
-
-    int64_t count = 0;
-    auto cb = [&count](const io::FileInfo& file) -> bool {
-        count += 1;
-        return true;
-    };
-    Status st = io::global_local_filesystem()->iterate_directory(ss.str(), cb);
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to count thread num: " << st;
-        process_thread_num->set_value(0);
+    std::error_code ec;
+    std::filesystem::directory_iterator dict_iter("/proc/self/task/", ec);
+    if (ec) {
+        LOG(WARNING) << "failed to count thread num: " << ec.message();
+        process_fd_num_used->set_value(0);
         return;
     }
+    int64_t count =
+            std::count_if(dict_iter, std::filesystem::end(dict_iter), [](const auto& entry) {
+                std::error_code error_code;
+                return entry.is_regular_file(error_code) && !error_code;
+            });
 
     process_thread_num->set_value(count);
 }
 
 // get num of file descriptor of doris_be process
 void DorisMetrics::_update_process_fd_num() {
-    int64_t pid = getpid();
-
     // fd used
-    std::stringstream ss;
-    ss << "/proc/" << pid << "/fd/";
-    int64_t count = 0;
-    auto cb = [&count](const io::FileInfo& file) -> bool {
-        count += 1;
-        return true;
-    };
-    Status st = io::global_local_filesystem()->iterate_directory(ss.str(), cb);
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to count fd: " << st;
+    std::error_code ec;
+    std::filesystem::directory_iterator dict_iter("/proc/self/fd/", ec);
+    if (ec) {
+        LOG(WARNING) << "failed to count fd: " << ec.message();
         process_fd_num_used->set_value(0);
         return;
     }
+    int64_t count =
+            std::count_if(dict_iter, std::filesystem::end(dict_iter), [](const auto& entry) {
+                std::error_code error_code;
+                return entry.is_regular_file(error_code) && !error_code;
+            });
+
     process_fd_num_used->set_value(count);
 
     // fd limits
-    std::stringstream ss2;
-    ss2 << "/proc/" << pid << "/limits";
-    FILE* fp = fopen(ss2.str().c_str(), "r");
+    FILE* fp = fopen("/proc/self/limits", "r");
     if (fp == nullptr) {
         char buf[64];
-        LOG(WARNING) << "open " << ss2.str() << " failed, errno=" << errno
+        LOG(WARNING) << "open /proc/self/limits failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
 
-    // /proc/pid/limits
+    // /proc/self/limits
     // Max open files            65536                65536                files
     int64_t values[2];
     size_t line_buf_size = 0;

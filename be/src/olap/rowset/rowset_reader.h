@@ -21,10 +21,9 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <memory>
-#include <unordered_map>
 
 #include "olap/iterators.h"
-#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "vec/core/block.h"
 
@@ -34,20 +33,27 @@ namespace vectorized {
 class Block;
 }
 
-class RowsetReader;
-using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
+struct RowSetSplits {
+    RowsetReaderSharedPtr rs_reader;
+
+    // if segment_offsets is not empty, means we only scan
+    // [pair.first, pair.second) segment in rs_reader, only effective in dup key
+    // and pipeline
+    std::pair<int, int> segment_offsets;
+
+    RowSetSplits(RowsetReaderSharedPtr rs_reader_)
+            : rs_reader(rs_reader_), segment_offsets({0, 0}) {}
+    RowSetSplits() = default;
+};
 
 class RowsetReader {
 public:
     virtual ~RowsetReader() = default;
 
-    // reader init
-    virtual Status init(RowsetReaderContext* read_context,
-                        const std::pair<int, int>& segment_offset = {0, 0}) = 0;
+    virtual Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits = {}) = 0;
 
     virtual Status get_segment_iterators(RowsetReaderContext* read_context,
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
-                                         const std::pair<int, int>& segment_offset = {0, 0},
                                          bool use_cache = false) = 0;
     virtual void reset_read_options() = 0;
 

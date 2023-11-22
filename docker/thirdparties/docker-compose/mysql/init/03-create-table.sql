@@ -266,7 +266,7 @@ create table doris_test.all_types (
   `int` int,
   `bigint` bigint,
   `date` date,
-  `timestamp` timestamp(4),
+  `timestamp` timestamp(4) null,
   `datetime` datetime,
   `float` float,
   `double` double,
@@ -283,3 +283,51 @@ create table doris_test.all_types (
   `varbinary` varbinary(12),
   `enum` enum('Value1', 'Value2', 'Value3')
 ) engine=innodb charset=utf8;
+
+CREATE TABLE `doris_test`.`auto_default_t` (
+    `id` bigint NOT NULL AUTO_INCREMENT,
+    `name` varchar(64) DEFAULT NULL,
+    `dt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`)
+) engine=innodb charset=utf8;
+
+CREATE TABLE doris_test.dt (
+  `timestamp0` timestamp(0) DEFAULT CURRENT_TIMESTAMP(0),
+  `timestamp1` timestamp(1) DEFAULT CURRENT_TIMESTAMP(1),
+  `timestamp2` timestamp(2) DEFAULT CURRENT_TIMESTAMP(2),
+  `timestamp3` timestamp(3) DEFAULT CURRENT_TIMESTAMP(3),
+  `timestamp4` timestamp(4) DEFAULT CURRENT_TIMESTAMP(4),
+  `timestamp5` timestamp(5) DEFAULT CURRENT_TIMESTAMP(5),
+  `timestamp6` timestamp(6) DEFAULT CURRENT_TIMESTAMP(6)
+) ENGINE=INNODB CHARSET=utf8;
+
+CREATE TABLE doris_test.dt_null (
+  `dt` datetime NOT NULL
+) ENGINE=INNODB CHARSET=utf8;
+
+CREATE VIEW doris_test.mysql_view as
+select 10086 as col_1, 4294967295 as col_2, tinyint_u as col_3  from doris_test.all_types where tinyint_u=201;
+
+CREATE TABLE doris_test.test_key_word (
+`id` int,
+`key` int
+) ENGINE=INNODB CHARSET=utf8;
+
+CREATE TABLE show_test_do_not_modify.ex_tb0 (
+  `id` int PRIMARY KEY,
+  `name` varchar(128)
+);
+
+CREATE TABLE show_test_do_not_modify.ex_tb1 (
+  id varchar(128)
+);
+
+CREATE TABLE show_test_do_not_modify.ex_tb2 (
+  id int,
+  count_value varchar(20)
+);
+
+CREATE TABLE doris_test.test_zd (
+`id` int(10) unsigned NOT NULL,
+`d_z` date NOT NULL
+);

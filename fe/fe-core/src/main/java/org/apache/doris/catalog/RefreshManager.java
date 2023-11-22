@@ -189,6 +189,11 @@ public class RefreshManager {
                     CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
                     if (catalog != null) {
                         String catalogName = catalog.getName();
+                        /**
+                         * Now do not invoke
+                         * {@link org.apache.doris.analysis.RefreshCatalogStmt#analyze(Analyzer)} is ok,
+                         * because the default value of invalidCache is true.
+                         * */
                         RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
                         try {
                             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);

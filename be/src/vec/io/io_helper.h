@@ -32,6 +32,8 @@
 #include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/io/var_int.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -61,13 +63,12 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
         }
     }
 
-    using Type = std::conditional_t<std::is_same_v<T, Int128I>, int128_t, T>;
-    Type whole_part = value;
+    T whole_part = value;
 
     if (scale) {
-        whole_part = value / decimal_scale_multiplier<Type>(scale);
+        whole_part = value / decimal_scale_multiplier<T>(scale);
     }
-    if constexpr (std::is_same_v<T, __int128_t> || std::is_same_v<T, Int128I>) {
+    if constexpr (std::is_same_v<T, __int128_t>) {
         ostr << int128_to_string(whole_part);
     } else {
         ostr << whole_part;
@@ -130,8 +131,9 @@ template <typename Type>
 void write_vector_binary(const std::vector<Type>& v, BufferWritable& buf) {
     write_var_uint(v.size(), buf);
 
-    for (typename std::vector<Type>::const_iterator it = v.begin(); it != v.end(); ++it)
+    for (typename std::vector<Type>::const_iterator it = v.begin(); it != v.end(); ++it) {
         write_binary(*it, buf);
+    }
 }
 
 inline void write_binary(const String& x, BufferWritable& buf) {
@@ -215,7 +217,9 @@ void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
     }
 
     v.resize(size);
-    for (size_t i = 0; i < size; ++i) read_binary(v[i], buf);
+    for (size_t i = 0; i < size; ++i) {
+        read_binary(v[i], buf);
+    }
 }
 
 inline void read_binary(String& x, BufferReadable& buf) {
@@ -265,6 +269,48 @@ bool read_int_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
+bool read_date_text_impl(T& x, ReadBuffer& buf) {
+    static_assert(std::is_same_v<Int64, T>);
+    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
+    auto ans = dv.from_date_str(buf.position(), buf.count());
+    dv.cast_to_date();
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<VecDateTimeValue, Int64>(dv);
+    return ans;
+}
+
+template <typename T>
+bool read_date_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone) {
+    static_assert(std::is_same_v<Int64, T>);
+    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone);
+    dv.cast_to_date();
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<VecDateTimeValue, Int64>(dv);
+    return ans;
+}
+
+template <typename T>
+bool read_ipv4_text_impl(T& x, ReadBuffer& buf) {
+    static_assert(std::is_same_v<IPv4, T>);
+    bool res = IPv4Value::from_string(x, buf.to_string());
+    buf.position() = buf.end();
+    return res;
+}
+
+template <typename T>
+bool read_ipv6_text_impl(T& x, ReadBuffer& buf) {
+    static_assert(std::is_same_v<IPv6, T>);
+    bool res = IPv6Value::from_string(x, buf.to_string());
+    buf.position() = buf.end();
+    return res;
+}
+
+template <typename T>
 bool read_datetime_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
@@ -278,11 +324,11 @@ bool read_datetime_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
-bool read_date_text_impl(T& x, ReadBuffer& buf) {
+bool read_datetime_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count());
-    dv.cast_to_date();
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone);
+    dv.to_datetime();
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -303,6 +349,18 @@ bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
+bool read_date_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone) {
+    static_assert(std::is_same_v<UInt32, T>);
+    auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone);
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dv);
+    return ans;
+}
+
+template <typename T>
 bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
@@ -315,27 +373,41 @@ bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
 }
 
 template <typename T>
-bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scale) {
+bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone,
+                                UInt32 scale = -1) {
+    static_assert(std::is_same_v<UInt64, T>);
+    auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, scale);
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dv);
+    return ans;
+}
+
+template <PrimitiveType P, typename T>
+StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision,
+                                                 UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
     if constexpr (!std::is_same_v<Decimal128, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<typename T::NativeType>(
-                (const char*)buf.position(), buf.count(), precision, scale, &result);
+        x.value = StringParser::string_to_decimal<P>((const char*)buf.position(), buf.count(),
+                                                     precision, scale, &result);
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
-        return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
+        return result;
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<__int128>(buf.position(), buf.count(),
-                                                            DecimalV2Value::PRECISION,
-                                                            DecimalV2Value::SCALE, &result);
+        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(buf.position(), buf.count(),
+                                                                  DecimalV2Value::PRECISION,
+                                                                  DecimalV2Value::SCALE, &result);
 
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
 
-        return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
+        return result;
     }
 }
 
@@ -384,28 +456,40 @@ bool try_read_float_text(T& x, ReadBuffer& in) {
     return read_float_text_fast_impl<T>(x, in);
 }
 
-template <typename T>
-bool try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision, UInt32 scale) {
-    return read_decimal_text_impl<T>(x, in, precision, scale);
+template <PrimitiveType P, typename T>
+StringParser::ParseResult try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision,
+                                                UInt32 scale) {
+    return read_decimal_text_impl<P, T>(x, in, precision, scale);
 }
 
 template <typename T>
-bool try_read_datetime_text(T& x, ReadBuffer& in) {
-    return read_datetime_text_impl<T>(x, in);
+bool try_read_ipv4_text(T& x, ReadBuffer& in) {
+    return read_ipv4_text_impl<T>(x, in);
 }
 
 template <typename T>
-bool try_read_date_text(T& x, ReadBuffer& in) {
-    return read_date_text_impl<T>(x, in);
+bool try_read_ipv6_text(T& x, ReadBuffer& in) {
+    return read_ipv6_text_impl<T>(x, in);
 }
 
 template <typename T>
-bool try_read_date_v2_text(T& x, ReadBuffer& in) {
-    return read_date_v2_text_impl<T>(x, in);
+bool try_read_datetime_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone) {
+    return read_datetime_text_impl<T>(x, in, local_time_zone);
 }
 
 template <typename T>
-bool try_read_datetime_v2_text(T& x, ReadBuffer& in, UInt32 scale) {
-    return read_datetime_v2_text_impl<T>(x, in, scale);
+bool try_read_date_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone) {
+    return read_date_text_impl<T>(x, in, local_time_zone);
+}
+
+template <typename T>
+bool try_read_date_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone) {
+    return read_date_v2_text_impl<T>(x, in, local_time_zone);
+}
+
+template <typename T>
+bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
+                               UInt32 scale) {
+    return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
 } // namespace doris::vectorized

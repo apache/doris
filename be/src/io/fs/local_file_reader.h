@@ -31,7 +31,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 class LocalFileReader final : public FileReader {
 public:

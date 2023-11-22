@@ -151,4 +151,39 @@ suite("test_nullif") {
     qt_if_nullif27 """select ifnull(2+3, 2), ifnull((3*1 > 1 || 1>0), 2), ifnull((3*1 > 1 or 1>0), 2),
         ifnull(upper("null"), concat("NUL", "LL"))"""
     qt_if_nullif28 """select ifnull(date(substring("2020-02-09", 1, 1024)), null)"""
+
+    def tableName2 = "testsort"
+
+    sql """ DROP TABLE IF EXISTS ${tableName2}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName2} (
+                c_int int NULL COMMENT "",
+                c_pv bitmap BITMAP_UNION NULL COMMENT ""
+            )
+            AGGREGATE KEY(c_int)
+            DISTRIBUTED BY HASH(c_int) BUCKETS 1
+            PROPERTIES (
+              "replication_num" = "1"
+            );
+        """
+    sql """ INSERT INTO ${tableName2} VALUES(1, to_bitmap(1)), (2, to_bitmap(2));"""
+
+    qt_if_nullif29 """
+            select
+                sortNum,
+                BITMAP_UNION_COUNT (c.pv) over (ORDER BY sortNum ) totalNum
+            from(
+            select 
+                ifnull(a.sortNum, b.sortNum) sortNum,
+                BITMAP_UNION (ifnull(a.c_pv, b.c_pv)) pv
+            from
+                (select 1 sortNum, c_pv from ${tableName2} t where t.c_int = 1) a
+            full join
+                (select 2 sortNum, c_pv from ${tableName2} t where t.c_int = 2) b
+                on a.sortNum = b.sortNum
+            GROUP BY
+                sortNum
+            ORDER BY
+                sortNum
+            ) c;"""
 }

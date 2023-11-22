@@ -17,9 +17,15 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 
 import com.google.common.collect.ImmutableList;
 
@@ -29,12 +35,33 @@ import com.google.common.collect.ImmutableList;
  * <p>
  * TODO: refactor group merge strategy to support the feature above
  */
-public class LogicalSubQueryAliasToLogicalProject extends OneAnalysisRuleFactory {
+public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return RuleType.LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT.build(
-                logicalSubQueryAlias().then(
-                        alias -> new LogicalProject<>(ImmutableList.copyOf(alias.getOutput()), alias.child()))
+                logicalSubQueryAlias().thenApply(ctx -> {
+                    LogicalProject project = new LogicalProject<>(
+                            ImmutableList.copyOf(ctx.root.getOutput()), ctx.root.child());
+                    if (ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
+                        String aliasName = ctx.root.getAlias();
+                        LeadingHint leading = (LeadingHint) ctx.cascadesContext.getStatementContext()
+                                .getHintMap().get("Leading");
+                        if (!(project.child() instanceof LogicalRelation)) {
+                            if (leading.getTablelist().contains(aliasName)) {
+                                leading.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                                leading.setErrorMessage("Leading alias can only be table name alias");
+                            }
+                        } else {
+                            RelationId id = leading.findRelationIdAndTableName(aliasName);
+                            if (id == null) {
+                                id = ((LogicalRelation) project.child()).getRelationId();
+                            }
+                            leading.putRelationIdAndTableName(Pair.of(id, aliasName));
+                            leading.getRelationIdToScanMap().put(id, project);
+                        }
+                    }
+                    return project;
+                })
         );
     }
 }

@@ -67,6 +67,7 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class MasterImpl {
@@ -191,7 +192,7 @@ public class MasterImpl {
                     finishRecoverTablet(task);
                     break;
                 case ALTER:
-                    finishAlterTask(task);
+                    finishAlterTask(task, request);
                     break;
                 case ALTER_INVERTED_INDEX:
                     finishAlterInvertedIndexTask(task, request);
@@ -465,6 +466,10 @@ public class MasterImpl {
     }
 
     private void finishPublishVersion(AgentTask task, TFinishTaskRequest request) {
+        Map<Long, Long> succTablets = null;
+        if (request.isSetSuccTablets()) {
+            succTablets = request.getSuccTablets();
+        }
         List<Long> errorTabletIds = null;
         if (request.isSetErrorTabletIds()) {
             errorTabletIds = request.getErrorTabletIds();
@@ -478,12 +483,16 @@ public class MasterImpl {
         }
 
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
+        publishVersionTask.setSuccTablets(succTablets);
         publishVersionTask.addErrorTablets(errorTabletIds);
         publishVersionTask.setFinished(true);
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             // not remove the task from queue and be will retry
             return;
+        }
+        if (request.isSetTableIdToDeltaNumRows()) {
+            publishVersionTask.setTableIdToDeltaNumRows(request.getTableIdToDeltaNumRows());
         }
         AgentTaskQueue.removeTask(publishVersionTask.getBackendId(),
                                   publishVersionTask.getTaskType(),
@@ -566,7 +575,7 @@ public class MasterImpl {
         return reportHandler.handleReport(request);
     }
 
-    private void finishAlterTask(AgentTask task) {
+    private void finishAlterTask(AgentTask task, TFinishTaskRequest request) {
         AlterReplicaTask alterTask = (AlterReplicaTask) task;
         try {
             if (alterTask.getJobType() == JobType.ROLLUP) {
@@ -575,6 +584,11 @@ public class MasterImpl {
                 Env.getCurrentEnv().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
             }
             alterTask.setFinished(true);
+            if (request.isSetReportVersion()) {
+                long reportVersion = request.getReportVersion();
+                Env.getCurrentSystemInfo().updateBackendReportVersion(
+                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+            }
         } catch (MetaNotFoundException e) {
             LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
         }

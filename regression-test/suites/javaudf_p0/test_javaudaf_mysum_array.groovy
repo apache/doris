@@ -41,11 +41,11 @@ suite("test_javaudaf_mysum_array") {
         int i = 1
         for (; i < 9; i ++) {
             sb.append("""
-                (${i % 3}, '${i}','abcdefg${i}','poiuytre${i}abcdefg'),
+                (${i % 3}, '${i}','abcdefg','poiuytreabcdefg'),
             """)
         }
         sb.append("""
-                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg')
+                (${i}, '${i}','abcdefg','poiuytreabcdefg')
             """)
         sql """ INSERT INTO ${tableName} VALUES
              ${sb.toString()}

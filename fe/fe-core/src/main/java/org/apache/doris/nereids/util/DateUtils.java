@@ -89,7 +89,9 @@ public class DateUtils {
                         break;
                     case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
                         builder.appendValue(ChronoField.HOUR_OF_AMPM, 2)
-                                .appendPattern(":mm:ss ")
+                                .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+                                .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+                                .appendLiteral(' ')
                                 .appendText(ChronoField.AMPM_OF_DAY, TextStyle.FULL)
                                 .toFormatter();
                         break;
@@ -158,12 +160,11 @@ public class DateUtils {
                 getOrDefault(accessor, ChronoField.HOUR_OF_DAY),
                 getOrDefault(accessor, ChronoField.MINUTE_OF_HOUR),
                 getOrDefault(accessor, ChronoField.SECOND_OF_MINUTE),
-                getOrDefault(accessor, ChronoField.MICRO_OF_SECOND)
-        );
+                getOrDefault(accessor, ChronoField.NANO_OF_SECOND));
     }
 
     public static int getOrDefault(final TemporalAccessor accessor, final ChronoField field) {
-        return accessor.isSupported(field) ? accessor.get(field) : /*default value*/ 0;
+        return accessor.isSupported(field) ? accessor.get(field) : /* default value */ 0;
     }
 
     public static ZoneId getTimeZone() {

@@ -51,17 +51,17 @@
 
 namespace doris::vectorized {
 
-void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
+inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
     const DataTypeSerDeSPtr serde = data_type->get_serde();
-    serde->write_column_to_pb(col, *result, 0, col.size());
+    static_cast<void>(serde->write_column_to_pb(col, *result, 0, col.size()));
 }
 
-void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
+inline void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
     auto serde = data_type->get_serde();
-    serde->read_column_from_pb(col, result);
+    static_cast<void>(serde->read_column_from_pb(col, result));
 }
 
-void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
+inline void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     PValues pv = PValues();
     column_to_pb(data_type, col, &pv);
     int s1 = pv.bytes_value_size();
@@ -75,7 +75,7 @@ void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     EXPECT_EQ(s1, s2);
 }
 
-void serialize_and_deserialize_pb_test() {
+inline void serialize_and_deserialize_pb_test() {
     std::cout << "==== int32 === " << std::endl;
     // int
     {
@@ -146,16 +146,16 @@ void serialize_and_deserialize_pb_test() {
     std::cout << "==== quantilestate === " << std::endl;
     {
         vectorized::DataTypePtr quantile_data_type(
-                std::make_shared<vectorized::DataTypeQuantileStateDouble>());
+                std::make_shared<vectorized::DataTypeQuantileState>());
         auto quantile_column = quantile_data_type->create_column();
-        std::vector<QuantileStateDouble>& container =
-                ((vectorized::ColumnQuantileStateDouble*)quantile_column.get())->get_data();
+        std::vector<QuantileState>& container =
+                ((vectorized::ColumnQuantileState*)quantile_column.get())->get_data();
         const long max_rand = 1000000L;
         double lower_bound = 0;
         double upper_bound = 100;
         srandom(time(nullptr));
         for (int i = 0; i < 1024; ++i) {
-            QuantileStateDouble q;
+            QuantileState q;
             double random_double =
                     lower_bound + (upper_bound - lower_bound) * (random() % max_rand) / max_rand;
             q.add_value(random_double);

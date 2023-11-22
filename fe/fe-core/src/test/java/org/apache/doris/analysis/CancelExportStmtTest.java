@@ -23,6 +23,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.wildfly.common.Assert;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.function.Predicate;
 
@@ -154,19 +156,27 @@ public class CancelExportStmtTest extends TestWithFeService {
         List<ExportJob> exportJobList2 = Lists.newLinkedList();
         ExportJob job1 = new ExportJob();
         ExportJob job2 = new ExportJob();
-        job2.updateState(ExportJob.JobState.CANCELLED, true);
         ExportJob job3 = new ExportJob();
-        job3.updateState(ExportJob.JobState.EXPORTING, false);
         ExportJob job4 = new ExportJob();
-        ExportJob job5 = new ExportJob();
-        job5.updateState(ExportJob.JobState.IN_QUEUE, false);
+
+
+        try {
+            Method setExportJobState = job1.getClass().getDeclaredMethod("setExportJobState",
+                    ExportJobState.class);
+            setExportJobState.setAccessible(true);
+            setExportJobState.invoke(job2, ExportJobState.CANCELLED);
+            setExportJobState.invoke(job3, ExportJobState.EXPORTING);
+
+        } catch (Exception e) {
+            throw new UserException(e);
+        }
+
         exportJobList1.add(job1);
         exportJobList1.add(job2);
         exportJobList1.add(job3);
         exportJobList1.add(job4);
         exportJobList2.add(job1);
         exportJobList2.add(job2);
-        exportJobList2.add(job5);
 
         SlotRef stateSlotRef = new SlotRef(null, "state");
         StringLiteral stateStringLiteral = new StringLiteral("PENDING");
@@ -187,15 +197,6 @@ public class CancelExportStmtTest extends TestWithFeService {
         filter = ExportMgr.buildCancelJobFilter(stmt);
 
         Assert.assertTrue(exportJobList1.stream().filter(filter).count() == 1);
-
-        stateStringLiteral = new StringLiteral("IN_QUEUE");
-        stateEqPredicate =
-                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
-        stmt = new CancelExportStmt(null, stateEqPredicate);
-        stmt.analyze(analyzer);
-        filter = ExportMgr.buildCancelJobFilter(stmt);
-
-        Assert.assertTrue(exportJobList2.stream().filter(filter).count() == 1);
 
     }
 

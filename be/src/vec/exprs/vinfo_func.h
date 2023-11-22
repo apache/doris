@@ -36,12 +36,10 @@ class VInfoFunc : public VExpr {
 
 public:
     VInfoFunc(const TExprNode& node);
-    virtual ~VInfoFunc() {}
+    ~VInfoFunc() override = default;
 
-    virtual VExprSPtr clone() const override { return VInfoFunc::create_shared(*this); }
-    virtual const std::string& expr_name() const override { return _expr_name; }
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) override;
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 
 private:
     const std::string _expr_name = "vinfofunc expr";

@@ -18,10 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("agg_have_dup_base") {
-
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
-
+    sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

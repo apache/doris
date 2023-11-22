@@ -20,8 +20,7 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-
-import java.util.Objects;
+import org.apache.doris.planner.PlanNodeId;
 
 /**
  * relation id
@@ -30,18 +29,6 @@ public class ObjectId extends Id<ObjectId> {
 
     public ObjectId(int id) {
         super(id);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        ObjectId relationId = (ObjectId) o;
-        return id == relationId.id;
     }
 
     /**
@@ -57,12 +44,11 @@ public class ObjectId extends Id<ObjectId> {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(id);
+    public String toString() {
+        return "ObjectId#" + id;
     }
 
-    @Override
-    public String toString() {
-        return "RelationId#" + id;
+    public PlanNodeId toPlanNodeId() {
+        return new PlanNodeId(id);
     }
 }

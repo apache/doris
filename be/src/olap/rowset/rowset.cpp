@@ -25,9 +25,8 @@
 
 namespace doris {
 
-Rowset::Rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
-               const RowsetMetaSharedPtr& rowset_meta)
-        : _tablet_path(tablet_path), _rowset_meta(rowset_meta), _refs_by_reader(0) {
+Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta)
+        : _rowset_meta(rowset_meta), _refs_by_reader(0) {
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
         _is_cumulative = false;

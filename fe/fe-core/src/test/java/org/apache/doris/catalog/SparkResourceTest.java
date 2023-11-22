@@ -36,6 +36,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 public class SparkResourceTest {
@@ -195,4 +197,39 @@ public class SparkResourceTest {
         stmt.analyze(analyzer);
         Resource.fromStmt(stmt);
     }
+
+    @Test
+    public void testGetEnvConfigsWithoutPrefix() {
+        Map<String, String> envConfigs = new HashMap<>();
+        envConfigs.put("env.testKey2", "testValue2");
+        SparkResource resource = new SparkResource("test", Maps.newHashMap(), null, null, Maps.newHashMap(),
+                envConfigs) {
+            @Override
+            public Map<String, String> getSystemEnvConfigs() {
+                return Collections.singletonMap("env.testKey1", "testValue1");
+            }
+        };
+        Map<String, String> expected1 = new HashMap<>();
+        expected1.put("testKey1", "testValue1");
+        expected1.put("testKey2", "testValue2");
+        Map<String, String> actual1 = resource.getEnvConfigsWithoutPrefix();
+        Assert.assertEquals(expected1, actual1);
+
+        Map<String, String> envConfigs2 = new HashMap<>();
+        envConfigs2.put("env.testKey1", "testValue3");
+        envConfigs2.put("env.testKey2", "testValue2");
+        SparkResource resource2 = new SparkResource("test2", Maps.newHashMap(), null, null, Maps.newHashMap(),
+                envConfigs2) {
+            @Override
+            public Map<String, String> getSystemEnvConfigs() {
+                return Collections.singletonMap("env.testKey1", "testValue1");
+            }
+        };
+        Map<String, String> expected2 = new HashMap<>();
+        expected2.put("testKey1", "testValue3");
+        expected2.put("testKey2", "testValue2");
+        Map<String, String> actual2 = resource2.getEnvConfigsWithoutPrefix();
+        Assert.assertEquals(expected2, actual2);
+    }
+
 }

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -28,15 +29,13 @@ import java.util.List;
  * Null safe equal expression: a <=> b.
  * Unlike normal equal to expression, null <=> null is true.
  */
-public class NullSafeEqual extends ComparisonPredicate implements AlwaysNotNullable {
-    /**
-     * Constructor of Null Safe Equal ComparisonPredicate.
-     *
-     * @param left  left child of Null Safe Equal
-     * @param right right child of Null Safe Equal
-     */
+public class NullSafeEqual extends EqualPredicate implements AlwaysNotNullable {
     public NullSafeEqual(Expression left, Expression right) {
-        super(left, right, "<=>");
+        super(ImmutableList.of(left, right), "<=>");
+    }
+
+    private NullSafeEqual(List<Expression> children) {
+        super(children, "<=>");
     }
 
     @Override
@@ -52,12 +51,11 @@ public class NullSafeEqual extends ComparisonPredicate implements AlwaysNotNulla
     @Override
     public NullSafeEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new NullSafeEqual(children.get(0), children.get(1));
+        return new NullSafeEqual(children);
     }
 
     @Override
-    public ComparisonPredicate commute() {
+    public NullSafeEqual commute() {
         return new NullSafeEqual(right(), left());
     }
-
 }

@@ -23,7 +23,9 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <map>
 #include <mutex>
+#include <set>
 #include <vector>
 
 #include "common/status.h"
@@ -31,18 +33,40 @@
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/task/engine_task.h"
+#include "util/time.h"
 
 namespace doris {
 
 class EnginePublishVersionTask;
 class TPublishVersionRequest;
 
+struct TabletPublishStatistics {
+    int64_t submit_time_us = 0;
+    int64_t schedule_time_us = 0;
+    int64_t lock_wait_time_us = 0;
+    int64_t save_meta_time_us = 0;
+    int64_t calc_delete_bitmap_time_us = 0;
+    int64_t partial_update_write_segment_us = 0;
+    int64_t add_inc_rowset_us = 0;
+
+    std::string to_string() {
+        return fmt::format(
+                "[Publish Statistics: schedule time(us): {}, lock wait time(us): {}, save meta "
+                "time(us): {}, calc delete bitmap time(us): {}, partial update write segment "
+                "time(us): {}, add inc rowset time(us): {}]",
+                schedule_time_us, lock_wait_time_us, save_meta_time_us, calc_delete_bitmap_time_us,
+                partial_update_write_segment_us, add_inc_rowset_us);
+    }
+
+    void record_in_bvar();
+};
+
 class TabletPublishTxnTask {
 public:
     TabletPublishTxnTask(EnginePublishVersionTask* engine_task, TabletSharedPtr tablet,
                          RowsetSharedPtr rowset, int64_t partition_id, int64_t transaction_id,
                          Version version, const TabletInfo& tablet_info);
-    ~TabletPublishTxnTask() {}
+    ~TabletPublishTxnTask() = default;
 
     void handle();
 
@@ -55,34 +79,56 @@ private:
     int64_t _transaction_id;
     Version _version;
     TabletInfo _tablet_info;
+    TabletPublishStatistics _stats;
 };
 
 class EnginePublishVersionTask : public EngineTask {
 public:
-    EnginePublishVersionTask(const TPublishVersionRequest& publish_version_req,
-                             vector<TTabletId>* error_tablet_ids,
-                             std::vector<TTabletId>* succ_tablet_ids = nullptr);
-    ~EnginePublishVersionTask() {}
+    EnginePublishVersionTask(
+            const TPublishVersionRequest& publish_version_req,
+            std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
+            std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets,
+            std::map<TTableId, int64_t>* table_id_to_num_delta_rows);
+    ~EnginePublishVersionTask() override = default;
 
-    virtual Status finish() override;
+    Status finish() override;
 
     void add_error_tablet_id(int64_t tablet_id);
-    void add_succ_tablet_id(int64_t tablet_id);
-
-    void notify();
-    void wait();
 
     int64_t finish_task();
 
 private:
-    std::atomic<int64_t> _total_task_num;
+    void _calculate_tbl_num_delta_rows(
+            const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows);
+
     const TPublishVersionRequest& _publish_version_req;
     std::mutex _tablet_ids_mutex;
-    vector<TTabletId>* _error_tablet_ids;
-    vector<TTabletId>* _succ_tablet_ids;
+    std::set<TTabletId>* _error_tablet_ids;
+    std::map<TTabletId, TVersion>* _succ_tablets;
+    std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets;
+    std::map<TTableId, int64_t>* _table_id_to_num_delta_rows;
+};
 
-    std::mutex _tablet_finish_mutex;
-    std::condition_variable _tablet_finish_cond;
+class AsyncTabletPublishTask {
+public:
+    AsyncTabletPublishTask(TabletSharedPtr tablet, int64_t partition_id, int64_t transaction_id,
+                           int64_t version)
+            : _tablet(tablet),
+              _partition_id(partition_id),
+              _transaction_id(transaction_id),
+              _version(version) {
+        _stats.submit_time_us = MonotonicMicros();
+    }
+    ~AsyncTabletPublishTask() = default;
+
+    void handle();
+
+private:
+    TabletSharedPtr _tablet;
+    int64_t _partition_id;
+    int64_t _transaction_id;
+    int64_t _version;
+    TabletPublishStatistics _stats;
 };
 
 } // namespace doris

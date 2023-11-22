@@ -78,7 +78,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
@@ -136,7 +136,7 @@ private:
     template <typename ColumnType>
     bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                         const NullMapType* src_null_map, NullMapType* dest_null_map) {
+                         const NullMapType* src_null_map, NullMapType* dest_null_map) const {
         using NestType = typename ColumnType::value_type;
         using ElementNativeType = typename NativeType<NestType>::Type;
 
@@ -193,7 +193,7 @@ private:
 
     bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                         const NullMapType* src_null_map, NullMapType* dest_null_map) {
+                         const NullMapType* src_null_map, NullMapType* dest_null_map) const {
         const ColumnString* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
         if (!src_data_concrete) {
             return false;
@@ -256,7 +256,7 @@ private:
     bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                           IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                           const NullMapType* src_null_map, NullMapType* dest_null_map,
-                          DataTypePtr& nested_type) {
+                          DataTypePtr& nested_type) const {
         bool res = false;
         WhichDataType which(remove_nullable(nested_type));
         if (which.is_uint8()) {
@@ -304,6 +304,9 @@ private:
         } else if (which.is_decimal128i()) {
             res = _execute_number<ColumnDecimal128I>(src_column, src_offsets, dest_column,
                                                      dest_offsets, src_null_map, dest_null_map);
+        } else if (which.is_decimal256()) {
+            res = _execute_number<ColumnDecimal256>(src_column, src_offsets, dest_column,
+                                                    dest_offsets, src_null_map, dest_null_map);
         } else if (which.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(src_column, src_offsets, dest_column,
                                                     dest_offsets, src_null_map, dest_null_map);

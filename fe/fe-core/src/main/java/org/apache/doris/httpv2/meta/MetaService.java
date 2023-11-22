@@ -41,7 +41,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -49,8 +48,6 @@ import javax.servlet.http.HttpServletResponse;
 @RestController
 public class MetaService extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(MetaService.class);
-
-    private static final int TIMEOUT_SECOND = 10;
 
     private static final String VERSION = "version";
     private static final String HOST = "host";
@@ -163,8 +160,7 @@ public class MetaService extends RestBaseController {
         String filename = Storage.IMAGE + "." + versionStr;
         File dir = new File(Env.getCurrentEnv().getImageDir());
         try {
-            OutputStream out = MetaHelper.getOutputStream(filename, dir);
-            MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, out);
+            MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000, MetaHelper.getFile(filename, dir));
             MetaHelper.complete(filename, dir);
         } catch (FileNotFoundException e) {
             return ResponseEntityBuilder.notFound("file not found.");

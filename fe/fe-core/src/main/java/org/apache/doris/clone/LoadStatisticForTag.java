@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BackendLoadStatistic.LoadScore;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -53,6 +54,7 @@ public class LoadStatisticForTag {
     private final Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
     private final Map<TStorageMedium, Long> totalUsedCapacityMap = Maps.newHashMap();
     private final Map<TStorageMedium, Long> totalReplicaNumMap = Maps.newHashMap();
+    private final Map<TStorageMedium, Double> maxUsedPercentDiffMap = Maps.newHashMap();
     private final Map<TStorageMedium, Double> avgUsedCapacityPercentMap = Maps.newHashMap();
     private final Map<TStorageMedium, Double> avgReplicaNumPercentMap = Maps.newHashMap();
     private final Map<TStorageMedium, Double> avgLoadScoreMap = Maps.newHashMap();
@@ -116,10 +118,27 @@ public class LoadStatisticForTag {
                     / (double) totalCapacityMap.getOrDefault(medium, 1L));
             avgReplicaNumPercentMap.put(medium, totalReplicaNumMap.getOrDefault(medium, 0L)
                     / (double) backendNumMap.getOrDefault(medium, 1));
+
+            double maxUsedPercent = -1.0;
+            double minUsedPercent = -1.0;
+            for (BackendLoadStatistic beStatistic : beLoadStatistics) {
+                long beTotalCapacityB = beStatistic.getTotalCapacityB(medium);
+                long beTotalUsedCapacityB = beStatistic.getTotalUsedCapacityB(medium);
+                if (beTotalCapacityB > 0) {
+                    double beUsedPercent = ((double) beTotalUsedCapacityB) / beTotalCapacityB;
+                    if (maxUsedPercent < 0.0 || beUsedPercent > maxUsedPercent) {
+                        maxUsedPercent = beUsedPercent;
+                    }
+                    if (minUsedPercent < 0.0 || beUsedPercent < minUsedPercent) {
+                        minUsedPercent = beUsedPercent;
+                    }
+                }
+            }
+            maxUsedPercentDiffMap.put(medium, maxUsedPercent - minUsedPercent);
         }
 
         for (BackendLoadStatistic beStatistic : beLoadStatistics) {
-            beStatistic.calcScore(avgUsedCapacityPercentMap, avgReplicaNumPercentMap);
+            beStatistic.calcScore(avgUsedCapacityPercentMap, maxUsedPercentDiffMap, avgReplicaNumPercentMap);
         }
 
         // classify all backends
@@ -168,34 +187,57 @@ public class LoadStatisticForTag {
         int lowCounter = 0;
         int midCounter = 0;
         int highCounter = 0;
+
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
+        if (debugHighBeId > 0) {
+            final long targetBeId = debugHighBeId; // debugHighBeId can not put in lambda cause it's updated later
+            if (!beLoadStatistics.stream().anyMatch(it -> it.getBeId() == targetBeId)) {
+                debugHighBeId = -1L;
+            }
+        }
+
         for (BackendLoadStatistic beStat : beLoadStatistics) {
             if (!beStat.hasMedium(medium)) {
                 continue;
             }
 
-
-            if (Config.be_rebalancer_fuzzy_test) {
+            Classification clazz = Classification.MID;
+            if (debugHighBeId > 0) {
+                if (beStat.getBeId() == debugHighBeId) {
+                    clazz = Classification.HIGH;
+                } else {
+                    clazz = Classification.LOW;
+                }
+            } else if (Config.be_rebalancer_fuzzy_test) {
                 if (beStat.getLoadScore(medium) > avgLoadScore) {
-                    beStat.setClazz(medium, Classification.HIGH);
-                    highCounter++;
+                    clazz = Classification.HIGH;
                 } else if (beStat.getLoadScore(medium) < avgLoadScore) {
-                    beStat.setClazz(medium, Classification.LOW);
-                    lowCounter++;
+                    clazz = Classification.LOW;
                 }
             } else {
                 if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore
                         > Config.balance_load_score_threshold) {
                     if (beStat.getLoadScore(medium) > avgLoadScore) {
-                        beStat.setClazz(medium, Classification.HIGH);
-                        highCounter++;
+                        clazz = Classification.HIGH;
                     } else if (beStat.getLoadScore(medium) < avgLoadScore) {
-                        beStat.setClazz(medium, Classification.LOW);
-                        lowCounter++;
+                        clazz = Classification.LOW;
                     }
-                } else {
-                    beStat.setClazz(medium, Classification.MID);
-                    midCounter++;
                 }
+            }
+
+            beStat.setClazz(medium, clazz);
+            switch (clazz) {
+                case HIGH:
+                    highCounter++;
+                    break;
+                case LOW:
+                    lowCounter++;
+                    break;
+                case MID:
+                    midCounter++;
+                    break;
+                default:
+                    break;
             }
         }
 
@@ -247,16 +289,23 @@ public class LoadStatisticForTag {
             return false;
         }
 
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
+        if (srcBeStat.getBeId() == debugHighBeId) {
+            return true;
+        }
+
         currentSrcBeScore = srcBeStat.getLoadScore(medium);
         currentDestBeScore = destBeStat.getLoadScore(medium);
 
-        LoadScore newSrcBeScore = BackendLoadStatistic.calcSore(srcBeStat.getTotalUsedCapacityB(medium) - tabletSize,
+        LoadScore newSrcBeScore = BackendLoadStatistic.calcScore(srcBeStat.getTotalUsedCapacityB(medium) - tabletSize,
                 srcBeStat.getTotalCapacityB(medium), srcBeStat.getReplicaNum(medium) - 1,
-                avgUsedCapacityPercentMap.get(medium), avgReplicaNumPercentMap.get(medium));
+                avgUsedCapacityPercentMap.get(medium), maxUsedPercentDiffMap.get(medium),
+                avgReplicaNumPercentMap.get(medium));
 
-        LoadScore newDestBeScore = BackendLoadStatistic.calcSore(destBeStat.getTotalUsedCapacityB(medium) + tabletSize,
+        LoadScore newDestBeScore = BackendLoadStatistic.calcScore(destBeStat.getTotalUsedCapacityB(medium) + tabletSize,
                 destBeStat.getTotalCapacityB(medium), destBeStat.getReplicaNum(medium) + 1,
-                avgUsedCapacityPercentMap.get(medium), avgReplicaNumPercentMap.get(medium));
+                avgUsedCapacityPercentMap.get(medium), maxUsedPercentDiffMap.get(medium),
+                avgReplicaNumPercentMap.get(medium));
 
         double currentDiff = Math.abs(currentSrcBeScore - avgLoadScoreMap.get(medium))
                 + Math.abs(currentDestBeScore - avgLoadScoreMap.get(medium));
@@ -320,6 +369,10 @@ public class LoadStatisticForTag {
             }
         }
         return null;
+    }
+
+    public List<BackendLoadStatistic> getBackendLoadStatistics() {
+        return beLoadStatistics;
     }
 
     /*

@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
@@ -58,6 +59,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.UUID;
 
 /*
  * Repository represents a remote storage for backup to or restore from
@@ -97,6 +99,8 @@ public class Repository implements Writable {
     public static final String FILE_REPO_INFO = "__repo_info";
     public static final String FILE_META_INFO = "__meta";
     public static final String DIR_SNAPSHOT_CONTENT = "__ss_content";
+    public static final String KEEP_ON_LOCAL_REPO_NAME = "__keep_on_local__";
+    public static final long KEEP_ON_LOCAL_REPO_ID = -1;
     private static final Logger LOG = LogManager.getLogger(Repository.class);
     private static final String PATH_DELIMITER = "/";
     private static final String CHECKSUM_SEPARATOR = ".";
@@ -213,6 +217,27 @@ public class Repository implements Writable {
         if (FeConstants.runningUnitTest) {
             return Status.OK;
         }
+
+        // A temporary solution is to delete all stale snapshots before creating an S3 repository
+        // so that we can add regression tests about backup/restore.
+        //
+        // TODO: support hdfs/brokers
+        if (fileSystem instanceof S3FileSystem) {
+            String deleteStaledSnapshots = fileSystem.getProperties()
+                    .getOrDefault(CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, "false");
+            if (deleteStaledSnapshots.equalsIgnoreCase("true")) {
+                // delete with prefix:
+                // eg. __palo_repository_repo_name/
+                String snapshotPrefix = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name));
+                LOG.info("property {} is set, delete snapshots with prefix: {}",
+                        CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, snapshotPrefix);
+                Status st = ((S3FileSystem) fileSystem).deleteDirectory(snapshotPrefix);
+                if (!st.ok()) {
+                    return st;
+                }
+            }
+        }
+
         String repoInfoFilePath = assembleRepoInfoFilePath();
         // check if the repo is already exist in remote
         List<RemoteFile> remoteFiles = Lists.newArrayList();
@@ -227,7 +252,7 @@ public class Repository implements Writable {
             }
 
             // exist, download and parse the repo info file
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + System.currentTimeMillis();
+            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + allocLocalFileSuffix();
             try {
                 st = fileSystem.downloadWithFileSize(repoInfoFilePath, localFilePath, remoteFile.getSize());
                 if (!st.ok()) {
@@ -243,8 +268,8 @@ public class Repository implements Writable {
                     return new Status(ErrCode.COMMON_ERROR,
                             "failed to parse create time of repository: " + root.get("create_time"));
                 }
-                return Status.OK;
 
+                return Status.OK;
             } catch (IOException e) {
                 return new Status(ErrCode.COMMON_ERROR, "failed to read repo info file: " + e.getMessage());
             } finally {
@@ -395,7 +420,7 @@ public class Repository implements Writable {
     public Status getSnapshotInfoFile(String label, String backupTimestamp, List<BackupJobInfo> infos) {
         String remoteInfoFilePath = assembleJobInfoFilePath(label, -1) + backupTimestamp;
         File localInfoFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "info_" + System.currentTimeMillis());
+                + "info_" + allocLocalFileSuffix());
         try {
             Status st = download(remoteInfoFilePath, localInfoFile.getPath());
             if (!st.ok()) {
@@ -417,7 +442,7 @@ public class Repository implements Writable {
     public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas, int metaVersion) {
         String remoteMetaFilePath = assembleMetaInfoFilePath(label);
         File localMetaFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "meta_" + System.currentTimeMillis());
+                + "meta_" + allocLocalFileSuffix());
 
         try {
             Status st = download(remoteMetaFilePath, localMetaFile.getAbsolutePath());
@@ -448,9 +473,9 @@ public class Repository implements Writable {
         // Preconditions.checkArgument(remoteFilePath.startsWith(location), remoteFilePath);
         // get md5usm of local file
         File file = new File(localFilePath);
-        String md5sum = null;
-        try {
-            md5sum = DigestUtils.md5Hex(new FileInputStream(file));
+        String md5sum;
+        try (FileInputStream fis = new FileInputStream(file)) {
+            md5sum = DigestUtils.md5Hex(fis);
         } catch (FileNotFoundException e) {
             return new Status(ErrCode.NOT_FOUND, "file " + localFilePath + " does not exist");
         } catch (IOException e) {
@@ -556,8 +581,8 @@ public class Repository implements Writable {
 
         // 3. verify checksum
         String localMd5sum = null;
-        try {
-            localMd5sum = DigestUtils.md5Hex(new FileInputStream(localFilePath));
+        try (FileInputStream fis = new FileInputStream(localFilePath)) {
+            localMd5sum = DigestUtils.md5Hex(fis);
         } catch (FileNotFoundException e) {
             return new Status(ErrCode.NOT_FOUND, "file " + localFilePath + " does not exist");
         } catch (IOException e) {
@@ -701,12 +726,16 @@ public class Repository implements Writable {
                     info.add(snapshotName);
                     info.add(Joiner.on("\n").join(tmp));
                     info.add("OK");
+                } else {
+                    info.add(snapshotName);
+                    info.add(FeConstants.null_string);
+                    info.add("ERROR: No info file found");
                 }
             }
         } else {
-            // get specified timestamp
-            // path eg: /path/to/backup/__info_2081-04-19-12-59-11
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/" + Repository.PREFIX_JOB_INFO + timestamp;
+            // get specified timestamp, different repos might have snapshots with same timestamp.
+            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/"
+                    + Repository.PREFIX_JOB_INFO + allocLocalFileSuffix();
             try {
                 String remoteInfoFilePath = assembleJobInfoFilePath(snapshotName, -1) + timestamp;
                 Status st = download(remoteInfoFilePath, localFilePath);
@@ -742,6 +771,11 @@ public class Repository implements Writable {
         }
 
         return info;
+    }
+
+    // Allocate an unique suffix.
+    private String allocLocalFileSuffix() {
+        return System.currentTimeMillis() + UUID.randomUUID().toString().replace("-", "_");
     }
 
     @Override

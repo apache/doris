@@ -121,12 +121,6 @@ public:
     IntCounter* memtable_flush_total;
     IntCounter* memtable_flush_duration_us;
 
-    IntCounter* attach_task_thread_count;
-    IntCounter* add_thread_mem_tracker_consumer_count;
-    IntCounter* thread_mem_tracker_exceed_call_back_count;
-    // brpc server response count
-    IntCounter* switch_bthread_count;
-
     IntGauge* memory_pool_bytes_total;
     IntGauge* process_thread_num;
     IntGauge* process_fd_num_used;
@@ -180,7 +174,7 @@ public:
     UIntGauge* data_stream_receiver_count;
     UIntGauge* fragment_endpoint_count;
     UIntGauge* active_scan_context_count;
-    UIntGauge* plan_fragment_count;
+    UIntGauge* fragment_instance_count;
     UIntGauge* load_channel_count;
     UIntGauge* result_buffer_block_count;
     UIntGauge* result_block_queue_count;
@@ -196,6 +190,7 @@ public:
     UIntGauge* compaction_mem_consumption;
     UIntGauge* load_mem_consumption;
     UIntGauge* load_channel_mem_consumption;
+    UIntGauge* memtable_memory_limiter_mem_consumption;
     UIntGauge* query_mem_consumption;
     UIntGauge* schema_change_mem_consumption;
     UIntGauge* storage_migration_mem_consumption;
@@ -232,6 +227,18 @@ public:
     UIntGauge* light_work_pool_max_queue_size;
     UIntGauge* heavy_work_max_threads;
     UIntGauge* light_work_max_threads;
+
+    UIntGauge* flush_thread_pool_queue_size;
+    UIntGauge* flush_thread_pool_thread_num;
+
+    UIntGauge* local_scan_thread_pool_queue_size;
+    UIntGauge* local_scan_thread_pool_thread_num;
+    UIntGauge* remote_scan_thread_pool_queue_size;
+    UIntGauge* remote_scan_thread_pool_thread_num;
+    UIntGauge* limited_scan_thread_pool_queue_size;
+    UIntGauge* limited_scan_thread_pool_thread_num;
+    UIntGauge* group_local_scan_thread_pool_queue_size;
+    UIntGauge* group_local_scan_thread_pool_thread_num;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

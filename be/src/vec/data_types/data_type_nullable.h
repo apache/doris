@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -58,11 +59,13 @@ public:
     }
     const char* get_family_name() const override { return "Nullable"; }
     TypeIndex get_type_id() const override { return TypeIndex::Nullable; }
-    PrimitiveType get_type_as_primitive_type() const override {
-        return nested_data_type->get_type_as_primitive_type();
+
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(nested_data_type->get_type_as_type_descriptor());
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return nested_data_type->get_type_as_tprimitive_type();
+
+    doris::FieldType get_storage_field_type() const override {
+        return nested_data_type->get_storage_field_type();
     }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
@@ -98,10 +101,6 @@ public:
         return nested_data_type->text_can_contain_only_valid_utf8();
     }
     bool is_comparable() const override { return nested_data_type->is_comparable(); }
-    bool is_summable() const override { return nested_data_type->is_summable(); }
-    bool can_be_used_in_boolean_context() const override {
-        return nested_data_type->can_be_used_in_boolean_context();
-    }
     bool have_maximum_size_of_value() const override {
         return nested_data_type->have_maximum_size_of_value();
     }
@@ -121,8 +120,9 @@ public:
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
     bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde());
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde(nesting_level),
+                                                       nesting_level);
     }
 
 private:

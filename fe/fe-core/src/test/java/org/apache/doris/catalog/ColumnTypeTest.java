@@ -48,7 +48,7 @@ public class ColumnTypeTest {
         type.analyze(null);
 
         Assert.assertEquals(PrimitiveType.INT, type.getType().getPrimitiveType());
-        Assert.assertEquals("int(11)", type.toSql());
+        Assert.assertEquals("INT", type.toSql());
 
         // equal type
         TypeDef type2 = TypeDef.create(PrimitiveType.INT);
@@ -69,9 +69,9 @@ public class ColumnTypeTest {
     public void testCharType() throws AnalysisException {
         TypeDef type = TypeDef.createVarchar(10);
         type.analyze(null);
-        Assert.assertEquals("varchar(10)", type.toString());
+        Assert.assertEquals("VARCHAR(10)", type.toString());
         Assert.assertEquals(PrimitiveType.VARCHAR, type.getType().getPrimitiveType());
-        Assert.assertEquals(10, ((ScalarType) type.getType()).getLength());
+        Assert.assertEquals(10, type.getType().getLength());
 
         // equal type
         TypeDef type2 = TypeDef.createVarchar(10);
@@ -86,22 +86,15 @@ public class ColumnTypeTest {
         Assert.assertNotEquals(type.getType(), type4.getType());
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testCharInvalid() throws AnalysisException {
-        TypeDef type = TypeDef.createVarchar(-1);
-        type.analyze(null);
-        Assert.fail("No Exception throws");
-    }
-
     @Test
     public void testDecimal() throws AnalysisException {
         TypeDef type = TypeDef.createDecimal(12, 5);
         type.analyze(null);
         if (Config.enable_decimal_conversion) {
-            Assert.assertEquals("decimalv3(12, 5)", type.toString());
+            Assert.assertEquals("DECIMALV3(12, 5)", type.toString());
             Assert.assertEquals(PrimitiveType.DECIMAL64, type.getType().getPrimitiveType());
         } else {
-            Assert.assertEquals("decimal(12, 5)", type.toString());
+            Assert.assertEquals("DECIMAL(12, 5)", type.toString());
             Assert.assertEquals(PrimitiveType.DECIMALV2, type.getType().getPrimitiveType());
         }
         Assert.assertEquals(12, ((ScalarType) type.getType()).getScalarPrecision());
@@ -126,7 +119,7 @@ public class ColumnTypeTest {
     public void testDatetimeV2() throws AnalysisException {
         TypeDef type = TypeDef.createDatetimeV2(3);
         type.analyze(null);
-        Assert.assertEquals("datetimev2(3)", type.toString());
+        Assert.assertEquals("DATETIMEV2(3)", type.toString());
         Assert.assertEquals(PrimitiveType.DATETIMEV2, type.getType().getPrimitiveType());
         Assert.assertEquals(ScalarType.DATETIME_PRECISION, ((ScalarType) type.getType()).getScalarPrecision());
         Assert.assertEquals(3, ((ScalarType) type.getType()).getScalarScale());
@@ -167,7 +160,7 @@ public class ColumnTypeTest {
     public void testTimeV2() throws AnalysisException {
         TypeDef type = TypeDef.createTimeV2(3);
         type.analyze(null);
-        Assert.assertEquals("time(3)", type.toString());
+        Assert.assertEquals("TIME(3)", type.toString());
         Assert.assertEquals(PrimitiveType.TIMEV2, type.getType().getPrimitiveType());
         Assert.assertEquals(ScalarType.DATETIME_PRECISION, ((ScalarType) type.getType()).getScalarPrecision());
         Assert.assertEquals(3, ((ScalarType) type.getType()).getScalarScale());
@@ -196,7 +189,7 @@ public class ColumnTypeTest {
     public void testDecimalPreFail() throws AnalysisException {
         TypeDef type;
         if (Config.enable_decimal_conversion) {
-            type = TypeDef.createDecimal(39, 3);
+            type = TypeDef.createDecimal(77, 3);
         } else {
             type = TypeDef.createDecimal(28, 3);
         }

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -54,7 +55,7 @@ public class PlanUtils {
      * normalize comparison predicate on a binary plan to its two sides are corresponding to the child's output.
      */
     public static ComparisonPredicate maybeCommuteComparisonPredicate(ComparisonPredicate expression, Plan left) {
-        Set<Slot> slots = expression.left().collect(Slot.class::isInstance);
+        Set<Slot> slots = expression.left().getInputSlots();
         Set<Slot> leftSlots = left.getOutputSet();
         Set<Slot> buffer = Sets.newHashSet(slots);
         buffer.removeAll(leftSlots);
@@ -95,5 +96,13 @@ public class PlanUtils {
                 return getAlias == null ? expr : getAlias;
             }
         }).collect(ImmutableList.toImmutableList());
+    }
+
+    public static Plan skipProjectFilterLimit(Plan plan) {
+        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).isAllSlots()
+                || plan instanceof LogicalFilter || plan instanceof LogicalLimit) {
+            return plan.child(0);
+        }
+        return plan;
     }
 }

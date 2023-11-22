@@ -27,6 +27,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
@@ -40,7 +41,7 @@ public class TableValuedFunctionRef extends TableRef {
     private Map<String, String> params;
 
     public TableValuedFunctionRef(String funcName, String alias, Map<String, String> params) throws AnalysisException {
-        super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
+        super(new TableName(null, null, TableValuedFunctionIf.TVF_TABLE_PREFIX + funcName), alias);
         this.funcName = funcName;
         this.params = params;
         this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
@@ -48,7 +49,7 @@ public class TableValuedFunctionRef extends TableRef {
         if (hasExplicitAlias()) {
             return;
         }
-        aliases = new String[] { "_table_valued_function_" + funcName };
+        aliases = new String[] { TableValuedFunctionIf.TVF_TABLE_PREFIX + funcName };
     }
 
     public TableValuedFunctionRef(TableValuedFunctionRef other) {
@@ -103,11 +104,12 @@ public class TableValuedFunctionRef extends TableRef {
             return;
         }
 
-        // check privilige for backends tvf
-        if (funcName.equalsIgnoreCase(BackendsTableValuedFunction.NAME)) {
+        // check privilige for backends/local tvf
+        if (funcName.equalsIgnoreCase(BackendsTableValuedFunction.NAME)
+                || funcName.equalsIgnoreCase(LocalTableValuedFunction.NAME)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
                     && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
-                                                                            PrivPredicate.OPERATOR)) {
+                    PrivPredicate.OPERATOR)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
             }
         }

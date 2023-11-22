@@ -40,6 +40,8 @@ import com.amazonaws.services.glue.model.BatchGetCrawlersRequest;
 import com.amazonaws.services.glue.model.BatchGetCrawlersResult;
 import com.amazonaws.services.glue.model.BatchGetCustomEntityTypesRequest;
 import com.amazonaws.services.glue.model.BatchGetCustomEntityTypesResult;
+import com.amazonaws.services.glue.model.BatchGetDataQualityResultRequest;
+import com.amazonaws.services.glue.model.BatchGetDataQualityResultResult;
 import com.amazonaws.services.glue.model.BatchGetDevEndpointsRequest;
 import com.amazonaws.services.glue.model.BatchGetDevEndpointsResult;
 import com.amazonaws.services.glue.model.BatchGetJobsRequest;
@@ -54,6 +56,10 @@ import com.amazonaws.services.glue.model.BatchStopJobRunRequest;
 import com.amazonaws.services.glue.model.BatchStopJobRunResult;
 import com.amazonaws.services.glue.model.BatchUpdatePartitionRequest;
 import com.amazonaws.services.glue.model.BatchUpdatePartitionResult;
+import com.amazonaws.services.glue.model.CancelDataQualityRuleRecommendationRunRequest;
+import com.amazonaws.services.glue.model.CancelDataQualityRuleRecommendationRunResult;
+import com.amazonaws.services.glue.model.CancelDataQualityRulesetEvaluationRunRequest;
+import com.amazonaws.services.glue.model.CancelDataQualityRulesetEvaluationRunResult;
 import com.amazonaws.services.glue.model.CancelMLTaskRunRequest;
 import com.amazonaws.services.glue.model.CancelMLTaskRunResult;
 import com.amazonaws.services.glue.model.CancelStatementRequest;
@@ -70,6 +76,8 @@ import com.amazonaws.services.glue.model.CreateCrawlerRequest;
 import com.amazonaws.services.glue.model.CreateCrawlerResult;
 import com.amazonaws.services.glue.model.CreateCustomEntityTypeRequest;
 import com.amazonaws.services.glue.model.CreateCustomEntityTypeResult;
+import com.amazonaws.services.glue.model.CreateDataQualityRulesetRequest;
+import com.amazonaws.services.glue.model.CreateDataQualityRulesetResult;
 import com.amazonaws.services.glue.model.CreateDatabaseRequest;
 import com.amazonaws.services.glue.model.CreateDatabaseResult;
 import com.amazonaws.services.glue.model.CreateDevEndpointRequest;
@@ -114,6 +122,8 @@ import com.amazonaws.services.glue.model.DeleteCrawlerRequest;
 import com.amazonaws.services.glue.model.DeleteCrawlerResult;
 import com.amazonaws.services.glue.model.DeleteCustomEntityTypeRequest;
 import com.amazonaws.services.glue.model.DeleteCustomEntityTypeResult;
+import com.amazonaws.services.glue.model.DeleteDataQualityRulesetRequest;
+import com.amazonaws.services.glue.model.DeleteDataQualityRulesetResult;
 import com.amazonaws.services.glue.model.DeleteDatabaseRequest;
 import com.amazonaws.services.glue.model.DeleteDatabaseResult;
 import com.amazonaws.services.glue.model.DeleteDevEndpointRequest;
@@ -178,6 +188,14 @@ import com.amazonaws.services.glue.model.GetCustomEntityTypeRequest;
 import com.amazonaws.services.glue.model.GetCustomEntityTypeResult;
 import com.amazonaws.services.glue.model.GetDataCatalogEncryptionSettingsRequest;
 import com.amazonaws.services.glue.model.GetDataCatalogEncryptionSettingsResult;
+import com.amazonaws.services.glue.model.GetDataQualityResultRequest;
+import com.amazonaws.services.glue.model.GetDataQualityResultResult;
+import com.amazonaws.services.glue.model.GetDataQualityRuleRecommendationRunRequest;
+import com.amazonaws.services.glue.model.GetDataQualityRuleRecommendationRunResult;
+import com.amazonaws.services.glue.model.GetDataQualityRulesetEvaluationRunRequest;
+import com.amazonaws.services.glue.model.GetDataQualityRulesetEvaluationRunResult;
+import com.amazonaws.services.glue.model.GetDataQualityRulesetRequest;
+import com.amazonaws.services.glue.model.GetDataQualityRulesetResult;
 import com.amazonaws.services.glue.model.GetDatabaseRequest;
 import com.amazonaws.services.glue.model.GetDatabaseResult;
 import com.amazonaws.services.glue.model.GetDatabasesRequest;
@@ -280,6 +298,14 @@ import com.amazonaws.services.glue.model.ListCrawlsRequest;
 import com.amazonaws.services.glue.model.ListCrawlsResult;
 import com.amazonaws.services.glue.model.ListCustomEntityTypesRequest;
 import com.amazonaws.services.glue.model.ListCustomEntityTypesResult;
+import com.amazonaws.services.glue.model.ListDataQualityResultsRequest;
+import com.amazonaws.services.glue.model.ListDataQualityResultsResult;
+import com.amazonaws.services.glue.model.ListDataQualityRuleRecommendationRunsRequest;
+import com.amazonaws.services.glue.model.ListDataQualityRuleRecommendationRunsResult;
+import com.amazonaws.services.glue.model.ListDataQualityRulesetEvaluationRunsRequest;
+import com.amazonaws.services.glue.model.ListDataQualityRulesetEvaluationRunsResult;
+import com.amazonaws.services.glue.model.ListDataQualityRulesetsRequest;
+import com.amazonaws.services.glue.model.ListDataQualityRulesetsResult;
 import com.amazonaws.services.glue.model.ListDevEndpointsRequest;
 import com.amazonaws.services.glue.model.ListDevEndpointsResult;
 import com.amazonaws.services.glue.model.ListJobsRequest;
@@ -328,6 +354,10 @@ import com.amazonaws.services.glue.model.StartCrawlerRequest;
 import com.amazonaws.services.glue.model.StartCrawlerResult;
 import com.amazonaws.services.glue.model.StartCrawlerScheduleRequest;
 import com.amazonaws.services.glue.model.StartCrawlerScheduleResult;
+import com.amazonaws.services.glue.model.StartDataQualityRuleRecommendationRunRequest;
+import com.amazonaws.services.glue.model.StartDataQualityRuleRecommendationRunResult;
+import com.amazonaws.services.glue.model.StartDataQualityRulesetEvaluationRunRequest;
+import com.amazonaws.services.glue.model.StartDataQualityRulesetEvaluationRunResult;
 import com.amazonaws.services.glue.model.StartExportLabelsTaskRunRequest;
 import com.amazonaws.services.glue.model.StartExportLabelsTaskRunResult;
 import com.amazonaws.services.glue.model.StartImportLabelsTaskRunRequest;
@@ -370,10 +400,14 @@ import com.amazonaws.services.glue.model.UpdateCrawlerRequest;
 import com.amazonaws.services.glue.model.UpdateCrawlerResult;
 import com.amazonaws.services.glue.model.UpdateCrawlerScheduleRequest;
 import com.amazonaws.services.glue.model.UpdateCrawlerScheduleResult;
+import com.amazonaws.services.glue.model.UpdateDataQualityRulesetRequest;
+import com.amazonaws.services.glue.model.UpdateDataQualityRulesetResult;
 import com.amazonaws.services.glue.model.UpdateDatabaseRequest;
 import com.amazonaws.services.glue.model.UpdateDatabaseResult;
 import com.amazonaws.services.glue.model.UpdateDevEndpointRequest;
 import com.amazonaws.services.glue.model.UpdateDevEndpointResult;
+import com.amazonaws.services.glue.model.UpdateJobFromSourceControlRequest;
+import com.amazonaws.services.glue.model.UpdateJobFromSourceControlResult;
 import com.amazonaws.services.glue.model.UpdateJobRequest;
 import com.amazonaws.services.glue.model.UpdateJobResult;
 import com.amazonaws.services.glue.model.UpdateMLTransformRequest;
@@ -384,6 +418,8 @@ import com.amazonaws.services.glue.model.UpdateRegistryRequest;
 import com.amazonaws.services.glue.model.UpdateRegistryResult;
 import com.amazonaws.services.glue.model.UpdateSchemaRequest;
 import com.amazonaws.services.glue.model.UpdateSchemaResult;
+import com.amazonaws.services.glue.model.UpdateSourceControlFromJobRequest;
+import com.amazonaws.services.glue.model.UpdateSourceControlFromJobResult;
 import com.amazonaws.services.glue.model.UpdateTableRequest;
 import com.amazonaws.services.glue.model.UpdateTableResult;
 import com.amazonaws.services.glue.model.UpdateTriggerRequest;
@@ -1338,6 +1374,96 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     @Override
     public BatchGetBlueprintsResult batchGetBlueprints(BatchGetBlueprintsRequest batchGetBlueprintsRequest) {
         return decoratedAwsGlue.batchGetBlueprints(batchGetBlueprintsRequest);
+    }
+
+    @Override
+    public UpdateSourceControlFromJobResult updateSourceControlFromJob(UpdateSourceControlFromJobRequest updateSourceControlFromJobRequest) {
+        return null;
+    }
+
+    @Override
+    public BatchGetDataQualityResultResult batchGetDataQualityResult(BatchGetDataQualityResultRequest batchGetDataQualityResultRequest) {
+        return null;
+    }
+
+    @Override
+    public CancelDataQualityRuleRecommendationRunResult cancelDataQualityRuleRecommendationRun(CancelDataQualityRuleRecommendationRunRequest cancelDataQualityRuleRecommendationRunRequest) {
+        return null;
+    }
+
+    @Override
+    public CancelDataQualityRulesetEvaluationRunResult cancelDataQualityRulesetEvaluationRun(CancelDataQualityRulesetEvaluationRunRequest cancelDataQualityRulesetEvaluationRunRequest) {
+        return null;
+    }
+
+    @Override
+    public CreateDataQualityRulesetResult createDataQualityRuleset(CreateDataQualityRulesetRequest createDataQualityRulesetRequest) {
+        return null;
+    }
+
+    @Override
+    public DeleteDataQualityRulesetResult deleteDataQualityRuleset(DeleteDataQualityRulesetRequest deleteDataQualityRulesetRequest) {
+        return null;
+    }
+
+    @Override
+    public GetDataQualityResultResult getDataQualityResult(GetDataQualityResultRequest getDataQualityResultRequest) {
+        return null;
+    }
+
+    @Override
+    public GetDataQualityRuleRecommendationRunResult getDataQualityRuleRecommendationRun(GetDataQualityRuleRecommendationRunRequest getDataQualityRuleRecommendationRunRequest) {
+        return null;
+    }
+
+    @Override
+    public GetDataQualityRulesetResult getDataQualityRuleset(GetDataQualityRulesetRequest getDataQualityRulesetRequest) {
+        return null;
+    }
+
+    @Override
+    public GetDataQualityRulesetEvaluationRunResult getDataQualityRulesetEvaluationRun(GetDataQualityRulesetEvaluationRunRequest getDataQualityRulesetEvaluationRunRequest) {
+        return null;
+    }
+
+    @Override
+    public ListDataQualityResultsResult listDataQualityResults(ListDataQualityResultsRequest listDataQualityResultsRequest) {
+        return null;
+    }
+
+    @Override
+    public ListDataQualityRuleRecommendationRunsResult listDataQualityRuleRecommendationRuns(ListDataQualityRuleRecommendationRunsRequest listDataQualityRuleRecommendationRunsRequest) {
+        return null;
+    }
+
+    @Override
+    public ListDataQualityRulesetEvaluationRunsResult listDataQualityRulesetEvaluationRuns(ListDataQualityRulesetEvaluationRunsRequest listDataQualityRulesetEvaluationRunsRequest) {
+        return null;
+    }
+
+    @Override
+    public ListDataQualityRulesetsResult listDataQualityRulesets(ListDataQualityRulesetsRequest listDataQualityRulesetsRequest) {
+        return null;
+    }
+
+    @Override
+    public StartDataQualityRuleRecommendationRunResult startDataQualityRuleRecommendationRun(StartDataQualityRuleRecommendationRunRequest startDataQualityRuleRecommendationRunRequest) {
+        return null;
+    }
+
+    @Override
+    public StartDataQualityRulesetEvaluationRunResult startDataQualityRulesetEvaluationRun(StartDataQualityRulesetEvaluationRunRequest startDataQualityRulesetEvaluationRunRequest) {
+        return null;
+    }
+
+    @Override
+    public UpdateDataQualityRulesetResult updateDataQualityRuleset(UpdateDataQualityRulesetRequest updateDataQualityRulesetRequest) {
+        return null;
+    }
+
+    @Override
+    public UpdateJobFromSourceControlResult updateJobFromSourceControl(UpdateJobFromSourceControlRequest updateJobFromSourceControlRequest) {
+        return null;
     }
 }
 

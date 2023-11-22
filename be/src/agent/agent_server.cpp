@@ -29,8 +29,8 @@
 
 #include "agent/task_worker_pool.h"
 #include "agent/topic_subscriber.h"
-#include "agent/user_resource_listener.h"
 #include "agent/utils.h"
+#include "agent/workload_group_listener.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -38,10 +38,6 @@
 #include "olap/options.h"
 #include "olap/snapshot_manager.h"
 #include "runtime/exec_env.h"
-
-namespace doris {
-class TopicListener;
-} // namespace doris
 
 using std::string;
 using std::vector;
@@ -128,14 +124,16 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
     CREATE_AND_START_POOL(PUSH_STORAGE_POLICY, _push_storage_policy_workers);
+    CREATE_AND_START_THREAD(GC_BINLOG, _gc_binlog_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
 #if !defined(BE_TEST) && !defined(__APPLE__)
     // Add subscriber here and register listeners
-    TopicListener* user_resource_listener = new UserResourceListener(exec_env, master_info);
-    LOG(INFO) << "Register user resource listener";
-    _topic_subscriber->register_listener(doris::TTopicType::type::RESOURCE, user_resource_listener);
+    std::unique_ptr<TopicListener> wg_listener = std::make_unique<WorkloadGroupListener>(exec_env);
+    LOG(INFO) << "Register workload group listener";
+    _topic_subscriber->register_listener(doris::TTopicInfoType::type::WORKLOAD_GROUP,
+                                         std::move(wg_listener));
 #endif
 }
 
@@ -235,6 +233,14 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                 ret_st = Status::InvalidArgument(
                         "task(signature={}) has wrong request member = push_cooldown_conf",
                         signature);
+            }
+            break;
+        case TTaskType::GC_BINLOG:
+            if (task.__isset.gc_binlog_req) {
+                _gc_binlog_workers->submit_task(task);
+            } else {
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = gc_binlog_req", signature);
             }
             break;
         default:

@@ -32,10 +32,8 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -83,9 +81,6 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             const TExpr& texpr = n.second;
             // create expr tree from TExpr
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(texpr, ctx));
-
-            // close context expr
-            Defer defer {[&]() { ctx->close(_runtime_state.get()); }};
             // prepare and open context
             RETURN_IF_ERROR(_prepare_and_open(ctx.get()));
 
@@ -148,11 +143,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
         return status;
     }
     _runtime_state->set_desc_tbl(desc_tbl);
-    status = _runtime_state->init_mem_trackers(_query_id);
-    if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status;
-        return status;
-    }
+    _runtime_state->init_mem_trackers(_query_id, "FoldConstant");
 
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");
@@ -203,6 +194,11 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         double val = *reinterpret_cast<double*>(src);
         return fmt::format("{}", val);
     }
+    case TYPE_TIMEV2: {
+        constexpr static auto ratio_to_time = (1000 * 1000);
+        double val = *reinterpret_cast<double*>(src);
+        return fmt::format("{}", val / ratio_to_time);
+    }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING:
@@ -212,25 +208,22 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        auto date_value = reinterpret_cast<vectorized::VecDateTimeValue*>(src);
+        auto date_value = reinterpret_cast<VecDateTimeValue*>(src);
         char str[MAX_DTVALUE_STR_LEN];
         date_value->to_string(str);
         return str;
     }
     case TYPE_DATEV2: {
-        vectorized::DateV2Value<vectorized::DateV2ValueType> value =
-                binary_cast<uint32_t, doris::vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-                        *(int32_t*)src);
+        DateV2Value<DateV2ValueType> value =
+                binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(int32_t*)src);
 
         char buf[64];
         char* pos = value.to_string(buf);
         return std::string(buf, pos - buf - 1);
     }
     case TYPE_DATETIMEV2: {
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> value =
-                binary_cast<uint64_t,
-                            doris::vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-                        *(int64_t*)src);
+        DateV2Value<DateTimeV2ValueType> value =
+                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)src);
 
         char buf[64];
         char* pos = value.to_string(buf, type.scale);
@@ -241,7 +234,8 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I: {
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256: {
         return column_type->to_string(*column_ptr, 0);
     }
     case TYPE_ARRAY:

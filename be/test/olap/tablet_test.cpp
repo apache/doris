@@ -28,12 +28,14 @@
 #include "gutil/strings/numbers.h"
 #include "http/action/pad_rowset_action.h"
 #include "io/fs/local_file_system.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "testutil/mock_rowset.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -82,11 +84,11 @@ public:
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
         _data_dir = std::make_unique<DataDir>(absolute_dir);
-        _data_dir->update_capacity();
+        static_cast<void>(_data_dir->update_capacity());
 
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
-        StorageEngine::_s_instance = k_engine;
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
     }
 
     void TearDown() override {
@@ -95,6 +97,7 @@ public:
             k_engine->stop();
             delete k_engine;
             k_engine = nullptr;
+            ExecEnv::GetInstance()->set_storage_engine(nullptr);
         }
     }
 
@@ -234,11 +237,11 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     fetch_expired_row_rs_meta(&expired_rs_metas);
 
     for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
-    _tablet->init();
+    static_cast<void>(_tablet->init());
 
     for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
@@ -270,21 +273,21 @@ TEST_F(TestTablet, pad_rowset) {
     RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, "", ptr3);
 
     for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
-    _data_dir->init();
+    static_cast<void>(_data_dir->init());
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, _data_dir.get()));
-    _tablet->init();
+    static_cast<void>(_tablet->init());
 
     Version version(5, 5);
-    std::vector<RowsetReaderSharedPtr> readers;
-    ASSERT_FALSE(_tablet->capture_rs_readers(version, &readers).ok());
-    readers.clear();
+    std::vector<RowSetSplits> splits;
+    ASSERT_FALSE(_tablet->capture_rs_readers(version, &splits, false).ok());
+    splits.clear();
 
     PadRowsetAction action(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
-    action._pad_rowset(_tablet, version);
-    ASSERT_TRUE(_tablet->capture_rs_readers(version, &readers).ok());
+    static_cast<void>(action._pad_rowset(_tablet, version));
+    ASSERT_TRUE(_tablet->capture_rs_readers(version, &splits, false).ok());
 }
 
 TEST_F(TestTablet, cooldown_policy) {
@@ -315,11 +318,11 @@ TEST_F(TestTablet, cooldown_policy) {
     RowsetSharedPtr rowset5 = make_shared<BetaRowset>(nullptr, "", ptr5);
 
     for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
-    _tablet->init();
+    static_cast<void>(_tablet->init());
     constexpr int64_t storage_policy_id = 10000;
     _tablet->set_storage_policy_id(storage_policy_id);
 
@@ -390,66 +393,6 @@ TEST_F(TestTablet, cooldown_policy) {
         ASSERT_EQ(cooldown_timestamp, expect_cooldown_timestamp);
         ASSERT_EQ(file_size, 84699);
     }
-}
-
-TEST_F(TestTablet, rowset_tree_update) {
-    TTabletSchema tschema;
-    tschema.keys_type = TKeysType::UNIQUE_KEYS;
-    TabletMetaSharedPtr tablet_meta = new_tablet_meta(tschema, true);
-    TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
-    RowsetIdUnorderedSet rowset_ids;
-    tablet->init();
-
-    RowsetMetaSharedPtr rsm1(new RowsetMeta());
-    init_rs_meta(rsm1, 6, 7, convert_key_bounds({{"100", "200"}, {"300", "400"}}));
-    RowsetId id1;
-    id1.init(10010);
-    RowsetSharedPtr rs_ptr1;
-    MockRowset::create_rowset(tablet->tablet_schema(), "", rsm1, &rs_ptr1, false);
-    tablet->add_inc_rowset(rs_ptr1);
-    rowset_ids.insert(id1);
-
-    RowsetMetaSharedPtr rsm2(new RowsetMeta());
-    init_rs_meta(rsm2, 8, 8, convert_key_bounds({{"500", "999"}}));
-    RowsetId id2;
-    id2.init(10086);
-    rsm2->set_rowset_id(id2);
-    RowsetSharedPtr rs_ptr2;
-    MockRowset::create_rowset(tablet->tablet_schema(), "", rsm2, &rs_ptr2, false);
-    tablet->add_inc_rowset(rs_ptr2);
-    rowset_ids.insert(id2);
-
-    RowsetId id3;
-    id3.init(540081);
-    rowset_ids.insert(id3);
-
-    RowLocation loc;
-    // Key not in range.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("99", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
-    // Version too low.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("101", true, &rowset_ids, &loc, 3).is<ErrorCode::NOT_FOUND>());
-    // Hit a segment, but since we don't have real data, return an internal error when loading the
-    // segment.
-    LOG(INFO) << tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7).to_string();
-    ASSERT_TRUE(
-            tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7).is<ErrorCode::IO_ERROR>());
-    // Key not in range.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("201", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
-    ASSERT_TRUE(
-            tablet->lookup_row_key("300", true, &rowset_ids, &loc, 7).is<ErrorCode::IO_ERROR>());
-    // Key not in range.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("499", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
-    // Version too low.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("500", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
-    // Hit a segment, but since we don't have real data, return an internal error when loading the
-    // segment.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("500", true, &rowset_ids, &loc, 8).is<ErrorCode::IO_ERROR>());
 }
 
 } // namespace doris

@@ -32,7 +32,6 @@
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/bit_helpers.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -175,11 +174,10 @@ template <typename T>
 struct SingleValueDataDecimal {
 private:
     using Self = SingleValueDataDecimal;
-    using Type = typename NativeType<T>::Type;
 
     bool has_value =
             false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
-    Type value;
+    T value;
 
 public:
     SingleValueDataDecimal() = default;
@@ -297,7 +295,7 @@ private:
 
     Int32 size = -1;    /// -1 indicates that there is no value.
     Int32 capacity = 0; /// power of two or zero
-    char* large_data = nullptr;
+    std::unique_ptr<char[]> large_data;
 
 public:
     static constexpr Int32 AUTOMATIC_STORAGE_SIZE = 64;
@@ -314,7 +312,9 @@ public:
 
     bool has() const { return size >= 0; }
 
-    const char* get_data() const { return size <= MAX_SMALL_STRING_SIZE ? small_data : large_data; }
+    const char* get_data() const {
+        return size <= MAX_SMALL_STRING_SIZE ? small_data : large_data.get();
+    }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
@@ -328,7 +328,6 @@ public:
         if (size != -1) {
             size = -1;
             capacity = 0;
-            delete[] large_data;
             large_data = nullptr;
         }
     }
@@ -356,11 +355,11 @@ public:
             } else {
                 if (capacity < rhs_size) {
                     capacity = round_up_to_power_of_two_or_zero(rhs_size);
-                    large_data = arena->alloc(capacity);
+                    large_data.reset(new char[capacity]);
                 }
 
                 size = rhs_size;
-                buf.read(large_data, size);
+                buf.read(large_data.get(), size);
             }
         } else {
             /// Don't free large_data here.
@@ -385,11 +384,11 @@ public:
             if (capacity < value_size) {
                 /// Don't free large_data here.
                 capacity = round_up_to_power_of_two_or_zero(value_size);
-                large_data = arena->alloc(capacity);
+                large_data.reset(new char[capacity]);
             }
 
             size = value_size;
-            memcpy(large_data, value.data, size);
+            memcpy(large_data.get(), value.data, size);
         }
     }
 
@@ -608,12 +607,45 @@ public:
         }
     }
 
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena* arena) const override {
+        if constexpr (Data::IsFixedLength) {
+            DCHECK(end <= column.size() && begin <= end) << ", begin:" << begin << ", end:" << end
+                                                         << ", column.size():" << column.size();
+            auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+            auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+            for (size_t i = begin; i <= end; ++i) {
+                this->data(place).change_if_better(data[i], arena);
+            }
+        } else {
+            Base::deserialize_and_merge_from_column_range(place, column, begin, end, arena);
+        }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+    }
+
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         if constexpr (Data::IsFixedLength) {
             auto& col = assert_cast<ColumnFixedLengthObject&>(to);
-            col.resize(1);
-            *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);
+            size_t old_size = col.size();
+            col.resize(old_size + 1);
+            *(reinterpret_cast<Data*>(col.get_data().data()) + old_size) = this->data(place);
         } else {
             Base::serialize_without_key_to_column(place, to);
         }

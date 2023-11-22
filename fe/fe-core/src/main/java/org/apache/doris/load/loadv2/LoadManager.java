@@ -50,8 +50,6 @@ import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
-import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
@@ -103,6 +101,11 @@ public class LoadManager implements Writable {
         this.loadJobScheduler = loadJobScheduler;
         this.tokenManager = new TokenManager();
         this.mysqlLoadManager = new MysqlLoadManager(tokenManager);
+    }
+
+    public void start() {
+        tokenManager.start();
+        mysqlLoadManager.start();
     }
 
     /**
@@ -271,13 +274,14 @@ public class LoadManager implements Writable {
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
         // List of load jobs waiting to be cancelled
-        List<LoadJob> matchLoadJobs = Lists.newArrayList();
+        List<LoadJob> uncompletedLoadJob = Lists.newArrayList();
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
             if (labelToLoadJobs == null) {
                 throw new DdlException("Load job does not exist");
             }
+            List<LoadJob> matchLoadJobs = Lists.newArrayList();
             addNeedCancelLoadJob(stmt,
                     labelToLoadJobs.values().stream().flatMap(Collection::stream).collect(Collectors.toList()),
                     matchLoadJobs);
@@ -285,7 +289,7 @@ public class LoadManager implements Writable {
                 throw new DdlException("Load job does not exist");
             }
             // check state here
-            List<LoadJob> uncompletedLoadJob =
+            uncompletedLoadJob =
                     matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
             if (uncompletedLoadJob.isEmpty()) {
                 throw new DdlException("There is no uncompleted job");
@@ -293,7 +297,7 @@ public class LoadManager implements Writable {
         } finally {
             readUnlock();
         }
-        for (LoadJob loadJob : matchLoadJobs) {
+        for (LoadJob loadJob : uncompletedLoadJob) {
             try {
                 loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
             } catch (DdlException e) {
@@ -710,48 +714,46 @@ public class LoadManager implements Writable {
         int counter = 0;
         writeLock();
         try {
-            if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
-                // no label in this db, just return
-                return;
-            }
-            Map<String, List<LoadJob>> labelToJob = dbIdToLabelToLoadJobs.get(dbId);
-            if (Strings.isNullOrEmpty(label)) {
-                // clean all labels in this db
-                Iterator<Map.Entry<String, List<LoadJob>>> iter = labelToJob.entrySet().iterator();
-                while (iter.hasNext()) {
-                    List<LoadJob> jobs = iter.next().getValue();
-                    Iterator<LoadJob> innerIter = jobs.iterator();
-                    while (innerIter.hasNext()) {
-                        LoadJob job = innerIter.next();
+            if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                Map<String, List<LoadJob>> labelToJob = dbIdToLabelToLoadJobs.get(dbId);
+                if (Strings.isNullOrEmpty(label)) {
+                    // clean all labels in this db
+                    Iterator<Map.Entry<String, List<LoadJob>>> iter = labelToJob.entrySet().iterator();
+                    while (iter.hasNext()) {
+                        List<LoadJob> jobs = iter.next().getValue();
+                        Iterator<LoadJob> innerIter = jobs.iterator();
+                        while (innerIter.hasNext()) {
+                            LoadJob job = innerIter.next();
+                            if (!job.isCompleted()) {
+                                continue;
+                            }
+                            innerIter.remove();
+                            idToLoadJob.remove(job.getId());
+                            ++counter;
+                        }
+                        if (jobs.isEmpty()) {
+                            iter.remove();
+                        }
+                    }
+                } else {
+                    List<LoadJob> jobs = labelToJob.get(label);
+                    if (jobs == null) {
+                        // no job for this label, just return
+                        return;
+                    }
+                    Iterator<LoadJob> iter = jobs.iterator();
+                    while (iter.hasNext()) {
+                        LoadJob job = iter.next();
                         if (!job.isCompleted()) {
                             continue;
                         }
-                        innerIter.remove();
+                        iter.remove();
                         idToLoadJob.remove(job.getId());
                         ++counter;
                     }
                     if (jobs.isEmpty()) {
-                        iter.remove();
+                        labelToJob.remove(label);
                     }
-                }
-            } else {
-                List<LoadJob> jobs = labelToJob.get(label);
-                if (jobs == null) {
-                    // no job for this label, just return
-                    return;
-                }
-                Iterator<LoadJob> iter = jobs.iterator();
-                while (iter.hasNext()) {
-                    LoadJob job = iter.next();
-                    if (!job.isCompleted()) {
-                        continue;
-                    }
-                    iter.remove();
-                    idToLoadJob.remove(job.getId());
-                    ++counter;
-                }
-                if (jobs.isEmpty()) {
-                    labelToJob.remove(label);
                 }
             }
         } finally {
@@ -761,10 +763,10 @@ public class LoadManager implements Writable {
 
         // 2. Remove from DatabaseTransactionMgr
         try {
-            DatabaseTransactionMgr dbTxnMgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
-            dbTxnMgr.cleanLabel(label);
+            Env.getCurrentGlobalTransactionMgr().cleanLabel(dbId, label);
         } catch (AnalysisException e) {
             // just ignore, because we don't want to throw any exception here.
+            LOG.warn("Exception:", e);
         }
 
         // 3. Log
@@ -817,7 +819,8 @@ public class LoadManager implements Writable {
     public void write(DataOutput out) throws IOException {
         long currentTimeMs = System.currentTimeMillis();
         List<LoadJob> loadJobs =
-                idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs)).collect(Collectors.toList());
+                idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs))
+                        .filter(t -> !(t instanceof MiniLoadJob)).collect(Collectors.toList());
 
         out.writeInt(loadJobs.size());
         for (LoadJob loadJob : loadJobs) {
@@ -838,25 +841,9 @@ public class LoadManager implements Writable {
             }
 
             if (loadJob.getJobType() == EtlJobType.MINI) {
-                // This is a bug fix. the mini load job should not with state LOADING.
-                if (loadJob.getState() == JobState.LOADING) {
-                    LOG.warn("skip mini load job {} in db {} with LOADING state", loadJob.getId(), loadJob.getDbId());
-                    continue;
-                }
-
-                if (loadJob.getState() == JobState.PENDING) {
-                    // bad case. When a mini load job is created and then FE restart.
-                    // the job will be in PENDING state forever.
-                    // This is a temp solution to remove these jobs.
-                    // And the mini load job should be deprecated in Doris v1.1
-                    TransactionState state = Env.getCurrentEnv().getGlobalTransactionMgr()
-                            .getTransactionState(loadJob.getDbId(), loadJob.getTransactionId());
-                    if (state == null) {
-                        LOG.warn("skip mini load job {} in db {} with PENDING state and with txn: {}", loadJob.getId(),
-                                loadJob.getDbId(), loadJob.getTransactionId());
-                        continue;
-                    }
-                }
+                LOG.warn("skip mini load job {} in db {} as it is no longer supported", loadJob.getId(),
+                        loadJob.getDbId());
+                continue;
             }
             idToLoadJob.put(loadJob.getId(), loadJob);
             Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(loadJob.getDbId());

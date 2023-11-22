@@ -38,6 +38,9 @@ suite("load") {
         replicationNum 1
         timeout 72000
     }
+    sql "sync"
+    sql """ ANALYZE TABLE github_events """;
+    qt_sql_select_count """ select count(*) from github_events; """
 }
 /**
  *

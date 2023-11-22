@@ -48,6 +48,8 @@ public class NetUtils {
     public static final String HTTPS_PORT_SUGGESTION = "Please change the 'https_port' in fe.conf and try again. "
             + "But you need to make sure that ALL FEs https_port are same.";
     public static final String RPC_PORT_SUGGESTION = "Please change the 'rpc_port' in fe.conf and try again.";
+    public static final String ARROW_FLIGHT_SQL_SUGGESTION =
+            "Please change the 'arrow_flight_sql_port' in fe.conf and try again.";
 
     // Target format is "host:port"
     public static InetSocketAddress createSocketAddr(String target) {
@@ -137,16 +139,16 @@ public class NetUtils {
     }
 
     public static SystemInfoService.HostInfo resolveHostInfoFromHostPort(String hostPort) throws AnalysisException {
+        String[] pair;
         if (hostPort.charAt(0) == '[') {
-            String[] pair = hostPort.substring(1).split("]:");
-            return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
+            pair = hostPort.substring(1).split("]:");
         } else {
-            String[] pair = hostPort.split(":");
-            if (pair.length != 2) {
-                throw new AnalysisException("invalid host port: " + hostPort);
-            }
-            return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
+            pair = hostPort.split(":");
         }
+        if (pair.length != 2) {
+            throw new AnalysisException("invalid host port: " + hostPort);
+        }
+        return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
     }
 
 }

@@ -56,13 +56,42 @@ TEST_F(S3URITest, EncodedString) {
     EXPECT_EQ("path%20to%20file", uri1.get_key());
 }
 
+TEST_F(S3URITest, HttpURI) {
+    std::string p1 = "http://a.b.com/bucket/path/to/file";
+    S3URI uri1(p1);
+    EXPECT_TRUE(uri1.parse());
+    EXPECT_EQ("bucket", uri1.get_bucket());
+    EXPECT_EQ("path/to/file", uri1.get_key());
+
+    std::string p2 = "https://a.b.com/bucket/path/to/file";
+    S3URI uri2(p2);
+    EXPECT_TRUE(uri2.parse());
+    EXPECT_EQ("bucket", uri2.get_bucket());
+    EXPECT_EQ("path/to/file", uri2.get_key());
+}
+
+TEST_F(S3URITest, InvalidSchema) {
+    std::string p1 = "xxx://a.b.com/bucket/path/to/file";
+    S3URI uri1(p1);
+    EXPECT_FALSE(uri1.parse());
+}
+
 TEST_F(S3URITest, MissingKey) {
     std::string p1 = "https://bucket/";
     S3URI uri1(p1);
     EXPECT_FALSE(uri1.parse());
+
     std::string p2 = "s3://bucket/";
     S3URI uri2(p2);
     EXPECT_FALSE(uri2.parse());
+
+    std::string p3 = "http://a.b.com/bucket/";
+    S3URI uri3(p3);
+    EXPECT_FALSE(uri3.parse());
+
+    std::string p4 = "http://a.b.com/";
+    S3URI uri4(p4);
+    EXPECT_FALSE(uri4.parse());
 }
 
 TEST_F(S3URITest, RelativePathing) {

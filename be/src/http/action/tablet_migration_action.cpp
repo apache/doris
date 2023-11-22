@@ -39,10 +39,10 @@ const static std::string HEADER_JSON = "application/json";
 void TabletMigrationAction::_init_migration_action() {
     int32_t max_thread_num = config::max_tablet_migration_threads;
     int32_t min_thread_num = config::min_tablet_migration_threads;
-    ThreadPoolBuilder("MigrationTaskThreadPool")
-            .set_min_threads(min_thread_num)
-            .set_max_threads(max_thread_num)
-            .build(&_migration_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("MigrationTaskThreadPool")
+                              .set_min_threads(min_thread_num)
+                              .set_max_threads(max_thread_num)
+                              .build(&_migration_thread_pool));
 }
 
 void TabletMigrationAction::handle(HttpRequest* req) {
@@ -171,9 +171,9 @@ Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
         tablet_id = std::stoull(req_tablet_id);
         schema_hash = std::stoul(req_schema_hash);
     } catch (const std::exception& e) {
-        LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
-                     << ", schema_hash:" << req_schema_hash;
-        return Status::InternalError("Convert failed, {}", e.what());
+        return Status::InternalError(
+                "Convert failed:{}, invalid argument.tablet_id: {}, schema_hash: {}", e.what(),
+                req_tablet_id, req_schema_hash);
     }
     dest_disk = req->param("disk");
     goal = req->param("goal");

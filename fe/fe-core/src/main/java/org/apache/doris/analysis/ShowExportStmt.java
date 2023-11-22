@@ -27,7 +27,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ExportProcNode;
 import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.load.ExportJob.JobState;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -54,7 +54,7 @@ public class ShowExportStmt extends ShowStmt {
     private boolean isLabelUseLike = false;
     private String stateValue = null;
 
-    private JobState jobState;
+    private ExportJobState jobState;
 
     private ArrayList<OrderByPair> orderByPairs;
 
@@ -84,7 +84,7 @@ public class ShowExportStmt extends ShowStmt {
         return this.jobId;
     }
 
-    public JobState getJobState() {
+    public ExportJobState getJobState() {
         if (Strings.isNullOrEmpty(stateValue)) {
             return null;
         }
@@ -152,7 +152,7 @@ public class ShowExportStmt extends ShowStmt {
                     if (!Strings.isNullOrEmpty(value)) {
                         stateValue = value.toUpperCase();
                         try {
-                            jobState = JobState.valueOf(stateValue);
+                            jobState = ExportJobState.valueOf(stateValue);
                             valid = true;
                         } catch (IllegalArgumentException e) {
                             LOG.warn("illegal state argument in export stmt. stateValue={}, error={}", stateValue, e);

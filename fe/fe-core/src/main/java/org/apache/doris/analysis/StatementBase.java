@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -57,6 +58,10 @@ public abstract class StatementBase implements ParseNode {
 
     private boolean isPrepared = false;
 
+    // select * from tbl where a = ? and b = ?
+    // `?` is the placeholder
+    private ArrayList<PlaceHolderExpr> placeholders = new ArrayList<>();
+
     protected StatementBase() { }
 
     /**
@@ -73,12 +78,17 @@ public abstract class StatementBase implements ParseNode {
      * were missing from the catalog.
      * It is up to the analysis() implementation to ensure the maximum number of missing
      * tables/views get collected in the Analyzer before failing analyze().
+     * Should call the method firstly when override the method, the analyzer param should be
+     * the one which statement would use.
      */
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) {
             return;
         }
         this.analyzer = analyzer;
+        if (analyzer.getRootStatementClazz() == null) {
+            analyzer.setRootStatementClazz(this.getClass());
+        }
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
         }
@@ -99,6 +109,14 @@ public abstract class StatementBase implements ParseNode {
 
     public boolean isExplain() {
         return this.explainOptions != null;
+    }
+
+    public void setPlaceHolders(ArrayList<PlaceHolderExpr> placeholders) {
+        this.placeholders = new ArrayList<PlaceHolderExpr>(placeholders);
+    }
+
+    public ArrayList<PlaceHolderExpr> getPlaceHolders() {
+        return this.placeholders;
     }
 
     public boolean isVerbose() {

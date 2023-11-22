@@ -47,6 +47,7 @@ suite("test_multi_partition") {
     List<List<Object>> result2  = sql "show partitions from multi_par"
     logger.info("${result2}")
     assertEquals(result2.size(), 30)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par"
 
 
@@ -84,6 +85,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par1"
     logger.info("${result2}")
     assertEquals(result2.size(), 55)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par1"
 
 
@@ -118,6 +120,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par2"
     logger.info("${result2}")
     assertEquals(result2.size(), 48)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par2"
 
 
@@ -152,6 +155,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par3"
     logger.info("${result2}")
     assertEquals(result2.size(), 48)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par3"
 
 
@@ -185,6 +189,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par4"
     logger.info("${result2}")
     assertEquals(result2.size(), 30)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par4"
 
     sql "drop table if exists multi_par5"
@@ -218,6 +223,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par5"
     logger.info("${result2}")
     assertEquals(result2.size(), 48)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par5"
 
 
@@ -251,6 +257,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par6"
     logger.info("${result2}")
     assertEquals(result2.size(), 30)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par6"
 
 
@@ -284,6 +291,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par7"
     logger.info("${result2}")
     assertEquals(result2.size(), 30)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par7"
 
 
@@ -319,6 +327,142 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par8"
     logger.info("${result2}")
     assertEquals(result2.size(), 16)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par8"
+
+
+    sql "drop table if exists multi_par9"
+    sql """
+        CREATE TABLE IF NOT EXISTS multi_par9 (
+            k1 tinyint NOT NULL,
+            k2 smallint NOT NULL,
+            k3 int NOT NULL,
+            k4 bigint NOT NULL,
+            k5 decimal(9, 3) NOT NULL,
+            k6 char(5) NOT NULL,
+            k10 date NOT NULL,
+            k11 datetime NOT NULL,
+            k12 datev2 NOT NULL,
+            k13 datetimev2 NOT NULL,
+            k14 datetimev2(3) NOT NULL,
+            k15 datetimev2(6) NOT NULL,
+            k7 varchar(20) NOT NULL,
+            k8 double max NOT NULL,
+            k9 float sum NOT NULL )
+        AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k12,k13,k14,k15,k7)
+        PARTITION BY RANGE(k3) (
+            FROM (1000) TO (10000) INTERVAL 200
+            )
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
+    result1  = sql "show tables like 'multi_par9'"
+    logger.info("${result1}")
+    assertEquals(result1.size(), 1)
+    result2  = sql "show partitions from multi_par9"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 45)
+    assertTrue(result2[1][1].startsWith("p_"))
+    sql "drop table multi_par9"
+
+
+    sql "drop table if exists multi_par10"
+    sql """
+        CREATE TABLE IF NOT EXISTS multi_par10 (
+            k1 tinyint NOT NULL,
+            k2 smallint NOT NULL,
+            k3 int NOT NULL,
+            k4 bigint NOT NULL,
+            k5 decimal(9, 3) NOT NULL,
+            k6 char(5) NOT NULL,
+            k10 date NOT NULL,
+            k11 datetime NOT NULL,
+            k12 datev2 NOT NULL,
+            k13 datetimev2 NOT NULL,
+            k14 datetimev2(3) NOT NULL,
+            k15 datetimev2(6) NOT NULL,
+            k7 varchar(20) NOT NULL,
+            k8 double max NOT NULL,
+            k9 float sum NOT NULL )
+        AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k12,k13,k14,k15,k7)
+        PARTITION BY RANGE(k3) (
+            FROM (1000) TO (1001) INTERVAL 200
+            )
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
+    result1  = sql "show tables like 'multi_par10'"
+    logger.info("${result1}")
+    assertEquals(result1.size(), 1)
+    result2  = sql "show partitions from multi_par10"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 1)
+    assertTrue(result2[0][1].startsWith("p_"))
+    sql "drop table multi_par10"
+
+
+    try {
+        test {
+            sql "drop table if exists multi_par11"
+            sql """
+                CREATE TABLE IF NOT EXISTS multi_par11 (
+                    k1 tinyint NOT NULL,
+                    k2 smallint NOT NULL,
+                    k3 int NOT NULL,
+                    k4 bigint NOT NULL,
+                    k5 decimal(9, 3) NOT NULL,
+                    k6 char(5) NOT NULL,
+                    k10 date NOT NULL,
+                    k11 datetime NOT NULL,
+                    k12 datev2 NOT NULL,
+                    k13 datetimev2 NOT NULL,
+                    k14 datetimev2(3) NOT NULL,
+                    k15 datetimev2(6) NOT NULL,
+                    k7 varchar(20) NOT NULL,
+                    k8 double max NOT NULL,
+                    k9 float sum NOT NULL )
+                AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k12,k13,k14,k15,k7)
+                PARTITION BY RANGE(k3) (
+                    FROM (2000) TO (1001) INTERVAL 200
+                    )
+                DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+                """
+            exception "Multi build partition start number should less than end number"
+        }
+    } finally {
+        sql "drop table IF EXISTS multi_par11"
+    }
+
+
+    sql "drop table if exists multi_par12"
+    sql """
+        CREATE TABLE IF NOT EXISTS multi_par12 (
+            k1 tinyint NOT NULL,
+            k2 smallint NOT NULL,
+            k3 int NOT NULL,
+            k4 bigint NOT NULL,
+            k5 decimal(9, 3) NOT NULL,
+            k6 char(5) NOT NULL,
+            k10 date NOT NULL,
+            k11 datetime NOT NULL,
+            k12 datev2 NOT NULL,
+            k13 datetimev2 NOT NULL,
+            k14 datetimev2(3) NOT NULL,
+            k15 datetimev2(6) NOT NULL,
+            k7 varchar(20) NOT NULL,
+            k8 double max NOT NULL,
+            k9 float sum NOT NULL )
+        AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k12,k13,k14,k15,k7)
+        PARTITION BY RANGE(k3) (
+            FROM ("1000") TO ("10000") INTERVAL 200
+            )
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
+    result1  = sql "show tables like 'multi_par12'"
+    logger.info("${result1}")
+    assertEquals(result1.size(), 1)
+    result2  = sql "show partitions from multi_par12"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 45)
+    assertTrue(result2[1][1].startsWith("p_"))
+    sql "drop table multi_par12"
 
 }

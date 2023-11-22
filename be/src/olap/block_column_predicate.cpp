@@ -52,6 +52,11 @@ bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::BloomFilter* bf)
     return _predicate->evaluate_and(bf);
 }
 
+bool SingleColumnBlockPredicate::evaluate_and(const StringRef* dict_words,
+                                              const size_t dict_num) const {
+    return _predicate->evaluate_and(dict_words, dict_num);
+}
+
 void SingleColumnBlockPredicate::evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
                                              uint16_t selected_size, bool* flags) const {
     auto column_id = _predicate->column_id();
@@ -152,6 +157,16 @@ bool AndBlockColumnPredicate::evaluate_and(
 bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
     for (auto block_column_predicate : _block_column_predicate_vec) {
         if (!block_column_predicate->evaluate_and(bf)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool AndBlockColumnPredicate::evaluate_and(const StringRef* dict_words,
+                                           const size_t dict_num) const {
+    for (auto* predicate : _block_column_predicate_vec) {
+        if (!predicate->evaluate_and(dict_words, dict_num)) {
             return false;
         }
     }

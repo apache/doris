@@ -29,7 +29,7 @@ under the License.
 
 This topic is about how to compile Doris from source.
 
-## Compile With Docker Development Image (Recommended)
+## Compile with Docker Development Image (Recommended)
 
 ### Use Off-the-Shelf Image
 
@@ -61,8 +61,10 @@ This topic is about how to compile Doris from source.
 | apache/doris:build-env-for-1.1.0| | 1.1.0 |
 | apache/doris:build-env-for-1.2| | 1.1.x, 1.2.x |
 | apache/doris:build-env-for-1.2-no-avx2| | 1.1.x, 1.2.x |
-| apache/doris:build-env-ldb-toolchain-latest | | trunk |
-| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | trunk |
+| apache/doris:build-env-for-2.0| | 2.0.x |
+| apache/doris:build-env-for-2.0-no-avx2| | 2.0.x |
+| apache/doris:build-env-ldb-toolchain-latest | | master |
+| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | mater |
 
 **Note**:
 
@@ -142,6 +144,12 @@ This topic is about how to compile Doris from source.
     $ sh build.sh
     ```
 
+   To build debug version for BE, add BUILD_TYPE=Debug.
+
+    ```
+    $ BUILD_TYPE=Debug sh build.sh
+    ```
+
    After compilation, the output files will be in the `output/` directory.
 
     > **Note:**
@@ -215,6 +223,12 @@ You can compile Doris directly in your own Linux environment.
     $ USE_AVX2=0 sh build.sh
     ```
 
+   To build debug version for BE, add BUILD_TYPE=Debug.
+
+    ```
+    $ BUILD_TYPE=Debug sh build.sh
+    ```
+
    After compilation, the output files will be in the `output/` directory.
 
 ## FAQ
@@ -248,19 +262,9 @@ You can compile Doris directly in your own Linux environment.
 
 4. When using Clang to compile Doris, PCH files will be used by default to speed up the compilation process. The default configuration of ccache may cause PCH files to be unable to be cached, or the cache to be unable to be hit, resulting in PCH being repeatedly compiled, slowing down the compilation speed. The following configuration is required:  
 
-   To make ccache cache PCH files:
+   To use Clang to compile, but do not want to use PCH files to speed up the compilation process, you need to add the parameter `ENABLE_PCH=OFF`
    ```shell
-   export CCACHE_PCH_EXTSUM=true
-   ccache --set-config=sloppiness=pch_defines,time_macros --set-config=pch_external_checksum=true
-   ```
-   To stop ccache from caching PCH files:
-   ```shell
-   export CCACHE_NOPCH_EXTSUM=true
-   ccache --set-config=sloppiness=default --set-config=pch_external_checksum=false
-   ```
-   To use Clang to compile, but do not want to use PCH files to speed up the compilation process, you need to add the parameter `ENABLE_PCH=0`
-   ```shell
-   DORIS_TOOLCHAIN=clang ENABLE_PCH=0 sh build.sh
+   DORIS_TOOLCHAIN=clang ENABLE_PCH=OFF sh build.sh
    ```
 
 ## Special Statement

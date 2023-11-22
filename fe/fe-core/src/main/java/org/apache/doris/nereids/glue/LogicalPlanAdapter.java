@@ -26,6 +26,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.ArrayList;
@@ -42,6 +43,7 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     private final LogicalPlan logicalPlan;
     private List<Expr> resultExprs;
     private ArrayList<String> colLabels;
+    private List<String> viewDdlSqls;
 
     public LogicalPlanAdapter(LogicalPlan logicalPlan, StatementContext statementContext) {
         this.logicalPlan = logicalPlan;
@@ -59,7 +61,7 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     @Override
     public boolean hasOutFileClause() {
-        return false;
+        return logicalPlan instanceof LogicalFileSink;
     }
 
     @Override
@@ -78,6 +80,10 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
         return colLabels;
     }
 
+    public List<String> getViewDdlSqls() {
+        return viewDdlSqls;
+    }
+
     @Override
     public List<Expr> getResultExprs() {
         return resultExprs;
@@ -89,6 +95,10 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     public void setColLabels(ArrayList<String> colLabels) {
         this.colLabels = colLabels;
+    }
+
+    public void setViewDdlSqls(List<String> viewDdlSqls) {
+        this.viewDdlSqls = viewDdlSqls;
     }
 
     public StatementContext getStatementContext() {

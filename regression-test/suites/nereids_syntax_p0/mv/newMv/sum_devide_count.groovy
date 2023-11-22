@@ -39,11 +39,6 @@ suite ("sum_devide_count") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    test {
-        sql "create materialized view kavg as select k1,k4,avg(k2) from sum_devide_count group by k1,k4;"
-        exception "errCode = 2,"
-    }
-
     createMV ("create materialized view kavg as select k1,k4,sum(k2),count(k2) from sum_devide_count group by k1,k4;")
 
     sleep(3000)

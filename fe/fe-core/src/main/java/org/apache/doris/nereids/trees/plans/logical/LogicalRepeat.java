@@ -117,9 +117,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 .build();
     }
 
-    /**
-     * Determine the equality with another plan
-     */
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -127,9 +125,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalRepeat that = (LogicalRepeat) o;
-        return Objects.equals(groupingSets, that.groupingSets)
-                && Objects.equals(outputExpressions, that.outputExpressions);
+        LogicalRepeat<?> that = (LogicalRepeat<?>) o;
+        return groupingSets.equals(that.groupingSets) && outputExpressions.equals(that.outputExpressions);
     }
 
     @Override
@@ -150,9 +147,11 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public LogicalRepeat<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalRepeat<>(groupingSets, outputExpressions, Optional.empty(),
-                logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression, logicalProperties,
+                children.get(0));
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,

@@ -48,7 +48,7 @@ public class PlanToStringTest {
     public void testLogicalLimit(@Mocked Plan child) {
         LogicalLimit<Plan> plan = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, child);
 
-        Assertions.assertEquals("LogicalLimit ( limit=0, offset=0 )", plan.toString());
+        Assertions.assertEquals("LogicalLimit ( limit=0, offset=0, phase=ORIGIN )", plan.toString());
     }
 
     @Test
@@ -91,7 +91,7 @@ public class PlanToStringTest {
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
-        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+], excepts=\\[], canEliminate=true \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+], excepts=\\[] \\)"));
     }
 
     @Test

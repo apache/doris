@@ -18,11 +18,13 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ListUtil;
@@ -52,6 +54,14 @@ public class ListPartitionInfo extends PartitionInfo {
         super(PartitionType.LIST);
         this.partitionColumns = partitionColumns;
         this.isMultiColumnPartition = partitionColumns.size() > 1;
+    }
+
+    public ListPartitionInfo(boolean isAutoCreatePartitions, ArrayList<Expr> exprs, List<Column> partitionColumns) {
+        super(PartitionType.LIST, partitionColumns);
+        this.isAutoCreatePartitions = isAutoCreatePartitions;
+        if (exprs != null) {
+            this.partitionExprs.addAll(exprs);
+        }
     }
 
     public static PartitionInfo read(DataInput in) throws IOException {
@@ -186,16 +196,31 @@ public class ListPartitionInfo extends PartitionInfo {
     @Override
     public String toSql(OlapTable table, List<Long> partitionId) {
         StringBuilder sb = new StringBuilder();
-        sb.append("PARTITION BY LIST(");
         int idx = 0;
-        for (Column column : partitionColumns) {
-            if (idx != 0) {
-                sb.append(", ");
+        if (enableAutomaticPartition()) {
+            sb.append("AUTO PARTITION BY LIST ");
+            for (Expr e : partitionExprs) {
+                boolean isSlotRef = (e instanceof SlotRef);
+                if (isSlotRef) {
+                    sb.append("(");
+                }
+                sb.append(e.toSql());
+                if (isSlotRef) {
+                    sb.append(")");
+                }
             }
-            sb.append("`").append(column.getName()).append("`");
-            idx++;
+            sb.append("\n(");
+        } else {
+            sb.append("PARTITION BY LIST(");
+            for (Column column : partitionColumns) {
+                if (idx != 0) {
+                    sb.append(", ");
+                }
+                sb.append("`").append(column.getName()).append("`");
+                idx++;
+            }
+            sb.append(")\n(");
         }
-        sb.append(")\n(");
 
         // sort list
         List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
@@ -269,6 +294,6 @@ public class ListPartitionInfo extends PartitionInfo {
 
             allPartitionDescs.add(new SinglePartitionDesc(false, partitionName, partitionKeyDesc, properties));
         }
-        return new ListPartitionDesc(partitionColumnNames, allPartitionDescs);
+        return new ListPartitionDesc(this.partitionExprs, partitionColumnNames, allPartitionDescs);
     }
 }

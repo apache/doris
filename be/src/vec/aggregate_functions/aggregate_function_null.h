@@ -81,6 +81,11 @@ public:
         }
     }
 
+    void set_version(const int version_) override {
+        IAggregateFunctionHelper<Derived>::set_version(version_);
+        nested_function->set_version(version_);
+    }
+
     String get_name() const override {
         /// This is just a wrapper. The function for Nullable arguments is named the same as the nested function itself.
         return nested_function->get_name();
@@ -143,15 +148,17 @@ public:
         }
     }
 
-    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
-                               Arena* arena) const override {
+    void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
+                               BufferReadable& buf, Arena* arena) const override {
         bool flag = true;
         if (result_is_nullable) {
             read_binary(flag, buf);
         }
         if (flag) {
+            set_flag(rhs);
             set_flag(place);
-            nested_function->deserialize_and_merge(nested_place(place), buf, arena);
+            nested_function->deserialize_and_merge(nested_place(place), nested_place(rhs), buf,
+                                                   arena);
         }
     }
 

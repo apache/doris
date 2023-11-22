@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -209,7 +210,8 @@ public class ExpressionUtils {
                 if (slotDataTypeWidth < 0) {
                     continue;
                 }
-                minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
+                minSlot = slotDataTypeWidth < minSlot.getDataType().width()
+                        || minSlot.getDataType().width() <= 0 ? slot : minSlot;
             }
         }
         return minSlot;
@@ -280,7 +282,7 @@ public class ExpressionUtils {
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
-            List<E> exprs, Function<Expression, Expression> rewriteFunction) {
+            Collection<E> exprs, Function<Expression, Expression> rewriteFunction) {
         return exprs.stream()
                 .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
                 .collect(ImmutableList.toImmutableList());
@@ -318,10 +320,6 @@ public class ExpressionUtils {
             }
         }
         return builder.build();
-    }
-
-    public static boolean isAllLiteral(Expression... children) {
-        return Arrays.stream(children).allMatch(c -> c instanceof Literal);
     }
 
     public static boolean isAllLiteral(List<Expression> children) {
@@ -400,6 +398,11 @@ public class ExpressionUtils {
     public static boolean anyMatch(List<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         return expressions.stream()
                 .anyMatch(expr -> expr.anyMatch(predicate));
+    }
+
+    public static boolean noneMatch(List<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .noneMatch(expr -> expr.anyMatch(predicate));
     }
 
     public static boolean containsType(List<? extends Expression> expressions, Class type) {
@@ -504,5 +507,20 @@ public class ExpressionUtils {
             expression = ((Cast) expression).child();
         }
         return expression;
+    }
+
+    /**
+     * To check whether a slot is constant after passing through a filter
+     */
+    public static boolean checkSlotConstant(Slot slot, Set<Expression> predicates) {
+        return predicates.stream().anyMatch(predicate -> {
+                    if (predicate instanceof EqualTo) {
+                        EqualTo equalTo = (EqualTo) predicate;
+                        return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
+                                || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
+                    }
+                    return false;
+                }
+        );
     }
 }

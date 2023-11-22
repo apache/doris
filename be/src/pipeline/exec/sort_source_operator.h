@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vsort_node.h"
 
 namespace doris {
@@ -42,6 +43,37 @@ class SortSourceOperator final : public SourceOperator<SortSourceOperatorBuilder
 public:
     SortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
     Status open(RuntimeState*) override { return Status::OK(); }
+};
+
+class SortSourceDependency final : public Dependency {
+public:
+    using SharedState = SortSharedState;
+    SortSourceDependency(int id, int node_id) : Dependency(id, node_id, "SortSourceDependency") {}
+    ~SortSourceDependency() override = default;
+};
+
+class SortSourceOperatorX;
+class SortLocalState final : public PipelineXLocalState<SortSourceDependency> {
+public:
+    ENABLE_FACTORY_CREATOR(SortLocalState);
+    SortLocalState(RuntimeState* state, OperatorXBase* parent);
+    ~SortLocalState() override = default;
+
+private:
+    friend class SortSourceOperatorX;
+};
+
+class SortSourceOperatorX final : public OperatorX<SortLocalState> {
+public:
+    SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                        const DescriptorTbl& descs);
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+    bool is_source() const override { return true; }
+
+private:
+    friend class SortLocalState;
 };
 
 } // namespace pipeline

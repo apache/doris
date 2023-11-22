@@ -29,6 +29,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -38,7 +39,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.qe.ConnectContext;
@@ -109,6 +109,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
         // cast-to-types and that can lead to query failures, e.g., CTAS
         if (expr instanceof CastExpr) {
             CastExpr castExpr = (CastExpr) expr;
+            if (castExpr.isNotFold()) {
+                return castExpr;
+            }
             if (castExpr.getChild(0) instanceof NullLiteral) {
                 return castExpr.getChild(0);
             }
@@ -122,7 +125,10 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return expr;
             }
         }
-        return expr.getResultValue(false);
+        // it may be wrong to fold constant value in inline view
+        // so pass the info to getResultValue method to let predicate itself
+        // to decide if it can fold constant value safely
+        return expr.getResultValue(expr instanceof SlotRef ? false : analyzer.isInlineViewAnalyzer());
     }
 
     /**
@@ -251,6 +257,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
                     VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (VariableExpr) expr);
                     literalExpr = ((VariableExpr) expr).getLiteralExpr();
                 } catch (AnalysisException e) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     LOG.warn("failed to get session variable value: " + ((VariableExpr) expr).getName());
                 }
             }
@@ -277,6 +286,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 literalExpr = LiteralExpr.create(str, type);
                 infoFnMap.put(expr.getId().toString(), literalExpr);
             } catch (AnalysisException e) {
+                if (ConnectContext.get() != null) {
+                    ConnectContext.get().getState().reset();
+                }
                 LOG.warn("failed to get const expr value from InformationFunction: {}", e.getMessage());
             }
 
@@ -364,7 +376,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             }
 
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
-            tParams.setVecExec(VectorizedUtil.isVectorized());
+            tParams.setVecExec(true);
             tParams.setQueryOptions(tQueryOptions);
             tParams.setQueryId(context.queryId());
 
@@ -396,7 +408,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
                                 type = ScalarType.createDatetimeV2Type(scalarType.getScale());
                             } else if (ttype == TPrimitiveType.DECIMAL32
                                     || ttype == TPrimitiveType.DECIMAL64
-                                    || ttype == TPrimitiveType.DECIMAL128I) {
+                                    || ttype == TPrimitiveType.DECIMAL128I
+                                    || ttype == TPrimitiveType.DECIMAL256) {
                                 type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
                                         scalarType.getScale());
                             } else {

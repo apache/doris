@@ -56,6 +56,8 @@ public class AuditEvent {
     public String clientIp = "";
     @AuditField(value = "User")
     public String user = "";
+    @AuditField(value = "Catalog")
+    public String catalog = "";
     @AuditField(value = "Db")
     public String db = "";
     @AuditField(value = "State")
@@ -94,6 +96,9 @@ public class AuditEvent {
     public String sqlDigest = "";
     @AuditField(value = "TraceId")
     public String traceId = "";
+    @AuditField(value = "WorkloadGroup")
+    public String workloadGroup = "";
+    // note: newly added fields should be always before fuzzyVariables
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
 
@@ -125,6 +130,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setUser(String user) {
             auditEvent.user = user;
+            return this;
+        }
+
+        public AuditEventBuilder setCatalog(String catalog) {
+            auditEvent.catalog = catalog;
             return this;
         }
 
@@ -218,13 +228,13 @@ public class AuditEvent {
             return this;
         }
 
-        public AuditEventBuilder setTraceId(String traceId) {
-            auditEvent.traceId = traceId;
+        public AuditEventBuilder setFuzzyVariables(String variables) {
+            auditEvent.fuzzyVariables = variables;
             return this;
         }
 
-        public AuditEventBuilder setFuzzyVariables(String variables) {
-            auditEvent.fuzzyVariables = variables;
+        public AuditEventBuilder setWorkloadGroup(String workloadGroup) {
+            auditEvent.workloadGroup = workloadGroup;
             return this;
         }
 

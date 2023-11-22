@@ -20,6 +20,7 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 
 import com.google.common.base.Preconditions;
@@ -37,7 +38,7 @@ import java.util.List;
  */
 public class CatalogsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("CatalogIds").add("CatalogName").add("DatabaseNum")
+            .add("CatalogIds").add("CatalogName").add("DatabaseNum").add("LastUpdateTime")
             .build();
 
     private Env env;
@@ -90,6 +91,7 @@ public class CatalogsProcDir implements ProcDirInterface {
             catalogInfo.add(catalog.getId());
             catalogInfo.add(catalog.getName());
             catalogInfo.add(catalog.getDbNames().size());
+            catalogInfo.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
             catalogInfos.add(catalogInfo);
         }
 

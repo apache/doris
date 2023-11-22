@@ -63,6 +63,7 @@ suite("modify_replica_use_partition") {
     }
 
     def tableName = "lineitem3"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
             table tableName
@@ -195,7 +196,7 @@ suite("modify_replica_use_partition") {
             DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             PARTITION BY RANGE(`L_SHIPDATE`)
             (
-                PARTITION `p202301` VALUES LESS THAN ("2017-02-01"),
+                PARTITION `p202301` VALUES LESS THAN ("1995-12-01"),
                 PARTITION `p202302` VALUES LESS THAN ("2017-03-01")
             )
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
@@ -306,7 +307,7 @@ suite("modify_replica_use_partition") {
             DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             PARTITION BY RANGE(`L_SHIPDATE`)
             (
-                PARTITION `p202301` VALUES LESS THAN ("2017-02-01"),
+                PARTITION `p202301` VALUES LESS THAN ("1995-12-01"),
                 PARTITION `p202302` VALUES LESS THAN ("2017-03-01")
             )
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
@@ -400,7 +401,7 @@ suite("modify_replica_use_partition") {
             DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             PARTITION BY RANGE(`L_SHIPDATE`)
             (
-                PARTITION `p202301` VALUES LESS THAN ("2017-02-01") ("replication_num" = "3"),
+                PARTITION `p202301` VALUES LESS THAN ("1995-12-01") ("replication_num" = "3"),
                 PARTITION `p202302` VALUES LESS THAN ("2017-03-01") ("replication_num" = "1")
             )
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3

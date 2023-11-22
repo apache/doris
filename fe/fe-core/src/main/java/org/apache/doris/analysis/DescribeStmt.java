@@ -132,9 +132,24 @@ public class DescribeStmt extends ShowStmt {
                         "NONE"
                 );
                 if (column.getOriginType().isDatetimeV2()) {
-                    row.set(1, "DATETIME");
+                    StringBuilder typeStr = new StringBuilder("DATETIME");
+                    if (((ScalarType) column.getOriginType()).getScalarScale() > 0) {
+                        typeStr.append("(").append(((ScalarType) column.getOriginType()).getScalarScale()).append(")");
+                    }
+                    row.set(1, typeStr.toString());
                 } else if (column.getOriginType().isDateV2()) {
                     row.set(1, "DATE");
+                } else if (column.getOriginType().isDecimalV3()) {
+                    StringBuilder typeStr = new StringBuilder("DECIMAL");
+                    ScalarType sType = (ScalarType) column.getOriginType();
+                    int scale = sType.getScalarScale();
+                    int precision = sType.getScalarPrecision();
+                    // not default
+                    if (scale > 0 && precision != 9) {
+                        typeStr.append("(").append(precision).append(", ").append(scale)
+                                .append(")");
+                    }
+                    row.set(1, typeStr.toString());
                 }
                 totalRows.add(row);
             }
@@ -223,9 +238,25 @@ public class DescribeStmt extends ShowStmt {
                                     "");
 
                             if (column.getOriginType().isDatetimeV2()) {
-                                row.set(3, "DATETIME");
+                                StringBuilder typeStr = new StringBuilder("DATETIME");
+                                if (((ScalarType) column.getOriginType()).getScalarScale() > 0) {
+                                    typeStr.append("(").append(((ScalarType) column.getOriginType()).getScalarScale())
+                                            .append(")");
+                                }
+                                row.set(3, typeStr.toString());
                             } else if (column.getOriginType().isDateV2()) {
                                 row.set(3, "DATE");
+                            } else if (column.getOriginType().isDecimalV3()) {
+                                StringBuilder typeStr = new StringBuilder("DECIMAL");
+                                ScalarType sType = (ScalarType) column.getOriginType();
+                                int scale = sType.getScalarScale();
+                                int precision = sType.getScalarPrecision();
+                                // not default
+                                if (scale > 0 && precision != 9) {
+                                    typeStr.append("(").append(precision).append(", ").append(scale)
+                                            .append(")");
+                                }
+                                row.set(3, typeStr.toString());
                             }
 
                             if (j == 0) {

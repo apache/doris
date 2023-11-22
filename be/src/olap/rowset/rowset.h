@@ -75,7 +75,8 @@ public:
             break;
 
         default:
-            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>(
+                    "RowsetStateMachine meet invalid state");
         }
         return Status::OK();
     }
@@ -91,7 +92,8 @@ public:
             break;
 
         default:
-            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>(
+                    "RowsetStateMachine meet invalid state");
         }
         return Status::OK();
     }
@@ -103,7 +105,8 @@ public:
             break;
 
         default:
-            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>(
+                    "RowsetStateMachine meet invalid state");
         }
         return Status::OK();
     }
@@ -136,7 +139,7 @@ public:
 
     // publish rowset to make it visible to read
     void make_visible(Version version);
-    TabletSchemaSPtr tablet_schema() { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() { return _schema; }
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
@@ -203,7 +206,7 @@ public:
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
     virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id = 0,
-                                 std::set<int32_t>* without_index_column_uids = nullptr) = 0;
+                                 std::set<int32_t>* without_index_uids = nullptr) = 0;
 
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
@@ -219,11 +222,6 @@ public:
 
     virtual bool check_file_exist() = 0;
 
-    // return an unique identifier string for this rowset
-    std::string unique_id() const {
-        return fmt::format("{}/{}", _tablet_path, rowset_id().to_string());
-    }
-
     bool need_delete_file() const { return _need_delete_file; }
 
     void set_need_delete_file() { _need_delete_file = true; }
@@ -231,10 +229,6 @@ public:
     bool contains_version(Version version) const {
         return rowset_meta()->version().contains(version);
     }
-
-    const std::string& tablet_path() const { return _tablet_path; }
-
-    virtual std::string rowset_dir() { return _rowset_dir; }
 
     static bool comparator(const RowsetSharedPtr& left, const RowsetSharedPtr& right) {
         return left->end_version() < right->end_version();
@@ -254,7 +248,7 @@ public:
                     _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
                     // first do close, then change state
                     do_close();
-                    _rowset_state_machine.on_release();
+                    static_cast<void>(_rowset_state_machine.on_release());
                 }
             }
             if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
@@ -265,6 +259,14 @@ public:
             }
         }
     }
+
+    void update_delayed_expired_timestamp(uint64_t delayed_expired_timestamp) {
+        if (delayed_expired_timestamp > _delayed_expired_timestamp) {
+            _delayed_expired_timestamp = delayed_expired_timestamp;
+        }
+    }
+
+    uint64_t delayed_expired_timestamp() { return _delayed_expired_timestamp; }
 
     virtual Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) {
         _rowset_meta->get_segments_key_bounds(segments_key_bounds);
@@ -298,8 +300,7 @@ protected:
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    Rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
-           const RowsetMetaSharedPtr& rowset_meta);
+    Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual Status init() = 0;
@@ -314,8 +315,6 @@ protected:
 
     TabletSchemaSPtr _schema;
 
-    std::string _tablet_path;
-    std::string _rowset_dir;
     RowsetMetaSharedPtr _rowset_meta;
     // init in constructor
     bool _is_pending;    // rowset is pending iff it's not in visible state
@@ -328,6 +327,7 @@ protected:
     std::atomic<uint64_t> _refs_by_reader;
     // rowset state machine
     RowsetStateMachine _rowset_state_machine;
+    std::atomic<uint64_t> _delayed_expired_timestamp = 0;
 };
 
 } // namespace doris

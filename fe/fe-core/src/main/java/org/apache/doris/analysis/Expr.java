@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -37,8 +38,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
@@ -67,6 +69,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -83,8 +86,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_STATE_SUFFIX = "_state";
     public static final String AGG_UNION_SUFFIX = "_union";
     public static final String AGG_MERGE_SUFFIX = "_merge";
+    public static final String DEFAULT_EXPR_NAME = "expr";
 
     protected boolean disableTableName = false;
+    protected boolean needToMysql = false;
 
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
@@ -292,6 +297,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
     protected boolean printSqlInParens = false;
+    protected Optional<String> exprName = Optional.empty();
 
     protected Expr() {
         super();
@@ -331,6 +337,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public void setId(ExprId id) {
         this.id = id;
+    }
+
+    // Name of expr, this is used by generating column name automatically when there is no
+    // alias or is not slotRef
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
+        }
+        return this.exprName.get();
     }
 
     public Type getType() {
@@ -723,6 +738,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+    public static void extractSlots(Expr root, Set<SlotId> slotIdSet) {
+        if (root instanceof SlotRef) {
+            slotIdSet.add(((SlotRef) root).getDesc().getId());
+            return;
+        }
+        for (Expr child : root.getChildren()) {
+            extractSlots(child, slotIdSet);
+        }
+    }
+
     /**
      * Returns an analyzed clone of 'this' with exprs substituted according to smap.
      * Removes implicit casts and analysis state while cloning/substituting exprs within
@@ -947,6 +972,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public void setNeedToMysql(boolean value) {
+        needToMysql = value;
+        for (Expr child : children) {
+            child.setNeedToMysql(value);
+        }
+    }
+
     public String toSqlWithoutTbl() {
         setDisableTableName(true);
         String result = toSql();
@@ -974,7 +1006,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toMySql() {
-        return toSql();
+        setNeedToMysql(true);
+        String result =  toSql();
+        setNeedToMysql(false);
+        return result;
     }
 
     /**
@@ -986,14 +1021,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     // Convert this expr, including all children, to its Thrift representation.
     public TExpr treeToThrift() {
-        if (type.isNull()) {
-            // Hack to ensure BE never sees TYPE_NULL. If an expr makes it this far without
-            // being cast to a non-NULL type, the type doesn't matter and we can cast it
-            // arbitrarily.
-            Preconditions.checkState(this instanceof NullLiteral || this instanceof SlotRef
-                    || this instanceof VariableExpr);
-            return NullLiteral.create(ScalarType.BOOLEAN).treeToThrift();
-        }
         TExpr result = new TExpr();
         treeToThriftHelper(result);
         return result;
@@ -1037,7 +1064,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
             assignmentCompatibleType = assignmentCompatibleType.isInvalid() ? children.get(i).type
                     : ScalarType.getAssignmentCompatibleType(assignmentCompatibleType, children.get(i).type,
-                    true);
+                    true, SessionVariable.getEnableDecimal256());
         }
         return assignmentCompatibleType;
     }
@@ -1404,6 +1431,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             throw new AnalysisException(
               String.format("%s%s requires return type 'BOOLEAN'. " + "Actual type is '%s'.", name,
                 (printExpr) ? " '" + toSql() + "'" : "", type.toString()));
+        }
+    }
+
+    /**
+     * Checks whether comparing predicates' children include bitmap type.
+     */
+    public void checkIncludeBitmap() throws AnalysisException {
+        for (int i = 0; i < children.size(); ++i) {
+            if (children.get(i).getType().isBitmapType()) {
+                throw new AnalysisException("Unsupported bitmap type in expression: " + toSql());
+            }
         }
     }
 
@@ -1833,6 +1871,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             if (slot.getColumnName() != null && slot.getColumnName().equals(colName)) {
                 return true;
             }
+        } else if (this instanceof ColumnRefExpr) {
+            ColumnRefExpr slot = (ColumnRefExpr) this;
+            if (slot.getName() != null && slot.getName().equals(colName)) {
+                return true;
+            }
         }
         return false;
     }
@@ -1844,7 +1887,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
      */
-    protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
+    public Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
@@ -1922,8 +1965,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     protected Function getTableFunction(String name, Type[] argTypes, Function.CompareMode mode) {
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
-                VectorizedUtil.isVectorized());
+        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false);
         Function f = Env.getCurrentEnv().getTableFunction(searchDesc, mode);
         return f;
     }
@@ -2059,6 +2101,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.INT_LITERAL.getCode());
         } else if (expr instanceof LargeIntLiteral) {
             output.writeInt(ExprSerCode.LARGE_INT_LITERAL.getCode());
+        } else if (expr instanceof DateLiteral) {
+            output.writeInt(ExprSerCode.DATE_LITERAL.getCode());
         } else if (expr instanceof FloatLiteral) {
             output.writeInt(ExprSerCode.FLOAT_LITERAL.getCode());
         } else if (expr instanceof DecimalLiteral) {
@@ -2110,6 +2154,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return BoolLiteral.read(in);
             case INT_LITERAL:
                 return IntLiteral.read(in);
+            case DATE_LITERAL:
+                return DateLiteral.read(in);
             case LARGE_INT_LITERAL:
                 return LargeIntLiteral.read(in);
             case FLOAT_LITERAL:
@@ -2149,10 +2195,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
 
-    protected void recursiveResetChildrenResult(boolean inView) throws AnalysisException {
+    protected void recursiveResetChildrenResult(boolean forPushDownPredicatesToView) throws AnalysisException {
         for (int i = 0; i < children.size(); i++) {
             final Expr child = children.get(i);
-            final Expr newChild = child.getResultValue(inView);
+            final Expr newChild = child.getResultValue(forPushDownPredicatesToView);
             if (newChild != child) {
                 setChild(i, newChild);
             }
@@ -2339,6 +2385,20 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (fn.functionName().equalsIgnoreCase("array_sortby")) {
             return children.get(0).isNullable();
         }
+        if (fn.functionName().equalsIgnoreCase("array_map")) {
+            for (int i = 1; i < children.size(); ++i) {
+                if (children.get(i).isNullable()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (fn.functionName().equalsIgnoreCase("array_contains") || fn.functionName().equalsIgnoreCase("array_position")
+                || fn.functionName().equalsIgnoreCase("countequal")
+                || fn.functionName().equalsIgnoreCase("map_contains_key")
+                || fn.functionName().equalsIgnoreCase("map_contains_value")) {
+            return children.get(0).isNullable();
+        }
         return true;
     }
 
@@ -2462,32 +2522,44 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return getActualScalarType(originType);
         } else if (originType.getPrimitiveType() == PrimitiveType.ARRAY) {
             return getActualArrayType((ArrayType) originType);
+        } else if (originType.getPrimitiveType().isMapType()) {
+            return getActualMapType((MapType) originType);
         } else {
             return originType;
         }
     }
 
-    protected  Type getActualScalarType(Type originType) {
+    protected Type getActualScalarType(Type originType) {
         if (originType.getPrimitiveType() == PrimitiveType.DECIMAL32) {
             return Type.DECIMAL32;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL64) {
             return Type.DECIMAL64;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL128) {
             return Type.DECIMAL128;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL256) {
+            return Type.DECIMAL256;
         } else if (originType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
             return Type.DATETIMEV2;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DATEV2) {
+            return Type.DATEV2;
         } else if (originType.getPrimitiveType() == PrimitiveType.VARCHAR) {
             return Type.VARCHAR;
         } else if (originType.getPrimitiveType() == PrimitiveType.CHAR) {
             return Type.CHAR;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
+        } else if (originType.getPrimitiveType() == PrimitiveType.TIMEV2) {
+            return Type.TIMEV2;
         }
         return originType;
     }
 
     protected Type[] getActualArgTypes(Type[] originType) {
         return Arrays.stream(originType).map(this::getActualType).toArray(Type[]::new);
+    }
+
+    private MapType getActualMapType(MapType originMapType) {
+        return new MapType(originMapType.getKeyType(), originMapType.getValueType());
     }
 
     private ArrayType getActualArrayType(ArrayType originArrayType) {
@@ -2503,9 +2575,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 if (e instanceof FunctionCallExpr) {
                     FunctionCallExpr funcExpr = (FunctionCallExpr) e;
                     Function f = funcExpr.fn;
-                    if (f.getFunctionName().getFunction().equals("count")
-                            && funcExpr.children.stream().anyMatch(Expr::isConstant)) {
-                        return true;
+                    // Return true if count function include non-literal expr child.
+                    // In this case, agg output must be materialized whether outer query block required or not.
+                    if (f.getFunctionName().getFunction().equals("count")) {
+                        for (Expr expr : funcExpr.children) {
+                            if (expr.isConstant && !(expr instanceof LiteralExpr)) {
+                                return true;
+                            }
+                        }
                     }
                 }
                 return false;
@@ -2526,6 +2603,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         return false;
+    }
+
+    public void replaceSlot(TupleDescriptor tuple) {
+        for (Expr expr : getChildren()) {
+            expr.replaceSlot(tuple);
+        }
     }
 }
 

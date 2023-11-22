@@ -98,7 +98,7 @@ struct AggregateFunctionProductData<Decimal128I> {
 
     Decimal128 get() const { return product; }
 
-    void reset(Decimal128 value) { product = std::move(value); }
+    void reset(Decimal128 value) { product = value; }
 };
 
 template <typename T, typename TResult, typename Data>
@@ -134,12 +134,12 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         const auto& column = assert_cast<const ColVecType&>(*columns[0]);
-        this->data(place).add(column.get_data()[row_num], multiplier);
+        this->data(place).add(TResult(column.get_data()[row_num]), multiplier);
     }
 
     void reset(AggregateDataPtr place) const override {
         if constexpr (IsDecimalNumber<T>) {
-            this->data(place).reset(T(1 * multiplier));
+            this->data(place).reset(multiplier);
         } else {
             this->data(place).reset(1);
         }

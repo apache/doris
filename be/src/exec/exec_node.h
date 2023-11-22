@@ -36,7 +36,6 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -134,6 +133,8 @@ public:
 
     bool can_read() const { return _can_read; }
 
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
+
     // Sink Data to ExecNode to do some stock work, both need impl with method: get_result
     // `eos` means source is exhausted, exec node should do some finalize work
     // Eg: Aggregation, Sort
@@ -160,6 +161,8 @@ public:
     // error.
     [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics);
 
+    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics,
+                                                          int sender_id);
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
     // prepare()/open()/get_next() returned with an error).
@@ -196,12 +199,6 @@ public:
 
     virtual void prepare_for_next() {}
 
-    // When the agg node is the scan node direct parent,
-    // we directly return agg object from scan node to agg node,
-    // and don't serialize the agg object.
-    // This improve is cautious, we ensure the correctness firstly.
-    void try_do_aggregate_serde_improve();
-
     // Returns a string representation in DFS order of the plan rooted at this.
     std::string debug_string() const;
 
@@ -227,12 +224,11 @@ public:
     void reached_limit(vectorized::Block* block, bool* eos);
     const std::vector<TupleId>& get_tuple_ids() const { return _tuple_ids; }
 
+    RuntimeProfile* faker_runtime_profile() const { return _faker_runtime_profile.get(); }
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
-
-    OpentelemetrySpan get_next_span() { return _span; }
 
     virtual std::string get_name();
 
@@ -280,14 +276,22 @@ protected:
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
 
+    RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _rows_returned_counter;
+    RuntimeProfile::Counter* _output_bytes_counter;
+    RuntimeProfile::Counter* _block_count_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
-    // Account for peak memory used by this node
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _projection_timer;
+    // Account for peak memory used by this node
+    RuntimeProfile::Counter* _peak_memory_usage_counter;
 
-    //
-    OpentelemetrySpan _span;
+    //NOTICE: now add a faker profile, because sometimes the profile record is useless
+    //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
+    //and shared hash table, some counter/timer about build hash table is useless,
+    //so we could add those counter/timer in faker profile, and those will not display in web profile.
+    std::unique_ptr<RuntimeProfile> _faker_runtime_profile =
+            std::make_unique<RuntimeProfile>("faker profile");
 
     // Execution options that are determined at runtime.  This is added to the
     // runtime profile at close().  Examples for options logged here would be
@@ -313,11 +317,6 @@ protected:
     static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                               const DescriptorTbl& descs, ExecNode** node);
 
-    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
-                                     const std::vector<TPlanNode>& tnodes,
-                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
-                                     ExecNode** root);
-
     virtual bool is_scan_node() const { return false; }
 
     void init_runtime_profile(const std::string& name);
@@ -328,6 +327,11 @@ protected:
     std::atomic<bool> _can_read = false;
 
 private:
+    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
+                                     const std::vector<TPlanNode>& tnodes,
+                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
+                                     ExecNode** root);
+
     friend class pipeline::OperatorBase;
     bool _is_closed;
     bool _is_resource_released = false;

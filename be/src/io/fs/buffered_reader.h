@@ -32,7 +32,6 @@
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_reader.h"
 #include "olap/olap_define.h"
@@ -44,7 +43,7 @@ namespace doris {
 namespace io {
 
 class FileSystem;
-class IOContext;
+struct IOContext;
 
 struct PrefetchRange {
     size_t start_offset;
@@ -75,6 +74,15 @@ struct PrefetchRange {
  */
 class MergeRangeFileReader : public io::FileReader {
 public:
+    struct Statistics {
+        int64_t copy_time = 0;
+        int64_t read_time = 0;
+        int64_t request_io = 0;
+        int64_t merged_io = 0;
+        int64_t request_bytes = 0;
+        int64_t read_bytes = 0;
+    };
+
     struct RangeCachedData {
         size_t start_offset;
         size_t end_offset;
@@ -122,8 +130,9 @@ public:
     static constexpr size_t READ_SLICE_SIZE = 8 * 1024 * 1024;      // 8MB
     static constexpr size_t BOX_SIZE = 1 * 1024 * 1024;             // 1MB
     static constexpr size_t SMALL_IO = 2 * 1024 * 1024;             // 2MB
+    static constexpr size_t HDFS_MIN_IO_SIZE = 4 * 1024;            // 4KB
+    static constexpr size_t OSS_MIN_IO_SIZE = 512 * 1024;           // 512KB
     static constexpr size_t NUM_BOX = TOTAL_BUFFER_SIZE / BOX_SIZE; // 128
-    static constexpr size_t MIN_READ_SIZE = 4096;                   // 4KB
 
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
                          const std::vector<PrefetchRange>& random_access_ranges)
@@ -133,16 +142,24 @@ public:
         _range_cached_data.resize(random_access_ranges.size());
         _size = _reader->size();
         _remaining = TOTAL_BUFFER_SIZE;
+        _is_oss = typeid_cast<io::S3FileReader*>(_reader.get()) != nullptr;
+        _max_amplified_ratio = config::max_amplified_read_ratio;
+        // Equivalent min size of each IO that can reach the maximum storage speed limit:
+        // 512KB for oss, 4KB for hdfs
+        _equivalent_io_size = _is_oss ? OSS_MIN_IO_SIZE : HDFS_MIN_IO_SIZE;
         if (_profile != nullptr) {
             const char* random_profile = "MergedSmallIO";
-            ADD_TIMER(_profile, random_profile);
-            _copy_time = ADD_CHILD_TIMER(_profile, "CopyTime", random_profile);
-            _read_time = ADD_CHILD_TIMER(_profile, "ReadTime", random_profile);
-            _request_io = ADD_CHILD_COUNTER(_profile, "RequestIO", TUnit::UNIT, random_profile);
-            _merged_io = ADD_CHILD_COUNTER(_profile, "MergedIO", TUnit::UNIT, random_profile);
-            _request_bytes =
-                    ADD_CHILD_COUNTER(_profile, "RequestBytes", TUnit::BYTES, random_profile);
-            _read_bytes = ADD_CHILD_COUNTER(_profile, "MergedBytes", TUnit::BYTES, random_profile);
+            ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
+            _copy_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CopyTime", random_profile, 1);
+            _read_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadTime", random_profile, 1);
+            _request_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT,
+                                                       random_profile, 1);
+            _merged_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedIO", TUnit::UNIT,
+                                                      random_profile, 1);
+            _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
+                                                          random_profile, 1);
+            _read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
+                                                       random_profile, 1);
         }
     }
 
@@ -153,7 +170,7 @@ public:
         for (char* box : _boxes) {
             delete[] box;
         }
-        close();
+        static_cast<void>(close());
     }
 
     Status close() override {
@@ -190,20 +207,14 @@ public:
     // for test only
     const std::vector<int16>& box_reference() const { return _box_ref; }
 
+    // for test only
+    const Statistics& statistics() const { return _statistics; }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
 private:
-    struct Statistics {
-        int64_t copy_time = 0;
-        int64_t read_time = 0;
-        int64_t request_io = 0;
-        int64_t merged_io = 0;
-        int64_t request_bytes = 0;
-        int64_t read_bytes = 0;
-    };
-
     RuntimeProfile::Counter* _copy_time;
     RuntimeProfile::Counter* _read_time;
     RuntimeProfile::Counter* _request_io;
@@ -232,13 +243,16 @@ private:
     int16 _last_box_ref = -1;
     uint32 _last_box_usage = 0;
     std::vector<int16> _box_ref;
+    bool _is_oss;
+    double _max_amplified_ratio;
+    size_t _equivalent_io_size;
 
     Statistics _statistics;
 };
 
 /**
  * Create a file reader suitable for accessing scenarios:
- * 1. When file size < 8MB, create InMemoryFileReader file reader
+ * 1. When file size < config::in_memory_file_size, create InMemoryFileReader file reader
  * 2. When reading sequential file(csv/json), create PrefetchBufferedReader
  * 3. When reading random access file(parquet/orc), create normal file reader
  */
@@ -246,14 +260,11 @@ class DelegateReader {
 public:
     enum AccessMode { SEQUENTIAL, RANDOM };
 
-    static constexpr size_t IN_MEMORY_FILE_SIZE = 8 * 1024 * 1024;
-
     static Status create_file_reader(
             RuntimeProfile* profile, const FileSystemProperties& system_properties,
-            const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
-            io::FileReaderSPtr* file_reader, AccessMode access_mode = SEQUENTIAL,
-            io::FileReaderOptions reader_options = FileFactory::NO_CACHE_READER_OPTIONS,
-            const IOContext* io_ctx = nullptr,
+            const FileDescription& file_description, const io::FileReaderOptions& reader_options,
+            std::shared_ptr<io::FileSystem>* file_system, io::FileReaderSPtr* file_reader,
+            AccessMode access_mode = SEQUENTIAL, const IOContext* io_ctx = nullptr,
             const PrefetchRange file_range = PrefetchRange(0, 0));
 };
 
@@ -384,6 +395,7 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
+    Status _close_internal();
     size_t get_buffer_pos(int64_t position) const {
         return (position % _whole_pre_buffer_size) / s_max_pre_buffer_size;
     }
@@ -437,6 +449,7 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
+    Status _close_internal();
     io::FileReaderSPtr _reader;
     std::unique_ptr<char[]> _data = nullptr;
     size_t _size;

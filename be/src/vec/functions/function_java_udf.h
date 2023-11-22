@@ -22,7 +22,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <ostream>
 
 #include "common/logging.h"
@@ -37,9 +39,33 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
 
-namespace doris {
+namespace doris::vectorized {
 
-namespace vectorized {
+class JavaUdfPreparedFunction : public PreparedFunctionImpl {
+public:
+    using execute_call_back = std::function<Status(FunctionContext* context, Block& block,
+                                                   const ColumnNumbers& arguments, size_t result,
+                                                   size_t input_rows_count)>;
+
+    explicit JavaUdfPreparedFunction(const execute_call_back& func, const std::string& name)
+            : callback_function(func), name(name) {}
+
+    String get_name() const override { return name; }
+
+protected:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        return callback_function(context, block, arguments, result, input_rows_count);
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
+
+private:
+    execute_call_back callback_function;
+    std::string name;
+};
+
 class JavaFunctionCall : public IFunctionBase {
 public:
     JavaFunctionCall(const TFunction& fn, const DataTypes& argument_types,
@@ -62,13 +88,17 @@ public:
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
                                 const ColumnNumbers& arguments, size_t result) const override {
-        return nullptr;
+        return std::make_shared<JavaUdfPreparedFunction>(
+                std::bind<Status>(&JavaFunctionCall::execute_impl, this, std::placeholders::_1,
+                                  std::placeholders::_2, std::placeholders::_3,
+                                  std::placeholders::_4, std::placeholders::_5),
+                fn_.name.function_name);
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
-    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) override;
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const;
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
@@ -83,62 +113,18 @@ private:
     const DataTypes _argument_types;
     const DataTypePtr _return_type;
 
-    /// Global class reference to the UdfExecutor Java class and related method IDs. Set in
-    /// Init(). These have the lifetime of the process (i.e. 'executor_cl_' is never freed).
-    jclass executor_cl_;
-    jmethodID executor_ctor_id_;
-    jmethodID executor_evaluate_id_;
-    jmethodID executor_close_id_;
-
-    struct IntermediateState {
-        size_t buffer_size;
-        size_t row_idx;
-
-        IntermediateState() : buffer_size(0), row_idx(0) {}
-    };
-
     struct JniContext {
         // Do not save parent directly, because parent is in VExpr, but jni context is in FunctionContext
         // The deconstruct sequence is not determined, it will core.
         // JniContext's lifecycle should same with function context, not related with expr
-        jclass executor_cl_;
-        jmethodID executor_close_id_;
+        jclass executor_cl;
+        jmethodID executor_ctor_id;
+        jmethodID executor_evaluate_id;
+        jmethodID executor_close_id;
         jobject executor = nullptr;
         bool is_closed = false;
 
-        std::unique_ptr<int64_t[]> input_values_buffer_ptr;
-        std::unique_ptr<int64_t[]> input_nulls_buffer_ptr;
-        std::unique_ptr<int64_t[]> input_offsets_ptrs;
-        //used for array type nested column null map, because array nested column must be nullable
-        std::unique_ptr<int64_t[]> input_array_nulls_buffer_ptr;
-        //used for array type of nested string column offset, not the array column offset
-        std::unique_ptr<int64_t[]> input_array_string_offsets_ptrs;
-        std::unique_ptr<int64_t> output_value_buffer;
-        std::unique_ptr<int64_t> output_null_value;
-        std::unique_ptr<int64_t> output_offsets_ptr;
-        //used for array type nested column null map
-        std::unique_ptr<int64_t> output_array_null_ptr;
-        //used for array type of nested string column offset
-        std::unique_ptr<int64_t> output_array_string_offsets_ptr;
-        std::unique_ptr<int32_t> batch_size_ptr;
-        // intermediate_state includes two parts: reserved / used buffer size and rows
-        std::unique_ptr<IntermediateState> output_intermediate_state_ptr;
-
-        JniContext(int64_t num_args, JavaFunctionCall* parent)
-                : executor_cl_(parent->executor_cl_),
-                  executor_close_id_(parent->executor_close_id_),
-                  input_values_buffer_ptr(new int64_t[num_args]),
-                  input_nulls_buffer_ptr(new int64_t[num_args]),
-                  input_offsets_ptrs(new int64_t[num_args]),
-                  input_array_nulls_buffer_ptr(new int64_t[num_args]),
-                  input_array_string_offsets_ptrs(new int64_t[num_args]),
-                  output_value_buffer(new int64_t()),
-                  output_null_value(new int64_t()),
-                  output_offsets_ptr(new int64_t()),
-                  output_array_null_ptr(new int64_t()),
-                  output_array_string_offsets_ptr(new int64_t()),
-                  batch_size_ptr(new int32_t()),
-                  output_intermediate_state_ptr(new IntermediateState()) {}
+        JniContext() = default;
 
         void close() {
             if (is_closed) {
@@ -151,18 +137,16 @@ private:
                 LOG(WARNING) << "errors while get jni env " << status;
                 return;
             }
-            env->CallNonvirtualVoidMethodA(executor, executor_cl_, executor_close_id_, NULL);
-            Status s = JniUtil::GetJniExceptionMsg(env);
-            if (!s.ok()) LOG(WARNING) << s;
+            env->CallNonvirtualVoidMethodA(executor, executor_cl, executor_close_id, nullptr);
             env->DeleteGlobalRef(executor);
+            env->DeleteGlobalRef(executor_cl);
+            Status s = JniUtil::GetJniExceptionMsg(env);
+            if (!s.ok()) {
+                LOG(WARNING) << s;
+            }
             is_closed = true;
         }
-
-        /// These functions are cross-compiled to IR and used by codegen.
-        static void SetInputNullsBufferElement(JniContext* jni_ctx, int index, uint8_t value);
-        static uint8_t* GetInputValuesBufferAtOffset(JniContext* jni_ctx, int offset);
     };
 };
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

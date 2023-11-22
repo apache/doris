@@ -31,6 +31,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.List;
 
 // ....0000000000
@@ -135,7 +136,7 @@ public class PrivBitSet implements Writable {
         return bitSet;
     }
 
-    public static PrivBitSet of(List<Privilege> privs) {
+    public static PrivBitSet of(Collection<Privilege> privs) {
         PrivBitSet bitSet = new PrivBitSet();
         for (Privilege priv : privs) {
             bitSet.set(priv.getIdx());

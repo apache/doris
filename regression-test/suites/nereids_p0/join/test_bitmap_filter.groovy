@@ -18,9 +18,9 @@
 suite("test_bitmap_filter", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    def tbl1 = "test_query_db.bigtable"
+    def tbl1 = "nereids_test_query_db.bigtable"
     def tbl2 = "bitmap_table"
-    def tbl3 = "test_query_db.baseall"
+    def tbl3 = "nereids_test_query_db.baseall"
 
     sql "set runtime_filter_type = 16"
     sql "DROP TABLE IF EXISTS ${tbl2}"

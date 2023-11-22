@@ -40,7 +40,7 @@ suite("forbid_unexpected_type") {
         sql """
             select * from forbid_unexpected_types where bitmap_union_count(bitmap_empty()) is NULL;
         """
-        exception "Unexpected exception: LOGICAL_FILTER can not contains AggregateFunction"
+        exception "LOGICAL_FILTER can not contains AggregateFunction"
     }
 
     // window function's partition by could not have bitmap
@@ -48,7 +48,7 @@ suite("forbid_unexpected_type") {
         sql """
             select min(version()) over (partition by bitmap_union(bitmap_empty())) as c0 from forbid_unexpected_types
         """
-        exception "Unexpected exception: Doris hll, bitmap, array, map, struct, jsonb column"
+        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
     }
 
     // window function's order by could not have bitmap
@@ -56,7 +56,7 @@ suite("forbid_unexpected_type") {
         sql """
             select min(version()) over (partition by 1 order by bitmap_union(bitmap_empty())) as c0 from forbid_unexpected_types
         """
-        exception "Unexpected exception: Doris hll, bitmap, array, map, struct, jsonb column"
+        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
     }
 }
 

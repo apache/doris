@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
@@ -31,7 +32,7 @@ namespace doris {
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
-    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
             : ColumnPredicate(column_id, opposite),
               _cached_code(_InvalidateCodeValue),
@@ -65,8 +66,10 @@ public:
         }
 
         roaring::Roaring roaring;
-        bool exact_match;
-        Status status = iterator->seek_dictionary(&_value, &exact_match);
+        bool exact_match = false;
+
+        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
+        Status status = iterator->seek_dictionary(&value, &exact_match);
         rowid_t seeked_ordinal = iterator->current_ordinal();
 
         return _bitmap_compare(status, exact_match, ordinal_limit, seeked_ordinal, iterator,
@@ -81,7 +84,7 @@ public:
         auto column_desc = schema.column(_column_id);
         std::string column_name = column_desc->name();
 
-        InvertedIndexQueryType query_type;
+        InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
         case PredicateType::EQ:
             query_type = InvertedIndexQueryType::EQUAL_QUERY;
@@ -106,7 +109,9 @@ public:
         }
 
         roaring::Roaring roaring;
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &_value, query_type,
+
+        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
                                                            num_rows, &roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
@@ -149,109 +154,87 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-#define COMPARE_TO_MIN_OR_MAX(ELE)                                                        \
-    if constexpr (Type == TYPE_DATE) {                                                    \
-        T tmp_uint32_value = 0;                                                           \
-        memcpy((char*)(&tmp_uint32_value), statistic.ELE->cell_ptr(), sizeof(uint24_t));  \
-        return _operator(tmp_uint32_value, _value);                                       \
-    } else {                                                                              \
-        return _operator(*reinterpret_cast<const T*>(statistic.ELE->cell_ptr()), _value); \
-    }
-
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null()) {
             return true;
         }
+
+        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+
         if constexpr (PT == PredicateType::EQ) {
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_min_uint32_value = 0;
-                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
-                       sizeof(uint24_t));
-                T tmp_max_uint32_value = 0;
-                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
-                       sizeof(uint24_t));
-                return _operator(tmp_min_uint32_value <= _value && tmp_max_uint32_value >= _value,
-                                 true);
-            } else {
-                return _operator(
-                        _get_zone_map_value<T>(statistic.first->cell_ptr()) <= _value &&
-                                _get_zone_map_value<T>(statistic.second->cell_ptr()) >= _value,
-                        true);
-            }
+            return _operator(tmp_min_value <= _value && tmp_max_value >= _value, true);
         } else if constexpr (PT == PredicateType::NE) {
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_min_uint32_value = 0;
-                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
-                       sizeof(uint24_t));
-                T tmp_max_uint32_value = 0;
-                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
-                       sizeof(uint24_t));
-                return _operator(tmp_min_uint32_value == _value && tmp_max_uint32_value == _value,
-                                 true);
-            } else {
-                return _operator(
-                        _get_zone_map_value<T>(statistic.first->cell_ptr()) == _value &&
-                                _get_zone_map_value<T>(statistic.second->cell_ptr()) == _value,
-                        true);
-            }
+            return _operator(tmp_min_value == _value && tmp_max_value == _value, true);
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            COMPARE_TO_MIN_OR_MAX(first)
+            return _operator(tmp_min_value, _value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            COMPARE_TO_MIN_OR_MAX(second)
+            return _operator(tmp_max_value, _value);
         }
+    }
+
+    bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (statistic.first->is_null() || statistic.second->is_null()) {
+            return false;
+        }
+
+        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+
+        if constexpr (PT == PredicateType::LT) {
+            return _value > tmp_max_value;
+        } else if constexpr (PT == PredicateType::LE) {
+            return _value >= tmp_max_value;
+        } else if constexpr (PT == PredicateType::GT) {
+            return _value < tmp_min_value;
+        } else if constexpr (PT == PredicateType::GE) {
+            return _value <= tmp_min_value;
+        }
+
+        return false;
     }
 
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;
         }
+
+        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+
         if constexpr (PT == PredicateType::EQ) {
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_min_uint32_value = 0;
-                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
-                       sizeof(uint24_t));
-                T tmp_max_uint32_value = 0;
-                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
-                       sizeof(uint24_t));
-                return _operator(tmp_min_uint32_value == _value && tmp_max_uint32_value == _value,
-                                 true);
-            } else {
-                return _get_zone_map_value<T>(statistic.first->cell_ptr()) == _value &&
-                       _get_zone_map_value<T>(statistic.second->cell_ptr()) == _value;
-            }
+            return tmp_min_value == _value && tmp_max_value == _value;
         } else if constexpr (PT == PredicateType::NE) {
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_min_uint32_value = 0;
-                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
-                       sizeof(uint24_t));
-                T tmp_max_uint32_value = 0;
-                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
-                       sizeof(uint24_t));
-                return tmp_min_uint32_value > _value || tmp_max_uint32_value < _value;
-            } else {
-                return _get_zone_map_value<T>(statistic.first->cell_ptr()) > _value ||
-                       _get_zone_map_value<T>(statistic.second->cell_ptr()) < _value;
-            }
+            return tmp_min_value > _value || tmp_max_value < _value;
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            COMPARE_TO_MIN_OR_MAX(second)
+            return _operator(tmp_max_value, _value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            COMPARE_TO_MIN_OR_MAX(first)
+            return _operator(tmp_min_value, _value);
         }
     }
-#undef COMPARE_TO_MIN_OR_MAX
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::EQ) {
+            // EQ predicate can not use ngram bf, just return true to accept
+            if (bf->is_ngram_bf()) {
+                return true;
+            }
             if constexpr (std::is_same_v<T, StringRef>) {
                 return bf->test_bytes(_value.data, _value.size);
-            } else if constexpr (Type == TYPE_DATE) {
-                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                      sizeof(uint24_t));
             } else {
-                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                      sizeof(_value));
+                // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
+                // Datev1/DatetimeV1 using VecDatetimeValue in bloom filter, NO need to convert.
+                if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
+                    decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
+                            sizeof(decimal12_t));
+                } else {
+                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                          sizeof(T));
+                }
             }
         } else {
             LOG(FATAL) << "Bloom filter is not supported by predicate type.";
@@ -259,7 +242,22 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
+    bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
+        if constexpr (std::is_same_v<T, StringRef>) {
+            for (size_t i = 0; i != count; ++i) {
+                if (_operator(dict_words[i], _value) ^ _opposite) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    bool can_do_bloom_filter(bool ngram) const override {
+        return PT == PredicateType::EQ && !ngram;
+    }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
@@ -385,7 +383,7 @@ private:
                            roaring::Roaring* bitmap) const {
         roaring::Roaring roaring;
 
-        if (status.is<ErrorCode::NOT_FOUND>()) {
+        if (status.is<ErrorCode::ENTRY_NOT_FOUND>()) {
             if constexpr (PT == PredicateType::EQ || PT == PredicateType::GT ||
                           PT == PredicateType::GE) {
                 *bitmap &= roaring; // set bitmap to empty

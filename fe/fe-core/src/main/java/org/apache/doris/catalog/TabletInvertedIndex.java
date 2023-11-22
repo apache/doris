@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.task.PublishVersionTask;
@@ -41,6 +42,7 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
 import org.apache.logging.log4j.LogManager;
@@ -129,6 +131,7 @@ public class TabletInvertedIndex {
                              List<TTabletMetaInfo> tabletToUpdate,
                              List<CooldownConf> cooldownConfToPush,
                              List<CooldownConf> cooldownConfToUpdate) {
+        List<Pair<TabletMeta, TTabletInfo>> cooldownTablets = new ArrayList<>();
         long stamp = readLock();
         long start = System.currentTimeMillis();
         try {
@@ -139,7 +142,8 @@ public class TabletInvertedIndex {
                     // traverse replicas in meta with this backend
                     replicaMetaWithBackend.entrySet().parallelStream().forEach(entry -> {
                         long tabletId = entry.getKey();
-                        Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
+                        Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+                                "tablet " + tabletId + " not exists, backend " + backendId);
                         TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
 
                         if (backendTablets.containsKey(tabletId)) {
@@ -198,8 +202,11 @@ public class TabletInvertedIndex {
                             }
 
                             if (Config.enable_storage_policy && backendTabletInfo.isSetCooldownTerm()) {
-                                handleCooldownConf(tabletMeta, backendTabletInfo, cooldownConfToPush,
-                                        cooldownConfToUpdate);
+                                // Place tablet info in a container and process it outside of read lock to avoid
+                                // deadlock with OlapTable lock
+                                synchronized (cooldownTablets) {
+                                    cooldownTablets.add(Pair.of(tabletMeta, backendTabletInfo));
+                                }
                                 replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
                                 replica.setCooldownTerm(backendTabletInfo.getCooldownTerm());
                             }
@@ -326,6 +333,7 @@ public class TabletInvertedIndex {
         } finally {
             readUnlock(stamp);
         }
+        cooldownTablets.forEach(p -> handleCooldownConf(p.first, p.second, cooldownConfToPush, cooldownConfToUpdate));
 
         long end = System.currentTimeMillis();
         LOG.info("finished to do tablet diff with backend[{}]. sync: {}."
@@ -385,10 +393,22 @@ public class TabletInvertedIndex {
         if (backendTabletInfo.getVersion() > versionInFe) {
             // backend replica's version is larger or newer than replica in FE, sync it.
             return true;
-        } else if (versionInFe == backendTabletInfo.getVersion() && replicaInFe.isBad()) {
+        } else if (versionInFe == backendTabletInfo.getVersion()) {
             // backend replica's version is equal to replica in FE, but replica in FE is bad,
             // while backend replica is good, sync it
-            return true;
+            if (replicaInFe.isBad()) {
+                return true;
+            }
+
+            // FE' s replica last failed version > partition's committed version
+            // this can be occur when be report miss version, fe will set last failed version = visible version + 1
+            // then last failed version may greater than partition's committed version
+            //
+            // But here cannot got variable partition, we just check lastFailedVersion = version + 1,
+            // In ReportHandler.sync, we will check if last failed version > partition's committed version again.
+            if (replicaInFe.getLastFailedVersion() == versionInFe + 1) {
+                return true;
+            }
         }
 
         return false;
@@ -422,9 +442,7 @@ public class TabletInvertedIndex {
         if (cooldownConf.first <= 0) { // invalid cooldownReplicaId
             CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
-            synchronized (cooldownConfToUpdate) {
-                cooldownConfToUpdate.add(conf);
-            }
+            cooldownConfToUpdate.add(conf);
             return;
         }
 
@@ -445,17 +463,13 @@ public class TabletInvertedIndex {
         if (!replicaAlive) {
             CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
-            synchronized (cooldownConfToUpdate) {
-                cooldownConfToUpdate.add(conf);
-            }
+            cooldownConfToUpdate.add(conf);
             return;
         }
 
         if (beTabletInfo.getCooldownTerm() < cooldownConf.second) {
             CooldownConf conf = new CooldownConf(beTabletInfo.tablet_id, cooldownConf.first, cooldownConf.second);
-            synchronized (cooldownConfToPush) {
-                cooldownConfToPush.add(conf);
-            }
+            cooldownConfToPush.add(conf);
             return;
         }
     }
@@ -502,14 +516,17 @@ public class TabletInvertedIndex {
             // so we only return true if version_miss is true.
             return true;
         }
+
+        // backend versions regressive due to bugs
+        if (replicaInFe.checkVersionRegressive(backendTabletInfo.getVersion())) {
+            return true;
+        }
+
         return false;
     }
 
     // always add tablet before adding replicas
     public void addTablet(long tabletId, TabletMeta tabletMeta) {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
         long stamp = writeLock();
         try {
             if (tabletMetaMap.containsKey(tabletId)) {
@@ -528,9 +545,6 @@ public class TabletInvertedIndex {
     }
 
     public void deleteTablet(long tabletId) {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
         long stamp = writeLock();
         try {
             Map<Long, Replica> replicas = replicaMetaTable.rowMap().remove(tabletId);
@@ -556,12 +570,11 @@ public class TabletInvertedIndex {
     }
 
     public void addReplica(long tabletId, Replica replica) {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
         long stamp = writeLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
+            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+                    "tablet " + tabletId + " not exists, replica " + replica.getId()
+                    + ", backend " + replica.getBackendId());
             replicaMetaTable.put(tabletId, replica.getBackendId(), replica);
             replicaToTabletMap.put(replica.getId(), tabletId);
             backingReplicaMetaTable.put(replica.getBackendId(), tabletId, replica);
@@ -573,12 +586,10 @@ public class TabletInvertedIndex {
     }
 
     public void deleteReplica(long tabletId, long backendId) {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
         long stamp = writeLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
+            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+                    "tablet " + tabletId + " not exists, backend " + backendId);
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
                 replicaToTabletMap.remove(replica.getId());
@@ -599,7 +610,8 @@ public class TabletInvertedIndex {
     public Replica getReplica(long tabletId, long backendId) {
         long stamp = readLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId), tabletId);
+            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+                    "tablet " + tabletId + " not exists, backend " + backendId);
             return replicaMetaTable.get(tabletId, backendId);
         } finally {
             readUnlock(stamp);
@@ -709,6 +721,13 @@ public class TabletInvertedIndex {
     // Only build from available bes, exclude colocate tables
     public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(
             List<Long> availableBeIds) {
+        Set<Long> dbIds = Sets.newHashSet();
+        Set<Long> tableIds = Sets.newHashSet();
+        Set<Long> partitionIds = Sets.newHashSet();
+        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentRecycleBin().getRecycleIds(dbIds, tableIds, partitionIds);
+        }
         long stamp = readLock();
 
         // 1. gen <partitionId-indexId, <beId, replicaCount>>
@@ -728,10 +747,14 @@ public class TabletInvertedIndex {
                 try {
                     Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
                     TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
+                    if (dbIds.contains(tabletMeta.getDbId()) || tableIds.contains(tabletMeta.getTableId())
+                            || partitionIds.contains(tabletMeta.getPartitionId())) {
+                        continue;
+                    }
                     Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
                     Preconditions.checkState(
                             !Env.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
-                            "should not be the colocate table");
+                            "table " + tabletMeta.getTableId() + " should not be the colocate table");
 
                     TStorageMedium medium = tabletMeta.getStorageMedium();
                     Table<Long, Long, Map<Long, Long>> partitionReplicasInfo = partitionReplicasInfoMaps.get(medium);
@@ -804,22 +827,42 @@ public class TabletInvertedIndex {
 
     // just for ut
     public Table<Long, Long, Replica> getReplicaMetaTable() {
-        return replicaMetaTable;
+        long stamp = readLock();
+        try {
+            return HashBasedTable.create(replicaMetaTable);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     // just for ut
     public Table<Long, Long, Replica> getBackingReplicaMetaTable() {
-        return backingReplicaMetaTable;
+        long stamp = readLock();
+        try {
+            return HashBasedTable.create(backingReplicaMetaTable);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     // just for ut
     public Table<Long, Long, TabletMeta> getTabletMetaTable() {
-        return tabletMetaTable;
+        long stamp = readLock();
+        try {
+            return HashBasedTable.create(tabletMetaTable);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     // just for ut
     public Map<Long, TabletMeta> getTabletMetaMap() {
-        return tabletMetaMap;
+        long stamp = readLock();
+        try {
+            return new HashMap(tabletMetaMap);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     private boolean isLocal(TStorageMedium storageMedium) {

@@ -64,5 +64,15 @@ suite("agg_window_project") {
 
     order_qt_select2 """select b / 1 * 10 from test_window_table;"""
 
+    order_qt_select3 """SELECT
+                            CASE
+                                WHEN b != 0
+                                AND sum(CASE WHEN b  = 0 THEN 3 ELSE 2 END) OVER () < 50000
+                                THEN 1
+                                ELSE 0
+                            END AS val
+                        FROM
+                            test_window_table;"""
+
     sql "DROP TABLE IF EXISTS test_window_table;"
 }

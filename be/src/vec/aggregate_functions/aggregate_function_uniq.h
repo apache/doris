@@ -28,13 +28,13 @@
 #include <type_traits>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/string_ref.h"
@@ -57,9 +57,6 @@ template <typename T>
 struct HashCRC32;
 
 namespace doris::vectorized {
-
-// Here is an empirical value.
-static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
 
 /// uniqExact
 
@@ -195,8 +192,8 @@ public:
         }
     }
 
-    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
-                               Arena* arena) const override {
+    void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
+                               BufferReadable& buf, Arena* arena) const override {
         auto& set = this->data(place).set;
         UInt64 size;
         read_var_uint(size, buf);
@@ -212,7 +209,17 @@ public:
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena* arena) const override {
-        deserialize_and_merge(place, buf, arena);
+        auto& set = this->data(place).set;
+        UInt64 size;
+        read_var_uint(size, buf);
+
+        set.rehash(size + set.size());
+
+        for (size_t i = 0; i < size; ++i) {
+            KeyType ref;
+            read_pod_binary(ref, buf);
+            set.insert(ref);
+        }
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {

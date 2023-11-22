@@ -104,7 +104,7 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     // Check result.
     ColumnDecimal128 ans(0, 9);
     agg_function->insert_result_into(place, ans);
-    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0));
+    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0).value);
     agg_function->destroy(place);
 
     auto dst = agg_function->create_serialize_column();
@@ -120,7 +120,7 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     }
 
     for (size_t i = 0; i != agg_test_batch_size; ++i) {
-        EXPECT_EQ(i, result.get_element(i));
+        EXPECT_EQ(i, result.get_element(i).value);
     }
 }
 

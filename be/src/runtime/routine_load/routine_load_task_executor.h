@@ -27,8 +27,8 @@
 #include <vector>
 
 #include "runtime/routine_load/data_consumer_pool.h"
-#include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
@@ -50,6 +50,8 @@ public:
     RoutineLoadTaskExecutor(ExecEnv* exec_env);
 
     ~RoutineLoadTaskExecutor();
+
+    void stop();
 
     // submit a routine load task
     Status submit_task(const TRoutineLoadTask& task);

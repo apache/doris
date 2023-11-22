@@ -20,14 +20,17 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.thrift.TExplainLevel;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class PlanTreeBuilder {
 
@@ -64,7 +67,10 @@ public class PlanTreeBuilder {
                 }
                 sb.append("\n[Fragment: ").append(fragment.getFragmentSequenceNum()).append("]");
                 sb.append("\n").append(sink.getExplainString("", TExplainLevel.BRIEF));
-                sinkNode = new PlanTreeNode(sink.getExchNodeId(), sb.toString());
+                sinkNode = new PlanTreeNode(
+                        sink instanceof MultiCastDataSink ? ((MultiCastDataSink) sink).getDataStreamSinks().stream()
+                                .map(s -> s.getExchNodeId()).collect(Collectors.toList())
+                                : ImmutableList.of(sink.getExchNodeId()), sb.toString());
                 if (i == 0) {
                     // sink of first fragment, set it as tree root
                     treeRoot = sinkNode;
@@ -87,19 +93,20 @@ public class PlanTreeBuilder {
                 // This is the result sink, skip it
                 continue;
             }
-            PlanNodeId senderId = sender.getId();
-            PlanTreeNode exchangeNode = findExchangeNode(senderId);
-            if (exchangeNode == null) {
-                throw new UserException("Failed to find exchange node for sender id: " + senderId.asInt());
+            List<PlanNodeId> senderIds = sender.getIds();
+            for (PlanNodeId senderId : senderIds) {
+                PlanTreeNode exchangeNode = findExchangeNode(senderId);
+                if (exchangeNode == null) {
+                    throw new UserException("Failed to find exchange node for sender id: " + senderId.asInt());
+                }
+                exchangeNode.addChild(sender);
             }
-
-            exchangeNode.addChild(sender);
         }
     }
 
     private PlanTreeNode findExchangeNode(PlanNodeId senderId) {
         for (PlanTreeNode exchangeNode : exchangeNodes) {
-            if (exchangeNode.getId().equals(senderId)) {
+            if (exchangeNode.getIds().stream().anyMatch(senderId::equals)) {
                 return exchangeNode;
             }
         }
@@ -107,7 +114,7 @@ public class PlanTreeBuilder {
     }
 
     private void buildForPlanNode(PlanNode planNode, PlanTreeNode parent) {
-        PlanTreeNode node = new PlanTreeNode(planNode.getId(), planNode.getPlanTreeExplainStr());
+        PlanTreeNode node = new PlanTreeNode(ImmutableList.of(planNode.getId()), planNode.getPlanTreeExplainStr());
 
         if (parent != null) {
             parent.addChild(node);

@@ -611,7 +611,7 @@ suite("test_aggregate_collect") {
 
     sql "DROP TABLE IF EXISTS ${tableName_12}"
     sql """
-        CREATE TABLE IF NOT EXISTS ${tableName_12} (
+        CREATE TABLE IF NOT EXISTS topn_array (
             id int,
 	        level int,
             dt datev2,
@@ -622,7 +622,7 @@ suite("test_aggregate_collect") {
           "replication_num" = "1"
         ) 
         """
-    sql "INSERT INTO ${tableName_12} values(1,10,'2022-11-1',6.8754576), (2,8,'2022-11-3',0.576), (2,10,'2022-11-2',1.234) ,(3,10,'2022-11-2',0.576) ,(5,29,'2022-11-2',6.8754576) ,(6,8,'2022-11-1',6.8754576)"
+    sql "INSERT INTO topn_array values(1,10,'2022-11-1',6.8754576), (2,8,'2022-11-3',0.576), (2,10,'2022-11-2',1.234) ,(3,10,'2022-11-2',0.576) ,(5,29,'2022-11-2',6.8754576) ,(6,8,'2022-11-1',6.8754576)"
 
     order_qt_select43 "select topn_array(level,2) from ${tableName_12}"
     order_qt_select44 "select topn_array(level,2,100) from ${tableName_12}"

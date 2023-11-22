@@ -127,7 +127,8 @@ public class S3Resource extends Resource {
         propertiesPing.put(S3Properties.Env.SECRET_KEY, credential.getSecretKey());
         propertiesPing.put(S3Properties.Env.ENDPOINT, credential.getEndpoint());
         propertiesPing.put(S3Properties.Env.REGION, credential.getRegion());
-        propertiesPing.put(PropertyConverter.USE_PATH_STYLE, "false");
+        propertiesPing.put(PropertyConverter.USE_PATH_STYLE,
+                properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false"));
         properties.putAll(propertiesPing);
         S3FileSystem fileSystem = new S3FileSystem(properties);
         String testFile = bucket + rootPath + "/test-object-valid.txt";

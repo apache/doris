@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.text.NumberFormat;
 
 public class FloatLiteral extends LiteralExpr {
     private double value;
@@ -134,7 +135,9 @@ public class FloatLiteral extends LiteralExpr {
         if (type.equals(Type.TIME) || type.equals(Type.TIMEV2)) {
             return timeStrFromFloat(value);
         }
-        return Double.toString(value);
+        NumberFormat nf = NumberFormat.getInstance();
+        nf.setGroupingUsed(false);
+        return nf.format(value);
     }
 
     @Override

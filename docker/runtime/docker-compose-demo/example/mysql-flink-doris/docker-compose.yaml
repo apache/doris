@@ -60,7 +60,7 @@ services:
       - JOB_MANAGER_RPC_ADDRESS=jobmanager
 
   fe:
-    image: apache/doris:1.2.2-fe-x86_64
+    image: apache/doris:2.0.0_alpha-fe-x86_64
     volumes:
       - /data/apache-doris/fe/doris-meta/:/opt/apache-doris/fe/doris-meta
       - /data/apache-doris/fe/log/:/opt/apache-doris/fe/log
@@ -73,7 +73,7 @@ services:
         ipv4_address: 172.20.80.1
 
   be:
-    image: apache/doris:1.2.2-be-x86_64
+    image: apache/doris:2.0.0_alpha-be-x86_64
     volumes:
       - /data/apache-doris/be/storage/:/opt/apache-doris/be/storage
       - /data/apache-doris/be/log/:/opt/apache-doris/be/log

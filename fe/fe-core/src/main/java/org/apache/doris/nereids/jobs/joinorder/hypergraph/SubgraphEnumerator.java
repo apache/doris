@@ -19,6 +19,8 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmapSubsetIterator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.AbstractReceiver;
 import org.apache.doris.qe.ConnectContext;
 
@@ -68,16 +70,17 @@ public class SubgraphEnumerator {
             traceBuilder.append("Query Graph Graphviz: ").append(hyperGraph.toDottyHyperGraph()).append("\n");
         }
         receiver.reset();
-        List<Node> nodes = hyperGraph.getNodes();
+        List<AbstractNode> nodes = hyperGraph.getNodes();
         // Init all nodes in Receiver
-        for (Node node : nodes) {
-            receiver.addGroup(node.getNodeMap(), node.getGroup());
+        for (AbstractNode node : nodes) {
+            DPhyperNode dPhyperNode = (DPhyperNode) node;
+            receiver.addGroup(node.getNodeMap(), dPhyperNode.getGroup());
         }
         int size = nodes.size();
 
         // Init edgeCalculator
         edgeCalculator = new EdgeCalculator(hyperGraph.getEdges());
-        for (Node node : nodes) {
+        for (AbstractNode node : nodes) {
             edgeCalculator.initSubgraph(node.getNodeMap());
         }
 
@@ -225,8 +228,8 @@ public class SubgraphEnumerator {
             neighborhoods = LongBitmap.andNot(neighborhoods, forbiddenNodes);
             forbiddenNodes = LongBitmap.or(forbiddenNodes, neighborhoods);
             for (Edge edge : edgeCalculator.foundComplexEdgesContain(subgraph)) {
-                long left = edge.getLeft();
-                long right = edge.getRight();
+                long left = edge.getLeftExtendedNodes();
+                long right = edge.getRightExtendedNodes();
                 if (LongBitmap.isSubset(left, subgraph) && !LongBitmap.isOverlap(right, forbiddenNodes)) {
                     neighborhoods = LongBitmap.set(neighborhoods, LongBitmap.lowestOneIndex(right));
                 } else if (LongBitmap.isSubset(right, subgraph) && !LongBitmap.isOverlap(left, forbiddenNodes)) {
@@ -362,14 +365,14 @@ public class SubgraphEnumerator {
         }
 
         private boolean isContainEdge(long subgraph, Edge edge) {
-            int containLeft = LongBitmap.isSubset(edge.getLeft(), subgraph) ? 0 : 1;
-            int containRight = LongBitmap.isSubset(edge.getRight(), subgraph) ? 0 : 1;
+            int containLeft = LongBitmap.isSubset(edge.getLeftExtendedNodes(), subgraph) ? 0 : 1;
+            int containRight = LongBitmap.isSubset(edge.getRightExtendedNodes(), subgraph) ? 0 : 1;
             return containLeft + containRight == 1;
         }
 
         private boolean isOverlapEdge(long subgraph, Edge edge) {
-            int overlapLeft = LongBitmap.isOverlap(edge.getLeft(), subgraph) ? 0 : 1;
-            int overlapRight = LongBitmap.isOverlap(edge.getRight(), subgraph) ? 0 : 1;
+            int overlapLeft = LongBitmap.isOverlap(edge.getLeftExtendedNodes(), subgraph) ? 0 : 1;
+            int overlapRight = LongBitmap.isOverlap(edge.getRightExtendedNodes(), subgraph) ? 0 : 1;
             return overlapLeft + overlapRight == 1;
         }
 

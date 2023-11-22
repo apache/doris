@@ -22,8 +22,10 @@ import org.apache.doris.nereids.trees.expressions.functions.CheckOverflowNullabl
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -33,13 +35,17 @@ import java.util.List;
 public class Multiply extends BinaryArithmetic implements CheckOverflowNullable {
 
     public Multiply(Expression left, Expression right) {
-        super(left, right, Operator.MULTIPLY);
+        super(ImmutableList.of(left, right), Operator.MULTIPLY);
+    }
+
+    public Multiply(List<Expression> children) {
+        super(children, Operator.MULTIPLY);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Multiply(children.get(0), children.get(1));
+        return new Multiply(children);
     }
 
     @Override
@@ -47,7 +53,18 @@ public class Multiply extends BinaryArithmetic implements CheckOverflowNullable 
         int retPercision = t1.getPrecision() + t2.getPrecision();
         int retScale = t1.getScale() + t2.getScale();
         if (retPercision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
-            retPercision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
+            boolean enableDecimal256 = false;
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
+            }
+            if (enableDecimal256) {
+                if (retPercision > DecimalV3Type.MAX_DECIMAL256_PRECISION) {
+                    retPercision = DecimalV3Type.MAX_DECIMAL256_PRECISION;
+                }
+            } else {
+                retPercision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
+            }
         }
         Preconditions.checkState(retPercision >= retScale,
                 "scale " + retScale + " larger than precision " + retPercision

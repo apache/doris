@@ -23,10 +23,12 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <exception>
 #include <memory>
 #include <ostream>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -72,21 +74,26 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
         return Status::NotSupported("Function {} is not implemented", _fn.name.function_name);
     }
     VExpr::register_function_context(state, context);
-    _expr_name = fmt::format("(CAST {} TO {})", child_name, _target_data_type_name);
+    _expr_name = fmt::format("(CAST {}({}) TO {})", child_name, child->data_type()->get_name(),
+                             _target_data_type_name);
     return Status::OK();
 }
 
 doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+    }
     return Status::OK();
 }
 
-void VCastExpr::close(doris::RuntimeState* state, VExprContext* context,
-                      FunctionContext::FunctionStateScope scope) {
+void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block* block,
@@ -102,11 +109,17 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block,
-                                       {static_cast<size_t>(column_id), const_param_id},
-                                       num_columns_without_result, block->rows(), false));
-    *result_column_id = num_columns_without_result;
-    return Status::OK();
+
+    auto state = Status::OK();
+    try {
+        state = _function->execute(context->fn_context(_fn_context_index), *block,
+                                   {static_cast<size_t>(column_id), const_param_id},
+                                   num_columns_without_result, block->rows(), false);
+        *result_column_id = num_columns_without_result;
+    } catch (const Exception& e) {
+        state = e.to_status();
+    }
+    return state;
 }
 
 const std::string& VCastExpr::expr_name() const {

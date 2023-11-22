@@ -66,7 +66,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnPtr argument_columns[2] = {nullptr, nullptr};
         ColumnPtr argument_nullmap[2] = {nullptr, nullptr};
         for (int i = 0; i < 2; ++i) {

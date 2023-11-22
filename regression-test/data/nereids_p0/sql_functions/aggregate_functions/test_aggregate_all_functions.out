@@ -11,6 +11,15 @@ xian	100.0
 beijing	100.0
 xian	100.0
 
+-- !select_all1 --
+20220201	eleme	\N	10001,72173389
+20220201	meituan	\N	10000,10001,72173389
+20220202	eleme	\N	10001,72173389
+20220203	meituan	\N	10000,10001,72173389
+
+-- !select_all2 --
+20220202	eleme	\N	10001,72173389
+
 -- !bitmap_intersect --
 20220201	10001
 20220202	10001
@@ -21,6 +30,14 @@ xian	100.0
 
 -- !select5 --
 3
+
+-- !select6 --
+2
+3
+
+-- !select7 --
+10000,10001,72173389
+10001,72173389
 
 -- !group_bitmap_xor --
 20220201	10000
@@ -40,7 +57,7 @@ beijing	3
 xian	2
 
 -- !select9 --
-beijing, xian, beijing, chengdu, shanghai
+beijing,xian,beijing,chengdu,shanghai
 
 -- !select10 --
 beijing xian beijing chengdu shanghai
@@ -49,8 +66,8 @@ beijing xian beijing chengdu shanghai
 \N
 
 -- !select12 --
-beijing, xian
-beijing, chengdu, shanghai
+beijing,xian
+beijing,chengdu,shanghai
 
 -- !select13 --
 beijing xian
@@ -226,7 +243,7 @@ beijing chengdu shanghai
 2
 
 -- !select44 --
-6	3975	2003	33035710	25819.948000000	78965.368	4449.5830001831055
+6	3975	2003	33035710	25819.948	78965.368	4449.5830001831055
 
 -- !select45 --
 1	10

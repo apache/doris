@@ -124,7 +124,7 @@ public:
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
         if (_offsets.size() == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         *reinterpret_cast<Slice*>(value) = Slice(_first_value);
         return Status::OK();
@@ -132,7 +132,7 @@ public:
     Status get_last_value(void* value) const override {
         DCHECK(_finished);
         if (_offsets.size() == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         *reinterpret_cast<Slice*>(value) = Slice(_last_value);
         return Status::OK();
@@ -194,6 +194,12 @@ public:
         _num_elems = decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - sizeof(uint32_t)]);
         _offsets_pos = _data.get_size() - (_num_elems + 1) * sizeof(uint32_t);
 
+        if (_offsets_pos > _data.get_size() - sizeof(uint32_t)) {
+            return Status::Corruption(
+                    "file corruption: offsets pos beyonds data_size: {}, num_element: {}"
+                    ", offset_pos: {}",
+                    _data.size, _num_elems, _offsets_pos);
+        }
         _parsed = true;
 
         return Status::OK();

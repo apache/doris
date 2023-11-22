@@ -20,7 +20,6 @@ package org.apache.doris.nereids.jobs.cascades;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
-import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
@@ -32,7 +31,8 @@ import org.apache.doris.nereids.properties.ChildrenPropertiesRegulator;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
-import org.apache.doris.nereids.stats.StatsCalculator;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -47,6 +47,7 @@ import java.util.Optional;
  * Inspired by NoisePage and ORCA-Paper.
  */
 public class CostAndEnforcerJob extends Job implements Cloneable {
+
     private static final Logger LOG = LogManager.getLogger(CostAndEnforcerJob.class);
 
     // GroupExpression to optimize
@@ -80,6 +81,14 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         this.groupExpression = groupExpression;
     }
 
+    private ConnectContext getConnectContext() {
+        return context.getCascadesContext().getConnectContext();
+    }
+
+    private SessionVariable getSessionVariable() {
+        return context.getCascadesContext().getConnectContext().getSessionVariable();
+    }
+
     /*-
      * Please read the ORCA paper
      * - 4.1.4 Optimization.
@@ -110,27 +119,23 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
      */
     @Override
     public void execute() {
-        CostCalculator.setEnableNewCostModel(
-                context.getCascadesContext().getConnectContext().getSessionVariable().getEnableNewCostModel());
-        CostWeight.setNereidsCboPenaltyFactor(
-                context.getCascadesContext().getConnectContext().getSessionVariable().getNereidsCboPenaltyFactor());
         if (groupExpression.isUnused()) {
             return;
         }
 
+        SessionVariable sessionVariable = getSessionVariable();
+
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex == -1) {
-            curNodeCost = Cost.zero(
-                    context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump());
-            curTotalCost = Cost.zero(
-                    context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump());
+            curNodeCost = Cost.zero(sessionVariable);
+            curTotalCost = Cost.zero(sessionVariable);
             curChildIndex = 0;
             // List<request property to children>
             // [ child item: [leftProperties, rightProperties]]
             // like :[ [Properties {"", ANY}, Properties {"", BROADCAST}],
             //         [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}] ]
-            RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(context);
+            RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(getConnectContext(), context);
             requestChildrenPropertiesList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
             for (List<PhysicalProperties> requestChildrenProperties : requestChildrenPropertiesList) {
                 outputChildrenPropertiesList.add(new ArrayList<>(requestChildrenProperties));
@@ -146,8 +151,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     = outputChildrenPropertiesList.get(requestPropertiesIndex);
             // Calculate cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
-                curNodeCost = CostCalculator.calculateCost(groupExpression, requestChildrenProperties);
-                groupExpression.setCost(curNodeCost.getValue());
+                curNodeCost = CostCalculator.calculateCost(getConnectContext(), groupExpression,
+                        requestChildrenProperties);
+                groupExpression.setCost(curNodeCost);
                 curTotalCost = curNodeCost;
             }
 
@@ -191,14 +197,23 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 // plan's requestChildProperty).getOutputProperties(current plan's requestChildProperty) == child
                 // plan's outputProperties`, the outputProperties must satisfy the origin requestChildProperty
                 outputChildrenProperties.set(curChildIndex, outputProperties);
-                curTotalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                curTotalCost = CostCalculator.addChildCost(
+                        getConnectContext(),
+                        groupExpression.getPlan(),
                         curNodeCost,
                         lowestCostExpr.getCostValueByProperties(requestChildProperty),
                         curChildIndex);
-                if (curTotalCost.getValue() > context.getCostUpperBound()) {
-                    curTotalCost = Cost.infinite(
-                            context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump());
-                }
+
+                // Not performing lower bound group pruning here is to avoid redundant optimization of children.
+                // For example:
+                //      Group1 : betterExpr, currentExpr(child: Group2), otherExpr(child: Group)
+                //      steps
+                //          1. CostAndEnforce(currentExpr) with upperBound betterExpr.cost
+                //          2. OptimizeGroup(Group2) with upperBound bestExpr.cost - currentExpr.nodeCost
+                //          3. CostAndEnforce(Expr in Group2) trigger here and exit
+                //              ...
+                //          n.  CostAndEnforce(otherExpr) can trigger optimize group2 again for the same requireProp
+
                 // the request child properties will be covered by the output properties
                 // that corresponding to the request properties. so if we run a costAndEnforceJob of the same
                 // group expression, that request child properties will be different of this.
@@ -229,8 +244,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         // it's certain that lowestCostChildren is equals to arity().
         ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
                 lowestCostChildren, outputChildrenProperties, requestChildrenProperties, context);
-        double enforceCost = regulator.adjustChildrenProperties();
-        if (enforceCost < 0) {
+        boolean success = regulator.adjustChildrenProperties();
+        if (!success) {
             // invalid enforce, return.
             return false;
         }
@@ -240,30 +255,26 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         ChildOutputPropertyDeriver childOutputPropertyDeriver
                 = new ChildOutputPropertyDeriver(outputChildrenProperties);
         // the physical properties the group expression support for its parent.
-        PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(groupExpression);
+        PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(getConnectContext(),
+                groupExpression);
 
         // update current group statistics and re-compute costs.
-        if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)) {
-            // TODO: If it's error, add some warning log at least.
+        if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)
+                && groupExpression.getOwnerGroup().getStatistics() == null) {
             // if we come here, mean that we have some error in stats calculator and should fix it.
+            LOG.warn("Nereids try to calculate cost without stats for group expression {}", groupExpression);
             return false;
         }
-        StatsCalculator statsCalculator = StatsCalculator.estimate(groupExpression,
-                context.getCascadesContext().getConnectContext().getSessionVariable().getForbidUnknownColStats(),
-                context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap(),
-                context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump());
-        context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap()
-                .putAll(statsCalculator.getTotalColumnStatisticMap());
-        context.getCascadesContext().getConnectContext().getTotalHistogramMap()
-                .putAll(statsCalculator.getTotalHistogramMap());
 
         // recompute cost after adjusting property
-        curNodeCost = CostCalculator.calculateCost(groupExpression, requestChildrenProperties);
-        groupExpression.setCost(curNodeCost.getValue());
+        curNodeCost = CostCalculator.calculateCost(getConnectContext(), groupExpression, requestChildrenProperties);
+        groupExpression.setCost(curNodeCost);
         curTotalCost = curNodeCost;
         for (int i = 0; i < outputChildrenProperties.size(); i++) {
             PhysicalProperties childProperties = outputChildrenProperties.get(i);
-            curTotalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+            curTotalCost = CostCalculator.addChildCost(
+                    getConnectContext(),
+                    groupExpression.getPlan(),
                     curTotalCost,
                     groupExpression.child(i).getLowestCostPlan(childProperties).get().first,
                     i);
@@ -290,8 +301,25 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             }
             return;
         }
+
+        if (context.getRequiredProperties().isDistributionOnlyProperties()) {
+            // For properties without an orderSpec, enforceMissingPropertiesHelper always adds a distributor
+            // above this group expression. The cost of the distributor is equal to the cost of the groupExpression
+            // plus the cost of the distributor. The distributor remains unchanged for different groupExpressions.
+            // Therefore, if there is a better groupExpr, it is preferable to enforce the better groupExpr.
+            // Consequently, we can avoid this enforcement.
+            Optional<Pair<Cost, GroupExpression>> bestExpr = groupExpression.getOwnerGroup()
+                    .getLowestCostPlan(context.getRequiredProperties());
+            double bestCost = bestExpr
+                    .map(costGroupExpressionPair -> costGroupExpressionPair.first.getValue())
+                    .orElse(Double.POSITIVE_INFINITY);
+            if (curTotalCost.getValue() > bestCost) {
+                return;
+            }
+        }
+
         EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
-                = new EnforceMissingPropertiesHelper(context, groupExpression, curTotalCost);
+                = new EnforceMissingPropertiesHelper(getConnectContext(), groupExpression, curTotalCost);
         PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper
                 .enforceProperty(outputProperty, requiredProperties);
         curTotalCost = enforceMissingPropertiesHelper.getCurTotalCost();
@@ -320,7 +348,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             groupExpression.putOutputPropertiesMap(outputProperty, requestProperty);
         }
         this.groupExpression.getOwnerGroup().setBestPlan(groupExpression, curTotalCost, requestProperty);
-        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId().toString(),
+        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId(),
                 groupExpression.children(), groupExpression.getPlan(), requestProperty, curTotalCost);
     }
 
@@ -328,10 +356,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         lowestCostChildren.clear();
         prevChildIndex = -1;
         curChildIndex = 0;
-        curTotalCost = Cost.zero(
-                context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump());
-        curNodeCost = Cost.zero(
-                context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump());
+        curTotalCost = Cost.zero(getSessionVariable());
+        curNodeCost = Cost.zero(getSessionVariable());
     }
 
     /**

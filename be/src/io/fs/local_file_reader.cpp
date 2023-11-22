@@ -30,7 +30,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/err_utils.h"
 #include "util/async_io.h"
@@ -38,7 +37,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
                                  std::shared_ptr<LocalFileSystem> fs)

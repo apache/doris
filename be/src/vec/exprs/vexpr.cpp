@@ -28,6 +28,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -46,7 +47,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
-#include "vec/exprs/vschema_change_expr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
@@ -55,13 +55,111 @@
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision,
+                                 int scale) {
+    TExprNode node;
+
+    switch (type) {
+    case TYPE_BOOLEAN: {
+        static_cast<void>(create_texpr_literal_node<TYPE_BOOLEAN>(data, &node));
+        break;
+    }
+    case TYPE_TINYINT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_TINYINT>(data, &node));
+        break;
+    }
+    case TYPE_SMALLINT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_SMALLINT>(data, &node));
+        break;
+    }
+    case TYPE_INT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_INT>(data, &node));
+        break;
+    }
+    case TYPE_BIGINT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_BIGINT>(data, &node));
+        break;
+    }
+    case TYPE_LARGEINT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_LARGEINT>(data, &node));
+        break;
+    }
+    case TYPE_FLOAT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_FLOAT>(data, &node));
+        break;
+    }
+    case TYPE_DOUBLE: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DOUBLE>(data, &node));
+        break;
+    }
+    case TYPE_DATEV2: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DATEV2>(data, &node));
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node));
+        break;
+    }
+    case TYPE_DATE: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DATE>(data, &node));
+        break;
+    }
+    case TYPE_DATETIME: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DATETIME>(data, &node));
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DECIMALV2>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL32: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DECIMAL32>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DECIMAL64>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        static_cast<void>(
+                create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL256: {
+        static_cast<void>(
+                create_texpr_literal_node<TYPE_DECIMAL256>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_CHAR: {
+        static_cast<void>(create_texpr_literal_node<TYPE_CHAR>(data, &node));
+        break;
+    }
+    case TYPE_VARCHAR: {
+        static_cast<void>(create_texpr_literal_node<TYPE_VARCHAR>(data, &node));
+        break;
+    }
+    case TYPE_STRING: {
+        static_cast<void>(create_texpr_literal_node<TYPE_STRING>(data, &node));
+        break;
+    }
+    default:
+        DCHECK(false);
+        throw std::invalid_argument("Invalid type!");
+    }
+    return node;
+}
 } // namespace doris
 
 namespace doris::vectorized {
-using doris::Status;
-using doris::RuntimeState;
-using doris::RowDescriptor;
-using doris::TypeDescriptor;
+
+bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
+    const auto& children = expr.children();
+
+    auto is_a_slot = std::any_of(children.begin(), children.end(),
+                                 [](const auto& child) { return is_acting_on_a_slot(*child); });
+
+    return is_a_slot ? true : (expr.node_type() == TExprNodeType::SLOT_REF);
+}
 
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
@@ -118,22 +216,26 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->open(state, context, scope));
     }
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+    }
     return Status::OK();
 }
 
-void VExpr::close(RuntimeState* state, VExprContext* context,
-                  FunctionContext::FunctionStateScope scope) {
+void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->close(state, context, scope);
+        _children[i]->close(context, scope);
     }
 }
 
-Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
+Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
     try {
         switch (expr_node.node_type) {
         case TExprNodeType::BOOL_LITERAL:
         case TExprNodeType::INT_LITERAL:
         case TExprNodeType::LARGE_INT_LITERAL:
+        case TExprNodeType::IPV4_LITERAL:
+        case TExprNodeType::IPV6_LITERAL:
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:
@@ -155,30 +257,30 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
             expr = VStructLiteral::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::SLOT_REF: {
+        case TExprNodeType::SLOT_REF: {
             expr = VSlotRef::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::COLUMN_REF: {
+        case TExprNodeType::COLUMN_REF: {
             expr = VColumnRef::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::COMPOUND_PRED: {
+        case TExprNodeType::COMPOUND_PRED: {
             expr = VCompoundPred::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::LAMBDA_FUNCTION_EXPR: {
+        case TExprNodeType::LAMBDA_FUNCTION_EXPR: {
             expr = VLambdaFunctionExpr::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
+        case TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
             expr = VLambdaFunctionCallExpr::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::ARITHMETIC_EXPR:
-        case doris::TExprNodeType::BINARY_PRED:
-        case doris::TExprNodeType::FUNCTION_CALL:
-        case doris::TExprNodeType::COMPUTE_FUNCTION_CALL: {
+        case TExprNodeType::ARITHMETIC_EXPR:
+        case TExprNodeType::BINARY_PRED:
+        case TExprNodeType::FUNCTION_CALL:
+        case TExprNodeType::COMPUTE_FUNCTION_CALL: {
             expr = VectorizedFnCall::create_shared(expr_node);
             break;
         }
@@ -186,15 +288,15 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
             expr = VMatchPredicate::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::CAST_EXPR: {
+        case TExprNodeType::CAST_EXPR: {
             expr = VCastExpr::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::IN_PRED: {
+        case TExprNodeType::IN_PRED: {
             expr = VInPredicate::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::CASE_EXPR: {
+        case TExprNodeType::CASE_EXPR: {
             if (!expr_node.__isset.case_expr) {
                 return Status::InternalError("Case expression not set in thrift node");
             }
@@ -209,15 +311,17 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
             expr = VTupleIsNullPredicate::create_shared(expr_node);
             break;
         }
-        case TExprNodeType::SCHEMA_CHANGE_EXPR: {
-            expr = VSchemaChangeExpr::create_shared(expr_node);
-            break;
-        }
         default:
             return Status::InternalError("Unknown expr node type: {}", expr_node.node_type);
         }
     } catch (const Exception& e) {
-        return Status::Error(e.code(), e.to_string());
+        if (e.code() == ErrorCode::INTERNAL_ERROR) {
+            return Status::InternalError("Create Expr failed because {}\nTExprNode={}", e.what(),
+                                         apache::thrift::ThriftDebugString(expr_node));
+        }
+        return Status::Error<false>(e.code(), "Create Expr failed because {}", e.what());
+        LOG(WARNING) << "create expr failed, TExprNode={}, reason={}"
+                     << apache::thrift::ThriftDebugString(expr_node) << e.what();
     }
     if (!expr->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", expr_node.node_type);
@@ -225,7 +329,7 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
     return Status::OK();
 }
 
-Status VExpr::create_tree_from_thrift(const std::vector<doris::TExprNode>& nodes, int* node_idx,
+Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
                                       VExprSPtr& root_expr, VExprContextSPtr& ctx) {
     // propagate error case
     if (*node_idx >= nodes.size()) {
@@ -270,7 +374,7 @@ Status VExpr::create_tree_from_thrift(const std::vector<doris::TExprNode>& nodes
     return Status::OK();
 }
 
-Status VExpr::create_expr_tree(const doris::TExpr& texpr, VExprContextSPtr& ctx) {
+Status VExpr::create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx) {
     if (texpr.nodes.size() == 0) {
         ctx = nullptr;
         return Status::OK();
@@ -291,7 +395,7 @@ Status VExpr::create_expr_tree(const doris::TExpr& texpr, VExprContextSPtr& ctx)
     return status;
 }
 
-Status VExpr::create_expr_trees(const std::vector<doris::TExpr>& texprs, VExprContextSPtrs& ctxs) {
+Status VExpr::create_expr_trees(const std::vector<TExpr>& texprs, VExprContextSPtrs& ctxs) {
     ctxs.clear();
     for (int i = 0; i < texprs.size(); ++i) {
         VExprContextSPtr ctx;
@@ -307,12 +411,6 @@ Status VExpr::prepare(const VExprContextSPtrs& ctxs, RuntimeState* state,
         RETURN_IF_ERROR(ctx->prepare(state, row_desc));
     }
     return Status::OK();
-}
-
-void VExpr::close(const VExprContextSPtrs& ctxs, RuntimeState* state) {
-    for (auto ctx : ctxs) {
-        ctx->close(state);
-    }
 }
 
 Status VExpr::open(const VExprContextSPtrs& ctxs, RuntimeState* state) {
@@ -388,6 +486,7 @@ Status VExpr::get_const_col(VExprContext* context,
     }
 
     if (_constant_col != nullptr) {
+        DCHECK(column_wrapper != nullptr);
         *column_wrapper = _constant_col;
         return Status::OK();
     }
@@ -401,7 +500,10 @@ Status VExpr::get_const_col(VExprContext* context,
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);
-    *column_wrapper = _constant_col;
+    if (column_wrapper != nullptr) {
+        *column_wrapper = _constant_col;
+    }
+
     return Status::OK();
 }
 
@@ -439,9 +541,9 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
                                    const FunctionBasePtr& function) const {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
+        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+            static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         }
     }
 }

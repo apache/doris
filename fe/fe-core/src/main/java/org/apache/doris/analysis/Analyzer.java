@@ -40,10 +40,12 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
 import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
@@ -62,6 +64,7 @@ import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.RewriteImplicitCastRule;
 import org.apache.doris.rewrite.RewriteInPredicateRule;
+import org.apache.doris.rewrite.RewriteIsNullIsNotNullRule;
 import org.apache.doris.rewrite.RoundLiteralInBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
@@ -145,9 +148,6 @@ public class Analyzer {
     private String schemaWild;
     private String schemaTable; // table used in DESCRIBE Table
 
-    // True if the corresponding select block has a limit and/or offset clause.
-    private boolean hasLimitOffsetClause = false;
-
     // Current depth of nested analyze() calls. Used for enforcing a
     // maximum expr-tree depth. Needs to be manually maintained by the user
     // of this Analyzer with incrementCallDepth() and decrementCallDepth().
@@ -178,6 +178,8 @@ public class Analyzer {
     // The runtime filter that is expected to be used
     private final List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
 
+    private boolean isReAnalyze = false;
+
     public void setIsSubquery() {
         isSubquery = true;
         isFirstScopeInSubquery = true;
@@ -198,6 +200,14 @@ public class Analyzer {
 
     public boolean isWithClause() {
         return isWithClause;
+    }
+
+    public void setReAnalyze(boolean reAnalyze) {
+        isReAnalyze = reAnalyze;
+    }
+
+    public boolean isReAnalyze() {
+        return isReAnalyze;
     }
 
     public void setUDFAllowed(boolean val) {
@@ -310,6 +320,10 @@ public class Analyzer {
         // True if we are analyzing an explain request. Should be set before starting
         // analysis.
         public boolean isExplain;
+
+        // Record the statement clazz that the analyzer would to analyze,
+        // this give an opportunity to control analyzing behavior according to the statement type.
+        public Class<? extends StatementBase> rootStatementClazz;
 
         // Indicates whether the query has plan hints.
         public boolean hasPlanHints = false;
@@ -430,6 +444,7 @@ public class Analyzer {
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteInPredicateRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
+            rules.add(RewriteIsNullIsNotNullRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
@@ -558,6 +573,14 @@ public class Analyzer {
         return globalState.isExplain;
     }
 
+    public void setRootStatementClazz(Class<? extends StatementBase> statementClazz) {
+        globalState.rootStatementClazz = statementClazz;
+    }
+
+    public Class<? extends StatementBase> getRootStatementClazz() {
+        return globalState.rootStatementClazz;
+    }
+
     public int incrementCallDepth() {
         return ++callDepth;
     }
@@ -642,6 +665,14 @@ public class Analyzer {
                 continue;
             }
             globalState.conjuncts.put(id, (Predicate) globalState.conjuncts.get(id).substitute(sMap));
+        }
+    }
+
+    public void registerTupleDescriptor(TupleDescriptor desc) {
+        tupleByAlias.put(desc.getAlias(), desc);
+        for (SlotDescriptor slot : desc.getSlots()) {
+            String key = desc.getAlias() + "." + slot.getColumn().getName();
+            slotRefMap.put(key, slot);
         }
     }
 
@@ -910,7 +941,34 @@ public class Analyzer {
             // ===================================================
             // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
             // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
-            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)) {
+            // create table tmp_can_drop_t1 (
+            //     cust_id varchar(96),
+            //     user_id varchar(96)
+            // )
+            // create table tmp_can_drop_t2 (
+            //     cust_id varchar(96),
+            //     usr_id varchar(96)
+            // )
+            // select
+            // a.cust_id,
+            // a.usr_id
+            // from (
+            // select
+            //     a.cust_id,
+            //     a.usr_id, --------->(report error, because there is no user_id column in tmp_can_drop_t1)
+            //     a.user_id
+            // from tmp_can_drop_t1 a
+            // full join (
+            //     select
+            //     cust_id,
+            //     usr_id
+            //     from
+            //     tmp_can_drop_t2
+            // ) b
+            // on b.cust_id = a.cust_id
+            // ) a;
+            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)
+                    && !tupleByAlias.containsKey(newTblName.getTbl())) {
                 d = resolveColumnRef(colName);
             }
         }
@@ -937,7 +995,10 @@ public class Analyzer {
                                                 newTblName == null ? "table list" : newTblName.toString());
         }
 
-        Column col = d.getTable() == null ? new Column(colName, ScalarType.BOOLEAN) : d.getTable().getColumn(colName);
+        Column col = (d.getTable() == null)
+                ? new Column(colName, ScalarType.BOOLEAN,
+                        globalState.markTuples.get(d.getAlias()) != null)
+                : d.getTable().getColumn(colName);
         if (col == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, colName,
                                                 newTblName == null ? d.getTable().getName() : newTblName.toString());
@@ -953,11 +1014,7 @@ public class Analyzer {
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
         boolean isNullable;
-        if (VectorizedUtil.isVectorized()) {
-            isNullable = col.isAllowNull();
-        } else {
-            isNullable = col.isAllowNull() || isOuterJoined(d.getId());
-        }
+        isNullable = col.isAllowNull();
         result.setIsNullable(isNullable);
 
         slotRefMap.put(key, result);
@@ -1810,10 +1867,6 @@ public class Analyzer {
         return hasEmptySpjResultSet;
     }
 
-    public void setHasLimitOffsetClause(boolean hasLimitOffset) {
-        this.hasLimitOffsetClause = hasLimitOffset;
-    }
-
     /**
      * Register all conjuncts in 'conjuncts' that make up the On-clause of the given
      * right-hand side of a join. Assigns each conjunct a unique id. If rhsRef is
@@ -1883,7 +1936,9 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                Expr newConjunct = conjunct.getResultValue(true);
+                // getResultValue will modify the conjunct internally
+                // we have to use a clone to keep conjunct unchanged
+                Expr newConjunct = conjunct.clone().getResultValue(true);
                 newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;
@@ -2101,7 +2156,8 @@ public class Analyzer {
         if (lastCompatibleType == null) {
             newCompatibleType = expr.getType();
         } else {
-            newCompatibleType = Type.getAssignmentCompatibleType(lastCompatibleType, expr.getType(), false);
+            newCompatibleType = Type.getAssignmentCompatibleType(
+                lastCompatibleType, expr.getType(), false, SessionVariable.getEnableDecimal256());
         }
         if (!newCompatibleType.isValid()) {
             throw new AnalysisException(String.format(
@@ -2123,15 +2179,16 @@ public class Analyzer {
         Type compatibleType = exprs.get(0).getType();
         for (int i = 1; i < exprs.size(); ++i) {
             exprs.get(i).analyze(this);
+            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
             if (compatibleType.isDateV2() && exprs.get(i) instanceof StringLiteral
-                    && ((StringLiteral) exprs.get(i)).canConvertToDateV2(compatibleType)) {
+                    && ((StringLiteral) exprs.get(i)).canConvertToDateType(compatibleType)) {
                 // If string literal can be converted to dateV2, we use datev2 as the compatible type
                 // instead of datetimev2.
             } else if (exprs.get(i).isConstantImpl()) {
                 exprs.get(i).compactForLiteral(compatibleType);
-                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
+                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType(), enableDecimal256);
             } else {
-                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
+                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType(), enableDecimal256);
             }
         }
         if (compatibleType.equals(Type.VARCHAR)) {
@@ -2300,20 +2357,6 @@ public class Analyzer {
     /**
      * Returns true if predicate 'e' can be correctly evaluated by a tree materializing
      * 'tupleIds', otherwise false:
-     * - the predicate needs to be bound by tupleIds
-     * - a Where clause predicate can only be correctly evaluated if for all outer-joined
-     *   referenced tids the last join to outer-join this tid has been materialized
-     * - an On clause predicate against the non-nullable side of an Outer Join clause
-     *   can only be correctly evaluated by the join node that materializes the
-     *   Outer Join clause
-     */
-    private boolean canEvalPredicate(PlanNode node, Expr e) {
-        return canEvalPredicate(node.getTblRefIds(), e);
-    }
-
-    /**
-     * Returns true if predicate 'e' can be correctly evaluated by a tree materializing
-     * 'tupleIds', otherwise false:
      * - The predicate needs to be bound by tupleIds.
      * - For On-clause predicates:
      *   - If the predicate is from an anti-join On-clause it must be evaluated by the
@@ -2433,10 +2476,12 @@ public class Analyzer {
      * Wrapper around getUnassignedConjuncts(List<TupleId> tupleIds).
      */
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
-        // constant conjuncts should be push down to all leaf node.
+        // constant conjuncts should be push down to all leaf node except agg and analytic node.
+        // (see getPredicatesBoundedByGroupbysSourceExpr method)
         // so we need remove constant conjuncts when expr is not a leaf node.
         List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
-        if (!node.getChildren().isEmpty()) {
+        if (!node.getChildren().isEmpty()
+                && !(node instanceof AggregationNode || node instanceof AnalyticEvalNode)) {
             unassigned = unassigned.stream()
                     .filter(e -> !e.isConstant()).collect(Collectors.toList());
         }

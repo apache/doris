@@ -18,7 +18,7 @@
 suite("test_query_where", "query,p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "use test_query_db"
+    sql "use nereids_test_query_db"
     
     def tableName1 = "test"
     def tableName2 = "baseall"

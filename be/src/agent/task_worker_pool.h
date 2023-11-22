@@ -80,6 +80,7 @@ public:
         PUSH_COOLDOWN_CONF,
         PUSH_STORAGE_POLICY,
         ALTER_INVERTED_INDEX,
+        GC_BINLOG,
     };
 
     enum ReportType { TASK, DISK, TABLET };
@@ -141,6 +142,8 @@ public:
             return "PUSH_STORAGE_POLICY";
         case ALTER_INVERTED_INDEX:
             return "ALTER_INVERTED_INDEX";
+        case GC_BINLOG:
+            return "GC_BINLOG";
         default:
             return "Unknown";
         }
@@ -178,6 +181,8 @@ public:
     // notify the worker. currently for task/disk/tablet report thread
     void notify_thread();
 
+    TaskWorkerType task_worker_type() const { return _task_worker_type; }
+
 protected:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
@@ -197,6 +202,7 @@ protected:
     void _submit_table_compaction_worker_thread_callback();
     void _push_cooldown_conf_worker_thread_callback();
     void _push_storage_policy_worker_thread_callback();
+    void _gc_binlog_worker_thread_callback();
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
@@ -220,7 +226,6 @@ protected:
 
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
-    TBackend _backend;
     std::unique_ptr<AgentUtils> _agent_utils;
     ExecEnv* _env;
 

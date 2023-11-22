@@ -26,6 +26,7 @@ namespace io {
 std::string errno_to_str();
 std::string errcode_to_str(const std::error_code& ec);
 std::string hdfs_error();
+std::string glob_err_to_str(int code);
 
 } // namespace io
 } // namespace doris

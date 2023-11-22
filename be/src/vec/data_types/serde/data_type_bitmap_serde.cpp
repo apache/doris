@@ -33,6 +33,25 @@ namespace doris {
 namespace vectorized {
 class IColumn;
 
+Status DataTypeBitMapSerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+    return Status::OK();
+}
+Status DataTypeBitMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                           const FormatOptions& options) const {
+    auto& data_column = assert_cast<ColumnBitmap&>(column);
+    auto& data = data_column.get_data();
+
+    BitmapValue value;
+    if (!value.deserialize(slice.data)) {
+        return Status::InternalError("deserialize BITMAP from string fail!");
+    }
+    data.push_back(std::move(value));
+    return Status::OK();
+}
+
 Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
     auto ptype = result.mutable_type();
@@ -50,6 +69,7 @@ Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& r
     }
     return Status::OK();
 }
+
 Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
@@ -83,28 +103,56 @@ void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
 }
 
 template <bool is_binary_format>
-Status DataTypeBitMapSerDe::_write_column_to_mysql(
-        const IColumn& column, bool return_object_data_as_binary,
-        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
-        bool col_const) const {
+Status DataTypeBitMapSerDe::_write_column_to_mysql(const IColumn& column,
+                                                   MysqlRowBuffer<is_binary_format>& result,
+                                                   int row_idx, bool col_const) const {
     auto& data_column = assert_cast<const ColumnBitmap&>(column);
-    int buf_ret = 0;
-    for (ssize_t i = start; i < end; ++i) {
-        if (0 != buf_ret) {
+    if (_return_object_as_string) {
+        const auto col_index = index_check_const(row_idx, col_const);
+        BitmapValue bitmapValue = data_column.get_element(col_index);
+        size_t size = bitmapValue.getSizeInBytes();
+        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+        bitmapValue.write_to(buf.get());
+        if (0 != result.push_string(buf.get(), size)) {
             return Status::InternalError("pack mysql buffer failed.");
         }
-        if (return_object_data_as_binary) {
-            const auto col_index = index_check_const(i, col_const);
-            BitmapValue bitmapValue = data_column.get_element(col_index);
-            size_t size = bitmapValue.getSizeInBytes();
-            std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-            bitmapValue.write_to(buf.get());
-            buf_ret = result[row_idx].push_string(buf.get(), size);
-        } else {
-            buf_ret = result[row_idx].push_null();
+    } else {
+        if (0 != result.push_null()) {
+            return Status::InternalError("pack mysql buffer failed.");
         }
-        ++row_idx;
     }
+    return Status::OK();
+}
+
+Status DataTypeBitMapSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeBitMapSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                                const NullMap* null_map,
+                                                orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                int end,
+                                                std::vector<StringRef>& buffer_list) const {
+    auto& col_data = assert_cast<const ColumnBitmap&>(column);
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            const auto& ele = col_data.get_data_at(row_id);
+            cur_batch->data[row_id] = const_cast<char*>(ele.data);
+            cur_batch->length[row_id] = ele.size;
+        }
+    }
+
+    cur_batch->numElements = end - start;
     return Status::OK();
 }
 

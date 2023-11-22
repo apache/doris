@@ -36,8 +36,16 @@ ALTER SYSTEM DECOMMISSION BACKEND
 
 语法：
 
+- 通过 host 和 port 查找 backend
+
 ```sql
 ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
+```
+
+- 通过 backend_id 查找 backend
+
+```sql
+ALTER SYSTEM DECOMMISSION BACKEND "id1","id2"...;
 ```
 
  说明：
@@ -54,6 +62,10 @@ ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"..
      ```sql
       ALTER SYSTEM DECOMMISSION BACKEND "host1:port", "host2:port";
      ```
+   
+    ```sql
+      ALTER SYSTEM DECOMMISSION BACKEND "id1", "id2";
+    ```
 
 ### Keywords
 

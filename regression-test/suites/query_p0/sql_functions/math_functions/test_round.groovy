@@ -21,6 +21,11 @@
     qt_select "SELECT round_bankers(10.12345)"
     qt_select "SELECT round_bankers(10.12345, 2)"
 
+    // test tie case 1: float, banker's rounding
+    qt_select "SELECT number*10/100 AS x, ROUND(number * 10 / 100) from NUMBERS(\"number\"=\"50\") where number % 5 = 0 ORDER BY x;"
+    // test tie case 2: decimal, rounded up when tie
+    qt_select "SELECT number*10/100 AS x, ROUND(CAST(number * 10 AS DECIMALV3(10,2)) / 100) from NUMBERS(\"number\"=\"50\") where number % 5 = 0 ORDER BY x;"
+
     def tableTest = "test_query_db.test"
     qt_truncate "select truncate(k1, 1), truncate(k2, 1), truncate(k3, 1), truncate(k5, 1), truncate(k8, 1), truncate(k9, 1) from ${tableTest} order by 1;"
 
@@ -108,4 +113,34 @@
     sql """ insert into ${tableName1} values ('111', 1.2432, '001', 0.2341, 12.1234123); """
     sql """ insert into ${tableName2} select  TENANT_ID,PRODENTP_CODE,ROUND((MAX(PURC_CNT)*MAX(PUBONLN_PRC)),2) delv_amt,ROUND(SUM(ORD_SUMAMT),2) from ${tableName1} GROUP BY TENANT_ID,PRODENTP_CODE; """
     qt_query """ select * from ${tableName2} """
+
+
+    def tableName3 = "test_round_decimal"
+    sql """ DROP TABLE IF EXISTS `${tableName3}` """
+    sql """ CREATE TABLE `${tableName3}` (
+          `id` int NOT NULL COMMENT 'id',
+          `d1` decimalv3(9, 4) NULL COMMENT '',
+          `d2` decimalv3(27, 4)  NULL DEFAULT "0" ,
+          `d3` decimalv3(38, 4)  NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );                """
+
+    sql """ insert into ${tableName3} values (1, 123.56789, 234.67895, 345.78956); """
+    sql """ insert into ${tableName3} values (2, 123.56789, 234.67895, 345.78956); """
+
+    qt_query """ select d1, d2, d3 from ${tableName3} order by d1 """
+
+    qt_query """ select cast(round(sum(d1), 6) as double), cast(round(sum(d2), 6) as double), cast(round(sum(d3), 6) as double) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), 2) as double), cast(round(sum(d2), 2) as double), cast(round(sum(d3),2) as double) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -2) as double), cast(round(sum(d2), -2) as double), cast(round(sum(d3), -2) as double) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -4) as double), cast(round(sum(d2), -4) as double), cast(round(sum(d3), -4) as double) from ${tableName3} """
+
+    qt_query """ select cast(round(sum(d1), 6) as decimalv3(27, 3)), cast(round(sum(d2), 6) as decimalv3(27, 3)), cast(round(sum(d3), 6) as decimalv3(27, 3)) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), 2) as decimalv3(27, 3)), cast(round(sum(d2), 2) as decimalv3(27, 3)), cast(round(sum(d3),2) as decimalv3(27, 3)) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -2) as decimalv3(27, 3)), cast(round(sum(d2), -2) as decimalv3(27, 3)), cast(round(sum(d3), -2) as decimalv3(27, 3)) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -4) as decimalv3(27, 3)), cast(round(sum(d2), -4) as decimalv3(27, 3)), cast(round(sum(d3), -4) as decimalv3(27, 3)) from ${tableName3} """
 }

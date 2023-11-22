@@ -19,9 +19,11 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -40,7 +42,7 @@ public class InSubquery extends SubqueryExpr {
         super(Objects.requireNonNull(listQuery.getQueryPlan(), "subquery can not be null"));
         this.compareExpr = Objects.requireNonNull(compareExpression, "compareExpr can not be null");
         this.listQuery = Objects.requireNonNull(listQuery, "listQuery can not be null");
-        this.isNot = Objects.requireNonNull(isNot, "isNot can not be null");
+        this.isNot = isNot;
     }
 
     public InSubquery(Expression compareExpr, ListQuery listQuery, List<Slot> correlateSlots, boolean isNot) {
@@ -60,12 +62,12 @@ public class InSubquery extends SubqueryExpr {
                 typeCoercionExpr);
         this.compareExpr = Objects.requireNonNull(compareExpr, "compareExpr can not be null");
         this.listQuery = Objects.requireNonNull(listQuery, "listQuery can not be null");
-        this.isNot = Objects.requireNonNull(isNot, "isNot can not be null");
+        this.isNot = isNot;
     }
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return listQuery.getDataType();
+        return BooleanType.INSTANCE;
     }
 
     @Override
@@ -75,7 +77,7 @@ public class InSubquery extends SubqueryExpr {
 
     @Override
     public String toSql() {
-        return this.compareExpr.toSql() + " IN (INSUBQUERY) " + super.toSql();
+        return this.compareExpr.toSql() + " IN (" + super.toSql() + ")";
     }
 
     @Override
@@ -104,6 +106,11 @@ public class InSubquery extends SubqueryExpr {
         Preconditions.checkArgument(children.size() == 2);
         Preconditions.checkArgument(children.get(1) instanceof ListQuery);
         return new InSubquery(children.get(0), (ListQuery) children.get(1), isNot);
+    }
+
+    @Override
+    public List<Expression> children() {
+        return Lists.newArrayList(compareExpr, listQuery);
     }
 
     @Override

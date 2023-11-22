@@ -39,7 +39,7 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
     TCheckAuthResult auth_result;
     AuthInfo auth_info;
 
-    if (!config::enable_http_auth) {
+    if (!config::enable_all_http_auth) {
         return 0;
     }
 
@@ -64,17 +64,20 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
 
 #ifndef BE_TEST
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    RETURN_WITH_WARN_IF_ERROR(
-            ThriftRpcHelper::rpc<FrontendServiceClient>(
-                    master_addr.hostname, master_addr.port,
-                    [&auth_result, &auth_request](FrontendServiceConnection& client) {
-                        client->checkAuth(auth_result, auth_request);
-                    }),
-            -1, "checkAuth failed");
+    {
+        auto status = ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&auth_result, &auth_request](FrontendServiceConnection& client) {
+                    client->checkAuth(auth_result, auth_request);
+                });
+        if (!status) {
+            return -1;
+        }
+    }
 #else
     CHECK(_exec_env == nullptr);
 #endif
-    Status status(auth_result.status);
+    Status status(Status::create(auth_result.status));
     if (!status.ok()) {
         LOG(WARNING) << "permission verification failed, request: " << auth_request;
         HttpChannel::send_error(req, HttpStatus::FORBIDDEN);

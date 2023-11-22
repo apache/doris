@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -29,6 +28,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -120,6 +121,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
+
+    private BinlogConfig binlogConfig = new BinlogConfig();
 
     public Database() {
         this(0, null);
@@ -271,24 +274,23 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public long getUsedDataQuotaWithLock() {
         long usedDataQuota = 0;
         readLock();
-        try {
-            for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
+        List<Table> tables = new ArrayList<>(this.idToTable.values());
+        readUnlock();
 
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    usedDataQuota = usedDataQuota + olapTable.getDataSize();
-                } finally {
-                    olapTable.readUnlock();
-                }
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
             }
-            return usedDataQuota;
-        } finally {
-            readUnlock();
+
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.readLock();
+            try {
+                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+            } finally {
+                olapTable.readUnlock();
+            }
         }
+        return usedDataQuota;
     }
 
     public long getReplicaCountWithLock() {
@@ -431,6 +433,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
             table.markDropped();
         }
+    }
+
+    @Override
+    public CatalogIf getCatalog() {
+        return Env.getCurrentInternalCatalog();
     }
 
     public List<Table> getTables() {
@@ -604,6 +611,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    public void analyze() {
+        for (Table table : nameToTable.values()) {
+            table.analyze(getFullName());
+        }
+    }
+
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -627,7 +640,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         dbState = DbState.valueOf(Text.readString(in));
         attachDbName = Text.readString(in);
 
-        FunctionUtil.readFields(in, name2Function);
+        FunctionUtil.readFields(in, this.getFullName(), name2Function);
 
         // read encryptKeys
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
@@ -641,6 +654,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
                     String.valueOf(Config.max_running_txn_num_per_db));
             transactionQuotaSize = Long.parseLong(txnQuotaStr);
+            binlogConfig = dbProperties.getBinlogConfig();
         } else {
             transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
                     ? Config.max_running_txn_num_per_db
@@ -708,12 +722,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         function.checkWritable();
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
+            FunctionUtil.translateToNereids(this.getFullName(), function);
         }
     }
 
     public synchronized void replayAddFunction(Function function) {
         try {
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
+            FunctionUtil.translateToNereids(this.getFullName(), function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -722,12 +738,21 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
+            FunctionUtil.dropFromNereids(this.getFullName(), function);
+            LOG.info("finished to drop function {}", function.getName().getFunction());
         }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
+            // Set ifExists to true to avoid throw exception if function is not found.
+            // It should not happen but the reason is unknown, so add warn log for debug.
+            if (!FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function)) {
+                LOG.warn("failed to find function to drop: {} when replay, skip",
+                        functionSearchDesc.getName().getFunction());
+            }
+            FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
+            LOG.info("finished to replay drop function {}", functionSearchDesc.getName().getFunction());
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -743,10 +768,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized List<Function> getFunctions() {
         return FunctionUtil.getFunctions(name2Function);
-    }
-
-    public boolean isInfoSchemaDb() {
-        return ClusterNamespace.getNameFromFullName(fullQualifiedName).equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME);
     }
 
     public synchronized void addEncryptKey(EncryptKey encryptKey, boolean ifNotExists) throws UserException {
@@ -837,8 +858,52 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return null;
     }
 
-    public Map<Long, Table> getIdToTable() {
+    @Override
+    public Map<Long, TableIf> getIdToTable() {
         return new HashMap<>(idToTable);
+    }
+
+    public void replayUpdateDbProperties(Map<String, String> properties) {
+        dbProperties.updateProperties(properties);
+        if (PropertyAnalyzer.hasBinlogConfig(properties)) {
+            binlogConfig = dbProperties.getBinlogConfig();
+        }
+    }
+
+    public boolean updateDbProperties(Map<String, String> properties) throws DdlException {
+        if (PropertyAnalyzer.hasBinlogConfig(properties)) {
+            BinlogConfig oldBinlogConfig = getBinlogConfig();
+            BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
+
+            if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
+                // check all tables binlog enable is true
+                for (Table table : idToTable.values()) {
+                    if (table.getType() != TableType.OLAP) {
+                        continue;
+                    }
+
+                    OlapTable olapTable = (OlapTable) table;
+                    olapTable.readLock();
+                    try {
+                        if (!olapTable.getBinlogConfig().isEnable()) {
+                            String errMsg = String
+                                    .format("binlog is not enable in table[%s] in db [%s]", table.getName(),
+                                            getFullName());
+                            throw new DdlException(errMsg);
+                        }
+                    } finally {
+                        olapTable.readUnlock();
+                    }
+                }
+            }
+        }
+
+        replayUpdateDbProperties(properties);
+        return true;
+    }
+
+    public BinlogConfig getBinlogConfig() {
+        return binlogConfig;
     }
 
     public String toJson() {
@@ -849,4 +914,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public String toString() {
         return toJson();
     }
+
+    // Return ture if database is created for mysql compatibility.
+    // Currently, we have two dbs that are created for this purpose, InformationSchemaDb and MysqlDb,
+    public boolean isMysqlCompatibleDatabase() {
+        return false;
+    }
+
 }

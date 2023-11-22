@@ -70,8 +70,8 @@ public class IndexDef {
             this.properties = properties;
         }
         if (indexType == IndexType.NGRAM_BF) {
-            properties.putIfAbsent(NGRAM_SIZE_KEY, DEFAULT_NGRAM_SIZE);
-            properties.putIfAbsent(NGRAM_BF_SIZE_KEY, DEFAULT_NGRAM_BF_SIZE);
+            this.properties.putIfAbsent(NGRAM_SIZE_KEY, DEFAULT_NGRAM_SIZE);
+            this.properties.putIfAbsent(NGRAM_BF_SIZE_KEY, DEFAULT_NGRAM_BF_SIZE);
         }
     }
 
@@ -122,23 +122,25 @@ public class IndexDef {
         if (tableName != null && !tableName.isEmpty()) {
             sb.append(" ON ").append(tableName);
         }
-        sb.append(" (");
-        boolean first = true;
-        for (String col : columns) {
-            if (first) {
-                first = false;
-            } else {
-                sb.append(",");
+        if (columns != null && columns.size() > 0) {
+            sb.append(" (");
+            boolean first = true;
+            for (String col : columns) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(",");
+                }
+                sb.append("`" + col + "`");
             }
-            sb.append("`" + col + "`");
+            sb.append(")");
         }
-        sb.append(")");
         if (indexType != null) {
             sb.append(" USING ").append(indexType.toString());
         }
         if (properties != null && properties.size() > 0) {
             sb.append(" PROPERTIES(");
-            first = true;
+            boolean first = true;
             for (Map.Entry<String, String> e : properties.entrySet()) {
                 if (first) {
                     first = false;

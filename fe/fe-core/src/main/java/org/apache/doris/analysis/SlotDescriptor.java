@@ -59,8 +59,6 @@ public class SlotDescriptor {
     // physical layout parameters
     private int byteSize;
     private int byteOffset;  // within tuple
-    private int nullIndicatorByte;  // index into byte array
-    private int nullIndicatorBit; // index within byte
     private int slotIdx;          // index within tuple struct
     private int slotOffset;       // index within slot array list
 
@@ -70,6 +68,7 @@ public class SlotDescriptor {
     // If set to false, then such slots will be ignored during
     // materialize them.Used to optimize to read less data and less memory usage
     private boolean needMaterialize = true;
+    private boolean isAutoInc = false;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
         this.id = id;
@@ -85,8 +84,6 @@ public class SlotDescriptor {
         this.id = id;
         this.parent = parent;
         this.byteOffset = src.byteOffset;
-        this.nullIndicatorBit = src.nullIndicatorBit;
-        this.nullIndicatorByte = src.nullIndicatorByte;
         this.slotIdx = src.slotIdx;
         this.isMaterialized = src.isMaterialized;
         this.column = src.column;
@@ -95,6 +92,7 @@ public class SlotDescriptor {
         this.isAgg = false;
         this.stats = src.stats;
         this.type = src.type;
+        this.sourceExprs.add(new SlotRef(src));
     }
 
     public boolean isMultiRef() {
@@ -119,22 +117,6 @@ public class SlotDescriptor {
 
     public void setIsAgg(boolean agg) {
         isAgg = agg;
-    }
-
-    public int getNullIndicatorByte() {
-        return nullIndicatorByte;
-    }
-
-    public void setNullIndicatorByte(int nullIndicatorByte) {
-        this.nullIndicatorByte = nullIndicatorByte;
-    }
-
-    public int getNullIndicatorBit() {
-        return nullIndicatorBit;
-    }
-
-    public void setNullIndicatorBit(int nullIndicatorBit) {
-        this.nullIndicatorBit = nullIndicatorBit;
     }
 
     public SlotId getId() {
@@ -172,6 +154,14 @@ public class SlotDescriptor {
 
     public void setIsMaterialized(boolean value) {
         isMaterialized = value;
+    }
+
+    public boolean isAutoInc() {
+        return isAutoInc;
+    }
+
+    public void setAutoInc(boolean isAutoInc) {
+        this.isAutoInc = isAutoInc;
     }
 
     public void materializeSrcExpr() {
@@ -300,24 +290,23 @@ public class SlotDescriptor {
         if (getByteOffset() != other.getByteOffset()) {
             return false;
         }
-        if (getNullIndicatorByte() != other.getNullIndicatorByte()) {
-            return false;
-        }
-        if (getNullIndicatorBit() != other.getNullIndicatorBit()) {
-            return false;
-        }
         return true;
     }
 
     public TSlotDescriptor toThrift() {
-        TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(),
-                type.toThrift(), -1, byteOffset, nullIndicatorByte,
-                nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+        TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
+                byteOffset, 0, getIsNullable() ? 0 : -1,
+                ((column != null) ? column.getNonShadowName() : ""), slotIdx,
+                isMaterialized);
         tSlotDescriptor.setNeedMaterialize(needMaterialize);
+        tSlotDescriptor.setIsAutoIncrement(isAutoInc);
         if (column != null) {
-            LOG.debug("column name:{}, column unique id:{}", column.getName(), column.getUniqueId());
+            LOG.debug("column name:{}, column unique id:{}", column.getNonShadowName(), column.getUniqueId());
             tSlotDescriptor.setColUniqueId(column.getUniqueId());
+            tSlotDescriptor.setPrimitiveType(column.getDataType().toThrift());
             tSlotDescriptor.setIsKey(column.isKey());
+            tSlotDescriptor.setColDefaultValue(column.getDefaultValue());
         }
         return tSlotDescriptor;
     }
@@ -328,8 +317,8 @@ public class SlotDescriptor {
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
                 .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
-                .add("byteOffset", byteOffset).add("nullIndicatorByte", nullIndicatorByte)
-                .add("nullIndicatorBit", nullIndicatorBit).add("slotIdx", slotIdx).toString();
+                .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable())
+                .add("isAutoIncrement", isAutoInc).toString();
     }
 
     @Override
@@ -345,6 +334,7 @@ public class SlotDescriptor {
                 .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
                 .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)
+                .append(", isAutoIncrement=").append(isAutoInc)
                 .append("}")
                 .toString();
     }

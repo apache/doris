@@ -40,8 +40,11 @@ public:
 
     // get json string
     const std::string to_json_string(const char* data, size_t size) {
-        doris::JsonbValue* pval = doris::JsonbDocument::createDocument(data, size)->getValue();
-        return to_json_string(pval);
+        JsonbDocument* pdoc = doris::JsonbDocument::createDocument(data, size);
+        if (!pdoc) {
+            LOG(FATAL) << "invalid json binary value: " << std::string_view(data, size);
+        }
+        return to_json_string(pdoc->getValue());
     }
 
     const std::string to_json_string(const JsonbValue* val) {

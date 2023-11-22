@@ -21,15 +21,18 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.master.MetaHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.HttpStatus;
@@ -102,7 +105,8 @@ public class RestBaseController extends BaseController {
         if (!Strings.isNullOrEmpty(request.getQueryString())) {
             redirectUrl += request.getQueryString();
         }
-        LOG.info("redirect url: {}", redirectUrl);
+        LOG.info("Redirect url: {}", "http://" + addr.getHostname() + ":"
+                    + addr.getPort() + urlObj.getPath());
         RedirectView redirectView = new RedirectView(redirectUrl);
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
@@ -175,7 +179,8 @@ public class RestBaseController extends BaseController {
         Preconditions.checkArgument(imageFile != null && imageFile.exists());
         response.setHeader("Content-type", "application/octet-stream");
         response.addHeader("Content-Disposition", "attachment;fileName=" + imageFile.getName());
-        response.setHeader("X-Image-Size", imageFile.length() + "");
+        response.setHeader(MetaHelper.X_IMAGE_SIZE, imageFile.length() + "");
+        response.setHeader(MetaHelper.X_IMAGE_MD5, DigestUtils.md5Hex(new FileInputStream(imageFile)));
         getFile(request, response, imageFile, imageFile.getName());
     }
 
@@ -197,7 +202,8 @@ public class RestBaseController extends BaseController {
         String uri = request.getRequestURI();
         String query = request.getQueryString();
         query = query == null ? "" : query;
-        String newUrl = "https://" + serverName + ":" + Config.https_port + uri + "?" + query;
+        String newUrl = "https://" + NetUtils.getHostPortInAccessibleFormat(serverName, Config.https_port) + uri + "?"
+                + query;
         LOG.info("redirect to new url: {}", newUrl);
         RedirectView redirectView = new RedirectView(newUrl);
         redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);

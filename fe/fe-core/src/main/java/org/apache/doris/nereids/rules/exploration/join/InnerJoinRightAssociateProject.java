@@ -27,7 +27,8 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
-import java.util.ArrayList;
+import com.google.common.collect.ImmutableList;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -84,11 +85,10 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
                             newTopHashConjuncts, newTopOtherConjuncts, left, right);
-                    setNewBottomJoinReorder(newBottomJoin, bottomJoin);
-                    setNewTopJoinReorder(newTopJoin, topJoin);
+                    newTopJoin.getJoinReorderContext().setHasRightAssociate(true);
 
-                    return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
-                }).toRule(RuleType.LOGICAL_INNER_JOIN_RIGHT_ASSOCIATIVE);
+                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
+                }).toRule(RuleType.LOGICAL_INNER_JOIN_RIGHT_ASSOCIATIVE_PROJECT);
     }
 
     /**
@@ -99,25 +99,5 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
                 && !topJoin.getJoinReorderContext().hasRightAssociate()
                 && !topJoin.getJoinReorderContext().hasLeftAssociate()
                 && !topJoin.getJoinReorderContext().hasExchange();
-    }
-
-    /**
-     * Set JoinReorderContext
-     */
-    public static void setNewTopJoinReorder(LogicalJoin newTopJoin, LogicalJoin topJoin) {
-        newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
-        newTopJoin.getJoinReorderContext().setHasRightAssociate(true);
-        newTopJoin.getJoinReorderContext().setHasCommute(false);
-    }
-
-    /**
-     * Set JoinReorderContext
-     */
-    public static void setNewBottomJoinReorder(LogicalJoin newBottomJoin, LogicalJoin bottomJoin) {
-        newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
-        newBottomJoin.getJoinReorderContext().setHasCommute(false);
-        newBottomJoin.getJoinReorderContext().setHasRightAssociate(false);
-        newBottomJoin.getJoinReorderContext().setHasLeftAssociate(false);
-        newBottomJoin.getJoinReorderContext().setHasExchange(false);
     }
 }

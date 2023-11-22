@@ -63,6 +63,7 @@ TO_TIME_FUNCTION(ToDayImpl, day);
 TO_TIME_FUNCTION(ToHourImpl, hour);
 TO_TIME_FUNCTION(ToMinuteImpl, minute);
 TO_TIME_FUNCTION(ToSecondImpl, second);
+TO_TIME_FUNCTION(ToMicroSecondImpl, microsecond);
 
 TIME_FUNCTION_IMPL(WeekOfYearImpl, weekofyear, week(mysql_week_mode(3)));
 TIME_FUNCTION_IMPL(DayOfYearImpl, dayofyear, day_of_year());
@@ -212,14 +213,17 @@ struct DateFormatImpl {
 // TODO: This function should be depend on arguments not always nullable
 template <typename DateType>
 struct FromUnixTimeImpl {
-    using FromType = Int32;
-
+    using FromType = Int64;
+    // https://dev.mysql.com/doc/refman/8.0/en/date-and-time-functions.html#function_from-unixtime
+    // Keep consistent with MySQL
+    static const int64_t TIMESTAMP_VALID_MAX = 32536771199;
     static constexpr auto name = "from_unixtime";
 
     static inline auto execute(FromType val, StringRef format, ColumnString::Chars& res_data,
                                size_t& offset, const cctz::time_zone& time_zone) {
         DateType dt;
-        if (format.size > 128 || val < 0 || val > INT_MAX || !dt.from_unixtime(val, time_zone)) {
+        if (format.size > 128 || val < 0 || val > TIMESTAMP_VALID_MAX ||
+            !dt.from_unixtime(val, time_zone)) {
             return std::pair {offset, true};
         }
 

@@ -58,6 +58,7 @@ class TTransmitDataParams;
 class TUniqueId;
 class TIngestBinlogRequest;
 class TIngestBinlogResult;
+class ThreadPool;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
@@ -68,7 +69,8 @@ public:
     ~BackendService() override = default;
 
     // NOTE: now we do not support multiple backend in one process
-    static Status create_service(ExecEnv* exec_env, int port, ThriftServer** server);
+    static Status create_service(ExecEnv* exec_env, int port,
+                                 std::unique_ptr<ThriftServer>* server);
 
     // Agent service
     void submit_tasks(TAgentResult& return_value,
@@ -87,6 +89,11 @@ public:
 
     void publish_cluster_state(TAgentResult& result, const TAgentPublishRequest& request) override {
         _agent_server->publish_cluster_state(result, request);
+    }
+
+    void publish_topic_info(TPublishTopicResult& result,
+                            const TPublishTopicRequest& topic_request) override {
+        _agent_server->get_topic_subscriber()->handle_topic_info(topic_request);
     }
 
     // DorisServer service
@@ -131,10 +138,14 @@ public:
 
     void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
 
+    void query_ingest_binlog(TQueryIngestBinlogResult& result,
+                             const TQueryIngestBinlogRequest& request) override;
+
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env;
     std::unique_ptr<AgentServer> _agent_server;
+    std::unique_ptr<ThreadPool> _ingest_binlog_workers;
 };
 
 } // namespace doris

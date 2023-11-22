@@ -31,6 +31,7 @@ under the License.
         <module>stream-load-demo</module>
         <module>spring-jdbc-demo</module>
         <module>java-udf-aes-demo</module>
+        <module>java-udf-demo</module>
         <module>doris-source-demo</module>
     </modules>
     <name>doris-demo</name>

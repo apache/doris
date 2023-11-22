@@ -67,6 +67,8 @@ struct BlockRowPos {
 
 class AggFnEvaluator;
 
+enum AnalyticFnScope { PARTITION, RANGE, ROWS };
+
 class VAnalyticEvalNode : public ExecNode {
 public:
     ~VAnalyticEvalNode() override = default;
@@ -134,7 +136,6 @@ private:
     void _release_mem();
 
 private:
-    enum AnalyticFnScope { PARTITION, RANGE, ROWS };
     std::vector<Block> _input_blocks;
     std::vector<int64_t> input_block_first_row_positions;
     std::vector<AggFnEvaluator*> _agg_functions;
@@ -164,6 +165,7 @@ private:
     int64_t _rows_end_offset = 0;
     size_t _agg_functions_size = 0;
     bool _agg_functions_created = false;
+    bool _current_window_empty = false;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;
@@ -184,6 +186,7 @@ private:
     std::vector<int64_t> _origin_cols;
 
     RuntimeProfile::Counter* _evaluation_timer;
+    RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
 
     std::vector<bool> _change_to_nullable_flags;

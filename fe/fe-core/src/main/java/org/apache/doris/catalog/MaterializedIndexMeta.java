@@ -75,18 +75,21 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     private Map<String, Column> nameToColumn;
     private Map<String, Column> definedNameToColumn;
 
+    @SerializedName(value = "dbName")
+    private String dbName;
+
     private static final Logger LOG = LogManager.getLogger(MaterializedIndexMeta.class);
 
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
         this(indexId, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType, keysType,
-                defineStmt, null); // indexes is null by default
+                defineStmt, null, null); // indexes is null by default
     }
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt,
-            List<Index> indexes) {
+            List<Index> indexes, String dbName) {
         this.indexId = indexId;
         Preconditions.checkState(schema != null);
         Preconditions.checkState(schema.size() != 0);
@@ -101,10 +104,14 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         this.defineStmt = defineStmt;
         this.indexes = indexes != null ? indexes : Lists.newArrayList();
         initColumnNameMap();
+        this.dbName = dbName;
     }
 
     public void setWhereClause(Expr whereClause) {
         this.whereClause = whereClause;
+        if (this.whereClause != null) {
+            this.whereClause.setDisableTableName(true);
+        }
     }
 
     public Expr getWhereClause() {
@@ -129,6 +136,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     public List<Index> getIndexes() {
         return indexes != null ? indexes : Lists.newArrayList();
+    }
+
+    public void setIndexes(List<Index> newIndexes) {
+        this.indexes = newIndexes;
     }
 
     public List<Column> getSchema() {
@@ -187,9 +198,6 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 // mv_count_sale_amt -> mva_SUM__CASE WHEN `sale_amt` IS NULL THEN 0 ELSE 1 END
                 List<SlotRef> slots = new ArrayList<>();
                 entry.getValue().collect(SlotRef.class, slots);
-                if (slots.size() > 1) {
-                    throw new IOException("DefineExpr have multiple slot in MaterializedIndex, Expr=" + entry.getKey());
-                }
 
                 String name = MaterializedIndexMeta.normalizeName(slots.get(0).toSqlWithoutTbl());
                 Column matchedColumn = null;
@@ -216,7 +224,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 }
 
                 if (matchedColumn != null) {
-                    LOG.debug("trans old MV, MV: {},  DefineExpr:{}, DefineName:{}",
+                    LOG.info("trans old MV: {},  DefineExpr:{}, DefineName:{}",
                             matchedColumn.getName(), entry.getValue().toSqlWithoutTbl(), entry.getKey());
                     matchedColumn.setDefineExpr(entry.getValue());
                     matchedColumn.setDefineName(entry.getKey());
@@ -282,7 +290,6 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         initColumnNameMap();
-        parseStmt(null);
     }
 
     public void parseStmt(Analyzer analyzer) throws IOException {
@@ -297,14 +304,23 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
             if (analyzer != null) {
-                stmt.analyze(analyzer);
+                try {
+                    stmt.analyze(analyzer);
+                } catch (Exception e) {
+                    LOG.warn("CreateMaterializedViewStmt analyze failed, mv=" + defineStmt.originStmt + ", reason=", e);
+                    return;
+                }
             }
 
             stmt.setIsReplay(true);
             setWhereClause(stmt.getWhereClause());
             stmt.rewriteToBitmapWithCheck();
-            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
-            setColumnsDefineExpr(columnNameToDefineExpr);
+            try {
+                Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
+                setColumnsDefineExpr(columnNameToDefineExpr);
+            } catch (Exception e) {
+                LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=", e);
+            }
 
         } catch (Exception e) {
             throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);

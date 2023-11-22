@@ -26,7 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -194,10 +194,6 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     }
 
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
-        if (!VectorizedUtil.isVectorized() && limitElement.getOffset() > 0 && !hasOrderByClause()) {
-            throw new AnalysisException("OFFSET requires an ORDER BY clause: "
-                    + limitElement.toSql().trim());
-        }
         limitElement.analyze(analyzer);
     }
 
@@ -454,6 +450,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
                         substituteExpr = expr.clone();
                         substituteExpr.analyze(analyzer);
                     } catch (AnalysisException ex) {
+                        if (ConnectContext.get() != null) {
+                            ConnectContext.get().getState().reset();
+                        }
                         // then consider alias name
                         substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
                     }
@@ -560,11 +559,16 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         return false;
     }
 
+    public Expr getExprFromAliasSMapDirect(Expr expr) throws AnalysisException {
+        return expr.trySubstitute(aliasSMap, analyzer, false);
+    }
+
+
     public Expr getExprFromAliasSMap(Expr expr) throws AnalysisException {
         if (!analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
             return expr;
         }
-        return expr.trySubstitute(aliasSMap, analyzer, false);
+        return getExprFromAliasSMapDirect(expr);
     }
 
     // get tables used by this query.
@@ -785,6 +789,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         sortInfo = (other.sortInfo != null) ? other.sortInfo.clone() : null;
         analyzer = other.analyzer;
         evaluateOrderBy = other.evaluateOrderBy;
+        disableTuplesMVRewriter = other.disableTuplesMVRewriter;
     }
 
     @Override

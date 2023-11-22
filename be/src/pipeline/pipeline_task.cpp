@@ -24,6 +24,7 @@
 
 #include <ostream>
 
+#include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline.h"
 #include "pipeline_fragment_context.h"
@@ -32,22 +33,68 @@
 #include "runtime/thread_context.h"
 #include "task_queue.h"
 #include "util/defer_op.h"
+#include "util/runtime_profile.h"
+#include "vec/core/future_block.h"
 
 namespace doris {
 class RuntimeState;
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 } // namespace doris
 
 namespace doris::pipeline {
 
+PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+                           OperatorPtr& sink, PipelineFragmentContext* fragment_context,
+                           RuntimeProfile* parent_profile)
+        : _index(index),
+          _pipeline(pipeline),
+          _prepared(false),
+          _opened(false),
+          _state(state),
+          _cur_state(PipelineTaskState::NOT_READY),
+          _data_state(SourceState::DEPEND_ON_SOURCE),
+          _fragment_context(fragment_context),
+          _parent_profile(parent_profile),
+          _operators(pipeline->_operators),
+          _source(_operators.front()),
+          _root(_operators.back()),
+          _sink(sink) {
+    _pipeline_task_watcher.start();
+    _query_statistics.reset(new QueryStatistics());
+    _sink->set_query_statistics(_query_statistics);
+    _collect_query_statistics_with_every_batch =
+            _pipeline->collect_query_statistics_with_every_batch();
+}
+
+PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+                           PipelineFragmentContext* fragment_context,
+                           RuntimeProfile* parent_profile)
+        : _index(index),
+          _pipeline(pipeline),
+          _prepared(false),
+          _opened(false),
+          _state(state),
+          _cur_state(PipelineTaskState::NOT_READY),
+          _data_state(SourceState::DEPEND_ON_SOURCE),
+          _fragment_context(fragment_context),
+          _parent_profile(parent_profile),
+          _operators({}),
+          _source(nullptr),
+          _root(nullptr),
+          _sink(nullptr) {
+    _pipeline_task_watcher.start();
+}
+
 void PipelineTask::_fresh_profile_counter() {
     COUNTER_SET(_wait_source_timer, (int64_t)_wait_source_watcher.elapsed_time());
+    COUNTER_SET(_wait_bf_timer, (int64_t)_wait_bf_watcher.elapsed_time());
     COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
     COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
     COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
-    COUNTER_SET(_wait_schedule_timer, (int64_t)_wait_schedule_watcher.elapsed_time());
+    COUNTER_SET(_begin_execute_timer, _begin_execute_time);
+    COUNTER_SET(_eos_timer, _eos_time);
+    COUNTER_SET(_src_pending_finish_over_timer, _src_pending_finish_over_time);
+    COUNTER_SET(_dst_pending_finish_over_timer, _dst_pending_finish_over_time);
+    COUNTER_SET(_pip_task_total_timer, (int64_t)_pipeline_task_watcher.elapsed_time());
 }
 
 void PipelineTask::_init_profile() {
@@ -64,20 +111,31 @@ void PipelineTask::_init_profile() {
     _prepare_timer = ADD_CHILD_TIMER(_task_profile, "PrepareTime", exec_time);
     _open_timer = ADD_CHILD_TIMER(_task_profile, "OpenTime", exec_time);
     _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
+    _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
     _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
     _wait_source_timer = ADD_TIMER(_task_profile, "WaitSourceTime");
+    _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
     _wait_sink_timer = ADD_TIMER(_task_profile, "WaitSinkTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
-    _wait_schedule_timer = ADD_TIMER(_task_profile, "WaitScheduleTime");
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
     _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
     _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
+    _wait_bf_counts = ADD_COUNTER(_task_profile, "WaitBfTimes", TUnit::UNIT);
+    _wait_dependency_counts = ADD_COUNTER(_task_profile, "WaitDenpendencyTimes", TUnit::UNIT);
+    _pending_finish_counts = ADD_COUNTER(_task_profile, "PendingFinishTimes", TUnit::UNIT);
+
+    _begin_execute_timer = ADD_TIMER(_task_profile, "Task1BeginExecuteTime");
+    _eos_timer = ADD_TIMER(_task_profile, "Task2EosTime");
+    _src_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime");
+    _dst_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task4DstPendingFinishOverTime");
+    _pip_task_total_timer = ADD_TIMER(_task_profile, "Task5TotalTime");
+    _close_pipeline_timer = ADD_TIMER(_task_profile, "Task6ClosePipelineTime");
 }
 
 Status PipelineTask::prepare(RuntimeState* state) {
@@ -92,21 +150,25 @@ Status PipelineTask::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(o->prepare(state));
     }
 
-    _task_profile->add_info_string("Sink", fmt::format("{}({})", _sink->get_name(), _sink->id()));
+    _task_profile->add_info_string("Sink",
+                                   fmt::format("{}(dst_id={})", _sink->get_name(), _sink->id()));
     fmt::memory_buffer operator_ids_str;
     for (size_t i = 0; i < _operators.size(); i++) {
         if (i == 0) {
-            fmt::format_to(operator_ids_str,
-                           fmt::format("[{}({})", _operators[i]->get_name(), _operators[i]->id()));
+            fmt::format_to(
+                    operator_ids_str,
+                    fmt::format("[{}(node_id={})", _operators[i]->get_name(), _operators[i]->id()));
         } else {
             fmt::format_to(operator_ids_str,
-                           fmt::format(", {}({})", _operators[i]->get_name(), _operators[i]->id()));
+                           fmt::format(", {}(node_id={})", _operators[i]->get_name(),
+                                       _operators[i]->id()));
         }
     }
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block = doris::vectorized::Block::create_unique();
+    _block = _fragment_context->is_group_commit() ? doris::vectorized::FutureBlock::create_unique()
+                                                  : doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -159,6 +221,7 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
+
     Defer defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
@@ -183,22 +246,35 @@ Status PipelineTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
             return Status::OK();
         }
-        if (!_source->can_read()) {
+        if (!source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             return Status::OK();
         }
-        if (!_sink->can_write()) {
+        if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             return Status::OK();
         }
     }
 
+    auto status = Status::OK();
+    auto handle_group_commit = [&]() {
+        if (UNLIKELY(_fragment_context->is_group_commit() && !status.ok() && _block != nullptr)) {
+            auto* future_block = dynamic_cast<vectorized::FutureBlock*>(_block.get());
+            std::unique_lock<doris::Mutex> l(*(future_block->lock));
+            if (!future_block->is_handled()) {
+                future_block->set_result(status, 0, 0);
+                future_block->cv->notify_all();
+            }
+        }
+    };
+
+    this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
-        if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
+        if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;
         }
-        if (!_sink->can_write()) {
+        if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
@@ -206,6 +282,7 @@ Status PipelineTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
+        // TODO llj: Pipeline entity should_yield
         SCOPED_RAW_TIMER(&time_spent);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
@@ -213,12 +290,23 @@ Status PipelineTask::execute(bool* eos) {
         // Pull block from operator chain
         {
             SCOPED_TIMER(_get_block_timer);
-            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
+            _get_block_counter->update(1);
+            status = _root->get_block(_state, block, _data_state);
+            if (UNLIKELY(!status.ok())) {
+                handle_group_commit();
+                return status;
+            }
         }
         *eos = _data_state == SourceState::FINISHED;
+
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            auto status = _sink->sink(_state, block, _data_state);
+            if (_data_state == SourceState::FINISHED ||
+                _collect_query_statistics_with_every_batch) {
+                RETURN_IF_ERROR(_collect_query_statistics());
+            }
+            status = _sink->sink(_state, block, _data_state);
+            handle_group_commit();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -244,11 +332,34 @@ Status PipelineTask::finalize() {
     return _sink->finalize(_state);
 }
 
-Status PipelineTask::try_close() {
-    return _source->try_close();
+Status PipelineTask::_collect_query_statistics() {
+    // The execnode tree of a fragment will be split into multiple pipelines, we only need to collect the root pipeline.
+    if (_pipeline->is_root_pipeline()) {
+        // If the current fragment has only one instance, we can collect all of them;
+        // otherwise, we need to collect them based on the sender_id.
+        if (_state->num_per_fragment_instances() == 1) {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get()));
+        } else {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get(),
+                                                            _state->per_fragment_instance_idx()));
+        }
+    }
+    return Status::OK();
 }
 
-Status PipelineTask::close() {
+Status PipelineTask::try_close(Status exec_status) {
+    if (_try_close_flag) {
+        return Status::OK();
+    }
+    _try_close_flag = true;
+    Status status1 = _sink->try_close(_state);
+    Status status2 = _source->try_close(_state);
+    return status1.ok() ? status2 : status1;
+}
+
+Status PipelineTask::close(Status exec_status) {
     int64_t close_ns = 0;
     Defer defer {[&]() {
         if (_task_queue) {
@@ -280,6 +391,8 @@ QueryContext* PipelineTask::query_context() {
 
 // The FSM see PipelineTaskState's comment
 void PipelineTask::set_state(PipelineTaskState state) {
+    DCHECK(_cur_state != PipelineTaskState::FINISHED);
+
     if (_cur_state == state) {
         return;
     }
@@ -291,6 +404,10 @@ void PipelineTask::set_state(PipelineTaskState state) {
         if (state == PipelineTaskState::RUNNABLE) {
             _wait_sink_watcher.stop();
         }
+    } else if (_cur_state == PipelineTaskState::BLOCKED_FOR_RF) {
+        if (state == PipelineTaskState::RUNNABLE) {
+            _wait_bf_watcher.stop();
+        }
     } else if (_cur_state == PipelineTaskState::RUNNABLE) {
         COUNTER_UPDATE(_block_counts, 1);
         if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
@@ -299,31 +416,61 @@ void PipelineTask::set_state(PipelineTaskState state) {
         } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
             _wait_sink_watcher.start();
             COUNTER_UPDATE(_block_by_sink_counts, 1);
+        } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
+            _wait_bf_watcher.start();
+            COUNTER_UPDATE(_wait_bf_counts, 1);
+        } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
+            COUNTER_UPDATE(_wait_dependency_counts, 1);
+        } else if (state == PipelineTaskState::PENDING_FINISH) {
+            COUNTER_UPDATE(_pending_finish_counts, 1);
         }
     }
+
+    if (state == PipelineTaskState::FINISHED) {
+        _finish_p_dependency();
+    }
+
     _cur_state = state;
 }
 
 std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
-    std::stringstream profile_ss;
-    _fresh_profile_counter();
-    _task_profile->pretty_print(&profile_ss, "");
 
-    fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
-    fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
+    fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
+                   print_id(fragment_context()->get_fragment_instance_id()));
+
+    fmt::format_to(debug_string_buffer, "RuntimeUsage: {}\n",
+                   PrettyPrinter::print(get_runtime_ns(), TUnit::TIME_NS));
+    {
+        std::stringstream profile_ss;
+        _fresh_profile_counter();
+        _task_profile->pretty_print(&profile_ss, "");
+        fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
+    }
+    fmt::format_to(debug_string_buffer,
+                   "PipelineTask[this = {}, state = {}]\noperators: ", (void*)this,
                    get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
                        _operators[i]->debug_string());
+        std::stringstream profile_ss;
+        _operators[i]->get_runtime_profile()->pretty_print(&profile_ss, std::string(i * 2, ' '));
+        fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
     }
     fmt::format_to(debug_string_buffer, "\n{}{}", std::string(_operators.size() * 2, ' '),
                    _sink->debug_string());
+    {
+        std::stringstream profile_ss;
+        _sink->get_runtime_profile()->pretty_print(&profile_ss,
+                                                   std::string(_operators.size() * 2, ' '));
+        fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
+    }
     return fmt::to_string(debug_string_buffer);
 }
 
-taskgroup::TaskGroup* PipelineTask::get_task_group() const {
-    return _fragment_context->get_task_group();
+taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
+    return _fragment_context->get_task_group_entity();
 }
 
 } // namespace doris::pipeline

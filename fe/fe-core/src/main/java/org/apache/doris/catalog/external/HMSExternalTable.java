@@ -20,34 +20,55 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.HudiUtils;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.HiveAnalysisTask;
-import org.apache.doris.statistics.IcebergAnalysisTask;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
+import org.apache.doris.statistics.HMSAnalysisTask;
+import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
+import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.Decimal;
+import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -58,23 +79,29 @@ public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
+    private static final Set<String> SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS;
 
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
     private static final String TBL_PROP_INSERT_ONLY = "insert_only";
+
+    private static final String TBL_PROP_TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
+
+    private static final String NUM_ROWS = "numRows";
 
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.TextInputFormat");
+
+        SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS = Sets.newHashSet();
+        SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
     }
 
     private static final Set<String> SUPPORTED_HUDI_FILE_FORMATS;
 
     static {
         SUPPORTED_HUDI_FILE_FORMATS = Sets.newHashSet();
-        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormat");
-        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat");
@@ -85,6 +112,12 @@ public class HMSExternalTable extends ExternalTable {
     private List<Column> partitionColumns;
 
     private DLAType dlaType = DLAType.UNKNOWN;
+
+    // No as precise as row count in TableStats, but better than none.
+    private long estimatedRowCount = -1;
+
+    // record the event update time when enable hms event listener
+    protected volatile long eventUpdateTime;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
@@ -125,6 +158,7 @@ public class HMSExternalTable extends ExternalTable {
                 }
             }
             objectCreated = true;
+            estimatedRowCount = getRowCountFromExternalSource(true);
         }
     }
 
@@ -140,8 +174,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     /**
-     * Now we only support `Snapshot Queries` on both cow and mor table and `Read Optimized Queries` on cow table.
-     * And they both use the `HoodieParquetInputFormat` for the input format in hive metastore.
+     * `HoodieParquetInputFormat`: `Snapshot Queries` on cow and mor table and `Read Optimized Queries` on cow table
      */
     private boolean supportedHoodieTable() {
         if (remoteTable.getSd() == null) {
@@ -151,36 +184,29 @@ public class HMSExternalTable extends ExternalTable {
         return inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName);
     }
 
+    public boolean isHoodieCowTable() {
+        if (remoteTable.getSd() == null) {
+            return false;
+        }
+        String inputFormatName = remoteTable.getSd().getInputFormat();
+        return "org.apache.hudi.hadoop.HoodieParquetInputFormat".equals(inputFormatName);
+    }
+
     /**
      * Now we only support three file input format hive tables: parquet/orc/text.
      * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
-        boolean isTxnTbl = AcidUtils.isTransactionalTable(remoteTable);
-        if (isTxnTbl) {
-            // Only support "insert_only" transactional table
-            // There are 2 types of parameter:
-            //  "transactional_properties" = "insert_only",
-            //  or,
-            //  "insert_only" = "true"
-            // And must check "insert_only" first, because "transactional_properties" may be "default"
-            Map<String, String> parameters = remoteTable.getParameters();
-            if (parameters.containsKey(TBL_PROP_INSERT_ONLY)) {
-                if (!parameters.get(TBL_PROP_INSERT_ONLY).equalsIgnoreCase("true")) {
-                    return false;
-                }
-            } else if (parameters.containsKey(TBL_PROP_TXN_PROPERTIES)) {
-                if (!parameters.get(TBL_PROP_TXN_PROPERTIES).equalsIgnoreCase(TBL_PROP_INSERT_ONLY)) {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
-        boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        if (inputFileFormat == null) {
+            return false;
+        }
+        boolean supportedFileFormat = SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        if (!supportedFileFormat) {
+            throw new IllegalArgumentException("Unsupported hive input format: " + inputFileFormat);
+        }
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
-        return supportedFileFormat;
+        return true;
     }
 
     /**
@@ -204,7 +230,19 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     public boolean isHiveTransactionalTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
+                && isSupportedTransactionalFileFormat();
+    }
+
+    private boolean isSupportedTransactionalFileFormat() {
+        // Sometimes we meet "transactional" = "true" but format is parquet, which is not supported.
+        // So we need to check the input format for transactional table.
+        String inputFormatName = remoteTable.getSd().getInputFormat();
+        return inputFormatName != null && SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.contains(inputFormatName);
+    }
+
+    public boolean isFullAcidTable() {
+        return dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable);
     }
 
     @Override
@@ -243,13 +281,30 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public long getUpdateTime() {
-        return 0;
+    public long getRowCount() {
+        makeSureInitialized();
+        long rowCount = getRowCountFromExternalSource(false);
+        if (rowCount == -1) {
+            LOG.debug("Will estimate row count from file list.");
+            rowCount = StatisticsUtil.getRowCountFromFileList(this);
+        }
+        return rowCount;
     }
 
-    @Override
-    public long getRowCount() {
-        return 0;
+    private long getRowCountFromExternalSource(boolean isInit) {
+        long rowCount;
+        switch (dlaType) {
+            case HIVE:
+                rowCount = StatisticsUtil.getHiveRowCount(this, isInit);
+                break;
+            case ICEBERG:
+                rowCount = StatisticsUtil.getIcebergRowCount(this);
+                break;
+            default:
+                LOG.warn("getRowCount for dlaType {} is not supported.", dlaType);
+                rowCount = -1;
+        }
+        return rowCount;
     }
 
     @Override
@@ -287,14 +342,7 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
-        switch (dlaType) {
-            case HIVE:
-                return new HiveAnalysisTask(info);
-            case ICEBERG:
-                return new IcebergAnalysisTask(info);
-            default:
-                throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
-        }
+        return new HMSAnalysisTask(info);
     }
 
     public String getViewText() {
@@ -319,6 +367,10 @@ public class HMSExternalTable extends ExternalTable {
 
     public String getMetastoreUri() {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
+    }
+
+    public String getHiveVersion() {
+        return ((HMSExternalCatalog) catalog).getHiveVersion();
     }
 
     public Map<String, String> getCatalogProperties() {
@@ -346,6 +398,28 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
+    public Set<String> getPartitionNames() {
+        makeSureInitialized();
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        List<String> names = client.listPartitionNames(dbName, name);
+        return new HashSet<>(names);
+    }
+
+    @Override
+    public List<Column> initSchemaAndUpdateTime() {
+        org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
+                .getTable(dbName, name);
+        // try to use transient_lastDdlTime from hms client
+        schemaUpdateTime = MapUtils.isNotEmpty(table.getParameters())
+                && table.getParameters().containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)
+                ? Long.parseLong(table.getParameters().get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000
+                // use current timestamp if lastDdlTime does not exist (hive views don't have this prop)
+                : System.currentTimeMillis();
+        return initSchema();
+    }
+
+
+    @Override
     public List<Column> initSchema() {
         makeSureInitialized();
         List<Column> columns;
@@ -357,7 +431,7 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
             for (FieldSchema field : schema) {
-                tmpSchema.add(new Column(field.getName(),
+                tmpSchema.add(new Column(field.getName().toLowerCase(Locale.ROOT),
                         HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                         true, field.getComment(), true, -1));
             }
@@ -367,43 +441,50 @@ public class HMSExternalTable extends ExternalTable {
         return columns;
     }
 
-
     public List<Column> getHudiSchema(List<FieldSchema> hmsSchema) {
-        org.apache.avro.Schema schema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
+        org.apache.avro.Schema hudiSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
-        for (FieldSchema field : hmsSchema) {
-            tmpSchema.add(new Column(field.getName(),
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
-                            IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS), true, null,
-                    true, null, field.getComment(), true, null,
-                    schema.getIndexNamed(field.getName()), null));
+        for (org.apache.avro.Schema.Field hudiField : hudiSchema.getFields()) {
+            String columnName = hudiField.name().toLowerCase(Locale.ROOT);
+            tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiField.schema()),
+                    true, null, true, null, "", true, null, -1, null));
         }
         return tmpSchema;
     }
 
     @Override
     public long estimatedRowCount() {
-        ColumnStatistic cache = Config.enable_stats
-                ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(id, "")
-                : ColumnStatistic.UNKNOWN;
-        if (cache.isUnKnown) {
-            return 1;
-        } else {
-            return (long) cache.count;
+        try {
+            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
+            if (tableStats != null) {
+                long rowCount = tableStats.rowCount;
+                LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+                return rowCount;
+            }
+
+            if (estimatedRowCount != -1) {
+                return estimatedRowCount;
+            }
+            // Cache the estimated row count in this structure
+            // though the table never get analyzed, since the row estimation might be expensive caused by RPC.
+            estimatedRowCount = getRowCount();
+            return estimatedRowCount;
+        } catch (Exception e) {
+            LOG.warn("Fail to get row count for table {}", name, e);
         }
+        return 1;
     }
 
     private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
-        Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(this);
+        Table icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this);
         Schema schema = icebergTable.schema();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
         for (FieldSchema field : hmsSchema) {
-            tmpSchema.add(new Column(field.getName(),
+            tmpSchema.add(new Column(field.getName().toLowerCase(Locale.ROOT),
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
                             IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
-                    true, null,
-                    true, null, field.getComment(), true, null,
-                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null, null, null, null));
+                    true, null, true, false, null, field.getComment(), true, null,
+                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null));
         }
         return tmpSchema;
     }
@@ -415,7 +496,14 @@ public class HMSExternalTable extends ExternalTable {
         for (String partitionKey : partitionKeys) {
             // Do not use "getColumn()", which will cause dead loop
             for (Column column : schema) {
-                if (partitionKey.equals(column.getName())) {
+                if (partitionKey.equalsIgnoreCase(column.getName())) {
+                    // For partition column, if it is string type, change it to varchar(65535)
+                    // to be same as doris managed table.
+                    // This is to avoid some unexpected behavior such as different partition pruning result
+                    // between doris managed table and external table.
+                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                        column.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
+                    }
                     partitionColumns.add(column);
                     break;
                 }
@@ -424,5 +512,201 @@ public class HMSExternalTable extends ExternalTable {
         LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
     }
 
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        makeSureInitialized();
+        switch (dlaType) {
+            case HIVE:
+                return getHiveColumnStats(colName);
+            case ICEBERG:
+                return StatisticsUtil.getIcebergColumnStats(colName,
+                        Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
+            default:
+                LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<ColumnStatistic> getHiveColumnStats(String colName) {
+        List<ColumnStatisticsObj> tableStats = getHiveTableColumnStats(Lists.newArrayList(colName));
+        if (tableStats == null || tableStats.isEmpty()) {
+            LOG.debug(String.format("No table stats found in Hive metastore for column %s in table %s.",
+                    colName, name));
+            return Optional.empty();
+        }
+
+        Column column = getColumn(colName);
+        if (column == null) {
+            LOG.warn(String.format("No column %s in table %s.", colName, name));
+            return Optional.empty();
+        }
+        Map<String, String> parameters = remoteTable.getParameters();
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
+        double count = parameters.containsKey(NUM_ROWS) ? Double.parseDouble(parameters.get(NUM_ROWS)) : 0;
+        columnStatisticBuilder.setCount(count);
+        // The tableStats length is at most 1.
+        for (ColumnStatisticsObj tableStat : tableStats) {
+            if (!tableStat.isSetStatsData()) {
+                continue;
+            }
+            ColumnStatisticsData data = tableStat.getStatsData();
+            try {
+                setStatData(column, data, columnStatisticBuilder, count);
+            } catch (AnalysisException e) {
+                LOG.debug(e);
+                return Optional.empty();
+            }
+        }
+
+        return Optional.of(columnStatisticBuilder.build());
+    }
+
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, double count)
+            throws AnalysisException {
+        long ndv = 0;
+        long nulls = 0;
+        String min = "";
+        String max = "";
+        double colSize = 0;
+        if (!data.isSetStringStats()) {
+            colSize = count * col.getType().getSlotSize();
+        }
+        // Collect ndv, nulls, min and max for different data type.
+        if (data.isSetLongStats()) {
+            LongColumnStatsData longStats = data.getLongStats();
+            ndv = longStats.getNumDVs();
+            nulls = longStats.getNumNulls();
+            min = String.valueOf(longStats.getLowValue());
+            max = String.valueOf(longStats.getHighValue());
+        } else if (data.isSetStringStats()) {
+            StringColumnStatsData stringStats = data.getStringStats();
+            ndv = stringStats.getNumDVs();
+            nulls = stringStats.getNumNulls();
+            double avgColLen = stringStats.getAvgColLen();
+            colSize = Math.round(avgColLen * count);
+        } else if (data.isSetDecimalStats()) {
+            DecimalColumnStatsData decimalStats = data.getDecimalStats();
+            ndv = decimalStats.getNumDVs();
+            nulls = decimalStats.getNumNulls();
+            if (decimalStats.isSetLowValue()) {
+                Decimal lowValue = decimalStats.getLowValue();
+                if (lowValue != null) {
+                    BigDecimal lowDecimal = new BigDecimal(new BigInteger(lowValue.getUnscaled()), lowValue.getScale());
+                    min = lowDecimal.toString();
+                }
+            }
+            if (decimalStats.isSetHighValue()) {
+                Decimal highValue = decimalStats.getHighValue();
+                if (highValue != null) {
+                    BigDecimal highDecimal =
+                            new BigDecimal(new BigInteger(highValue.getUnscaled()), highValue.getScale());
+                    max = highDecimal.toString();
+                }
+            }
+        } else if (data.isSetDoubleStats()) {
+            DoubleColumnStatsData doubleStats = data.getDoubleStats();
+            ndv = doubleStats.getNumDVs();
+            nulls = doubleStats.getNumNulls();
+            min = String.valueOf(doubleStats.getLowValue());
+            max = String.valueOf(doubleStats.getHighValue());
+        } else if (data.isSetDateStats()) {
+            DateColumnStatsData dateStats = data.getDateStats();
+            ndv = dateStats.getNumDVs();
+            nulls = dateStats.getNumNulls();
+            if (dateStats.isSetLowValue()) {
+                org.apache.hadoop.hive.metastore.api.Date lowValue = dateStats.getLowValue();
+                if (lowValue != null) {
+                    LocalDate lowDate = LocalDate.ofEpochDay(lowValue.getDaysSinceEpoch());
+                    min = lowDate.toString();
+                }
+            }
+            if (dateStats.isSetHighValue()) {
+                org.apache.hadoop.hive.metastore.api.Date highValue = dateStats.getHighValue();
+                if (highValue != null) {
+                    LocalDate highDate = LocalDate.ofEpochDay(highValue.getDaysSinceEpoch());
+                    max = highDate.toString();
+                }
+            }
+        } else {
+            LOG.debug(String.format("Not suitable data type for column %s", col.getName()));
+            throw new RuntimeException("Not supported data type.");
+        }
+        builder.setNdv(ndv);
+        builder.setNumNulls(nulls);
+        builder.setDataSize(colSize);
+        builder.setAvgSizeByte(colSize / count);
+        if (!min.equals("")) {
+            builder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+            builder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+        } else {
+            builder.setMinValue(Double.MIN_VALUE);
+        }
+        if (!max.equals("")) {
+            builder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+            builder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+        } else {
+            builder.setMaxValue(Double.MAX_VALUE);
+        }
+    }
+
+    public void setEventUpdateTime(long updateTime) {
+        this.eventUpdateTime = updateTime;
+    }
+
+    @Override
+    // get the max value of `schemaUpdateTime` and `eventUpdateTime`
+    // eventUpdateTime will be refreshed after processing events with hms event listener enabled
+    public long getUpdateTime() {
+        return Math.max(this.schemaUpdateTime, this.eventUpdateTime);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        estimatedRowCount = -1;
+    }
+
+    @Override
+    public List<Long> getChunkSizes() {
+        HiveMetaStoreCache.HivePartitionValues partitionValues = StatisticsUtil.getPartitionValuesForTable(this);
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions
+                = StatisticsUtil.getFilesForPartitions(this, partitionValues, 0);
+        List<Long> result = Lists.newArrayList();
+        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
+            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
+                result.add(file.getLength());
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public long getDataSize(boolean singleReplica) {
+        long totalSize = StatisticsUtil.getTotalSizeFromHMS(this);
+        // Usually, we can get total size from HMS parameter.
+        if (totalSize > 0) {
+            return totalSize;
+        }
+        // If not found the size in HMS, calculate it by sum all files' size in table.
+        List<Long> chunkSizes = getChunkSizes();
+        long total = 0;
+        for (long size : chunkSizes) {
+            total += size;
+        }
+        return total;
+    }
+
+    @Override
+    public boolean isDistributionColumn(String columnName) {
+        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
+            .collect(Collectors.toSet()).contains(columnName.toLowerCase());
+    }
+
+    @Override
+    public Set<String> getDistributionColumnNames() {
+        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
+            .collect(Collectors.toSet());
+    }
 }
+
 

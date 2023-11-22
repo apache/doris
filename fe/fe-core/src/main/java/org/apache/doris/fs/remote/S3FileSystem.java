@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
+import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
@@ -41,13 +42,17 @@ public class S3FileSystem extends ObjFileSystem {
 
     public S3FileSystem(Map<String, String> properties) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, new S3ObjStorage(properties));
-        this.properties.putAll(properties);
+        initFsProperties();
     }
 
     @VisibleForTesting
     public S3FileSystem(S3ObjStorage storage) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, storage);
-        this.properties.putAll(storage.getProperties());
+        initFsProperties();
+    }
+
+    private void initFsProperties() {
+        this.properties.putAll(((S3ObjStorage) objStorage).getProperties());
     }
 
     @Override
@@ -86,9 +91,25 @@ public class S3FileSystem extends ObjFileSystem {
             LOG.info("file not found: " + e.getMessage());
             return new Status(Status.ErrCode.NOT_FOUND, "file not found: " + e.getMessage());
         } catch (Exception e) {
+            if (e.getCause() instanceof AmazonS3Exception) {
+                // process minio error msg
+                AmazonS3Exception ea = (AmazonS3Exception) e.getCause();
+                Map<String, String> callbackHeaders = ea.getHttpHeaders();
+                if (callbackHeaders != null && !callbackHeaders.isEmpty()) {
+                    String minioErrMsg = callbackHeaders.get("X-Minio-Error-Desc");
+                    if (minioErrMsg != null) {
+                        return new Status(Status.ErrCode.COMMON_ERROR, "Minio request error: " + minioErrMsg);
+                    }
+                }
+            }
             LOG.error("errors while get file status ", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
     }
+
+    public Status deleteDirectory(String absolutePath) {
+        return ((S3ObjStorage) objStorage).deleteObjects(absolutePath);
+    }
 }
+

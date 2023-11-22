@@ -21,26 +21,27 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.Role;
 
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Used to cache LDAP information of user, such as password and privileges.
  */
 public class LdapUserInfo {
-    public LdapUserInfo(String userName, boolean isSetPasswd, String passwd, Role role) {
+    public LdapUserInfo(String userName, boolean isSetPasswd, String passwd, Set<Role> roles) {
         this.userName = userName;
         this.isExists = true;
         this.isSetPasswd = isSetPasswd;
         this.passwd = passwd;
-        this.role = role;
+        this.roles = roles;
         this.lastTimeStamp = System.currentTimeMillis();
     }
 
-    private LdapUserInfo(String userName, boolean isSetPasswd, String passwd, Role role, long lastTimeStamp) {
+    private LdapUserInfo(String userName, boolean isSetPasswd, String passwd, Set<Role> roles, long lastTimeStamp) {
         this.userName = userName;
         this.isExists = true;
         this.isSetPasswd = isSetPasswd;
         this.passwd = passwd;
-        this.role = role;
+        this.roles = roles;
         this.lastTimeStamp = lastTimeStamp;
     }
 
@@ -49,7 +50,7 @@ public class LdapUserInfo {
         this.isExists = false;
         this.isSetPasswd = false;
         this.passwd = null;
-        this.role = null;
+        this.roles = null;
         this.lastTimeStamp = System.currentTimeMillis();
     }
 
@@ -61,7 +62,7 @@ public class LdapUserInfo {
 
     private final String passwd;
 
-    private final Role role;
+    private final Set<Role> roles;
 
     private final long lastTimeStamp;
 
@@ -78,8 +79,8 @@ public class LdapUserInfo {
         return passwd;
     }
 
-    public Role getPaloRole() {
-        return role;
+    public Set<Role> getPaloRoles() {
+        return roles;
     }
 
     public boolean isExists() {
@@ -88,10 +89,10 @@ public class LdapUserInfo {
 
     public LdapUserInfo cloneWithPasswd(String passwd) {
         if (Objects.isNull(passwd)) {
-            return new LdapUserInfo(userName, isSetPasswd, this.passwd, role, lastTimeStamp);
+            return new LdapUserInfo(userName, isSetPasswd, this.passwd, roles, lastTimeStamp);
         }
 
-        return new LdapUserInfo(userName, true, passwd, role, lastTimeStamp);
+        return new LdapUserInfo(userName, true, passwd, roles, lastTimeStamp);
     }
 
     // Return true if LdapUserInfo is exceeded the time limit;

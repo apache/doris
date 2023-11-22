@@ -97,17 +97,17 @@ public:
 
     void check_bitmap_column(const IColumn& l, const IColumn& r) {
         ASSERT_EQ(l.size(), r.size());
-        const auto& l_col = assert_cast<const ColumnQuantileStateDouble&>(l);
-        const auto& r_col = assert_cast<const ColumnQuantileStateDouble&>(r);
+        const auto& l_col = assert_cast<const ColumnQuantileState&>(l);
+        const auto& r_col = assert_cast<const ColumnQuantileState&>(r);
         for (size_t i = 0; i < l_col.size(); ++i) {
-            auto& l_value = const_cast<QuantileStateDouble&>(l_col.get_element(i));
-            auto& r_value = const_cast<QuantileStateDouble&>(r_col.get_element(i));
+            auto& l_value = const_cast<QuantileState&>(l_col.get_element(i));
+            auto& r_value = const_cast<QuantileState&>(r_col.get_element(i));
             ASSERT_EQ(l_value.get_serialized_size(), r_value.get_serialized_size());
         }
     }
 
     void check_serialize_and_deserialize(MutableColumnPtr& col) {
-        auto column = assert_cast<ColumnQuantileStateDouble*>(col.get());
+        auto column = assert_cast<ColumnQuantileState*>(col.get());
         auto size = _quantile_state_type.get_uncompressed_serialized_bytes(
                 *column, BeExecVersionManager::get_newest_version());
         std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
@@ -122,7 +122,7 @@ public:
     }
 
 private:
-    DataTypeQuantileStateDouble _quantile_state_type;
+    DataTypeQuantileState _quantile_state_type;
 };
 
 TEST_F(ColumnBitmapTest, ColumnBitmapReadWrite) {
@@ -162,7 +162,7 @@ TEST_F(ColumnQuantileStateTest, ColumnQuantileStateReadWrite) {
 
     // quantile column with lots of rows
     const size_t row_size = 20000;
-    auto& data = assert_cast<ColumnQuantileStateDouble&>(*column.get()).get_data();
+    auto& data = assert_cast<ColumnQuantileState&>(*column.get()).get_data();
     data.resize(row_size);
     // EMPTY type
     check_serialize_and_deserialize(column);

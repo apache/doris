@@ -25,4 +25,10 @@ namespace doris::pipeline {
 
 OPERATOR_CODE_GENERATOR(EmptySetSourceOperator, SourceOperator)
 
+Status EmptySetSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
+                                          SourceState& source_state) {
+    source_state = SourceState::FINISHED;
+    return Status::OK();
+}
+
 } // namespace doris::pipeline

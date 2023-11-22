@@ -117,6 +117,12 @@ DEFINE_MEMORY_GAUGE_METRIC(jemalloc_metadata_bytes, MetricUnit::BYTES);
 DEFINE_MEMORY_GAUGE_METRIC(jemalloc_resident_bytes, MetricUnit::BYTES);
 DEFINE_MEMORY_GAUGE_METRIC(jemalloc_mapped_bytes, MetricUnit::BYTES);
 DEFINE_MEMORY_GAUGE_METRIC(jemalloc_retained_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_tcache_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_pactive_num, MetricUnit::NOUNIT);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_pdirty_num, MetricUnit::NOUNIT);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_pmuzzy_num, MetricUnit::NOUNIT);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_dirty_purged_num, MetricUnit::NOUNIT);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_muzzy_purged_num, MetricUnit::NOUNIT);
 #endif
 
 struct MemoryMetrics {
@@ -142,6 +148,12 @@ struct MemoryMetrics {
         INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_resident_bytes);
         INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_mapped_bytes);
         INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_retained_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_tcache_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_pactive_num);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_pdirty_num);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_pmuzzy_num);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_dirty_purged_num);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_muzzy_purged_num);
 #endif
     }
 
@@ -167,6 +179,12 @@ struct MemoryMetrics {
     IntGauge* memory_jemalloc_resident_bytes;
     IntGauge* memory_jemalloc_mapped_bytes;
     IntGauge* memory_jemalloc_retained_bytes;
+    IntGauge* memory_jemalloc_tcache_bytes;
+    IntGauge* memory_jemalloc_pactive_num;
+    IntGauge* memory_jemalloc_pdirty_num;
+    IntGauge* memory_jemalloc_pmuzzy_num;
+    IntGauge* memory_jemalloc_dirty_purged_num;
+    IntGauge* memory_jemalloc_muzzy_purged_num;
 #endif
 };
 
@@ -457,6 +475,18 @@ void SystemMetrics::update_allocator_metrics() {
             MemInfo::get_je_metrics("stats.mapped"));
     _memory_metrics->memory_jemalloc_retained_bytes->set_value(
             MemInfo::get_je_metrics("stats.retained"));
+    _memory_metrics->memory_jemalloc_tcache_bytes->set_value(
+            MemInfo::get_je_all_arena_metrics("tcache_bytes"));
+    _memory_metrics->memory_jemalloc_pactive_num->set_value(
+            MemInfo::get_je_all_arena_metrics("pactive"));
+    _memory_metrics->memory_jemalloc_pdirty_num->set_value(
+            MemInfo::get_je_all_arena_metrics("pdirty"));
+    _memory_metrics->memory_jemalloc_pmuzzy_num->set_value(
+            MemInfo::get_je_all_arena_metrics("pmuzzy"));
+    _memory_metrics->memory_jemalloc_dirty_purged_num->set_value(
+            MemInfo::get_je_all_arena_metrics("dirty_purged"));
+    _memory_metrics->memory_jemalloc_muzzy_purged_num->set_value(
+            MemInfo::get_je_all_arena_metrics("muzzy_purged"));
 #else
     _memory_metrics->memory_tcmalloc_allocated_bytes->set_value(
             MemInfo::get_tc_metrics("generic.total_physical_bytes"));

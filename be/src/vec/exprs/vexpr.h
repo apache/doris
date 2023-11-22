@@ -32,12 +32,14 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/large_int_value.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/function.h"
@@ -74,14 +76,14 @@ public:
         return block->columns() - 1;
     }
 
+    static bool is_acting_on_a_slot(const VExpr& expr);
+
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);
     VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable);
     // only used for test
     VExpr() = default;
     virtual ~VExpr() = default;
-
-    virtual VExprSPtr clone() const = 0;
 
     virtual const std::string& expr_name() const = 0;
 
@@ -91,6 +93,7 @@ public:
     ///
     /// Subclasses overriding this function should call VExpr::Prepare() to recursively call
     /// Prepare() on the expr tree
+    /// row_desc used in vslot_ref and some subclass to specify column
     virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                            VExprContext* context);
 
@@ -103,16 +106,14 @@ public:
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope);
 
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) = 0;
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
     /// Subclasses overriding this function should call VExpr::Close().
     //
     /// If scope if FRAGMENT_LOCAL, both fragment- and thread-local state should be torn
     /// down. Otherwise, if scope is THREAD_LOCAL, only thread-local state should be torn
     /// down.
-    virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+    virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope);
 
     DataTypePtr& data_type() { return _data_type; }
 
@@ -140,15 +141,13 @@ public:
     static Status clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* state,
                                       VExprContextSPtrs& new_ctxs);
 
-    static void close(const VExprContextSPtrs& ctxs, RuntimeState* state);
-
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _type.type; }
 
     static Status create_expr(const TExprNode& expr_node, VExprSPtr& expr);
 
-    static Status create_tree_from_thrift(const std::vector<doris::TExprNode>& nodes, int* node_idx,
+    static Status create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
                                           VExprSPtr& root_expr, VExprContextSPtr& ctx);
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
@@ -177,7 +176,7 @@ public:
     int fn_context_index() const { return _fn_context_index; }
 
     static const VExprSPtr expr_without_cast(const VExprSPtr& expr) {
-        if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
+        if (expr->node_type() == TExprNodeType::CAST_EXPR) {
             return expr_without_cast(expr->_children[0]);
         }
         return expr;
@@ -208,6 +207,17 @@ protected:
         std::stringstream out;
         out << expr_name << "(" << VExpr::debug_string() << ")";
         return out.str();
+    }
+
+    std::string get_child_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name();
+        }
+        return res;
     }
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
@@ -248,4 +258,148 @@ protected:
 };
 
 } // namespace vectorized
+
+template <PrimitiveType T>
+Status create_texpr_literal_node(const void* data, TExprNode* node, int precision = 0,
+                                 int scale = 0) {
+    if constexpr (T == TYPE_BOOLEAN) {
+        auto origin_value = reinterpret_cast<const bool*>(data);
+        TBoolLiteral boolLiteral;
+        (*node).__set_node_type(TExprNodeType::BOOL_LITERAL);
+        boolLiteral.__set_value(*origin_value);
+        (*node).__set_bool_literal(boolLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    } else if constexpr (T == TYPE_TINYINT) {
+        auto origin_value = reinterpret_cast<const int8_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TINYINT));
+    } else if constexpr (T == TYPE_SMALLINT) {
+        auto origin_value = reinterpret_cast<const int16_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_SMALLINT));
+    } else if constexpr (T == TYPE_INT) {
+        auto origin_value = reinterpret_cast<const int32_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_INT));
+    } else if constexpr (T == TYPE_BIGINT) {
+        auto origin_value = reinterpret_cast<const int64_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
+    } else if constexpr (T == TYPE_LARGEINT) {
+        auto origin_value = reinterpret_cast<const int128_t*>(data);
+        (*node).__set_node_type(TExprNodeType::LARGE_INT_LITERAL);
+        TLargeIntLiteral large_int_literal;
+        large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
+        (*node).__set_large_int_literal(large_int_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
+        auto origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        if (origin_value->type() == TimeType::TIME_DATE) {
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATE));
+        } else if (origin_value->type() == TimeType::TIME_DATETIME) {
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
+        } else if (origin_value->type() == TimeType::TIME_TIME) {
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
+        }
+    } else if constexpr (T == TYPE_DATEV2) {
+        auto origin_value = reinterpret_cast<const DateV2Value<DateV2ValueType>*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        auto origin_value = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2));
+    } else if constexpr (T == TYPE_DECIMALV2) {
+        auto origin_value = reinterpret_cast<const DecimalV2Value*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string());
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMALV2, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL32) {
+        auto origin_value = reinterpret_cast<const vectorized::Decimal<int32_t>*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string(scale));
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL32, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        auto origin_value = reinterpret_cast<const vectorized::Decimal<int64_t>*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string(scale));
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        auto origin_value = reinterpret_cast<const vectorized::Decimal<int128_t>*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string(scale));
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        const auto* origin_value = reinterpret_cast<const vectorized::Decimal<wide::Int256>*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string(scale));
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL256, precision, scale));
+    } else if constexpr (T == TYPE_FLOAT) {
+        auto origin_value = reinterpret_cast<const float*>(data);
+        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
+        TFloatLiteral float_literal;
+        float_literal.__set_value(*origin_value);
+        (*node).__set_float_literal(float_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_FLOAT));
+    } else if constexpr (T == TYPE_DOUBLE) {
+        auto origin_value = reinterpret_cast<const double*>(data);
+        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
+        TFloatLiteral float_literal;
+        float_literal.__set_value(*origin_value);
+        (*node).__set_float_literal(float_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
+    } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
+        auto origin_value = reinterpret_cast<const StringRef*>(data);
+        (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
+        TStringLiteral string_literal;
+        string_literal.__set_value(origin_value->to_string());
+        (*node).__set_string_literal(string_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
+    } else {
+        return Status::InvalidArgument("Invalid argument type!");
+    }
+    return Status::OK();
+}
+
+TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision = 0,
+                                 int scale = 0);
+
 } // namespace doris
