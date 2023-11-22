@@ -24,6 +24,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -70,6 +72,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
@@ -581,20 +584,37 @@ public class BindExpression implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_RESULT_SINK.build(
-                unboundResultSink().then(sink -> {
-
-                    final ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
-                            ImmutableListMultimap.builder();
-                    List<Slot> childOutput = sink.child().getOutput();
-                    for (int index = 0; index < childOutput.size(); index++) {
-                        exprIdToIndexMapBuilder.put(childOutput.get(index).getExprId(), index);
+                unboundResultSink().thenApply(ctx -> {
+                    UnboundResultSink<Plan> unboundResultSink = ctx.root;
+                    if (ctx.connectContext.getState().isQuery()) {
+                        // Should not infer column expression name if query
+                        List<NamedExpression> outputExprs = unboundResultSink.child().getOutput().stream()
+                                .map(NamedExpression.class::cast)
+                                .collect(ImmutableList.toImmutableList());
+                        return new LogicalResultSink<>(outputExprs, unboundResultSink.child());
                     }
-                    InferPlanOutputAlias aliasInfer = new InferPlanOutputAlias(childOutput);
-                    sink.child().accept(aliasInfer, exprIdToIndexMapBuilder.build());
-                    return new LogicalResultSink<>(aliasInfer.getOutputs(), sink.child());
+                    return new LogicalResultSink<>(inferColumnNames(unboundResultSink), unboundResultSink.child());
+                })
+            ),
+            RuleType.BINDING_FILE_SINK.build(
+                unboundFileSink().then(sink -> {
+                    return new LogicalFileSink<>(sink.getFilePath(), sink.getFormat(), sink.getProperties(),
+                            inferColumnNames(sink), sink.child());
                 })
             )
         ).stream().map(ruleCondition).collect(ImmutableList.toImmutableList());
+    }
+
+    private List<NamedExpression> inferColumnNames(LogicalSink<Plan> sink) {
+        final ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
+                ImmutableListMultimap.builder();
+        List<Slot> sinkOutput = sink.child().getOutput();
+        for (int index = 0; index < sinkOutput.size(); index++) {
+            exprIdToIndexMapBuilder.put(sinkOutput.get(index).getExprId(), index);
+        }
+        InferPlanOutputAlias aliasInfer = new InferPlanOutputAlias(sinkOutput);
+        sink.child().accept(aliasInfer, exprIdToIndexMapBuilder.build());
+        return aliasInfer.getOutputs();
     }
 
     private Plan bindSort(LogicalSort<? extends Plan> sort, Plan plan, CascadesContext ctx) {

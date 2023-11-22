@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.analyzer.UnboundFileSink;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -54,6 +55,10 @@ public interface SinkVisitor<R, C> {
 
     default R visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink, C context) {
         return visitLogicalSink(unboundResultSink, context);
+    }
+
+    default R visitUnboundFileSink(UnboundFileSink<? extends Plan> unboundFileSink, C context) {
+        return visitLogicalSink(unboundFileSink, context);
     }
 
     // *******************************

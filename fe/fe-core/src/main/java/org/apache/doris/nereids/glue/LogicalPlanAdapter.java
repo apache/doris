@@ -24,6 +24,7 @@ import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundFileSink;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
@@ -61,7 +62,7 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     @Override
     public boolean hasOutFileClause() {
-        return logicalPlan instanceof LogicalFileSink;
+        return logicalPlan instanceof LogicalFileSink || logicalPlan instanceof UnboundFileSink;
     }
 
     @Override

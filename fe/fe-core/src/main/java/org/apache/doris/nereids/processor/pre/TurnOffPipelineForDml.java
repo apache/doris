@@ -20,10 +20,10 @@ package org.apache.doris.nereids.processor.pre;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundFileSink;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
@@ -40,9 +40,9 @@ public class TurnOffPipelineForDml extends PlanPreprocessor {
     }
 
     @Override
-    public Plan visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, StatementContext context) {
+    public Plan visitUnboundFileSink(UnboundFileSink<? extends Plan> unboundFileSink, StatementContext context) {
         turnOffPipeline(context);
-        return fileSink;
+        return unboundFileSink;
     }
 
     private void turnOffPipeline(StatementContext context) {

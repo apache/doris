@@ -23,7 +23,7 @@ import java.nio.file.Paths
 
 suite("test_outfile_expression_generate_col_name", "p0") {
 
-    sql """ set enable_nereids_planner = false """
+    sql """ set enable_nereids_planner = true """
     sql """ set enable_fallback_to_original_planner = false """
 
     String ak = getS3AK()
