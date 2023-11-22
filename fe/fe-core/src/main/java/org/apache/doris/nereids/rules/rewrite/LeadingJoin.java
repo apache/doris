@@ -24,6 +24,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -37,29 +38,31 @@ public class LeadingJoin implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            logicalJoin().thenApply(ctx -> {
-                if (!ctx.cascadesContext.isLeadingJoin()) {
-                    return ctx.root;
-                }
-                Hint leadingHint = ctx.cascadesContext.getHintMap().get("Leading");
-                ((LeadingHint) leadingHint).setTotalBitmap();
-                Long currentBitMap = LongBitmap.computeTableBitmap(ctx.root.getInputRelations());
-                if (((LeadingHint) leadingHint).getTotalBitmap().equals(currentBitMap)
-                        && leadingHint.isSuccess()) {
-                    Plan leadingJoin = ((LeadingHint) leadingHint).generateLeadingJoinPlan();
-                    if (leadingHint.isSuccess() && leadingJoin != null) {
-                        try {
-                            ctx.cascadesContext.getConnectContext().getSessionVariable()
-                                .disableNereidsJoinReorderOnce();
-                            ctx.cascadesContext.setLeadingJoin(false);
-                        } catch (DdlException e) {
-                            throw new RuntimeException(e);
+            logicalJoin()
+                    .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
+                    .thenApply(ctx -> {
+                        if (!ctx.cascadesContext.isLeadingJoin()) {
+                            return ctx.root;
                         }
-                        return leadingJoin;
-                    }
-                }
-                return ctx.root;
-            }).toRule(RuleType.LEADING_JOIN)
+                        Hint leadingHint = ctx.cascadesContext.getHintMap().get("Leading");
+                        ((LeadingHint) leadingHint).setTotalBitmap();
+                        Long currentBitMap = LongBitmap.computeTableBitmap(ctx.root.getInputRelations());
+                        if (((LeadingHint) leadingHint).getTotalBitmap().equals(currentBitMap)
+                                && leadingHint.isSuccess()) {
+                            Plan leadingJoin = ((LeadingHint) leadingHint).generateLeadingJoinPlan();
+                            if (leadingHint.isSuccess() && leadingJoin != null) {
+                                try {
+                                    ctx.cascadesContext.getConnectContext().getSessionVariable()
+                                        .disableNereidsJoinReorderOnce();
+                                    ctx.cascadesContext.setLeadingJoin(false);
+                                } catch (DdlException e) {
+                                    throw new RuntimeException(e);
+                                }
+                                return leadingJoin;
+                            }
+                        }
+                        return ctx.root;
+                    }).toRule(RuleType.LEADING_JOIN)
         );
     }
 }

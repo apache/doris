@@ -98,15 +98,10 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                 LogicalFilter filter = ctx.root;
                 Set<Expression> expressions = filter.getConjuncts();
                 for (Expression expression : expressions) {
-                    if (expression.containsType(AggregateFunction.class)) {
-                        // do not put aggregate function into join conditions
-                        continue;
-                    }
                     Long filterBitMap = 0L;
-                    if (expression instanceof InSubquery) {
-                        filterBitMap = calSlotsTableBitMap(leading,
-                                ((InSubquery) expression).getCompareExpr().getInputSlots(), false);
-                    } else if (expression instanceof Exists) {
+                    // do not put aggregate function, in subquery and exists subquery into join conditions
+                    if (expression.containsType(AggregateFunction.class)
+                            || expression instanceof InSubquery || expression instanceof Exists) {
                         continue;
                     } else {
                         filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);

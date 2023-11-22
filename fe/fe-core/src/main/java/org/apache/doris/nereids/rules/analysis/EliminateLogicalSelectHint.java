@@ -120,8 +120,9 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         hint.setStatus(Hint.HintStatus.SUCCESS);
         statementContext.addHint(hint);
         context.getHintMap().put("Leading", hint);
-        if (hints.get("ordered") != null) {
+        if (hints.get("ordered") != null || ConnectContext.get().getSessionVariable().isDisableJoinReorder()) {
             context.setLeadingJoin(false);
+            hint.setStatus(Hint.HintStatus.UNUSED);
         } else {
             context.setLeadingJoin(true);
         }
