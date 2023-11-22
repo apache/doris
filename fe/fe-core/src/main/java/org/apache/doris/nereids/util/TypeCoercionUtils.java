@@ -414,8 +414,7 @@ public class TypeCoercionUtils {
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
-        } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
-                || (input.getDataType().isStringLikeType()) && targetType.isStringLikeType()) {
+        } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)) {
             return input;
         } else {
             checkCanCastTo(input.getDataType(), targetType);
