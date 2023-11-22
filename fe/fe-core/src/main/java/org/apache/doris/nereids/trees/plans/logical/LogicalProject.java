@@ -42,6 +42,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical project plan.
@@ -205,15 +206,15 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
-    public FunctionalDependencies computeFD(List<Slot> outputs) {
-        FunctionalDependencies fd = new FunctionalDependencies(
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(
                 child().getLogicalProperties().getFunctionalDependencies());
-        fd.pruneSlots(new HashSet<>(outputs));
+        builder.pruneSlots(new HashSet<>(outputSupplier.get()));
         for (NamedExpression proj : projects) {
             if (proj instanceof Alias && proj.child(0).isConstant()) {
-                fd.addUniformSlot(proj.toSlot());
+                builder.addUniformSlot(proj.toSlot());
             }
         }
-        return fd;
+        return builder.build();
     }
 }

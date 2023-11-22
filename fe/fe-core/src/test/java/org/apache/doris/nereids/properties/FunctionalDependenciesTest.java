@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -55,14 +56,17 @@ class FunctionalDependenciesTest extends TestWithFeService {
 
     @Test
     void testUniform() {
-        FunctionalDependencies fd = new FunctionalDependencies();
-        fd.addUniformSlot(slot1);
+        Builder fdBuilder = new Builder();
+        fdBuilder.addUniformSlot(slot1);
+        FunctionalDependencies fd = fdBuilder.build();
         Assertions.assertTrue(fd.isUniform(slot1));
         Assertions.assertFalse(fd.isUniform(slot2));
-        fd.addUniformSlot(ImmutableSet.of(slot2));
+        fdBuilder.addUniformSlot(ImmutableSet.of(slot2));
+        fd = fdBuilder.build();
         Assertions.assertTrue(fd.isUniform(slot2));
         ImmutableSet<Slot> slotSet = ImmutableSet.of(slot1, slot2, slot3);
-        fd.addUniformSlot(slotSet);
+        fdBuilder.addUniformSlot(slotSet);
+        fd = fdBuilder.build();
         Assertions.assertTrue(fd.isUniform(slotSet));
         Assertions.assertFalse(fd.isUniform(ImmutableSet.of(slot1, slot2, slot3, slot4)));
         Assertions.assertTrue(fd.isUniform(ImmutableSet.of(slot1, slot2)));
@@ -71,14 +75,17 @@ class FunctionalDependenciesTest extends TestWithFeService {
 
     @Test
     void testUnique() {
-        FunctionalDependencies fd = new FunctionalDependencies();
-        fd.addUniqueSlot(slot1);
+        Builder fdBuilder = new Builder();
+        fdBuilder.addUniqueSlot(slot1);
+        FunctionalDependencies fd = fdBuilder.build();
         Assertions.assertTrue(fd.isUnique(slot1));
         Assertions.assertFalse(fd.isUnique(slot2));
-        fd.addUniqueSlot(ImmutableSet.of(slot2));
+        fdBuilder.addUniqueSlot(slot2);
+        fd = fdBuilder.build();
         Assertions.assertTrue(fd.isUnique(slot2));
         ImmutableSet<Slot> slotSet = ImmutableSet.of(slot1, slot2, slot3);
-        fd.addUniqueSlot(slotSet);
+        fdBuilder.addUniqueSlot(slotSet);
+        fd = fdBuilder.build();
         Assertions.assertTrue(fd.isUnique(slotSet));
         Assertions.assertTrue(fd.isUnique(ImmutableSet.of(slot1, slot2, slot3, slot4)));
         Assertions.assertFalse(fd.isUnique(ImmutableSet.of(slot3, slot4)));
@@ -86,13 +93,15 @@ class FunctionalDependenciesTest extends TestWithFeService {
 
     @Test
     void testMergeFD() {
-        FunctionalDependencies fd1 = new FunctionalDependencies();
-        fd1.addUniqueSlot(slot1);
-        FunctionalDependencies fd2 = new FunctionalDependencies();
-        fd2.addUniformSlot(slot2);
+        Builder fdBuilder1 = new Builder();
+        fdBuilder1.addUniformSlot(slot1);
+        Builder fdBuilder2 = new Builder();
+        fdBuilder2.addUniformSlot(slot2);
 
-        fd1.addFunctionalDependencies(fd2);
-        Assertions.assertTrue(fd1.isUniform(slot2));
+        fdBuilder1.addFunctionalDependencies(fdBuilder2.build());
+        FunctionalDependencies fd = fdBuilder1.build();
+        Assertions.assertTrue(fd.isUniform(slot1));
+        Assertions.assertTrue(fd.isUniform(slot2));
     }
 
     @Test
@@ -248,7 +257,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .analyze("select rank() over(partition by name) from agg where name = '1' limit 1")
                 .rewrite()
                 .getPlan();
-        LogicalPartitionTopN ptopn = (LogicalPartitionTopN) plan.child(0).child(0).child(0).child(0).child(0);
+        LogicalPartitionTopN<?> ptopn = (LogicalPartitionTopN<?>) plan.child(0).child(0).child(0).child(0).child(0);
         System.out.println(ptopn.getLogicalProperties().getFunctionalDependencies());
         System.out.println(ptopn.getOutput());
         Assertions.assertTrue(ptopn.getLogicalProperties()
@@ -258,7 +267,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .analyze("select rank() over(partition by name) from agg limit 1")
                 .rewrite()
                 .getPlan();
-        ptopn = (LogicalPartitionTopN) plan.child(0).child(0).child(0).child(0).child(0);
+        ptopn = (LogicalPartitionTopN<?>) plan.child(0).child(0).child(0).child(0).child(0);
         Assertions.assertTrue(ptopn.getLogicalProperties()
                 .getFunctionalDependencies().isEmpty());
     }

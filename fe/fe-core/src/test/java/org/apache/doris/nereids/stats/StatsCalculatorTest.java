@@ -63,7 +63,7 @@ public class StatsCalculatorTest {
     private Group newFakeGroup() {
         GroupExpression groupExpression = new GroupExpression(scan);
         Group group = new Group(null, groupExpression,
-                new LogicalProperties(Collections::emptyList, FunctionalDependencies::new));
+                new LogicalProperties(Collections::emptyList, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
         group.getLogicalExpressions().remove(0);
         return group;
     }
@@ -252,7 +252,7 @@ public class StatsCalculatorTest {
         LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(
                 StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
-                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), FunctionalDependencies::new)), ImmutableList.of());
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> FunctionalDependencies.EMPTY_FUNC_DEPS)), ImmutableList.of());
 
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of());
         Group ownerGroup = new Group(null, groupExpression, null);

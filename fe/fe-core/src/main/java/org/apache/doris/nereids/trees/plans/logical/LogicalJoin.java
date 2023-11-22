@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -40,7 +41,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.json.JSONObject;
@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -274,7 +275,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return new Builder<Expression>()
+        return new ImmutableList.Builder<Expression>()
                 .addAll(hashJoinConjuncts)
                 .addAll(otherJoinConjuncts)
                 .build();
@@ -385,10 +386,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
-    public FunctionalDependencies computeFD(List<Slot> outputs) {
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         //1. NALAJ and FOJ block functional dependencies
         if (joinType.isNullAwareLeftAntiJoin() || joinType.isFullOuterJoin()) {
-            return new FunctionalDependencies();
+            return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
 
         // left/right semi/anti join propagate left/right functional dependencies
@@ -401,28 +402,28 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
         // if there is non-equal join conditions, block functional dependencies
         if (!otherJoinConjuncts.isEmpty()) {
-            return new FunctionalDependencies();
+            return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
 
         Pair<Set<Slot>, Set<Slot>> keys = extractHashKeys();
         if (keys == null) {
-            return new FunctionalDependencies();
+            return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
 
         boolean isLeftUnique = left().getLogicalProperties()
                 .getFunctionalDependencies().isUnique(keys.first);
         boolean isRightUnique = left().getLogicalProperties()
                 .getFunctionalDependencies().isUnique(keys.first);
-        FunctionalDependencies fd = new FunctionalDependencies();
+        Builder fdBuilder = new Builder();
         if (joinType.isInnerJoin()) {
             // inner join propagate uniforms slots
             // And if the hash keys is unique, inner join can propagate all functional dependencies
             if (isLeftUnique && isRightUnique) {
-                fd.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
-                fd.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
+                fdBuilder.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
+                fdBuilder.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
             } else {
-                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-                fd.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies());
+                fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
+                fdBuilder.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies());
             }
         }
 
@@ -431,19 +432,17 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // join can propagate left/right functional dependencies
         if (joinType.isLeftOuterJoin()) {
             if (isRightUnique) {
-                fd = left().getLogicalProperties().getFunctionalDependencies();
-            } else {
-                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
+                return left().getLogicalProperties().getFunctionalDependencies();
             }
+            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
         }
         if (joinType.isRightOuterJoin()) {
             if (isLeftUnique) {
-                fd = left().getLogicalProperties().getFunctionalDependencies();
-            } else {
-                fd.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
+                return left().getLogicalProperties().getFunctionalDependencies();
             }
+            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
         }
-        return fd;
+        return fdBuilder.build();
     }
 
     @Override

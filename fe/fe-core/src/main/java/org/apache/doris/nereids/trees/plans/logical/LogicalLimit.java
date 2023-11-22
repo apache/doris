@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -35,6 +36,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical limit plan
@@ -143,12 +145,14 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
-    public FunctionalDependencies computeFD(List<Slot> outputs) {
-        FunctionalDependencies functionalDependencies = new FunctionalDependencies(
-                child(0).getLogicalProperties().getFunctionalDependencies());
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies fd = child(0).getLogicalProperties().getFunctionalDependencies();
         if (getLimit() == 1) {
-            outputs.forEach(functionalDependencies::addUniformSlot);
+            Builder builder = new Builder();
+            outputSupplier.get().forEach(builder::addUniformSlot);
+            outputSupplier.get().forEach(builder::addUniqueSlot);
+            fd = builder.build();
         }
-        return functionalDependencies;
+        return fd;
     }
 }

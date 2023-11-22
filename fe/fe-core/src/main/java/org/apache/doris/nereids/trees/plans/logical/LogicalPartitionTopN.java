@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -41,6 +42,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical partition-top-N plan.
@@ -204,7 +206,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public FunctionalDependencies computeFD(List<Slot> outputs) {
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         // if key is uniform and limit = 1, then all slot is uniform
         FunctionalDependencies fd = child().getLogicalProperties().getFunctionalDependencies();
         if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
@@ -213,10 +215,12 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         ImmutableSet<Slot> keys = partitionKeys.stream()
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
-
         if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(keys)
                 && getPartitionLimit() == 1) {
-            fd.addUniformSlot(ImmutableSet.copyOf(outputs));
+            Builder builder = new Builder();
+            outputSupplier.get().forEach(builder::addUniformSlot);
+            outputSupplier.get().forEach(builder::addUniqueSlot);
+            fd = builder.build();
         }
         return fd;
     }

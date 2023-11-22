@@ -215,7 +215,7 @@ public class PlanReceiver implements AbstractReceiver {
             List<Expression> otherConjuncts) {
         // Check whether only NSL can be performed
         LogicalProperties joinProperties = new LogicalProperties(
-                () -> JoinUtils.getJoinOutput(joinType, left, right), FunctionalDependencies::new);
+                () -> JoinUtils.getJoinOutput(joinType, left, right), () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
         List<Plan> plans = Lists.newArrayList();
         if (JoinUtils.shouldNestedLoopJoin(joinType, hashConjuncts)) {
             plans.add(new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts,
@@ -380,7 +380,8 @@ public class PlanReceiver implements AbstractReceiver {
         if (!outputSet.equals(new HashSet<>(projects))) {
             LogicalProperties projectProperties = new LogicalProperties(
                     () -> projects.stream()
-                            .map(p -> p.toSlot()).collect(Collectors.toList()), FunctionalDependencies::new);
+                            .map(p -> p.toSlot())
+                            .collect(Collectors.toList()), () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
             allChild = allChild.stream()
                     .map(c -> new PhysicalProject<>(projects, projectProperties, c))
                     .collect(Collectors.toList());

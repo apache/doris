@@ -22,22 +22,23 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
- * Propage fd
+ * Propagate fd, keep children's fd
  */
-public interface PropagateFD extends LogicalPlan {
+public interface PropagateFuncDeps extends LogicalPlan {
     @Override
-    default FunctionalDependencies computeFD(List<Slot> outputs) {
+    default FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         if (children().size() == 1) {
             // Note when changing function dependencies, we always clone it.
             // So it's safe to return a reference
             return child(0).getLogicalProperties().getFunctionalDependencies();
         }
-        FunctionalDependencies fd = new FunctionalDependencies();
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
         children().stream()
                 .map(p -> p.getLogicalProperties().getFunctionalDependencies())
-                .forEach(fd::addFunctionalDependencies);
-        return fd;
+                .forEach(builder::addFunctionalDependencies);
+        return builder.build();
     }
 }

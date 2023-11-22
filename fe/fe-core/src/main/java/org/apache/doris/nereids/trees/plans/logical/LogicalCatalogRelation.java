@@ -25,6 +25,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -41,6 +42,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * abstract class catalog relation for logical relation
@@ -118,8 +120,8 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     @Override
-    public FunctionalDependencies computeFD(List<Slot> outputs) {
-        FunctionalDependencies fd = new FunctionalDependencies();
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        Builder fdBuilder = new Builder();
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
             ImmutableSet<Slot> slotSet = computeOutput().stream()
                     .filter(SlotReference.class::isInstance)
@@ -127,8 +129,8 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                     .filter(s -> ((SlotReference) s).getColumn().isPresent()
                             && ((SlotReference) s).getColumn().get().isKey())
                     .collect(ImmutableSet.toImmutableSet());
-            fd.addUniqueSlot(slotSet);
+            fdBuilder.addUniqueSlot(slotSet);
         }
-        return fd;
+        return fdBuilder.build();
     }
 }

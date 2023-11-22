@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.PropagateFD;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -43,7 +43,7 @@ import java.util.Set;
  * use for defer materialize top n
  */
 public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements TopN, PropagateFD {
+        implements TopN, PropagateFuncDeps {
 
     private final LogicalTopN<? extends Plan> logicalTopN;
 

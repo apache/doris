@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * A relation that contains only one row consist of some constant expressions.
@@ -129,12 +130,12 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
-    public FunctionalDependencies computeFD(List<Slot> outputs) {
-        FunctionalDependencies fd = new FunctionalDependencies();
-        outputs.forEach(s -> {
-            fd.addUniformSlot(s);
-            fd.addUniqueSlot(s);
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        outputSupplier.get().forEach(s -> {
+            builder.addUniformSlot(s);
+            builder.addUniqueSlot(s);
         });
-        return fd;
+        return builder.build();
     }
 }

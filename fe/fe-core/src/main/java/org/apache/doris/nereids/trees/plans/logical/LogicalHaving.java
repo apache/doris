@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -37,6 +38,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Logical Having plan
@@ -117,11 +119,11 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public FunctionalDependencies computeFD(List<Slot> outputs) {
-        FunctionalDependencies fd = new FunctionalDependencies(
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        Builder fdBuilder = new Builder(
                 child().getLogicalProperties().getFunctionalDependencies());
-        getConjuncts().forEach(e -> fd.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
-        return fd;
+        getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
+        return fdBuilder.build();
     }
 
     @Override

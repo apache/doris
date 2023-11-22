@@ -88,7 +88,7 @@ public class DeriveStatsJobTest {
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         return (LogicalOlapScan) new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
-                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), FunctionalDependencies::new)), ImmutableList.of());
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> FunctionalDependencies.EMPTY_FUNC_DEPS)), ImmutableList.of());
     }
 
     private LogicalAggregate constructAgg(Plan child) {

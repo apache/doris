@@ -22,7 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
-import org.apache.doris.nereids.trees.plans.BlockFD;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
@@ -40,7 +40,8 @@ import java.util.Optional;
 /**
  * plan for table generator, the statement like: SELECT * FROM tbl LATERAL VIEW EXPLODE(c1) g as (gc1);
  */
-public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Generate, BlockFD {
+public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Generate,
+        BlockFuncDepsPropagation {
 
     private final List<Function> generators;
     private final List<Slot> generatorOutput;

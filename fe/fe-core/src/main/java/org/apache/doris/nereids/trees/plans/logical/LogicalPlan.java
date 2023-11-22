@@ -56,9 +56,8 @@ public interface LogicalPlan extends Plan {
     /**
      * Compute FunctionalDependencies for different plan
      * Note: Unless you really know what you're doing, please use the following interface.
-     *   - BlockFD: clean the fd
+     *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
-     *
      */
-    FunctionalDependencies computeFD(List<Slot> outputs);
+    FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier);
 }

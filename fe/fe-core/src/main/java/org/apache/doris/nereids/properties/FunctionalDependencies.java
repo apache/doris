@@ -26,46 +26,23 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Record functional dependencies
+ * Record functional dependencies, aka func deps, including
+ * 1. unique slot: it means the column that has ndv = row count
+ * 2. uniform slotL it means the column that has ndv = 1
  */
 public class FunctionalDependencies {
-    NestedSet uniqueSet = new NestedSet();
-    NestedSet uniformSet = new NestedSet();
+    public static final FunctionalDependencies EMPTY_FUNC_DEPS
+            = new FunctionalDependencies(new NestedSet().toImmutable(), new NestedSet().toImmutable());
+    private final NestedSet uniqueSet;
+    private final NestedSet uniformSet;
 
-    public FunctionalDependencies() {}
-
-    public FunctionalDependencies(FunctionalDependencies other) {
-        this.uniformSet = new NestedSet(other.uniformSet);
-        this.uniqueSet = new NestedSet(other.uniqueSet);
-    }
-
-    public void addUniformSlot(Slot slot) {
-        uniformSet.add(slot);
-    }
-
-    public void addUniformSlot(FunctionalDependencies functionalDependencies) {
-        uniformSet.add(functionalDependencies.uniformSet);
-    }
-
-    public void addUniformSlot(ImmutableSet<Slot> slotSet) {
-        uniformSet.add(slotSet);
+    private FunctionalDependencies(NestedSet uniqueSet, NestedSet uniformSet) {
+        this.uniqueSet = uniqueSet;
+        this.uniformSet = uniformSet;
     }
 
     public boolean isEmpty() {
         return uniformSet.isEmpty() && uniqueSet.isEmpty();
-    }
-
-    public void pruneSlots(Set<Slot> outputSlots) {
-        uniformSet.removeNotContain(outputSlots);
-        uniqueSet.removeNotContain(outputSlots);
-    }
-
-    public void addUniqueSlot(Slot slot) {
-        uniqueSet.add(slot);
-    }
-
-    public void addUniqueSlot(ImmutableSet<Slot> slotSet) {
-        uniqueSet.add(slotSet);
     }
 
     public boolean isUnique(Slot slot) {
@@ -87,26 +64,82 @@ public class FunctionalDependencies {
         return uniformSet.contains(slotSet) || slotSet.stream().allMatch(uniformSet::contains);
     }
 
-    public void addFunctionalDependencies(FunctionalDependencies fd) {
-        uniformSet.add(fd.uniformSet);
-        uniqueSet.add(fd.uniqueSet);
-    }
-
     @Override
     public String toString() {
-        return "uniform:" + uniformSet.toString()
-                + "\t unique:" + uniqueSet.toString();
+        return "uniform:" + uniformSet
+                + "\t unique:" + uniqueSet;
     }
 
-    class NestedSet {
-        Set<Slot> slots = new HashSet<>();
-        Set<ImmutableSet<Slot>> slotSets = new HashSet<>();
+    /**
+     * Builder of Func Deps
+     */
+    public static class Builder {
+        private final NestedSet uniqueSet;
+        private final NestedSet uniformSet;
 
-        NestedSet() {}
+        public Builder() {
+            uniqueSet = new NestedSet();
+            uniformSet = new NestedSet();
+        }
+
+        public Builder(FunctionalDependencies other) {
+            this.uniformSet = new NestedSet(other.uniformSet);
+            this.uniqueSet = new NestedSet(other.uniqueSet);
+        }
+
+        public void addUniformSlot(Slot slot) {
+            uniformSet.add(slot);
+        }
+
+        public void addUniformSlot(FunctionalDependencies functionalDependencies) {
+            uniformSet.add(functionalDependencies.uniformSet);
+        }
+
+        public void addUniformSlot(ImmutableSet<Slot> slotSet) {
+            uniformSet.add(slotSet);
+        }
+
+        public void addUniqueSlot(Slot slot) {
+            uniqueSet.add(slot);
+        }
+
+        public void addUniqueSlot(ImmutableSet<Slot> slotSet) {
+            uniqueSet.add(slotSet);
+        }
+
+        public void addFunctionalDependencies(FunctionalDependencies fd) {
+            uniformSet.add(fd.uniformSet);
+            uniqueSet.add(fd.uniqueSet);
+        }
+
+        public FunctionalDependencies build() {
+            return new FunctionalDependencies(uniqueSet.toImmutable(), uniformSet.toImmutable());
+        }
+
+        public void pruneSlots(Set<Slot> outputSlots) {
+            uniformSet.removeNotContain(outputSlots);
+            uniqueSet.removeNotContain(outputSlots);
+        }
+
+    }
+
+    static class NestedSet {
+        Set<Slot> slots;
+        Set<ImmutableSet<Slot>> slotSets;
+
+        NestedSet() {
+            slots = new HashSet<>();
+            slotSets = new HashSet<>();
+        }
 
         NestedSet(NestedSet o) {
             this.slots = new HashSet<>(o.slots);
             this.slotSets = new HashSet<>(o.slotSets);
+        }
+
+        NestedSet(Set<Slot> slots, Set<ImmutableSet<Slot>> slotSets) {
+            this.slots = slots;
+            this.slotSets = slotSets;
         }
 
         public boolean contains(Slot slot) {
@@ -168,6 +201,10 @@ public class FunctionalDependencies {
         @Override
         public String toString() {
             return "{" + slots + slotSets + "}";
+        }
+
+        public NestedSet toImmutable() {
+            return new NestedSet(ImmutableSet.copyOf(slots), ImmutableSet.copyOf(slotSets));
         }
     }
 }

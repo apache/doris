@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.PropagateFD;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -40,7 +40,8 @@ import java.util.Optional;
  *
  * @param <CHILD_TYPE> param
  */
-public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements PropagateFD {
+public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements
+        PropagateFuncDeps {
 
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;

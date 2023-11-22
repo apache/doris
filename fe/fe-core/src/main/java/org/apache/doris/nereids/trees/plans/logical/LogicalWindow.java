@@ -42,6 +42,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * logical node to deal with window functions;
@@ -227,7 +228,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return Optional.ofNullable(window);
     }
 
-    private void updateByWindowExpr(NamedExpression namedExpression, FunctionalDependencies functionalDependencies) {
+    private void updateFuncDepsByWindowExpr(NamedExpression namedExpression, FunctionalDependencies.Builder builder) {
         if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
             return;
         }
@@ -250,22 +251,22 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
         // if partition by keys are unique, output is uniform
         if (child(0).getLogicalProperties().getFunctionalDependencies().isUnique(slotSet)) {
-            functionalDependencies.addUniformSlot(namedExpression.toSlot());
+            builder.addUniformSlot(namedExpression.toSlot());
         }
 
         // if partition by keys are uniform, output is unique
         if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(slotSet)) {
-            functionalDependencies.addUniqueSlot(namedExpression.toSlot());
+            builder.addUniqueSlot(namedExpression.toSlot());
         }
     }
 
     @Override
-    public FunctionalDependencies computeFD(List<Slot> outputs) {
-        FunctionalDependencies functionalDependencies = new FunctionalDependencies(
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(
                 child(0).getLogicalProperties().getFunctionalDependencies());
         for (NamedExpression namedExpression : windowExpressions) {
-            updateByWindowExpr(namedExpression, functionalDependencies);
+            updateFuncDepsByWindowExpr(namedExpression, builder);
         }
-        return functionalDependencies;
+        return builder.build();
     }
 }

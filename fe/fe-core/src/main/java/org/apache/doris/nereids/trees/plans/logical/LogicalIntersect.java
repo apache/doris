@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.PropagateFD;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -35,7 +35,7 @@ import java.util.Optional;
 /**
  * Logical Intersect.
  */
-public class LogicalIntersect extends LogicalSetOperation implements PropagateFD {
+public class LogicalIntersect extends LogicalSetOperation implements PropagateFuncDeps {
 
     public LogicalIntersect(Qualifier qualifier, List<Plan> children) {
         super(PlanType.LOGICAL_INTERSECT, qualifier, children);

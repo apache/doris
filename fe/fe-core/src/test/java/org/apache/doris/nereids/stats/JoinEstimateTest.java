@@ -74,14 +74,14 @@ public class JoinEstimateTest {
                     public List<Slot> get() {
                         return Lists.newArrayList(a);
                     }
-                }, FunctionalDependencies::new)));
+                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
                 new Supplier<List<Slot>>() {
                     @Override
                     public List<Slot> get() {
                         return Lists.newArrayList(b);
                     }
-                }, FunctionalDependencies::new)));
+                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(eq),
                 left, right);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
@@ -125,14 +125,14 @@ public class JoinEstimateTest {
                     public List<Slot> get() {
                         return Lists.newArrayList(a);
                     }
-                }, FunctionalDependencies::new)));
+                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
                 new Supplier<List<Slot>>() {
                     @Override
                     public List<Slot> get() {
                         return Lists.newArrayList(b, c);
                     }
-                }, FunctionalDependencies::new)));
+                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         LogicalJoin join = new LogicalJoin(JoinType.LEFT_OUTER_JOIN, Lists.newArrayList(eq),
                 left, right);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
