@@ -54,8 +54,8 @@ public:
 class NestedLoopJoinProbeDependency final : public Dependency {
 public:
     using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinProbeDependency(int id, int node_id)
-            : Dependency(id, node_id, "NestedLoopJoinProbeDependency") {}
+    NestedLoopJoinProbeDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "NestedLoopJoinProbeDependency", query_ctx) {}
     ~NestedLoopJoinProbeDependency() override = default;
 };
 

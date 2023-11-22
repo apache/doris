@@ -57,9 +57,9 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
           _local_exchange_state(local_exchange_state),
           _task_idx(task_idx) {
     _pipeline_task_watcher.start();
-    _sink->get_dependency(_downstream_dependency);
+    _sink->get_dependency(_downstream_dependency, state->get_query_ctx());
     for (auto& op : _operators) {
-        _source_dependency.insert({op->operator_id(), op->get_dependency()});
+        _source_dependency.insert({op->operator_id(), op->get_dependency(state->get_query_ctx())});
     }
 }
 

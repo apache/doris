@@ -67,16 +67,17 @@ private:
 class ExchangeSinkQueueDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
-    ExchangeSinkQueueDependency(int id, int node_id)
-            : Dependency(id, node_id, "ResultQueueDependency", true) {}
+    ExchangeSinkQueueDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ResultQueueDependency", true, query_ctx) {}
     ~ExchangeSinkQueueDependency() override = default;
 };
 
 class BroadcastDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastDependency);
-    BroadcastDependency(int id, int node_id)
-            : Dependency(id, node_id, "BroadcastDependency", true), _available_block(0) {}
+    BroadcastDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "BroadcastDependency", true, query_ctx),
+              _available_block(0) {}
     ~BroadcastDependency() override = default;
 
     void set_available_block(int available_block) { _available_block = available_block; }
@@ -120,8 +121,8 @@ private:
 class LocalExchangeChannelDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
-    LocalExchangeChannelDependency(int id, int node_id)
-            : Dependency(id, node_id, "LocalExchangeChannelDependency", true) {}
+    LocalExchangeChannelDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "LocalExchangeChannelDependency", true, query_ctx) {}
     ~LocalExchangeChannelDependency() override = default;
     // TODO(gabriel): blocked by memory
 };

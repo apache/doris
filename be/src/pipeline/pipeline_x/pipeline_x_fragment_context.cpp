@@ -149,6 +149,11 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     }
+    for (auto& tasks : _tasks) {
+        for (auto& task : tasks) {
+            task->clear_blocking_state();
+        }
+    }
 }
 
 Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& request) {

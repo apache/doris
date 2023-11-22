@@ -176,7 +176,7 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
-    virtual DependencySPtr get_dependency() = 0;
+    virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
 
     Status prepare(RuntimeState* state) override;
 
@@ -307,7 +307,7 @@ public:
         return state->get_local_state(operator_id())->template cast<LocalState>();
     }
 
-    DependencySPtr get_dependency() override;
+    DependencySPtr get_dependency(QueryContext* ctx) override;
 };
 
 template <typename DependencyArg = FakeDependency>
@@ -456,7 +456,7 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    virtual void get_dependency(std::vector<DependencySPtr>& dependency) = 0;
+    virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
@@ -551,7 +551,7 @@ public:
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
-    void get_dependency(std::vector<DependencySPtr>& dependency) override;
+    void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) override;
 
     using LocalState = LocalStateType;
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {

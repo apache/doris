@@ -69,8 +69,8 @@ private:
 class UnionSinkDependency final : public Dependency {
 public:
     using SharedState = UnionSharedState;
-    UnionSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "UnionSinkDependency", true) {}
+    UnionSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "UnionSinkDependency", true, query_ctx) {}
     ~UnionSinkDependency() override = default;
     void block() override {}
 };

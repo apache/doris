@@ -28,7 +28,7 @@
 
 namespace doris::pipeline {
 
-void Dependency::add_block_task(PipelineXTask* task) {
+void Dependency::_add_block_task(PipelineXTask* task) {
     DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
             << "Duplicate task: " << task->debug_string();
     _blocked_task.push_back(task);
@@ -61,9 +61,18 @@ Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
     }
 
     std::unique_lock<std::mutex> lc(_task_lock);
+    auto ready = _ready.load() || _is_cancelled();
+    if (!ready && !push_to_blocking_queue() && task) {
+        _add_block_task(task);
+    }
+    return ready ? nullptr : this;
+}
+
+Dependency* FinishDependency::is_blocked_by(PipelineXTask* task) {
+    std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && !push_to_blocking_queue() && task) {
-        add_block_task(task);
+        _add_block_task(task);
     }
     return ready ? nullptr : this;
 }
@@ -73,9 +82,9 @@ Dependency* RuntimeFilterDependency::is_blocked_by(PipelineXTask* task) {
         return nullptr;
     }
     std::unique_lock<std::mutex> lc(_task_lock);
-    if (*_blocked_by_rf) {
+    if (*_blocked_by_rf && !_is_cancelled()) {
         if (LIKELY(task)) {
-            add_block_task(task);
+            _add_block_task(task);
         }
         return this;
     }
