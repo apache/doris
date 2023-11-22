@@ -323,6 +323,57 @@ public class AnalysisManagerTest {
     }
 
     @Test
+    public void testSystemJobStartTime() {
+        new MockUp<BaseAnalysisTask>() {
+
+            @Mock
+            protected void init(AnalysisInfo info) {
+
+            }
+        };
+
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public void updateTableStats(AnalysisInfo jobInfo) {
+            }
+
+            @Mock
+            protected void logAutoJob(AnalysisInfo autoJob) {
+
+            }
+        };
+
+        AnalysisManager analysisManager = new AnalysisManager();
+        AnalysisInfo job = new AnalysisInfoBuilder()
+            .setJobId(0)
+            .setColName("col1, col2").build();
+        analysisManager.systemJobInfoMap.put(job.jobId, job);
+        AnalysisInfo task1 = new AnalysisInfoBuilder()
+            .setJobId(0)
+            .setTaskId(1)
+            .setState(AnalysisState.PENDING)
+            .setColName("col1").build();
+        AnalysisInfo task2 = new AnalysisInfoBuilder()
+            .setJobId(0)
+            .setTaskId(1)
+            .setState(AnalysisState.PENDING)
+            .setColName("col2").build();
+        OlapAnalysisTask ot1 = new OlapAnalysisTask(task1);
+        OlapAnalysisTask ot2 = new OlapAnalysisTask(task2);
+        Map<Long, BaseAnalysisTask> taskMap = new HashMap<>();
+        taskMap.put(ot1.info.taskId, ot1);
+        taskMap.put(ot2.info.taskId, ot2);
+        analysisManager.analysisJobIdToTaskMap.put(job.jobId, taskMap);
+
+        job.state = AnalysisState.PENDING;
+        long l = System.currentTimeMillis();
+        analysisManager.systemJobInfoMap.put(job.jobId, job);
+        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1,
+            AnalysisState.RUNNING, "", 0));
+        Assertions.assertTrue(job.startTime >= l);
+    }
+
+    @Test
     public void testReAnalyze() {
         new MockUp<OlapTable>() {
 
