@@ -235,7 +235,7 @@ suite("test_point_query_cluster_key") {
                 sql """prepare stmt2 from  select * from ${tableName} where k1 = % and k2 = % and k3 = %"""
                 qt_sql """execute stmt2 using (1231, 119291.11, 'ddd')"""
                 qt_sql """execute stmt2 using (1237, 120939.11130, 'a    ddd')"""
-                tableName = "test_query"
+                tableName = "test_query_cluster_key"
                 sql """DROP TABLE IF EXISTS ${tableName}"""
                 sql """CREATE TABLE ${tableName} (
                         `customer_key` bigint(20) NULL,
