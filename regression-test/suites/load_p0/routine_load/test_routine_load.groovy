@@ -1788,7 +1788,7 @@ suite("test_routine_load","p0") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             for (String tableName in tables) {
-                if (i!=2){
+                if (i != 2){
                     i++
                     continue
                 }
@@ -1821,7 +1821,7 @@ suite("test_routine_load","p0") {
 
             i = 0
             for (String tableName in tables) {
-                if (i!=2){
+                if (i != 2){
                     i++
                     continue
                 }
