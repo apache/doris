@@ -1646,6 +1646,13 @@ public class OlapScanNode extends ScanNode {
             return false;
         }
 
+        if (aggExpr.getChild(0) instanceof SlotRef) {
+            SlotRef slot = (SlotRef) aggExpr.getChild(0);
+            if (CreateMaterializedViewStmt.isMVColumn(slot.getColumnName()) && slot.getColumn().isAggregated()) {
+                return false;
+            }
+        }
+
         return true;
     }
 }
