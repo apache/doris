@@ -39,11 +39,11 @@
 #include <ostream>
 
 #include "common/config.h"
+#include "exec/decompressor.h"
 #include "gutil/strings/substitute.h"
+#include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
-#include "util/bit_util.h"
-#include "exec/decompressor.h"
 
 namespace doris {
 
@@ -192,33 +192,20 @@ public:
         return &s_instance;
     }
     Status decompress(const Slice& input, Slice* output) override {
-        RETURN_IF_ERROR(Decompressor::create_decompressor(CompressType::LZ4BLOCK,&_decompressor));
+        RETURN_IF_ERROR(Decompressor::create_decompressor(CompressType::LZ4BLOCK, &_decompressor));
         size_t input_bytes_read = 0;
         size_t decompressed_len = 0;
         size_t more_input_bytes = 0;
         size_t more_output_bytes = 0;
         bool stream_end = false;
-        auto st = _decompressor->decompress( (uint8_t*)input.data,input.size,&input_bytes_read,
-                                             (uint8_t*)output->data,output->size,
-                                   &decompressed_len,&stream_end,&more_input_bytes,&more_output_bytes);
-        static std::mutex mtx;
-        {
-            std::unique_lock<std::mutex> lck(mtx);
-            if (st != Status::OK()) {
-                std::cout << st.to_string() << "\n";
-            }
-
-        }
-
-//        if (st!=Status::OK()){
-//            auto st2 = Lz4BlockCompression::decompress(input,output);
-//        }
-
-        return  Status::OK();
+        auto st = _decompressor->decompress((uint8_t*)input.data, input.size, &input_bytes_read,
+                                            (uint8_t*)output->data, output->size, &decompressed_len,
+                                            &stream_end, &more_input_bytes, &more_output_bytes);
+        return (st != Status::OK()) ? Lz4BlockCompression::decompress(input, output) : Status::OK();
     }
+
 private:
     Decompressor* _decompressor;
-
 };
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
 class Lz4fBlockCompression : public BlockCompressionCodec {
