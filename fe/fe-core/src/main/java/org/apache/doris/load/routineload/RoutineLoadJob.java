@@ -224,8 +224,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected boolean autoResumeLock = false; //it can't auto resume iff true
     // some other msg which need to show to user;
     protected String otherMsg = "";
-    protected ErrorReason pauseReason;
-    protected ErrorReason cancelReason;
+    protected ErrorReason stateChangeReason;
 
     protected long createTimestamp = System.currentTimeMillis();
     protected long pauseTimestamp = -1;
@@ -450,6 +449,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public long getDbId() {
         return dbId;
+    }
+
+    public ErrorReason getStateChangeReason() {
+        return stateChangeReason;
     }
 
     public void setOtherMsg(String otherMsg) {
@@ -1260,6 +1263,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
         checkStateTransform(jobState);
+        stateChangeReason = null;
         switch (jobState) {
             case RUNNING:
                 executeRunning();
@@ -1285,7 +1289,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         if (!isReplay && jobState != JobState.RUNNING) {
-            Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
+            Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(
+                    id, jobState, stateChangeReason));
         }
     }
 
@@ -1295,7 +1300,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private void executePause(ErrorReason reason) {
         // remove all of task in jobs and change job state to paused
-        pauseReason = reason;
+        stateChangeReason = reason;
         state = JobState.PAUSED;
         pauseTimestamp = System.currentTimeMillis();
         routineLoadTaskInfoList.clear();
@@ -1314,7 +1319,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     private void executeCancel(ErrorReason reason) {
-        cancelReason = reason;
+        stateChangeReason = reason;
         state = JobState.CANCELLED;
         routineLoadTaskInfoList.clear();
         endTimestamp = System.currentTimeMillis();
@@ -1451,10 +1456,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             row.add(getLag());
             switch (state) {
                 case PAUSED:
-                    row.add(pauseReason == null ? "" : pauseReason.toString());
-                    break;
                 case CANCELLED:
-                    row.add(cancelReason == null ? "" : cancelReason.toString());
+                    row.add(stateChangeReason == null ? "" : stateChangeReason.toString());
                     break;
                 default:
                     row.add("");
@@ -1680,6 +1683,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return job;
     }
 
+    private <T extends Writable> void writeNullable(DataOutput out, T obj) throws IOException {
+        if (obj == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            obj.write(out);
+        }
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         // ATTN: must write type first
@@ -1717,13 +1729,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             Text.writeString(out, entry.getValue());
         }
 
-        if (userIdentity == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            userIdentity.write(out);
-        }
+        writeNullable(out, userIdentity);
         Text.writeString(out, comment);
+        writeNullable(out, stateChangeReason);
     }
 
     protected void readFields(DataInput in) throws IOException {
@@ -1815,10 +1823,19 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 userIdentity = UserIdentity.UNKNOWN;
             }
         }
+
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
             comment = Text.readString(in);
         } else {
             comment = "";
+        }
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_127) {
+            if (in.readBoolean()) {
+                stateChangeReason = ErrorReason.read(in);
+            } else {
+                stateChangeReason = null;
+            }
         }
     }
 

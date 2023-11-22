@@ -17,8 +17,11 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 
 import java.io.DataInput;
@@ -28,13 +31,16 @@ import java.io.IOException;
 public class RoutineLoadOperation implements Writable {
     private long id;
     private JobState jobState;
+    private ErrorReason stateChangeReason;
 
     private RoutineLoadOperation() {
     }
 
-    public RoutineLoadOperation(long id, JobState jobState) {
+    public RoutineLoadOperation(long id, JobState jobState,
+                                ErrorReason stateChangeReason) {
         this.id = id;
         this.jobState = jobState;
+        this.stateChangeReason = stateChangeReason;
     }
 
     public long getId() {
@@ -43,6 +49,10 @@ public class RoutineLoadOperation implements Writable {
 
     public JobState getJobState() {
         return jobState;
+    }
+
+    public ErrorReason getStateChangeReason() {
+        return stateChangeReason;
     }
 
     public static RoutineLoadOperation read(DataInput in) throws IOException {
@@ -55,10 +65,23 @@ public class RoutineLoadOperation implements Writable {
     public void write(DataOutput out) throws IOException {
         out.writeLong(id);
         Text.writeString(out, jobState.name());
+        if (stateChangeReason == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            stateChangeReason.write(out);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         jobState = JobState.valueOf(Text.readString(in));
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_127) {
+            if (in.readBoolean()) {
+                stateChangeReason = ErrorReason.read(in);
+            } else {
+                stateChangeReason = null;
+            }
+        }
     }
 }

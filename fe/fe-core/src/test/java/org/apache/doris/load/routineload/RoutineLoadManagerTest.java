@@ -640,7 +640,7 @@ public class RoutineLoadManagerTest {
 
         // 第一次自动恢复
         for (int i = 0; i < 3; i++) {
-            Deencapsulation.setField(routineLoadJob, "pauseReason",
+            Deencapsulation.setField(routineLoadJob, "stateChangeReason",
                     new ErrorReason(InternalErrorCode.REPLICA_FEW_ERR, ""));
             routineLoadManager.updateRoutineLoadJob();
             Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
@@ -904,11 +904,16 @@ public class RoutineLoadManagerTest {
                 operation.getJobState();
                 minTimes = 0;
                 result = RoutineLoadJob.JobState.PAUSED;
+                operation.getStateChangeReason();
+                minTimes = 0;
+                result = new ErrorReason(InternalErrorCode.MANUAL_STOP_ERR, "User stop routine load job");
             }
         };
 
         routineLoadManager.replayChangeRoutineLoadJob(operation);
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+        Assert.assertEquals(InternalErrorCode.MANUAL_STOP_ERR, routineLoadJob.getStateChangeReason().getCode());
+        Assert.assertEquals("User stop routine load job", routineLoadJob.getStateChangeReason().getMsg());
     }
 
     @Test
