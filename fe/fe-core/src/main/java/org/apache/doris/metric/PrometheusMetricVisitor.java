@@ -48,6 +48,8 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
     private static final String JVM_THREAD = "jvm_thread";
 
+    private static final String JVM_GC = "jvm_gc";
+
     private static final String HELP = "# HELP ";
     private static final String TYPE = "# TYPE ";
 
@@ -102,11 +104,14 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         }
 
         // gc
+        sb.append(Joiner.on(" ").join(HELP, JVM_GC, "jvm gc stat\n"));
+        sb.append(Joiner.on(" ").join(TYPE, JVM_GC, "\n"));
         for (GarbageCollector gc : jvmStats.getGc()) {
-            sb.append(Joiner.on(" ").join(HELP, gc.getName(), "jvm gc stat\n"));
-            sb.append(Joiner.on(" ").join(TYPE, gc.getName(), "gauge\n"));
-            sb.append(gc.getName()).append("{type=\"count\"} ").append(gc.getCollectionCount()).append("\n");
-            sb.append(gc.getName()).append("{type=\"time\"} ")
+            sb.append(JVM_GC).append("{");
+            sb.append("name=\"").append(gc.getName()).append(" Count").append("\", ").append("type=\"count\"} ")
+                    .append(gc.getCollectionCount()).append("\n");
+            sb.append(JVM_GC).append("{");
+            sb.append("name=\"").append(gc.getName()).append(" Time").append("\", ").append("type=\"time\"} ")
                     .append(gc.getCollectionTime().getMillis()).append("\n");
         }
 
