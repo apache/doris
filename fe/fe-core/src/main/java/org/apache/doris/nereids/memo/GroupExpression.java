@@ -97,11 +97,13 @@ public class GroupExpression {
         this.plan = Objects.requireNonNull(plan, "plan can not be null")
                 .withGroupExpression(Optional.of(this));
         this.children = Objects.requireNonNull(children, "children can not be null");
-        this.children.forEach(childGroup -> childGroup.addParentExpression(this));
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
         this.lowestCostTable = Maps.newHashMap();
         this.requestPropertiesMap = Maps.newHashMap();
+        for (Group child : children) {
+            child.addParentExpression(this);
+        }
     }
 
     public PhysicalProperties getOutputProperties(PhysicalProperties requestProperties) {
@@ -255,11 +257,6 @@ public class GroupExpression {
     public void putOutputPropertiesMap(PhysicalProperties outputProperties,
             PhysicalProperties requiredProperties) {
         this.requestPropertiesMap.put(requiredProperties, outputProperties);
-    }
-
-    public void putOutputPropertiesMapIfAbsent(PhysicalProperties outputProperties,
-            PhysicalProperties requiredProperties) {
-        this.requestPropertiesMap.putIfAbsent(requiredProperties, outputProperties);
     }
 
     /**

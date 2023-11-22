@@ -63,7 +63,7 @@ private:
 class StreamingAggSourceOperatorX final : public AggSourceOperatorX {
 public:
     using Base = AggSourceOperatorX;
-    StreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    StreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                 const DescriptorTbl& descs);
     ~StreamingAggSourceOperatorX() = default;
 

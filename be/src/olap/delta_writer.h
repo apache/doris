@@ -105,7 +105,7 @@ public:
 
     int64_t txn_id() const { return _req.txn_id; }
 
-    int64_t total_received_rows() const { return _total_received_rows; }
+    int64_t total_received_rows() const { return _memtable_writer->total_received_rows(); }
 
     int64_t num_rows_filtered() const;
 
@@ -126,16 +126,11 @@ private:
     RowsetBuilder _rowset_builder;
     std::shared_ptr<MemTableWriter> _memtable_writer;
 
-    StorageEngine* _storage_engine;
-
     std::mutex _lock;
 
     std::unordered_set<int64_t> _unfinished_slave_node;
     PSuccessSlaveTabletNodeIds _success_slave_node_ids;
     std::shared_mutex _slave_node_lock;
-
-    // total rows num written by DeltaWriter
-    int64_t _total_received_rows = 0;
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;

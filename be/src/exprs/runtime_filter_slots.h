@@ -47,7 +47,7 @@ public:
 
         auto ignore_local_filter = [state](int filter_id) {
             std::vector<IRuntimeFilter*> filters;
-            state->runtime_filter_mgr()->get_consume_filters(filter_id, filters);
+            RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filters(filter_id, filters));
             if (filters.empty()) {
                 throw Exception(ErrorCode::INTERNAL_ERROR, "filters empty, filter_id={}",
                                 filter_id);
@@ -56,6 +56,7 @@ public:
                 filter->set_ignored();
                 filter->signal();
             }
+            return Status::OK();
         };
 
         auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {
@@ -128,7 +129,7 @@ public:
                                << " ignore runtime filter(in filter id " << filter_desc.filter_id
                                << ") because: in_num(" << hash_table_size << ") >= max_in_num("
                                << max_in_num << ")";
-                    ignore_local_filter(filter_desc.filter_id);
+                    RETURN_IF_ERROR(ignore_local_filter(filter_desc.filter_id));
                     continue;
                 } else if (!is_in_filter && exists_in_filter) {
                     // do not create 'bloom filter' and 'minmax filter' when 'in filter' has created
@@ -137,7 +138,7 @@ public:
                                << " ignore runtime filter("
                                << IRuntimeFilter::to_string(runtime_filter->type()) << " id "
                                << filter_desc.filter_id << ") because: already exists in filter";
-                    ignore_local_filter(filter_desc.filter_id);
+                    RETURN_IF_ERROR(ignore_local_filter(filter_desc.filter_id));
                     continue;
                 }
             } else if (is_in_filter && over_max_in_num) {
@@ -211,7 +212,7 @@ public:
     void finish_publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                filter->join_rpc();
+                static_cast<void>(filter->join_rpc());
             }
         }
     }
@@ -243,13 +244,13 @@ public:
                 if (ret == context->runtime_filters.end()) {
                     return Status::Aborted("invalid runtime filter id: {}", filter_id);
                 }
-                filter->copy_from_shared_context(ret->second);
+                RETURN_IF_ERROR(filter->copy_from_shared_context(ret->second));
             }
         }
         return Status::OK();
     }
 
-    bool empty() { return !_runtime_filters.size(); }
+    bool empty() { return _runtime_filters.empty(); }
 
 private:
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;

@@ -32,7 +32,6 @@
 #include <limits>
 
 #include "agent/be_exec_version_manager.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -179,6 +178,9 @@ void Block::insert(size_t position, ColumnWithTypeAndName&& elem) {
 
 void Block::clear_names() {
     index_by_name.clear();
+    for (auto& entry : data) {
+        entry.name.clear();
+    }
 }
 
 void Block::insert(const ColumnWithTypeAndName& elem) {
@@ -674,6 +676,14 @@ void Block::clear() {
     row_same_bit.clear();
 }
 
+std::string Block::print_use_count() {
+    std::stringstream ss;
+    for (auto& d : data) {
+        ss << ", [" << d.name << ", " << d.column->use_count() << "]";
+    }
+    return ss.str();
+}
+
 void Block::clear_column_data(int column_size) noexcept {
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
@@ -1050,11 +1060,15 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
     return out.str();
 }
 
-std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
+std::unique_ptr<Block> Block::create_same_struct_block(size_t size, bool is_reserve) const {
     auto temp_block = Block::create_unique();
     for (const auto& d : data) {
         auto column = d.type->create_column();
-        column->resize(size);
+        if (is_reserve) {
+            column->reserve(size);
+        } else {
+            column->resize(size);
+        }
         temp_block->insert({std::move(column), d.type, d.name});
     }
     return temp_block;

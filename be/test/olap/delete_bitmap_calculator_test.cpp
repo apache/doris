@@ -109,7 +109,7 @@ public:
         Status st = fs->create_file(path, &file_writer);
         EXPECT_TRUE(st.ok());
         DataDir data_dir(kSegmentDir);
-        data_dir.init();
+        static_cast<void>(data_dir.init());
         SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, &data_dir,
                              INT32_MAX, opts, nullptr);
         st = writer.init();

@@ -19,6 +19,7 @@ package org.apache.doris.broker.hdfs;
 
 import com.google.common.base.Stopwatch;
 import org.apache.doris.common.BrokerPerfMonitor;
+import org.apache.doris.common.HiveUtils;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
 import org.apache.doris.thrift.TBrokerCloseReaderRequest;
@@ -28,6 +29,8 @@ import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileSizeRequest;
 import org.apache.doris.thrift.TBrokerFileSizeResponse;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TBrokerIsSplittableResponse;
+import org.apache.doris.thrift.TBrokerIsSplittableRequest;
 import org.apache.doris.thrift.TBrokerListPathRequest;
 import org.apache.doris.thrift.TBrokerListResponse;
 import org.apache.doris.thrift.TBrokerOpenReaderRequest;
@@ -66,13 +69,13 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerListResponse listPath(TBrokerListPathRequest request)
             throws TException {
-        logger.info("received a list path request, request detail: " + request);
         TBrokerListResponse response = new TBrokerListResponse();
         try {
             boolean fileNameOnly = false;
             if (request.isSetFileNameOnly()) {
                 fileNameOnly = request.isFileNameOnly();
             }
+            logger.info("received a list path request, request path: " + request.path + ", fileNameOnly: " + fileNameOnly);
             List<TBrokerFileStatus> fileStatuses = fileSystemManager.listPath(request.path, fileNameOnly,
                     request.properties);
             response.setOpStatus(generateOKStatus());
@@ -87,9 +90,52 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     }
 
     @Override
+    public TBrokerListResponse listLocatedFiles(TBrokerListPathRequest request)
+            throws TException {
+        TBrokerListResponse response = new TBrokerListResponse();
+        try {
+            boolean recursive = request.isIsRecursive();
+            boolean onlyFiles = false;
+            if (request.isSetOnlyFiles()) {
+                onlyFiles = request.isOnlyFiles();
+            }
+            logger.info("received a listLocatedFiles request, request path: "
+                                + request.path + ", onlyFiles: " + onlyFiles + ", recursive: " + recursive);
+            List<TBrokerFileStatus> fileStatuses = fileSystemManager.listLocatedFiles(request.path,
+                onlyFiles, recursive, request.properties);
+            response.setOpStatus(generateOKStatus());
+            response.setFiles(fileStatuses);
+            return response;
+        } catch (BrokerException e) {
+            logger.warn("failed to list path: " + request.path, e);
+            TBrokerOperationStatus errorStatus = e.generateFailedOperationStatus();
+            response.setOpStatus(errorStatus);
+            return response;
+        }
+    }
+
+    @Override
+    public TBrokerIsSplittableResponse isSplittable(TBrokerIsSplittableRequest request) throws TException {
+        logger.info("received a isSplittable request, request path: "
+                            + request.path + ", inputFormat: " +request.inputFormat);
+        TBrokerIsSplittableResponse response = new TBrokerIsSplittableResponse();
+        try {
+            boolean isSplittable = HiveUtils.isSplittable(request.path, request.inputFormat, request.properties);
+            response.setOpStatus(generateOKStatus());
+            response.setSplittable(isSplittable);
+            return response;
+        } catch (BrokerException e) {
+            logger.warn("failed to get isSplitable with path: " + request.path, e);
+            TBrokerOperationStatus errorStatus = e.generateFailedOperationStatus();
+            response.setOpStatus(errorStatus);
+            return response;
+        }
+    }
+
+    @Override
     public TBrokerOperationStatus deletePath(TBrokerDeletePathRequest request)
             throws TException {
-        logger.info("receive a delete path request, request detail: " + request);
+        logger.info("receive a delete path request, request path: " + request.path);
         try {
             fileSystemManager.deletePath(request.path, request.properties);
         } catch (BrokerException e) {
@@ -103,7 +149,8 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOperationStatus renamePath(TBrokerRenamePathRequest request)
             throws TException {
-        logger.info("receive a rename path request, request detail: " + request);
+        logger.info("receive a rename path request, request srcPath: "
+                            + request.srcPath + ", destPath: " + request.destPath);
         try {
             fileSystemManager.renamePath(request.srcPath, request.destPath, request.properties);
         } catch (BrokerException e) {
@@ -117,7 +164,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerCheckPathExistResponse checkPathExist(
             TBrokerCheckPathExistRequest request) throws TException {
-        logger.info("receive a check path request, request detail: " + request);
+        logger.info("receive a check path request, request path: " + request.path);
         TBrokerCheckPathExistResponse response = new TBrokerCheckPathExistResponse();
         try {
             boolean isPathExist = fileSystemManager.checkPathExist(request.path, request.properties);
@@ -134,7 +181,8 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOpenReaderResponse openReader(TBrokerOpenReaderRequest request)
             throws TException {
-        logger.info("receive a open reader request, request detail: " + request);
+        logger.info("receive a open reader request, request client id: "
+                            + request.clientId + ", path: " + request.path + ", startOffset: " +request.startOffset);
         TBrokerOpenReaderResponse response = new TBrokerOpenReaderResponse();
         try {
             TBrokerFD fd = fileSystemManager.openReader(request.clientId, request.path,
@@ -152,7 +200,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerReadResponse pread(TBrokerPReadRequest request)
             throws TException {
-        logger.debug("receive a read request, request detail: " + request);
+        logger.info("receive a read request, request detail: " + request);
         Stopwatch stopwatch = BrokerPerfMonitor.startWatch();
         TBrokerReadResponse response = new TBrokerReadResponse();
         try {
@@ -176,7 +224,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOperationStatus seek(TBrokerSeekRequest request)
             throws TException {
-        logger.debug("receive a seek request, request detail: " + request);
+        logger.info("receive a seek request, request detail: " + request);
         try {
             fileSystemManager.seek(request.fd, request.offset);
         } catch (BrokerException e) {
@@ -204,7 +252,8 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOpenWriterResponse openWriter(TBrokerOpenWriterRequest request)
             throws TException {
-        logger.info("receive a open writer request, request detail: " + request);
+        logger.info("receive a open writer request, request client id: "
+                            + request.clientId + ", path: " +request.path);
         TBrokerOpenWriterResponse response = new TBrokerOpenWriterResponse();
         try {
             TBrokerFD fd = fileSystemManager.openWriter(request.clientId, request.path, request.properties);
@@ -221,7 +270,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOperationStatus pwrite(TBrokerPWriteRequest request)
             throws TException {
-        logger.debug("receive a pwrite request, request detail: " + request);
+        logger.info("receive a pwrite request, request detail: " + request);
         Stopwatch stopwatch = BrokerPerfMonitor.startWatch();
         try {
             fileSystemManager.pwrite(request.fd, request.offset, request.getData());
@@ -255,7 +304,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerOperationStatus ping(TBrokerPingBrokerRequest request)
             throws TException {
-        logger.debug("receive a ping request, request detail: " + request);
+        logger.info("receive a ping request, request detail: " + request);
         try {
             fileSystemManager.ping(request.clientId);
         } catch (BrokerException e) {
@@ -269,7 +318,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     @Override
     public TBrokerFileSizeResponse fileSize(
             TBrokerFileSizeRequest request) throws TException {
-        logger.debug("receive a file size request, request detail: " + request);
+        logger.info("receive a file size request, request path: " + request.path);
         TBrokerFileSizeResponse response = new TBrokerFileSizeResponse();
         try {
             long fileSize = fileSystemManager.fileSize(request.path, request.properties);

@@ -51,7 +51,10 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("HeartbeatFailureCounter").add("NodeRole")
             .build();
 
-    public static final int HOSTNAME_INDEX = 3;
+    public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("BackendId").add("Host").add("RootPath").add("DirType").add("DiskState")
+            .add("TotalCapacity").add("UsedCapacity").add("AvailableCapacity").add("UsedPct")
+            .build();
 
     private SystemInfoService systemInfoService;
 

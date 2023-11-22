@@ -491,7 +491,7 @@ public class Column implements Writable, GsonPostProcessable {
 
     public TColumn toThrift() {
         TColumn tColumn = new TColumn();
-        tColumn.setColumnName(this.name);
+        tColumn.setColumnName(removeNamePrefix(this.name));
 
         TColumnType tColumnType = new TColumnType();
         tColumnType.setType(this.getDataType().toThrift());
@@ -723,19 +723,19 @@ public class Column implements Writable, GsonPostProcessable {
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
             if (type.isDatetimeV2()) {
-                sb.append("datetime");
+                sb.append("DATETIME");
                 if (((ScalarType) type).getScalarScale() > 0) {
                     sb.append("(").append(((ScalarType) type).getScalarScale()).append(")");
                 }
             } else if (type.isDateV2()) {
-                sb.append("date");
+                sb.append("DATE");
             } else if (type.isDecimalV3()) {
                 sb.append("DECIMAL");
                 ScalarType sType = (ScalarType) type;
                 int scale = sType.getScalarScale();
                 int precision = sType.getScalarPrecision();
                 // not default
-                if (scale > 0 && precision != 9) {
+                if (!sType.isDefaultDecimal()) {
                     sb.append("(").append(precision).append(", ").append(scale)
                             .append(")");
                 }
@@ -819,7 +819,7 @@ public class Column implements Writable, GsonPostProcessable {
             return true;
         }
 
-        return name.equalsIgnoreCase(other.name)
+        boolean ok = name.equalsIgnoreCase(other.name)
                 && Objects.equals(getDefaultValue(), other.getDefaultValue())
                 && Objects.equals(aggregationType, other.aggregationType)
                 && isAggregationTypeImplicit == other.isAggregationTypeImplicit
@@ -832,6 +832,21 @@ public class Column implements Writable, GsonPostProcessable {
                 && visible == other.visible
                 && Objects.equals(children, other.children)
                 && Objects.equals(realDefaultValue, other.realDefaultValue);
+
+        if (!ok) {
+            LOG.info("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+                     + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {} "
+                     + "children {} realDefaultValue {}",
+                     name, getDefaultValue(), aggregationType, isAggregationTypeImplicit, isKey, isAllowNull,
+                     getDataType(), getStrLen(), getPrecision(), getScale(), visible, children, realDefaultValue);
+            LOG.info("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+                     + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {} "
+                     + "children {} realDefaultValue {}",
+                     other.name, other.getDefaultValue(), other.aggregationType, other.isAggregationTypeImplicit,
+                     other.isKey, other.isAllowNull, other.getDataType(), other.getStrLen(), other.getPrecision(),
+                     other.getScale(), other.visible, other.children, other.realDefaultValue);
+        }
+        return ok;
     }
 
     @Override
@@ -883,6 +898,7 @@ public class Column implements Writable, GsonPostProcessable {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 sb.append(String.format(typeStringMap.get(dataType), getPrecision(), getScale()));
                 break;
             case ARRAY:

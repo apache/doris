@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -159,25 +158,16 @@ public class ExternalMetaCacheMgr {
         LOG.debug("invalid catalog cache for {}", catalogId);
     }
 
-    public void addPartitionsCache(long catalogId, ExternalTable table, List<String> partitionNames) {
-        if (!(table instanceof HMSExternalTable)) {
-            LOG.warn("only support HMSTable");
-            return;
-        }
+    public void addPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {
-            metaCache.addPartitionsCache(dbName, table.getName(), partitionNames,
-                    ((HMSExternalTable) table).getPartitionColumnTypes());
+            metaCache.addPartitionsCache(dbName, table.getName(), partitionNames, table.getPartitionColumnTypes());
         }
         LOG.debug("add partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
     }
 
-    public void dropPartitionsCache(long catalogId, ExternalTable table, List<String> partitionNames) {
-        if (!(table instanceof HMSExternalTable)) {
-            LOG.warn("only support HMSTable");
-            return;
-        }
+    public void dropPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {

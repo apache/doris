@@ -56,6 +56,10 @@ public class ArrayFilter extends ScalarFunction
         }
     }
 
+    public ArrayFilter(Expression arg1, Expression arg2) {
+        super("array_filter", arg1, arg2);
+    }
+
     @Override
     public ArrayFilter withChildren(List<Expression> children) {
         return new ArrayFilter(children);

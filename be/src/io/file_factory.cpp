@@ -141,20 +141,20 @@ Status FileFactory::create_file_reader(const io::FileSystemProperties& system_pr
 
 // file scan node/stream load pipe
 Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
-                                       RuntimeState* runtime_state) {
+                                       RuntimeState* runtime_state, bool need_schema) {
     auto stream_load_ctx = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    if (stream_load_ctx->need_schema == true) {
+    if (need_schema == true) {
+        // Here, a portion of the data is processed to parse column information
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 stream_load_ctx->schema_buffer->pos /* total_length */);
         stream_load_ctx->schema_buffer->flip();
-        pipe->append(stream_load_ctx->schema_buffer);
-        pipe->finish();
+        RETURN_IF_ERROR(pipe->append(stream_load_ctx->schema_buffer));
+        RETURN_IF_ERROR(pipe->finish());
         *file_reader = std::move(pipe);
-        stream_load_ctx->need_schema = false;
     } else {
         *file_reader = stream_load_ctx->pipe;
     }
@@ -175,7 +175,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     } else {
         pipe_id = runtime_state->fragment_instance_id();
     }
-    *file_reader = multi_table_pipe->getPipe(pipe_id);
+    *file_reader = multi_table_pipe->get_pipe(pipe_id);
     LOG(INFO) << "create pipe reader for fragment instance: " << pipe_id
               << " pipe: " << (*file_reader).get();
 

@@ -27,7 +27,7 @@
 #include <ostream>
 #include <string>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exprs/function_filter.h"
@@ -58,6 +58,14 @@ BlockReader::~BlockReader() {
         _agg_functions[i]->destroy(_agg_places[i]);
         delete[] _agg_places[i];
     }
+}
+
+Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
+    auto res = (this->*_next_block_func)(block, eof);
+    if (!res.ok() && !res.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+        static_cast<Tablet*>(_tablet.get())->report_error(res);
+    }
+    return res;
 }
 
 bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
@@ -123,7 +131,6 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
-    _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
 
     for (int i = 0; i < read_params.rs_splits.size(); ++i) {
@@ -163,7 +170,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
             _next_row.block->create_same_struct_block(_reader_context.batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
-    _stored_has_string_tag.resize(_stored_data_columns.size());
+    _stored_has_variable_length_tag.resize(_stored_data_columns.size());
 
     auto& tablet_schema = *_tablet_schema;
     for (auto idx : _agg_columns_idx) {
@@ -182,13 +189,23 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         });
         _agg_places.push_back(place);
 
-        // calculate `has_string` tag.
-        _stored_has_string_tag[idx] =
+        // calculate `_has_variable_length_tag` tag. like string, array, map
+        _stored_has_variable_length_tag[idx] =
                 _stored_data_columns[idx]->is_column_string() ||
                 (_stored_data_columns[idx]->is_nullable() &&
                  reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
                          ->get_nested_column_ptr()
-                         ->is_column_string());
+                         ->is_column_string()) ||
+                _stored_data_columns[idx]->is_column_array() ||
+                (_stored_data_columns[idx]->is_nullable() &&
+                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
+                         ->get_nested_column_ptr()
+                         ->is_column_array()) ||
+                _stored_data_columns[idx]->is_column_map() ||
+                (_stored_data_columns[idx]->is_nullable() &&
+                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
+                         ->get_nested_column_ptr()
+                         ->is_column_map());
     }
 }
 
@@ -214,8 +231,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
-        if (UNLIKELY(!status.ok() && !status.is<ErrorCode::END_OF_FILE>())) {
-            _tablet->report_error(status);
+        if (!status.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+            static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
 
         return status;
@@ -461,8 +478,8 @@ size_t BlockReader::_copy_agg_data() {
 
     for (auto idx : _agg_columns_idx) {
         auto& dst_column = _stored_data_columns[idx];
-        if (_stored_has_string_tag[idx]) {
-            //string type should replace ordered
+        if (_stored_has_variable_length_tag[idx]) {
+            //variable length type should replace ordered
             for (size_t i = 0; i < copy_size; i++) {
                 auto& ref = _stored_row_ref[i];
                 dst_column->replace_column_data(*ref.block->get_by_position(idx).column,

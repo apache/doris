@@ -22,9 +22,16 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.types.DateTimeType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -36,9 +43,9 @@ import java.util.Objects;
 /**
  * PartitionPruner
  */
-public class PartitionPruner {
-    private List<OnePartitionEvaluator> partitions;
-    private Expression partitionPredicate;
+public class PartitionPruner extends DefaultExpressionRewriter<Void> {
+    private final List<OnePartitionEvaluator> partitions;
+    private final Expression partitionPredicate;
 
     /** Different type of table may have different partition prune behavior. */
     public enum PartitionTableType {
@@ -48,7 +55,40 @@ public class PartitionPruner {
 
     private PartitionPruner(List<OnePartitionEvaluator> partitions, Expression partitionPredicate) {
         this.partitions = Objects.requireNonNull(partitions, "partitions cannot be null");
-        this.partitionPredicate = Objects.requireNonNull(partitionPredicate, "partitionPredicate cannot be null");
+        this.partitionPredicate = Objects.requireNonNull(partitionPredicate.accept(this, null),
+                "partitionPredicate cannot be null");
+    }
+
+    @Override
+    public Expression visitComparisonPredicate(ComparisonPredicate cp, Void context) {
+        // Date cp Date is not supported in BE storage engine. So cast to DateTime in SimplifyComparisonPredicate
+        // for easy process partition prune, we convert back to date compare date here
+        // see more info in SimplifyComparisonPredicate
+        Expression left = cp.left();
+        Expression right = cp.right();
+        if (left.getDataType() != DateTimeType.INSTANCE || right.getDataType() != DateTimeType.INSTANCE) {
+            return cp;
+        }
+        if (!(left instanceof DateTimeLiteral) && !(right instanceof DateTimeLiteral)) {
+            return cp;
+        }
+        if (left instanceof DateTimeLiteral && ((DateTimeLiteral) left).isMidnight()
+                && right instanceof Cast
+                && ((Cast) right).child() instanceof SlotReference
+                && ((Cast) right).child().getDataType().isDateType()) {
+            DateTimeLiteral dt = (DateTimeLiteral) left;
+            Cast cast = (Cast) right;
+            return cp.withChildren(new DateLiteral(dt.getYear(), dt.getMonth(), dt.getDay()), cast.child());
+        } else if (right instanceof DateTimeLiteral && ((DateTimeLiteral) right).isMidnight()
+                && left instanceof Cast
+                && ((Cast) left).child() instanceof SlotReference
+                && ((Cast) left).child().getDataType().isDateType()) {
+            DateTimeLiteral dt = (DateTimeLiteral) right;
+            Cast cast = (Cast) left;
+            return cp.withChildren(cast.child(), new DateLiteral(dt.getYear(), dt.getMonth(), dt.getDay()));
+        } else {
+            return cp;
+        }
     }
 
     public List<Long> prune() {

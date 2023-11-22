@@ -54,12 +54,12 @@ namespace doris::vectorized {
 
 inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
     const DataTypeSerDeSPtr serde = data_type->get_serde();
-    serde->write_column_to_pb(col, *result, 0, col.size());
+    static_cast<void>(serde->write_column_to_pb(col, *result, 0, col.size()));
 }
 
 inline void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
     auto serde = data_type->get_serde();
-    serde->read_column_from_pb(col, result);
+    static_cast<void>(serde->read_column_from_pb(col, result));
 }
 
 inline void check_pb_col(const DataTypePtr data_type, const IColumn& col) {

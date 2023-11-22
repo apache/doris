@@ -386,6 +386,15 @@ suite("test_bitmap_function") {
             on l.dt = r.dt
         order by l.dt, count
     """
+    qt_sql_bitmap_andnot_count3 """
+        select
+            l.dt,
+            bitmap_andnot_count(l.id, r.id) count
+        from
+            test_bitmap1 l left join test_bitmap2 r
+            on l.dt = r.dt
+        order by l.dt, count
+    """
     qt_sql_bitmap_and_count8 """
         select
             l.dt,
@@ -519,6 +528,7 @@ suite("test_bitmap_function") {
 
     // BITMAP_AND_NOT
     qt_sql """ select bitmap_count(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'))) cnt """
+    qt_sql_bitmap_andnot """ select bitmap_count(bitmap_andnot(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'))) cnt """
 
     // BITMAP_AND_NOT_COUNT
     qt_sql_bitmap_and_not_count1 """ select bitmap_and_not_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) cnt """

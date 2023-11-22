@@ -27,7 +27,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -59,19 +58,16 @@ struct AggregateFunctionMapAggData {
         _value_column->clear();
     }
 
-    void add(const StringRef& key, const Field& value) {
+    void add(StringRef key, const Field& value) {
         DCHECK(key.data != nullptr);
         if (UNLIKELY(_map.find(key) != _map.end())) {
             return;
         }
 
-        ArenaKeyHolder key_holder {key, _arena};
-        if (key.size > 0) {
-            key_holder_persist_key(key_holder);
-        }
+        key.data = _arena.insert(key.data, key.size);
 
-        _map.emplace(key_holder.key, _key_column->size());
-        _key_column->insert_data(key_holder.key.data, key_holder.key.size);
+        _map.emplace(key, _key_column->size());
+        _key_column->insert_data(key.data, key.size);
         _value_column->insert(value);
     }
 
@@ -86,8 +82,9 @@ struct AggregateFunctionMapAggData {
         for (size_t i = 0; i != count; ++i) {
             StringRef key;
             if constexpr (std::is_same_v<K, String>) {
-                auto string = key_array[i].get<K>();
-                key = string;
+                auto& string = key_array[i].get<K>();
+                key.data = string.data();
+                key.size = string.size();
             } else {
                 auto& k = key_array[i].get<KeyType>();
                 key.data = reinterpret_cast<const char*>(&k);
@@ -98,13 +95,10 @@ struct AggregateFunctionMapAggData {
                 return;
             }
 
-            ArenaKeyHolder key_holder {key, _arena};
-            if (key.size > 0) {
-                key_holder_persist_key(key_holder);
-            }
+            key.data = _arena.insert(key.data, key.size);
 
-            _map.emplace(key_holder.key, _key_column->size());
-            _key_column->insert_data(key_holder.key.data, key_holder.key.size);
+            _map.emplace(key, _key_column->size());
+            _key_column->insert_data(key.data, key.size);
             _value_column->insert(value_array[i]);
         }
     }
@@ -122,14 +116,10 @@ struct AggregateFunctionMapAggData {
             if (_map.find(key) != _map.cend()) {
                 continue;
             }
-            ArenaKeyHolder key_holder {key, _arena};
-            if (key.size > 0) {
-                key_holder_persist_key(key_holder);
-            }
+            key.data = _arena.insert(key.data, key.size);
 
-            _map.emplace(key_holder.key, _key_column->size());
-            static_cast<KeyColumnType&>(*_key_column)
-                    .insert_data(key_holder.key.data, key_holder.key.size);
+            _map.emplace(key, _key_column->size());
+            static_cast<KeyColumnType&>(*_key_column).insert_data(key.data, key.size);
 
             auto value = other._value_column->get_data_at(i);
             _value_column->insert_data(value.data, value.size);

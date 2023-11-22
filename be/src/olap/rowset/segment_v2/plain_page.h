@@ -125,7 +125,7 @@ public:
 
         _parsed = true;
 
-        seek_to_position_in_page(0);
+        static_cast<void>(seek_to_position_in_page(0));
         return Status::OK();
     }
 

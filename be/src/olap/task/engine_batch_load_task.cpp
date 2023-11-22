@@ -295,12 +295,12 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
 
     if (!res.ok()) {
         LOG(WARNING) << "failed to push delta, transaction_id=" << request.transaction_id
-                     << ", tablet=" << tablet->full_name()
+                     << ", tablet=" << tablet->tablet_id()
                      << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
         DorisMetrics::instance()->push_requests_fail_total->increment(1);
     } else {
         LOG(INFO) << "succeed to push delta, transaction_id=" << request.transaction_id
-                  << ", tablet=" << tablet->full_name()
+                  << ", tablet=" << tablet->tablet_id()
                   << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
         DorisMetrics::instance()->push_requests_success_total->increment(1);
         DorisMetrics::instance()->push_request_duration_us->increment(duration_ns / 1000);

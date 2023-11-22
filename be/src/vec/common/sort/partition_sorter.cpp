@@ -101,12 +101,10 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
     auto& priority_queue = _state->get_priority_queue();
 
     bool get_enough_data = false;
-    bool first_compare_row = false;
     while (!priority_queue.empty()) {
         auto current = priority_queue.top();
         priority_queue.pop();
         if (UNLIKELY(_previous_row->impl == nullptr)) {
-            first_compare_row = true;
             *_previous_row = current;
         }
 
@@ -125,34 +123,39 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
             break;
         }
         case TopNAlgorithm::DENSE_RANK: {
+            //  dense_rank(): 1,1,1,2,2,2,2,.......,2,3,3,3, if SQL: where rk < 3, need output all 1 and 2
             //3 dense_rank() maybe need distinct rows of partition_inner_limit
-            if ((current_output_rows + _output_total_rows) < _partition_inner_limit) {
-                for (size_t i = 0; i < num_columns; ++i) {
-                    merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
-                }
-            } else {
+            //3.1 _has_global_limit = true, so check (current_output_rows + _output_total_rows) >= _partition_inner_limit)
+            //3.2 _has_global_limit = false. so check have output distinct rows, not _output_total_rows
+            if (_has_global_limit &&
+                (current_output_rows + _output_total_rows) >= _partition_inner_limit) {
                 get_enough_data = true;
+                break;
             }
             if (_has_global_limit) {
                 current_output_rows++;
             } else {
-                //when it's first comes, the rows are same no need compare
-                if (first_compare_row) {
-                    current_output_rows++;
-                    first_compare_row = false;
-                } else {
-                    // not the first comes, so need compare those, when is distinct row
-                    // so could current_output_rows++
-                    bool cmp_res = _previous_row->compare_two_rows(current);
-                    if (cmp_res == false) { // distinct row
-                        current_output_rows++;
-                        *_previous_row = current;
+                bool cmp_res = _previous_row->compare_two_rows(current);
+                //get a distinct row
+                if (cmp_res == false) {
+                    _output_distinct_rows++; //need rows++ firstly
+                    if (_output_distinct_rows >= _partition_inner_limit) {
+                        get_enough_data = true;
+                        break;
                     }
+                    *_previous_row = current;
                 }
+            }
+            for (size_t i = 0; i < num_columns; ++i) {
+                merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
             }
             break;
         }
         case TopNAlgorithm::RANK: {
+            //  rank(): 1,1,1,4,5,6,6,6.....,6,100,101. if SQL where rk < 7, need output all 1,1,1,4,5,6,6,....6
+            //2 rank() maybe need check when have get a distinct row
+            //2.1 _has_global_limit = true: (current_output_rows + _output_total_rows) >= _partition_inner_limit)
+            //2.2 _has_global_limit = false: so when the cmp_res is get a distinct row, need check have output all rows num
             if (_has_global_limit &&
                 (current_output_rows + _output_total_rows) >= _partition_inner_limit) {
                 get_enough_data = true;

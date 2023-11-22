@@ -40,7 +40,6 @@
 namespace doris {
 
 class LineReader;
-class TextConverter;
 class Decompressor;
 class SlotDescriptor;
 class RuntimeProfile;
@@ -91,7 +90,7 @@ class BaseCsvTextFieldSplitter : public BaseLineFieldSplitter<BaseCsvTextFieldSp
 public:
     explicit BaseCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
                                       size_t value_sep_len = 1, char trimming_char = 0)
-            : trimming_char(trimming_char), value_sep_len(value_sep_len) {
+            : _trimming_char(trimming_char), _value_sep_len(value_sep_len) {
         if (trim_tailing_space) {
             if (trim_ends) {
                 process_value_func = &BaseCsvTextFieldSplitter::_process_value<true, true>;
@@ -112,8 +111,8 @@ public:
     }
 
 protected:
-    const char trimming_char;
-    const size_t value_sep_len;
+    const char _trimming_char;
+    const size_t _value_sep_len;
     ProcessValueFunc process_value_func;
 
 private:
@@ -213,6 +212,10 @@ private:
     void _init_system_properties();
     void _init_file_description();
 
+    //if from_json = false , deserialize from hive_text
+    template <bool from_json>
+    Status deserialize_nullable_string(IColumn& column, Slice& slice);
+
     // used for parse table schema of csv file.
     // Currently, this feature is for table valued function.
     Status _prepare_parse(size_t* read_line, bool* is_parse_name);
@@ -286,6 +289,7 @@ private:
     std::vector<Slice> _split_values;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
     TTextSerdeType::type _text_serde_type;
+    std::vector<int> _use_nullable_string_opt;
 };
 } // namespace vectorized
 } // namespace doris

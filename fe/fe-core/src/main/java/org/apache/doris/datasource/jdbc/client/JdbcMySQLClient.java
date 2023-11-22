@@ -35,6 +35,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
@@ -117,21 +118,27 @@ public class JdbcMySQLClient extends JdbcClient {
         Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = com.google.common.collect.Lists.newArrayList();
-        // if isLowerCaseTableNames == true, tableName is lower case
-        // but databaseMetaData.getColumns() is case sensitive
-        if (isLowerCaseTableNames) {
-            dbName = lowerDBToRealDB.get(dbName);
-            tableName = lowerTableToRealTable.get(tableName);
-        }
+        String finalDbName = getRealDatabaseName(dbName);
+        String finalTableName = getRealTableName(dbName, tableName);
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
+            rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
             List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
+                lowerColumnToRealColumn.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
+                lowerColumnToRealColumn.get(finalDbName).putIfAbsent(finalTableName, new ConcurrentHashMap<>());
                 JdbcFieldSchema field = new JdbcFieldSchema();
-                field.setColumnName(rs.getString("COLUMN_NAME"));
+                String columnName = rs.getString("COLUMN_NAME");
+                if (isLowerCaseTableNames) {
+                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName)
+                            .put(columnName.toLowerCase(), columnName);
+                    columnName = columnName.toLowerCase();
+                } else {
+                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName).put(columnName, columnName);
+                }
+                field.setColumnName(columnName);
                 field.setDataType(rs.getInt("DATA_TYPE"));
 
                 // in mysql-jdbc-connector-8.0.*, TYPE_NAME of the HLL column in doris will be "UNKNOWN"
@@ -176,12 +183,17 @@ public class JdbcMySQLClient extends JdbcClient {
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
             DefaultValueExprDef defaultValueExprDef = null;
-            if (field.getDefaultValue() != null
-                    && field.getDefaultValue().toLowerCase().startsWith("current_timestamp")) {
-                long precision = field.getDefaultValue().toLowerCase().contains("(")
-                        ? Long.parseLong(field.getDefaultValue().toLowerCase()
-                        .split("\\(")[1].split("\\)")[0]) : 0;
-                defaultValueExprDef = new DefaultValueExprDef("now", precision);
+            if (field.getDefaultValue() != null) {
+                String colDefaultValue = field.getDefaultValue().toLowerCase();
+                // current_timestamp()
+                if (colDefaultValue.startsWith("current_timestamp")) {
+                    long precision = 0;
+                    if (colDefaultValue.contains("(")) {
+                        String substring = colDefaultValue.substring(18, colDefaultValue.length() - 1).trim();
+                        precision = substring.isEmpty() ? 0 : Long.parseLong(substring);
+                    }
+                    defaultValueExprDef = new DefaultValueExprDef("now", precision);
+                }
             }
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
@@ -260,6 +272,9 @@ public class JdbcMySQLClient extends JdbcClient {
             case "BIGINT":
                 return Type.BIGINT;
             case "DATE":
+                if (convertDateToNull) {
+                    fieldSchema.setAllowNull(true);
+                }
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP":
             case "DATETIME": {

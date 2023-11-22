@@ -189,6 +189,7 @@ public class OperationType {
 
     // modify database/table/tablet/replica meta
     public static final short OP_SET_REPLICA_VERSION = 141;
+    public static final short OP_COLOCATE_MOD_REPLICA_ALLOC = 142;
 
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
@@ -270,16 +271,19 @@ public class OperationType {
     @Deprecated
     public static final short OP_INIT_EXTERNAL_TABLE = 329;
 
-    // scheduler job and task 330-350
+    @Deprecated
     public static final short OP_CREATE_MTMV_JOB = 330;
+    @Deprecated
     public static final short OP_DROP_MTMV_JOB = 331;
+    @Deprecated
     public static final short OP_CHANGE_MTMV_JOB = 332;
-
+    @Deprecated
     public static final short OP_CREATE_MTMV_TASK = 340;
+    @Deprecated
     public static final short OP_DROP_MTMV_TASK = 341;
     @Deprecated
     public static final short OP_CHANGE_MTMV_TASK = 342;
-
+    @Deprecated
     public static final short OP_ALTER_MTMV_STMT = 345;
 
     public static final short OP_DROP_EXTERNAL_TABLE = 350;
@@ -337,6 +341,10 @@ public class OperationType {
     public static final short OP_UPDATE_TABLE_STATS = 455;
 
     public static final short OP_PERSIST_AUTO_JOB = 456;
+
+    public static final short OP_DELETE_TABLE_STATS = 457;
+
+    public static final short OP_ALTER_CATALOG_COMMENT = 458;
 
     /**
      * Get opcode name by op code.

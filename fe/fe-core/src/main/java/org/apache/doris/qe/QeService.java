@@ -18,7 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.mysql.MysqlServer;
-import org.apache.doris.service.arrowflight.FlightSqlService;
+import org.apache.doris.service.arrowflight.DorisFlightSqlService;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -35,7 +35,7 @@ public class QeService {
     private MysqlServer mysqlServer;
 
     private int arrowFlightSQLPort;
-    private FlightSqlService flightSqlService;
+    private DorisFlightSqlService dorisFlightSqlService;
 
     @Deprecated
     public QeService(int port, int arrowFlightSQLPort) {
@@ -63,8 +63,8 @@ public class QeService {
             System.exit(-1);
         }
         if (arrowFlightSQLPort != -1) {
-            this.flightSqlService = new FlightSqlService(arrowFlightSQLPort);
-            if (!flightSqlService.start()) {
+            this.dorisFlightSqlService = new DorisFlightSqlService(arrowFlightSQLPort);
+            if (!dorisFlightSqlService.start()) {
                 System.exit(-1);
             }
         } else {

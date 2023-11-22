@@ -166,12 +166,12 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         if (olapScan.getManuallySpecifiedPartitions().isEmpty()) {
             newOlapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                     olapScan.getTable(), olapScan.getQualifier(), olapScan.getSelectedTabletIds(),
-                    olapScan.getHints());
+                    olapScan.getHints(), olapScan.getTableSample());
         } else {
             newOlapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                     olapScan.getTable(), olapScan.getQualifier(),
                     olapScan.getManuallySpecifiedPartitions(), olapScan.getSelectedTabletIds(),
-                    olapScan.getHints());
+                    olapScan.getHints(), olapScan.getTableSample());
         }
         updateLeadingRelationIdMap(newOlapScan.getRelationId(), newOlapScan.getTable().getName(), newOlapScan);
         newOlapScan.getOutput();
@@ -212,7 +212,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             return context.getRelationReplaceMap().get(fileScan.getRelationId());
         }
         LogicalFileScan newFileScan = new LogicalFileScan(StatementScopeIdGenerator.newRelationId(),
-                fileScan.getTable(), fileScan.getQualifier());
+                fileScan.getTable(), fileScan.getQualifier(), fileScan.getTableSample());
         updateLeadingRelationIdMap(newFileScan.getRelationId(), fileScan.getTable().getName(), newFileScan);
         updateReplaceMapWithOutput(fileScan, newFileScan, context.exprIdReplaceMap);
         context.putRelation(fileScan.getRelationId(), newFileScan);
@@ -229,7 +229,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalTVFRelation newTVFRelation = new LogicalTVFRelation(StatementScopeIdGenerator.newRelationId(),
                 tvfRelation.getFunction());
-        updateReplaceMapWithOutput(newTVFRelation, tvfRelation, context.exprIdReplaceMap);
+        updateReplaceMapWithOutput(tvfRelation, newTVFRelation, context.exprIdReplaceMap);
         context.putRelation(tvfRelation.getRelationId(), newTVFRelation);
         return newTVFRelation;
     }

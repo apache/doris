@@ -59,18 +59,19 @@ public class DorisStreamLoader {
         this.feIdentity = conf.feIdentity.replaceAll("\\.", "_");
     }
 
-    private HttpURLConnection getConnection(String urlStr, String label) throws IOException {
+    private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("PUT");
+        conn.setRequestProperty("token", clusterToken);
         conn.setRequestProperty("Authorization", "Basic " + authEncoding);
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
 
         conn.addRequestProperty("label", label);
         conn.addRequestProperty("max_filter_ratio", "1.0");
-        conn.addRequestProperty("columns", "query_id, `time`, client_ip, user, db, state, error_code, error_message, " +
+        conn.addRequestProperty("columns", "query_id, `time`, client_ip, user, catalog, db, state, error_code, error_message, " +
                 "query_time, scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, cpu_time_ms, sql_hash, " +
                 "sql_digest, peak_memory_bytes, stmt");
 
@@ -87,7 +88,7 @@ public class DorisStreamLoader {
         sb.append("-H \"").append("Expect\":").append("\"100-continue\" \\\n  ");
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
-        sb.append("-H \"").append("columns\":").append("\"query_id, time, client_ip, user, db, state, error_code, " +
+        sb.append("-H \"").append("columns\":").append("\"query_id, time, client_ip, user, catalog, db, state, error_code, " +
                 "error_message, query_time, scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, " +
                 "cpu_time_ms, sql_hash, sql_digest, peak_memory_bytes, stmt\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
@@ -114,7 +115,7 @@ public class DorisStreamLoader {
         return response.toString();
     }
 
-    public LoadResponse loadBatch(StringBuilder sb, boolean slowLog) {
+    public LoadResponse loadBatch(StringBuilder sb, boolean slowLog, String clusterToken) {
         Calendar calendar = Calendar.getInstance();
         String label = String.format("_log_%s%02d%02d_%02d%02d%02d_%s",
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
@@ -127,10 +128,10 @@ public class DorisStreamLoader {
             // build request and send to fe
             if (slowLog) {
                 label = "slow" + label;
-                feConn = getConnection(slowLogLoadUrlStr, label);
+                feConn = getConnection(slowLogLoadUrlStr, label, clusterToken);
             } else {
                 label = "audit" + label;
-                feConn = getConnection(auditLogLoadUrlStr, label);
+                feConn = getConnection(auditLogLoadUrlStr, label, clusterToken);
             }
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
@@ -143,7 +144,7 @@ public class DorisStreamLoader {
                 throw new Exception("redirect location is null");
             }
             // build request and send to new be location
-            beConn = getConnection(location, label);
+            beConn = getConnection(location, label, clusterToken);
             // send data to be
             try (BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream())) {
                 bos.write(sb.toString().getBytes());

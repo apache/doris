@@ -44,16 +44,16 @@ PROPERTIES ("key"="value", ...)
 
 ## 参数说明
 
-| 参数                      | 必须 | 默认值  | 说明                                                                                          |
-|---------------------------|-----|---------|---------------------------------------------------------------------------------------------|
-| `user`                    | 是   |         | 对应数据库的用户名                                                                            |
-| `password`                | 是   |         | 对应数据库的密码                                                                              |
-| `jdbc_url`                | 是   |         | JDBC 连接串                                                                                   |
-| `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                                        |
-| `driver_class`            | 是   |         | JDBC Driver Class 名称                                                                        |
-| `lower_case_table_names`  | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名                                                |
-| `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                                 |
-| `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。         |
+| 参数                      | 必须 | 默认值  | 说明                                                                    |
+|---------------------------|-----|---------|-----------------------------------------------------------------------|
+| `user`                    | 是   |         | 对应数据库的用户名                                                             |
+| `password`                | 是   |         | 对应数据库的密码                                                              |
+| `jdbc_url`                | 是   |         | JDBC 连接串                                                              |
+| `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                   |
+| `driver_class`            | 是   |         | JDBC Driver Class 名称                                                  |
+| `lower_case_table_names`  | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名以及列名                                         |
+| `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                   |
+| `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。     |
 | `exclude_database_list`   | 否   | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
 
 ### 驱动包路径
@@ -68,7 +68,7 @@ PROPERTIES ("key"="value", ...)
 
 ### 小写表名同步
 
-当 `lower_case_table_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，能够查询非小写的数据库和表
+当 `lower_case_table_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，能够查询非小写的数据库和表以及列
 
 **注意：**
 
@@ -78,9 +78,11 @@ PROPERTIES ("key"="value", ...)
 
     对于其他数据库，仍需要在查询时指定真实的库名和表名。
 
-2. 在 Doris 2.0.3 及之后的版本，对所有的数据库都有效，在查询时，会将所有的库名和表名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
+2. 在 Doris 2.0.3 及之后的版本，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
 
-   但是，如果数据库或者表名只有大小写不同，例如 `Doris` 和 `doris`，则 Doris 由于歧义而无法查询它们。
+    但是，如果库名、表名或列名只有大小写不同，例如 `Doris` 和 `doris`，则 Doris 由于歧义而无法查询它们。
+
+3. 当 FE 参数的 `lower_case_table_names` 设置为 `1` 或 `2` 时，JDBC Catalog 的 `lower_case_table_names` 参数必须设置为 `true`。如果 FE 参数的 `lower_case_table_names` 设置为 `0`，则 JDBC Catalog 的参数可以为 `true` 或 `false`，默认为 `false`。这确保了 Doris 在处理内部和外部表配置时的一致性和可预测性。
 
 ### 指定同步数据库
 
@@ -112,7 +114,7 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 
 1. 当执行类似于 `where dt = '2022-01-01'` 这样的查询时，Doris 能够将这些过滤条件下推到外部数据源，从而直接在数据源层面排除不符合条件的数据，减少了不必要的数据获取和传输。这大大提高了查询性能，同时也降低了对外部数据源的负载。
    
-2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL，如遇到 MySQL 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数进行下推条件过滤，可通过 explain sql 查看。
+2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL 以及 ClickHouse，如遇到 MySQL 或 ClickHouse 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数以及 CLickHouse 支持的函数进行下推条件过滤，可通过 explain sql 查看。
 
 目前不会下推的函数有：
 
@@ -120,6 +122,13 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 |:------------:|
 |  DATE_TRUNC  |
 | MONEY_FORMAT |
+
+目前会下推的函数有：
+
+|   ClickHouse   |
+|:--------------:|
+| FROM_UNIXTIME  |
+| UNIX_TIMESTAMP |
 
 ### 行数限制
 
@@ -154,29 +163,29 @@ set enable_odbc_transcation = true;
 
 * mysql 5.7
 
-```sql
-CREATE CATALOG jdbc_mysql PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-    "driver_url" = "mysql-connector-java-5.1.47.jar",
-    "driver_class" = "com.mysql.jdbc.Driver"
-)
-```
+    ```sql
+    CREATE CATALOG jdbc_mysql PROPERTIES (
+        "type"="jdbc",
+        "user"="root",
+        "password"="123456",
+        "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+        "driver_url" = "mysql-connector-java-5.1.47.jar",
+        "driver_class" = "com.mysql.jdbc.Driver"
+    )
+    ```
 
 * mysql 8
 
-```sql
-CREATE CATALOG jdbc_mysql PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-    "driver_url" = "mysql-connector-java-8.0.25.jar",
-    "driver_class" = "com.mysql.cj.jdbc.Driver"
-)
-```
+    ```sql
+    CREATE CATALOG jdbc_mysql PROPERTIES (
+        "type"="jdbc",
+        "user"="root",
+        "password"="123456",
+        "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+        "driver_url" = "mysql-connector-java-8.0.25.jar",
+        "driver_class" = "com.mysql.cj.jdbc.Driver"
+    )
+    ```
 
 #### 层级映射
 
@@ -203,6 +212,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | FLOAT                                     | FLOAT          |                                                 |
 | DOUBLE                                    | DOUBLE         |                                                 |
 | DECIMAL                                   | DECIMAL        |                                                 |
+| UNSIGNED DECIMAL(p,s)                     | DECIMAL(p+1,s) / STRING | 如果p+1>38, 将使用Doris STRING类型        |
 | DATE                                      | DATE           |                                                 |
 | TIMESTAMP                                 | DATETIME       |                                                 |
 | DATETIME                                  | DATETIME       |                                                 |
@@ -368,7 +378,7 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 
 ### Doris
 
-Jdbc Catalog也支持连接另一个Doris数据库：
+Jdbc Catalog 也支持连接另一个Doris数据库：
 
 * mysql 5.7 Driver
 
@@ -661,6 +671,23 @@ DROP CATALOG <catalog_name>;
     SELECT * FROM <table_name>;
     ```
 
+## JDBC Driver 列表
+
+推荐使用以下版本的 Driver 连接对应的数据库。其他版本的 Driver 未经测试，可能导致非预期的问题。
+
+|  Source | JDBC Driver Version |
+|:--------:|:--------:|
+| MySQL 5.x  | mysql-connector-java-5.1.47.jar |
+| MySQL 8.x  | mysql-connector-java-8.0.25.jar |
+| PostgreSQL | postgresql-42.5.1.jar |
+| Oracle   | ojdbc8.jar|
+| SQLServer | mssql-jdbc-11.2.3.jre8.jar |
+| Doris | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+| Clickhouse | clickhouse-jdbc-0.4.2-all.jar  |
+| SAP HAHA | ngdbc.jar |
+| Trino/Presto | trino-jdbc-389.jar / presto-jdbc-0.280.jar |
+| OceanBase | oceanbase-client-2.4.2.jar |
+
 ## 常见问题
 
 1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase 是否能够支持更多的数据库
@@ -694,13 +721,20 @@ DROP CATALOG <catalog_name>;
     SET NAMES utf8mb4
     ```
 
-3. 读 MySQL 外表时，DateTime="0000:00:00 00:00:00"异常报错: "CAUSED BY: DataReadException: Zero date value prohibited"
+3. 读取 MySQL date/datetime 类型出现异常
 
-    这是因为JDBC中对于该非法的DateTime默认处理为抛出异常，可以通过参数 `zeroDateTimeBehavior`控制该行为。
-    
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed: 
+    CAUSED BY: SQLException: Zero date value prohibited
+    CAUSED BY: DataReadException: Zero date value prohibited
+    ```
+
+    这是因为JDBC中对于该非法的 Date/DateTime 默认处理为抛出异常，可以通过参数 `zeroDateTimeBehavior`控制该行为。
+
     可选参数为: `EXCEPTION`,`CONVERT_TO_NULL`,`ROUND`, 分别为：异常报错，转为NULL值，转为 "0001-01-01 00:00:00";
-    
-    可在url中添加: `"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull"`
+
+    需要在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `zeroDateTimeBehavior=convertToNull` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull"`
+    这种情况下，JDBC 会把 0000-00-00 或者 0000-00-00 00:00:00 转换成 null，然后 Doris 会把当前 Catalog 的所有 Date/DateTime 类型的列按照可空类型处理，这样就可以正常读取了。
 
 4. 读取 MySQL 外表或其他外表时，出现加载类失败
 
@@ -739,16 +773,7 @@ DROP CATALOG <catalog_name>;
 
     可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `?useSSL=false` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?useSSL=false"`
 
-6. 查询MYSQL的数据库报OutOfMemoryError的错误
-
-    为减少内存的使用，在获取结果集时，每次仅获取batchSize的大小，这样一批一批的获取结果。而MYSQL默认是一次将结果全部加载到内存，
-    设置的按批获取无法生效，需要主动显示的在URL中指定:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?useCursorFetch=true"
-
-7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
-
-    如果MYSQL已经主动设置useCursorFetch，可以在be.conf中修改jvm_max_heap_size的值，尝试增大JVM的内存，目前默认值为1024M。
-
-8. 使用JDBC查询MYSQL大数据量时，如果查询偶尔能够成功，偶尔会报如下错误，且出现该错误时MYSQL的连接被全部断开，无法连接到MYSQL SERVER，过段时间后mysql又恢复正常，但是之前的连接都没了：
+6. 使用JDBC查询MYSQL大数据量时，如果查询偶尔能够成功，偶尔会报如下错误，且出现该错误时MYSQL的连接被全部断开，无法连接到MYSQL SERVER，过段时间后mysql又恢复正常，但是之前的连接都没了：
 
     ```
     ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
@@ -758,7 +783,7 @@ DROP CATALOG <catalog_name>;
 
     出现上述现象时，可能是Mysql Server自身的内存或CPU资源被耗尽导致Mysql服务不可用，可以尝试增大Mysql Server的内存或CPU配置。
  
-9. 使用JDBC查询MYSQL的过程中，如果发现和在MYSQL库的查询结果不一致的情况
+7. 使用JDBC查询MYSQL的过程中，如果发现和在MYSQL库的查询结果不一致的情况
 
     首先要先排查下查询字段中是字符串否存在有大小写情况。比如，Table中有一个字段c_1中有"aaa"和"AAA"两条数据，如果在初始化MYSQL数据库时未指定区分字符串
     大小写，那么MYSQL默认是不区分字符串大小写的，但是在Doris中是严格区分大小写的，所以会出现以下情况：
@@ -777,7 +802,7 @@ DROP CATALOG <catalog_name>;
     CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); 或者在初始化MYSQL数据库时指定校对规则来区分大小写：
     character-set-server=UTF-8 和 collation-server=utf8_bin。
 
-10. 读取 SQLServer 出现通信链路异常
+8. 读取 SQLServer 出现通信链路异常
 
     ```
     ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[CANCELLED][INTERNAL_ERROR]UdfRuntimeException: Initialize datasource failed:
@@ -788,24 +813,14 @@ DROP CATALOG <catalog_name>;
 
     可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `encrypt=false` ,如 `"jdbc_url" = "jdbc:sqlserver://127.0.0.1:1433;DataBaseName=doris_test;encrypt=false"`
 
-11. 读取 MySQL datetime 类型出现异常
-
-    ```
-    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed: 
-    CAUSED BY: SQLException: Zero date value prohibited
-    CAUSED BY: DataReadException: Zero date value prohibited
-    ```
-    
-    这是因为 JDBC 并不能处理 0000-00-00 00:00:00 这种时间格式，
-    需要在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `zeroDateTimeBehavior=convertToNull` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull"`
-    这种情况下，JDBC 会把 0000-00-00 00:00:00 转换成 null，然后 Doris 会把 DateTime 类型的列按照可空类型处理，这样就可以正常读取了。
-
-12. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
+9. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
     
     下载 [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) 并放到 Doris FE 的 lib 目录以及 BE 的 lib/java_extensions 目录 (Doris 2.0 之前的版本需放到 BE 的 lib 目录下) 下即可。
 
-    从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+    从 2.0.2 版本起，可以将这个文件放置在 FE 和 BE 的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
 
-13. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
+10. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
     
     可以先下载[lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar)包，然后放到DorisFE lib 目录以及BE 的 `lib/lib/java_extensions`目录中（Doris 2.0 之前的版本需放到 BE 的 lib 目录下）。
+
+    从 2.0.2 版本起，可以将这个文件放置在 FE 和 BE 的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。

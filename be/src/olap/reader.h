@@ -42,8 +42,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
-#include "olap/tablet.h"
-#include "olap/tablet_schema.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 
@@ -90,6 +89,12 @@ class TabletReader {
     };
 
 public:
+    struct ReadSource {
+        std::vector<RowSetSplits> rs_splits;
+        std::vector<RowsetMetaSharedPtr> delete_predicates;
+        // Fill delete predicates with `rs_splits`
+        void fill_delete_predicates();
+    };
     // Params for Reader,
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
@@ -103,7 +108,12 @@ public:
                     !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
         }
 
-        TabletSharedPtr tablet;
+        void set_read_source(ReadSource read_source) {
+            rs_splits = std::move(read_source.rs_splits);
+            delete_predicates = std::move(read_source.delete_predicates);
+        }
+
+        BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
@@ -126,9 +136,9 @@ public:
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
 
+        std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap {nullptr};
-        std::vector<RowSetSplits> rs_splits;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
@@ -245,7 +255,7 @@ protected:
 
     Status _init_return_columns(const ReaderParams& read_params);
 
-    TabletSharedPtr tablet() { return _tablet; }
+    const BaseTabletSPtr& tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
     std::unique_ptr<vectorized::Arena> _predicate_arena;
@@ -257,7 +267,7 @@ protected:
     // vec query engine
     std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
 
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     RowsetReaderContext _reader_context;
     TabletSchemaSPtr _tablet_schema;
     KeysParam _keys_param;

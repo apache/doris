@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "vec/core/wide_integer.h"
 namespace common {
 template <typename T>
 inline bool add_overflow(T x, T y, T& res) {
@@ -50,6 +51,13 @@ inline bool add_overflow(__int128 x, __int128 y, __int128& res) {
     return (y > 0 && x > max_int128 - y) || (y < 0 && x < min_int128 - y);
 }
 
+template <>
+inline bool add_overflow(wide::Int256 x, wide::Int256 y, wide::Int256& res) {
+    static constexpr wide::Int256 min_int256 = std::numeric_limits<wide::Int256>::min();
+    static constexpr wide::Int256 max_int256 = std::numeric_limits<wide::Int256>::max();
+    res = x + y;
+    return (y > 0 && x > max_int256 - y) || (y < 0 && x < min_int256 - y);
+}
 template <typename T>
 inline bool sub_overflow(T x, T y, T& res) {
     return __builtin_sub_overflow(x, y, &res);
@@ -77,6 +85,14 @@ inline bool sub_overflow(__int128 x, __int128 y, __int128& res) {
             (__int128(0x7fffffffffffffffll) << 64) + 0xffffffffffffffffll;
     res = x - y;
     return (y < 0 && x > max_int128 + y) || (y > 0 && x < min_int128 + y);
+}
+
+template <>
+inline bool sub_overflow(wide::Int256 x, wide::Int256 y, wide::Int256& res) {
+    static constexpr wide::Int256 min_int256 = std::numeric_limits<wide::Int256>::min();
+    static constexpr wide::Int256 max_int256 = std::numeric_limits<wide::Int256>::max();
+    res = x - y;
+    return (y < 0 && x > max_int256 + y) || (y > 0 && x < min_int256 + y);
 }
 
 template <typename T>
@@ -107,6 +123,15 @@ inline bool mul_overflow(__int128 x, __int128 y, __int128& res) {
 
     unsigned __int128 a = (x > 0) ? x : -x;
     unsigned __int128 b = (y > 0) ? y : -y;
+    return (a * b) / b != a;
+}
+
+template <>
+inline bool mul_overflow(wide::Int256 x, wide::Int256 y, wide::Int256& res) {
+    res = x * y;
+    if (!x || !y) return false;
+    wide::UInt256 a = (x > 0) ? x : -x;
+    wide::UInt256 b = (y > 0) ? y : -y;
     return (a * b) / b != a;
 }
 } // namespace common

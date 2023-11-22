@@ -31,6 +31,8 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
+#include "olap/tablet_schema.h"
 #include "runtime/memory/mem_tracker.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/arena.h"
@@ -153,21 +155,22 @@ public:
         return *this;
     }
 
-    int64_t raw_rows = 0;
-    int64_t merged_rows = 0;
+    std::atomic<int64_t> raw_rows = 0;
+    std::atomic<int64_t> merged_rows = 0;
     int64_t sort_ns = 0;
     int64_t agg_ns = 0;
     int64_t put_into_output_ns = 0;
     int64_t duration_ns = 0;
-    int64_t sort_times = 0;
-    int64_t agg_times = 0;
+    std::atomic<int64_t> sort_times = 0;
+    std::atomic<int64_t> agg_times = 0;
 };
 
 class MemTable {
 public:
     MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             bool enable_unique_key_mow, const std::shared_ptr<MemTracker>& insert_mem_tracker,
+             bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
+             const std::shared_ptr<MemTracker>& insert_mem_tracker,
              const std::shared_ptr<MemTracker>& flush_mem_tracker);
     ~MemTable();
 
@@ -202,6 +205,7 @@ private:
 private:
     int64_t _tablet_id;
     bool _enable_unique_key_mow = false;
+    bool _is_partial_update = false;
     const KeysType _keys_type;
     const TabletSchema* _tablet_schema;
 

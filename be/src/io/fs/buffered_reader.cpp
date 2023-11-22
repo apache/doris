@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <chrono>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -152,7 +151,6 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     }
     content_size = 0;
     hollow_size = 0;
-    double amplified_ratio = config::max_amplified_read_ratio;
     std::vector<std::pair<double, size_t>> ratio_and_size;
     // Calculate the read amplified ratio for each merge operation and the size of the merged data.
     // Find the largest size of the merged data whose amplified ratio is less than config::max_amplified_read_ratio
@@ -168,9 +166,12 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         }
     }
     size_t best_merged_size = 0;
-    for (const std::pair<double, size_t>& rs : ratio_and_size) {
+    for (int i = 0; i < ratio_and_size.size(); ++i) {
+        const std::pair<double, size_t>& rs = ratio_and_size[i];
+        size_t equivalent_size = rs.second / (i + 1);
         if (rs.second > best_merged_size) {
-            if (rs.first < amplified_ratio || rs.second <= MIN_READ_SIZE) {
+            if (rs.first <= _max_amplified_ratio ||
+                (_max_amplified_ratio < 1 && equivalent_size <= _equivalent_io_size)) {
                 best_merged_size = rs.second;
             }
         }
@@ -417,8 +418,8 @@ void PrefetchBuffer::reset_offset(size_t offset) {
     } else {
         _exceed = false;
     }
-    ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
-            [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); });
+    static_cast<void>(ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
+            [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); }));
 }
 
 // only this function would run concurrently in another thread
@@ -649,7 +650,7 @@ PrefetchBufferedReader::~PrefetchBufferedReader() {
     std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
                   [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->_sync_profile = nullptr; });
     /// Better not to call virtual functions in a destructor.
-    _close_internal();
+    static_cast<void>(_close_internal());
 }
 
 Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -697,7 +698,7 @@ InMemoryFileReader::InMemoryFileReader(io::FileReaderSPtr reader) : _reader(std:
 }
 
 InMemoryFileReader::~InMemoryFileReader() {
-    _close_internal();
+    static_cast<void>(_close_internal());
 }
 
 Status InMemoryFileReader::close() {

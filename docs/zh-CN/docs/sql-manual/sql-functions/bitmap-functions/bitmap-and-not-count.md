@@ -1,6 +1,6 @@
 ---
 {
-    "title": "BITMAP_AND_NOT_COUNT",
+    "title": "BITMAP_AND_NOT_COUNT,BITMAP_ANDNOT_COUNT",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## bitmap_and_not_count
+## bitmap_and_not_count,bitmap_andnot_count
 ### description
 #### Syntax
 
@@ -45,4 +45,4 @@ mysql> select bitmap_and_not_count(bitmap_from_string('1,2,3'),bitmap_from_strin
 
 ### keywords
 
-    BITMAP_AND_NOT_COUNT,BITMAP
+    BITMAP_AND_NOT_COUNT,BITMAP_ANDNOT_COUNT,BITMAP

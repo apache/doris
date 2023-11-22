@@ -49,11 +49,11 @@ suite("agg_4_phase") {
         """
     explain{
         sql(test_sql)
-        contains "5:VAGGREGATE (merge finalize)"
-        contains "4:VEXCHANGE"
-        contains "3:VAGGREGATE (update serialize)"
-        contains "2:VAGGREGATE (merge serialize)"
-        contains "1:VAGGREGATE (update serialize)"
+        contains ":VAGGREGATE (merge finalize)"
+        contains ":VEXCHANGE"
+        contains ":VAGGREGATE (update serialize)"
+        contains ":VAGGREGATE (merge serialize)"
+        contains ":VAGGREGATE (update serialize)"
     }
     qt_4phase (test_sql)
 }

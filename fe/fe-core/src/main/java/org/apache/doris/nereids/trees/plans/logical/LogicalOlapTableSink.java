@@ -138,8 +138,8 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     public String toString() {
         return Utils.toSqlString("LogicalOlapTableSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs,
-                "database", database,
-                "targetTable", targetTable,
+                "database", database.getFullName(),
+                "targetTable", targetTable.getName(),
                 "cols", cols,
                 "partitionIds", partitionIds,
                 "isPartialUpdate", isPartialUpdate,

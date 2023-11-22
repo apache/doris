@@ -200,11 +200,9 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
 // Null values are represented by Null()
 // The type of the constant column is represented as follows: Consted {TypeIndex::String}
 // A DataSet with a constant column can only have one row of data
-// If state != nullptr, should set query options you use for your own.
 template <typename ReturnType, bool nullable = false>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
-                      const DataSet& data_set, bool expect_fail = false,
-                      RuntimeState* state = nullptr) {
+                      const DataSet& data_set, bool expect_fail = false) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
     EXPECT_TRUE(parse_ut_data_type(input_types, descs));
@@ -273,11 +271,11 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
     }
 
-    FunctionUtils fn_utils(fn_ctx_return, arg_types, 0, state);
+    FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols(constant_cols);
-    func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-    func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    static_cast<void>(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
 
@@ -290,8 +288,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         EXPECT_EQ(Status::OK(), st);
     }
 
-    func->close(fn_ctx, FunctionContext::THREAD_LOCAL);
-    func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];

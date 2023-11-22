@@ -83,7 +83,8 @@ suite("nereids_lateral_view") {
         ) example1 lateral view explode_bitmap(bitmap_from_string("1,2,3,4")) tmp1 as e1 where hour=e1 order by hour;
     """
 
-	sql """
+       sql """ DROP TABLE IF EXISTS test_explode_bitmap"""	
+       sql """
 		CREATE TABLE `test_explode_bitmap` (
 		  `dt` int(11) NULL COMMENT "",
 		  `page` varchar(10) NULL COMMENT "",

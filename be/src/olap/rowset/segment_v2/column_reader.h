@@ -162,15 +162,18 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
+    bool prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                      const int column_id) const;
+
     CompressionTypePB get_compression() const { return _meta_compression; }
 
     uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
-        _set_dict_encoding_type_once.call([&] {
+        static_cast<void>(_set_dict_encoding_type_once.call([&] {
             _dict_encoding_type = type;
             return Status::OK();
-        });
+        }));
     }
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }

@@ -43,8 +43,8 @@ class TupleDescriptor;
 
 namespace pipeline {
 class ScanLocalStateBase;
-struct ScannerDoneDependency;
-struct DataReadyDependency;
+class ScanDependency;
+class Dependency;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -56,6 +56,7 @@ namespace vectorized {
 class VScanner;
 class VScanNode;
 class ScannerScheduler;
+class SimplifiedScanScheduler;
 
 // ScannerContext is responsible for recording the execution status
 // of a group of Scanners corresponding to a ScanNode.
@@ -89,6 +90,8 @@ public:
     virtual Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
                                         bool* eos, int id, bool wait = true);
 
+    [[nodiscard]] Status validate_block_schema(Block* block);
+
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
     void push_back_scanner_and_reschedule(VScannerSPtr scanner);
@@ -102,9 +105,11 @@ public:
         return _process_status;
     }
 
-    virtual void set_dependency(
-            std::shared_ptr<pipeline::DataReadyDependency> dependency,
-            std::shared_ptr<pipeline::ScannerDoneDependency> scanner_done_dependency) {}
+    void set_dependency(std::shared_ptr<pipeline::ScanDependency> dependency,
+                        std::shared_ptr<pipeline::Dependency> finish_dependency) {
+        _dependency = dependency;
+        _finish_dependency = finish_dependency;
+    }
 
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
@@ -113,16 +118,13 @@ public:
     // Return true if this ScannerContext need no more process
     virtual bool done() { return _is_finished || _should_stop; }
 
-    // Update the running num of scanners and contexts
-    void update_num_running(int32_t scanner_inc, int32_t sched_inc) {
-        std::lock_guard l(_transfer_lock);
-        _num_running_scanners += scanner_inc;
-        _num_scheduling_ctx += sched_inc;
-        _blocks_queue_added_cv.notify_one();
-        _ctx_finish_cv.notify_one();
-    }
+    void inc_num_running_scanners(int32_t scanner_inc);
+
+    void set_ready_to_finish();
 
     int get_num_running_scanners() const { return _num_running_scanners; }
+
+    void dec_num_scheduling_ctx();
 
     int get_num_scheduling_ctx() const { return _num_scheduling_ctx; }
 
@@ -166,6 +168,7 @@ public:
     }
 
     taskgroup::TaskGroup* get_task_group() const;
+    SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
 
     void reschedule_scanner_ctx();
 
@@ -175,12 +178,16 @@ public:
     ThreadPoolToken* thread_token = nullptr;
     std::vector<bthread_t> _btids;
 
+    bool _should_reset_thread_name = true;
+
 private:
     template <typename Parent>
     Status _close_and_clear_scanners(Parent* parent, RuntimeState* state);
 
 protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
+
+    void _set_scanner_done();
 
     RuntimeState* _state;
     VScanNode* _parent;
@@ -252,9 +259,9 @@ protected:
     int64_t _cur_bytes_in_queue = 0;
     // The max limit bytes of blocks in blocks queue
     const int64_t _max_bytes_in_queue;
-    std::atomic<int64_t> _bytes_allocated = 0;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
+    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr; // used for cpu hard limit
     // List "scanners" saves all "unfinished" scanners.
     // The scanner scheduler will pop scanners from this list, run scanner,
     // and then if the scanner is not finished, will be pushed back to this list.
@@ -276,7 +283,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
-    std::shared_ptr<pipeline::ScannerDoneDependency> _scanner_done_dependency = nullptr;
+    std::shared_ptr<pipeline::ScanDependency> _dependency = nullptr;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

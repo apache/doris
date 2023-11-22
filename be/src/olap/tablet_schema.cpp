@@ -27,7 +27,6 @@
 #include <cmath> // IWYU pragma: keep
 #include <ostream>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
@@ -70,6 +69,10 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT;
     } else if (0 == upper_type_str.compare("UNSIGNED_BIGINT")) {
         type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
+    } else if (0 == upper_type_str.compare("IPV4")) {
+        type = FieldType::OLAP_FIELD_TYPE_IPV4;
+    } else if (0 == upper_type_str.compare("IPV6")) {
+        type = FieldType::OLAP_FIELD_TYPE_IPV6;
     } else if (0 == upper_type_str.compare("FLOAT")) {
         type = FieldType::OLAP_FIELD_TYPE_FLOAT;
     } else if (0 == upper_type_str.compare("DISCRETE_DOUBLE")) {
@@ -92,6 +95,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL64;
     } else if (0 == upper_type_str.compare("DECIMAL128I")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
+    } else if (0 == upper_type_str.compare("DECIMAL256")) {
+        type = FieldType::OLAP_FIELD_TYPE_DECIMAL256;
     } else if (0 == upper_type_str.compare(0, 7, "DECIMAL")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL;
     } else if (0 == upper_type_str.compare(0, 7, "VARCHAR")) {
@@ -190,6 +195,12 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
         return "UNSIGNED_BIGINT";
 
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+        return "IPV4";
+
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        return "IPV6";
+
     case FieldType::OLAP_FIELD_TYPE_FLOAT:
         return "FLOAT";
 
@@ -225,6 +236,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         return "DECIMAL128I";
+
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        return "DECIMAL256";
 
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return "VARCHAR";
@@ -311,6 +325,10 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return 8;
     case TPrimitiveType::LARGEINT:
         return 16;
+    case TPrimitiveType::IPV4:
+        return 4;
+    case TPrimitiveType::IPV6:
+        return 16;
     case TPrimitiveType::DATE:
         return 3;
     case TPrimitiveType::DATEV2:
@@ -351,6 +369,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return 8;
     case TPrimitiveType::DECIMAL128I:
         return 16;
+    case TPrimitiveType::DECIMAL256:
+        return 32;
     case TPrimitiveType::DECIMALV2:
         return 12; // use 12 bytes in olap engine.
     default:
@@ -521,7 +541,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_type_as_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+    if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
         return get_aggregate_function_union(type);
     }
 
@@ -700,7 +720,7 @@ void TabletSchema::clear_columns() {
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
-    SCOPED_MEM_COUNT(&_mem_size);
+    SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _keys_type = schema.keys_type();
     _num_columns = 0;
     _num_variant_columns = 0;
@@ -710,9 +730,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
-    _partial_update_input_columns.clear();
-    _missing_cids.clear();
-    _update_cids.clear();
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
@@ -758,30 +775,13 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _schema_version = schema.schema_version();
-    _is_partial_update = schema.is_partial_update();
-    _is_unique_key_ignore_mode = schema.is_unique_key_ignore_mode();
-    for (auto& col_name : schema.partial_update_input_columns()) {
-        _partial_update_input_columns.emplace(col_name);
-    }
-    if (_is_partial_update) {
-        for (auto i = 0; i < _cols.size(); ++i) {
-            if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
-                _missing_cids.emplace_back(i);
-                auto tablet_column = column(i);
-                if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
-                    _can_insert_new_rows_in_partial_update = false;
-                }
-            } else {
-                _update_cids.emplace_back(i);
-            }
-        }
-    }
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     tablet_schema.to_schema_pb(&tablet_schema_pb);
     init_from_pb(tablet_schema_pb);
+    _table_id = tablet_schema.table_id();
 }
 
 std::string TabletSchema::to_key() const {
@@ -820,6 +820,9 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
+    _delete_sign_idx = -1;
+    _sequence_col_idx = -1;
+    _version_col_idx = -1;
 
     for (auto& column : index->columns) {
         if (column->is_key()) {
@@ -860,12 +863,12 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     }
 }
 
-void TabletSchema::merge_dropped_columns(TabletSchemaSPtr src_schema) {
+void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
     // If they are the same tablet schema object, then just return
-    if (this == src_schema.get()) {
+    if (this == &src_schema) {
         return;
     }
-    for (const auto& src_col : src_schema->columns()) {
+    for (const auto& src_col : src_schema.columns()) {
         if (_field_id_to_index.find(src_col.unique_id()) == _field_id_to_index.end()) {
             CHECK(!src_col.is_key()) << src_col.name() << " is key column, should not be dropped.";
             ColumnPB src_col_pb;
@@ -917,11 +920,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
-    tablet_schema_pb->set_is_partial_update(_is_partial_update);
-    tablet_schema_pb->set_is_unique_key_ignore_mode(_is_unique_key_ignore_mode);
-    for (auto& col : _partial_update_input_columns) {
-        *tablet_schema_pb->add_partial_update_input_columns() = col;
-    }
 }
 
 size_t TabletSchema::row_size() const {
@@ -1105,54 +1103,14 @@ vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
     return block;
 }
 
-vectorized::Block TabletSchema::create_missing_columns_block() {
+vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>& cids) {
     vectorized::Block block;
-    for (const auto& cid : _missing_cids) {
+    for (const auto& cid : cids) {
         auto col = _cols[cid];
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
         block.insert({data_type->create_column(), data_type, col.name()});
     }
     return block;
-}
-
-vectorized::Block TabletSchema::create_update_columns_block() {
-    vectorized::Block block;
-    for (const auto& cid : _update_cids) {
-        auto col = _cols[cid];
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
-        block.insert({data_type->create_column(), data_type, col.name()});
-    }
-    return block;
-}
-
-void TabletSchema::set_partial_update_info(bool is_partial_update,
-                                           const std::set<string>& partial_update_input_columns) {
-    _is_partial_update = is_partial_update;
-    _partial_update_input_columns = partial_update_input_columns;
-    _missing_cids.clear();
-    _update_cids.clear();
-    for (auto i = 0; i < _cols.size(); ++i) {
-        if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
-            _missing_cids.emplace_back(i);
-            auto tablet_column = column(i);
-            if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
-                _can_insert_new_rows_in_partial_update = false;
-            }
-        } else {
-            _update_cids.emplace_back(i);
-        }
-    }
-}
-
-bool TabletSchema::is_column_missing(size_t cid) const {
-    DCHECK(cid < _cols.size());
-    if (!_is_partial_update) {
-        return false;
-    }
-    if (_partial_update_input_columns.count(_cols[cid].name()) == 0) {
-        return true;
-    }
-    return false;
 }
 
 bool operator==(const TabletColumn& a, const TabletColumn& b) {

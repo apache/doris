@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -46,11 +47,9 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
-
 namespace doris {
 class FunctionContext;
 
@@ -141,6 +140,40 @@ public:
     }
 };
 
+size_t count_true_with_notnull(const ColumnPtr& col) {
+    if (col->only_null()) {
+        return 0;
+    }
+
+    if (const auto* const_col = check_and_get_column_const<ColumnVector<UInt8>>(col.get())) {
+        bool is_true = const_col->get_bool(0);
+        return is_true ? col->size() : 0;
+    }
+
+    auto count = col->size();
+    if (col->is_nullable()) {
+        const auto* nullable = assert_cast<const ColumnNullable*>(col.get());
+        const auto* __restrict null_data = nullable->get_null_map_data().data();
+        const auto* __restrict bool_data =
+                ((const ColumnVector<UInt8>&)(nullable->get_nested_column())).get_data().data();
+
+        size_t null_count = count - simd::count_zero_num((const int8_t*)null_data, count);
+
+        if (null_count == count) {
+            return 0;
+        } else if (null_count == 0) {
+            size_t true_count = count - simd::count_zero_num((const int8_t*)bool_data, count);
+            return true_count;
+        } else {
+            // In fact, the null_count maybe is different with true_count, but it's no impact
+            return null_count;
+        }
+    } else {
+        const auto* bool_col = typeid_cast<const ColumnUInt8*>(col.get());
+        const auto* __restrict bool_data = bool_col->get_data().data();
+        return count - simd::count_zero_num((const int8_t*)bool_data, count);
+    }
+}
 // todo(wb) support llvm codegen
 class FunctionIf : public IFunction {
 public:
@@ -190,7 +223,7 @@ public:
     Status execute_generic(Block& block, const ColumnUInt8* cond_col,
                            const ColumnWithTypeAndName& then_col_type_name,
                            const ColumnWithTypeAndName& else_col_type_name, size_t result,
-                           size_t input_row_count) {
+                           size_t input_row_count) const {
         MutableColumnPtr result_column = block.get_by_position(result).type->create_column();
         result_column->reserve(input_row_count);
 
@@ -243,7 +276,8 @@ public:
 
     void execute_basic_type(Block& block, const ColumnUInt8* cond_col,
                             const ColumnWithTypeAndName& then_col,
-                            const ColumnWithTypeAndName& else_col, size_t result, Status& status) {
+                            const ColumnWithTypeAndName& else_col, size_t result,
+                            Status& status) const {
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using T0 = typename Types::LeftType;
@@ -291,7 +325,7 @@ public:
                                     const ColumnWithTypeAndName& arg_cond,
                                     const ColumnWithTypeAndName& arg_then,
                                     const ColumnWithTypeAndName& arg_else, size_t result,
-                                    size_t input_rows_count, Status& status) {
+                                    size_t input_rows_count, Status& status) const {
         bool then_is_null = arg_then.column->only_null();
         bool else_is_null = arg_else.column->only_null();
 
@@ -306,7 +340,7 @@ public:
             return true;
         }
 
-        const ColumnUInt8* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
+        const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
         const ColumnConst* cond_const_col =
                 check_and_get_column_const<ColumnVector<UInt8>>(arg_cond.column.get());
 
@@ -347,15 +381,6 @@ public:
         if (else_is_null) {
             if (cond_col) {
                 size_t size = input_rows_count;
-                auto& null_map_data = cond_col->get_data();
-
-                auto negated_null_map = ColumnUInt8::create();
-                auto& negated_null_map_data = negated_null_map->get_data();
-                negated_null_map_data.resize(size);
-
-                for (size_t i = 0; i < size; ++i) {
-                    negated_null_map_data[i] = !null_map_data[i];
-                }
 
                 if (is_column_nullable(*arg_then.column)) { // if(cond, nullable, NULL)
                     auto arg_then_column = arg_then.column;
@@ -365,6 +390,15 @@ public:
                                     assert_cast<const ColumnUInt8&>(*arg_cond.column));
                     block.replace_by_position(result, std::move(result_column));
                 } else { // if(cond, not_nullable, NULL)
+                    const auto& null_map_data = cond_col->get_data();
+                    auto negated_null_map = ColumnUInt8::create();
+                    auto& negated_null_map_data = negated_null_map->get_data();
+                    negated_null_map_data.resize(size);
+
+                    for (size_t i = 0; i < size; ++i) {
+                        negated_null_map_data[i] = !null_map_data[i];
+                    }
+
                     block.replace_by_position(
                             result,
                             ColumnNullable::create(materialize_column_if_const(arg_then.column),
@@ -395,7 +429,7 @@ public:
                                         const ColumnWithTypeAndName& arg_cond,
                                         const ColumnWithTypeAndName& arg_then,
                                         const ColumnWithTypeAndName& arg_else, size_t result,
-                                        size_t input_rows_count) {
+                                        size_t input_rows_count) const {
         auto then_type_is_nullable = arg_then.type->is_nullable();
         auto else_type_is_nullable = arg_else.type->is_nullable();
         if (!then_type_is_nullable && !else_type_is_nullable) {
@@ -449,7 +483,8 @@ public:
             temporary_block.insert(
                     {nullptr, std::make_shared<DataTypeUInt8>(), "result_column_null_map"});
 
-            execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
+            static_cast<void>(_execute_impl_internal(context, temporary_block, {0, 1, 2}, 3,
+                                                     temporary_block.rows()));
 
             result_null_mask = temporary_block.get_by_position(3).column;
         }
@@ -463,7 +498,8 @@ public:
                      {get_nested_column(arg_else.column), remove_nullable(arg_else.type), ""},
                      {nullptr, remove_nullable(block.get_by_position(result).type), ""}});
 
-            execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
+            static_cast<void>(_execute_impl_internal(context, temporary_block, {0, 1, 2}, 3,
+                                                     temporary_block.rows()));
 
             result_nested_column = temporary_block.get_by_position(3).column;
         }
@@ -478,7 +514,7 @@ public:
                                     const ColumnNumbers& arguments,
                                     const ColumnWithTypeAndName& arg_cond,
                                     const ColumnWithTypeAndName& arg_then,
-                                    const ColumnWithTypeAndName& arg_else, size_t result) {
+                                    const ColumnWithTypeAndName& arg_else, size_t result) const {
         bool cond_is_null = arg_cond.column->only_null();
 
         if (cond_is_null) {
@@ -487,29 +523,30 @@ public:
             return true;
         }
 
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
             DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
 
             // update neseted column by nullmap
-            auto* __restrict null_map = nullable->get_null_map_data().data();
+            const auto* __restrict null_map = nullable->get_null_map_data().data();
             auto* __restrict nested_bool_data =
                     ((ColumnVector<UInt8>&)(nullable->get_nested_column())).get_data().data();
             auto rows = nullable->size();
             for (size_t i = 0; i < rows; i++) {
-                nested_bool_data[i] = null_map[i] ? 0 : nested_bool_data[i];
+                nested_bool_data[i] &= !null_map[i];
             }
             auto column_size = block.columns();
             block.insert({nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type),
                           arg_cond.name});
 
-            execute_impl(context, block, {column_size, arguments[1], arguments[2]}, result, rows);
+            static_cast<void>(_execute_impl_internal(
+                    context, block, {column_size, arguments[1], arguments[2]}, result, rows));
             return true;
         }
         return false;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& arg_then = block.get_by_position(arguments[1]);
         const ColumnWithTypeAndName& arg_else = block.get_by_position(arguments[2]);
 
@@ -524,6 +561,38 @@ public:
         cond_column.column = materialize_column_if_const(cond_column.column);
         const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
 
+        auto true_count = count_true_with_notnull(arg_cond.column);
+        auto item_count = arg_cond.column->size();
+        if (true_count == item_count || true_count == 0) {
+            bool result_nullable = block.get_by_position(result).type->is_nullable();
+            if (true_count == item_count) {
+                block.replace_by_position(
+                        result,
+                        result_nullable
+                                ? make_nullable(arg_then.column->clone_resized(input_rows_count))
+                                : arg_then.column->clone_resized(input_rows_count));
+            } else {
+                block.replace_by_position(
+                        result,
+                        result_nullable
+                                ? make_nullable(arg_else.column->clone_resized(input_rows_count))
+                                : arg_else.column->clone_resized(input_rows_count));
+            }
+            return Status::OK();
+        }
+
+        return _execute_impl_internal(context, block, arguments, result, input_rows_count);
+    }
+
+    Status _execute_impl_internal(FunctionContext* context, Block& block,
+                                  const ColumnNumbers& arguments, size_t result,
+                                  size_t input_rows_count) const {
+        const ColumnWithTypeAndName& arg_then = block.get_by_position(arguments[1]);
+        const ColumnWithTypeAndName& arg_else = block.get_by_position(arguments[2]);
+        ColumnWithTypeAndName& cond_column = block.get_by_position(arguments[0]);
+        cond_column.column = materialize_column_if_const(cond_column.column);
+        const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
+
         Status ret = Status::OK();
         if (execute_for_null_condition(context, block, arguments, arg_cond, arg_then, arg_else,
                                        result) ||
@@ -534,7 +603,7 @@ public:
             return ret;
         }
 
-        const ColumnUInt8* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
+        const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
         const ColumnConst* cond_const_col =
                 check_and_get_column_const<ColumnVector<UInt8>>(arg_cond.column.get());
 

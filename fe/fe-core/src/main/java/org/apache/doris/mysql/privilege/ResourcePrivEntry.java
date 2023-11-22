@@ -78,6 +78,11 @@ public class ResourcePrivEntry extends PrivEntry {
     }
 
     @Override
+    protected PrivEntry copy() throws AnalysisException, PatternMatcherException {
+        return ResourcePrivEntry.create(this.getOrigResource(), this.getPrivSet().copy());
+    }
+
+    @Override
     public boolean keyMatch(PrivEntry other) {
         if (!(other instanceof ResourcePrivEntry)) {
             return false;

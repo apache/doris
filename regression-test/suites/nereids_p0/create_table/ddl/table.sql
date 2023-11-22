@@ -243,3 +243,15 @@ rollup (
 properties (
    "replication_num"="1"
 );
+
+drop table if exists test_default_value;
+create table test_default_value (
+    `id` int not null,
+    `kbool` boolean not null,
+    `ktint` tinyint(4) default null,
+    `kdtmv2` datetimev2(0) default current_timestamp
+)
+distributed by hash(id)
+properties (
+   "replication_num"="1"
+);

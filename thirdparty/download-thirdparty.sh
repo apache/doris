@@ -315,23 +315,6 @@ if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
 fi
 echo "Finished patching ${ROCKSDB_SOURCE}"
 
-# opentelemetry patch is used to solve the problem that threadlocal depends on GLIBC_2.18
-# fix error: unknown type name 'uint64_t'
-# see: https://github.com/apache/doris/pull/7911
-if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.10.0" ]]; then
-    rm -rf "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"/*
-    cp -r "${TP_SOURCE_DIR}/${OPENTELEMETRY_PROTO_SOURCE}"/* "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"
-    mkdir -p "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto/.git"
-
-    cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.10.0.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-fi
-echo "Finished patching ${OPENTELEMETRY_SOURCE}"
-
 # arrow patch is used to get the raw orc reader for filter prune.
 if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-13.0.0" ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
@@ -367,14 +350,7 @@ echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
-if [[ "${HYPERSCAN_SOURCE}" == "hyperscan-5.4.0" ]]; then
-    cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p0 <"${TP_PATCH_DIR}/hyperscan-5.4.0.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-elif [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.7" ]]; then
+if [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.7" ]]; then
     cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p0 <"${TP_PATCH_DIR}/vectorscan-5.4.7.patch"
@@ -386,12 +362,13 @@ echo "Finished patching ${HYPERSCAN_SOURCE}"
 
 cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
-    if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.9.272" ]]; then
-        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.272.tar.gz -O aws-crt-cpp-1.9.272.tar.gz; then
-            tar xzf aws-crt-cpp-1.9.272.tar.gz
+    if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.11.119" ]]; then
+        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.11.119.tar.gz -O aws-crt-cpp-1.11.119.tar.gz; then
+            tar xzf aws-crt-cpp-1.11.119.tar.gz
         else
             bash ./prefetch_crt_dependency.sh
         fi
+        patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.11.119.patch"
     else
         bash ./prefetch_crt_dependency.sh
     fi

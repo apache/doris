@@ -33,6 +33,7 @@ using namespace config;
 
 class ConfigTest : public testing::Test {
     void SetUp() override { config::Register::_s_field_map->clear(); }
+    void TearDown() override { config::Register::_s_field_map->clear(); }
 };
 
 TEST_F(ConfigTest, DumpAllConfigs) {

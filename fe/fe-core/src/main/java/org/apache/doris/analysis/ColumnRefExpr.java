@@ -18,12 +18,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TColumnRef;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Optional;
 
 public class ColumnRefExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(ColumnRefExpr.class);
@@ -51,6 +54,14 @@ public class ColumnRefExpr extends Expr {
 
     public String getName() {
         return columnName;
+    }
+
+    @Override
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPR_NAME));
+        }
+        return this.exprName.get();
     }
 
     public void setName(String name) {

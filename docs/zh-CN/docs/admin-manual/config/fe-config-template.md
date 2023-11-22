@@ -50,7 +50,7 @@ FE 的配置项有两种方式进行查看：
 
 1. FE 前端页面查看
 
-   在浏览器中打开 FE 前端页面 `http://fe_host:fe_http_port/variable`。在 `Configure Info` 中可以看到当前生效的 FE 配置项。
+   在浏览器中打开 FE 前端页面 `http://fe_host:fe_http_port/Configure`。在 `Configure Info` 中可以看到当前生效的 FE 配置项。
 
 2. 通过命令查看
 

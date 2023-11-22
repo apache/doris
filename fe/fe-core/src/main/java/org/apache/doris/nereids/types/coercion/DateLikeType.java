@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
@@ -49,11 +50,15 @@ public abstract class DateLikeType extends PrimitiveType {
             return 0;
         }
         if (Double.isInfinite(high) || Double.isInfinite(low)) {
-            return high - low;
+            return Double.POSITIVE_INFINITY;
         }
-        LocalDate to = toLocalDate(high);
-        LocalDate from = toLocalDate(low);
-        return ChronoUnit.DAYS.between(from, to);
+        try {
+            LocalDate to = toLocalDate(high);
+            LocalDate from = toLocalDate(low);
+            return ChronoUnit.DAYS.between(from, to);
+        } catch (DateTimeException e) {
+            return Double.POSITIVE_INFINITY;
+        }
     }
 
     /**
@@ -61,9 +66,11 @@ public abstract class DateLikeType extends PrimitiveType {
      */
     public DateLiteral fromString(String s) {
         if (this instanceof DateType) {
-            return new DateLiteral(s);
+            DateTimeV2Literal l = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
+            return new DateLiteral(l.getYear(), l.getMonth(), l.getDay());
         } else if (this instanceof DateV2Type) {
-            return new DateV2Literal(s);
+            DateTimeV2Literal l = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
+            return new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
         } else if (this instanceof DateTimeType) {
             return new DateTimeLiteral(s);
         } else if (this instanceof DateTimeV2Type) {

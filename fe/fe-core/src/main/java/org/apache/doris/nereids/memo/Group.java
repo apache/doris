@@ -19,6 +19,7 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -47,6 +48,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Representation for group in cascades optimizer.
@@ -59,7 +61,7 @@ public class Group {
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> enforcers = Lists.newArrayList();
-
+    private boolean isStatsReliable = true;
     private LogicalProperties logicalProperties;
 
     // Map of cost lower bounds
@@ -117,6 +119,14 @@ public class Group {
         }
         groupExpression.setOwnerGroup(this);
         return groupExpression;
+    }
+
+    public void setStatsReliable(boolean statsReliable) {
+        this.isStatsReliable = statsReliable;
+    }
+
+    public boolean isStatsReliable() {
+        return isStatsReliable;
     }
 
     public void addLogicalExpression(GroupExpression groupExpression) {
@@ -404,6 +414,10 @@ public class Group {
             }
         }
         return false;
+    }
+
+    public @Nullable HyperGraph getHyperGraph() {
+        return null;
     }
 
     public boolean isProjectGroup() {

@@ -103,7 +103,7 @@ public:
 
     Status execute_impl(FunctionContext* /*context*/, Block& block,
                         const ColumnNumbers& /*arguments*/, size_t result,
-                        size_t input_rows_count) override {
+                        size_t input_rows_count) const override {
         auto col_res = ColumnInt128::create();
         col_res->resize(input_rows_count);
 
@@ -115,7 +115,7 @@ public:
     }
 
 private:
-    void GenerateUUIDs(char* output, size_t size) {
+    void GenerateUUIDs(char* output, size_t size) const {
         LinearCongruentialGenerator generator0;
         LinearCongruentialGenerator generator1;
         LinearCongruentialGenerator generator2;
@@ -137,8 +137,8 @@ private:
         /// It is guaranteed (by PaddedPODArray) that we can overwrite up to 15 bytes after end.
     }
 
-    UInt64 randomSeed() {
-        struct timespec times;
+    UInt64 randomSeed() const {
+        struct timespec times {};
 
         /// Not cryptographically secure as time, pid and stack address can be predictable.
 

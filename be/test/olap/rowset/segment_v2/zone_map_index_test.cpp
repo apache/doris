@@ -51,24 +51,24 @@ public:
         auto fs = io::global_local_filesystem();
 
         std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
-        ZoneMapIndexWriter::create(field, builder);
+        static_cast<void>(ZoneMapIndexWriter::create(field, builder));
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
         for (auto& value : values1) {
             Slice slice(value);
             builder->add_values((const uint8_t*)&slice, 1);
         }
-        builder->flush();
+        static_cast<void>(builder->flush());
         std::vector<std::string> values2 = {"aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff"};
         for (auto& value : values2) {
             Slice slice(value);
             builder->add_values((const uint8_t*)&slice, 1);
         }
         builder->add_nulls(1);
-        builder->flush();
+        static_cast<void>(builder->flush());
         for (int i = 0; i < 6; ++i) {
             builder->add_nulls(1);
         }
-        builder->flush();
+        static_cast<void>(builder->flush());
         // write out zone map index
         ColumnIndexMetaPB index_meta;
         {
@@ -107,7 +107,7 @@ public:
         auto fs = io::global_local_filesystem();
 
         std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
-        ZoneMapIndexWriter::create(field, builder);
+        static_cast<void>(ZoneMapIndexWriter::create(field, builder));
         char ch = 'a';
         char buf[1024];
         for (int i = 0; i < 5; i++) {
@@ -115,7 +115,7 @@ public:
             Slice slice(buf, 1024);
             builder->add_values((const uint8_t*)&slice, 1);
         }
-        builder->flush();
+        static_cast<void>(builder->flush());
 
         // write out zone map index
         ColumnIndexMetaPB index_meta;
@@ -157,20 +157,20 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     Field* field = FieldFactory::create(int_column);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
-    ZoneMapIndexWriter::create(field, builder);
+    static_cast<void>(ZoneMapIndexWriter::create(field, builder));
     std::vector<int> values1 = {1, 10, 11, 20, 21, 22};
     for (auto value : values1) {
         builder->add_values((const uint8_t*)&value, 1);
     }
-    builder->flush();
+    static_cast<void>(builder->flush());
     std::vector<int> values2 = {2, 12, 31, 23, 21, 22};
     for (auto value : values2) {
         builder->add_values((const uint8_t*)&value, 1);
     }
     builder->add_nulls(1);
-    builder->flush();
+    static_cast<void>(builder->flush());
     builder->add_nulls(6);
-    builder->flush();
+    static_cast<void>(builder->flush());
     // write out zone map index
     ColumnIndexMetaPB index_meta;
     {

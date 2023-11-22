@@ -23,7 +23,6 @@
 
 #include <ostream>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -358,7 +357,7 @@ Status VerticalMergeIteratorContext::_load_next_block() {
         }
         for (auto it = _block_list.begin(); it != _block_list.end(); it++) {
             if (it->use_count() == 1) {
-                block_reset(*it);
+                static_cast<void>(block_reset(*it));
                 _block = *it;
                 _block_list.erase(it);
                 break;
@@ -366,7 +365,7 @@ Status VerticalMergeIteratorContext::_load_next_block() {
         }
         if (_block == nullptr) {
             _block = std::make_shared<Block>();
-            block_reset(_block);
+            static_cast<void>(block_reset(_block));
         }
         Status st = _iter->next_batch(_block.get());
         if (!st.ok()) {

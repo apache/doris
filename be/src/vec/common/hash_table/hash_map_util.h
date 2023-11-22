@@ -33,15 +33,7 @@ enum class HashKeyType {
     int64_key_phase2,
     int128_key,
     int128_key_phase2,
-    int64_keys,
-    int64_keys_phase2,
-    int128_keys,
-    int128_keys_phase2,
-    int256_keys,
-    int256_keys_phase2,
     string_key,
-    int136_keys,
-    int136_keys_phase2,
 };
 
 inline HashKeyType get_hash_key_type_with_phase(HashKeyType t, bool phase2) {
@@ -53,15 +45,6 @@ inline HashKeyType get_hash_key_type_with_phase(HashKeyType t, bool phase2) {
     }
     if (t == HashKeyType::int64_key) {
         return HashKeyType::int64_key_phase2;
-    }
-    if (t == HashKeyType::int128_keys) {
-        return HashKeyType::int128_keys_phase2;
-    }
-    if (t == HashKeyType::int136_keys) {
-        return HashKeyType::int136_keys_phase2;
-    }
-    if (t == HashKeyType::int256_keys) {
-        return HashKeyType::int256_keys_phase2;
     }
     return t;
 }
@@ -86,11 +69,6 @@ struct DataVariants {
         } else {
             method_variant.template emplace<MethodOneNumber<T, TT>>();
         }
-    }
-
-    template <typename T, bool nullable>
-    void emplace_fixed() {
-        method_variant.template emplace<MethodFixed<T, nullable>>();
     }
 };
 } // namespace doris::vectorized

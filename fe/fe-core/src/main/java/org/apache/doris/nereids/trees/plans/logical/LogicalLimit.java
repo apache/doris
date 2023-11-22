@@ -117,6 +117,12 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
         return ImmutableList.of();
     }
 
+    public LogicalLimit<Plan> withLimitChild(long limit, long offset, Plan child) {
+        Preconditions.checkArgument(children.size() == 1,
+                "LogicalTopN should have 1 child, but input is %s", children.size());
+        return new LogicalLimit<>(limit, offset, phase, child);
+    }
+
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalLimit<>(limit, offset, phase, groupExpression, Optional.of(getLogicalProperties()), child());

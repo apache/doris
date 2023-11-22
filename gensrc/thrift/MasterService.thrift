@@ -66,7 +66,7 @@ struct TFinishTaskRequest {
     15: optional i64 copy_size
     16: optional i64 copy_time_ms
     17: optional map<Types.TTabletId, Types.TVersion> succ_tablets
-    18: optional map<i64, i64> tablet_id_to_delta_num_rows
+    18: optional map<i64, i64> table_id_to_delta_num_rows
 }
 
 struct TTablet {

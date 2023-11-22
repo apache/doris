@@ -110,7 +110,7 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundOlapTableSink only accepts one child");
         return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, isPartialUpdate,
-                isFromNativeInsertStmt, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
+                isFromNativeInsertStmt, groupExpression, Optional.empty(), children.get(0));
     }
 
     @Override
