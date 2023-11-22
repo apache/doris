@@ -489,8 +489,10 @@ Status PulsarDataConsumer::assign_partition(const std::string& partition, std::s
     LOG(INFO) << ss.str();
 
     // do subscribe
+    pulsar::ConsumerConfiguration consumerConfig;
+    consumerConfig.setSubscriptionType(pulsar::SubscriptionType::Shared);
     pulsar::Result result;
-    result = _p_client->subscribe(partition, _subscription, _p_consumer);
+    result = _p_client->subscribe(partition, _subscription, consumerConfig, _p_consumer);
     if (result != pulsar::ResultOk) {
         LOG(WARNING) << "PAUSE: failed to create pulsar consumer: " << ctx->brief(true) << ", err: " << result;
         return Status::InternalError("PAUSE: failed to create pulsar consumer: " +
@@ -543,7 +545,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         consumer_watch.stop();
         switch (res) {
         case pulsar::ResultOk:
-            if (msg.get()->getDataAsString().find("178.243.119.33") != std::string::npos) {
+            if (msg.get()->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
                 LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
                           << ", message id: " << msg.get()->getMessageId()
                           << ", len: " << msg.get()->getLength();
