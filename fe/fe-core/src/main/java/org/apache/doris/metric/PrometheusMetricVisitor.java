@@ -46,8 +46,6 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
     private static final String JVM_YOUNG_SIZE_BYTES = "jvm_young_size_bytes";
     private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
-    private static final String JVM_YOUNG_GC = "jvm_young_gc";
-    private static final String JVM_OLD_GC = "jvm_old_gc";
     private static final String JVM_THREAD = "jvm_thread";
 
     private static final String HELP = "# HELP ";
@@ -104,22 +102,12 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         }
 
         // gc
-        Iterator<GarbageCollector> gcIter = jvmStats.getGc().iterator();
-        while (gcIter.hasNext()) {
-            GarbageCollector gc = gcIter.next();
-            if (gc.getName().equalsIgnoreCase("young")) {
-                sb.append(Joiner.on(" ").join(HELP, JVM_YOUNG_GC, "jvm young gc stat\n"));
-                sb.append(Joiner.on(" ").join(TYPE, JVM_YOUNG_GC, "gauge\n"));
-                sb.append(JVM_YOUNG_GC).append("{type=\"count\"} ").append(gc.getCollectionCount()).append("\n");
-                sb.append(JVM_YOUNG_GC).append("{type=\"time\"} ")
-                        .append(gc.getCollectionTime().getMillis()).append("\n");
-            } else if (gc.getName().equalsIgnoreCase("old")) {
-                sb.append(Joiner.on(" ").join(HELP, JVM_OLD_GC, "jvm old gc stat\n"));
-                sb.append(Joiner.on(" ").join(TYPE, JVM_OLD_GC, "gauge\n"));
-                sb.append(JVM_OLD_GC).append("{type=\"count\"} ").append(gc.getCollectionCount()).append("\n");
-                sb.append(JVM_OLD_GC).append("{type=\"time\"} ")
-                        .append(gc.getCollectionTime().getMillis()).append("\n");
-            }
+        for (GarbageCollector gc : jvmStats.getGc()) {
+            sb.append(Joiner.on(" ").join(HELP, gc.getName(), "jvm gc stat\n"));
+            sb.append(Joiner.on(" ").join(TYPE, gc.getName(), "gauge\n"));
+            sb.append(gc.getName()).append("{type=\"count\"} ").append(gc.getCollectionCount()).append("\n");
+            sb.append(gc.getName()).append("{type=\"time\"} ")
+                    .append(gc.getCollectionTime().getMillis()).append("\n");
         }
 
         // threads

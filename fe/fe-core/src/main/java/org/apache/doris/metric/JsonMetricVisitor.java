@@ -40,8 +40,6 @@ public class JsonMetricVisitor extends MetricVisitor {
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
     private static final String JVM_YOUNG_SIZE_BYTES = "jvm_young_size_bytes";
     private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
-    private static final String JVM_YOUNG_GC = "jvm_young_gc";
-    private static final String JVM_OLD_GC = "jvm_old_gc";
     private static final String JVM_THREAD = "jvm_thread";
 
     public JsonMetricVisitor() {
@@ -78,16 +76,9 @@ public class JsonMetricVisitor extends MetricVisitor {
         }
 
         // gc
-        Iterator<GarbageCollector> gcIter = jvmStats.getGc().iterator();
-        while (gcIter.hasNext()) {
-            GarbageCollector gc = gcIter.next();
-            if (gc.getName().equalsIgnoreCase("young")) {
-                setJvmJsonMetric(sb, JVM_YOUNG_GC, "count", "nounit", gc.getCollectionCount());
-                setJvmJsonMetric(sb, JVM_YOUNG_GC, "time", "milliseconds", gc.getCollectionTime().getMillis());
-            } else if (gc.getName().equalsIgnoreCase("old")) {
-                setJvmJsonMetric(sb, JVM_OLD_GC, "count", "nounit", gc.getCollectionCount());
-                setJvmJsonMetric(sb, JVM_OLD_GC, "time", "milliseconds", gc.getCollectionTime().getMillis());
-            }
+        for (GarbageCollector gc : jvmStats.getGc()) {
+            setJvmJsonMetric(sb, gc.getName(), "count", "nounit", gc.getCollectionCount());
+            setJvmJsonMetric(sb, gc.getName(), "time", "milliseconds", gc.getCollectionTime().getMillis());
         }
 
         // threads
