@@ -33,7 +33,7 @@ public class LiteralUtils {
 
     public static String getStringValue(FloatLiteral literal) {
         if (Double.isNaN(literal.getValue())) {
-            return "nan";
+            return Double.toString(literal.getValue());
         }else if (literal.getType() == Type.TIME || literal.getType() == Type.TIMEV2) {
             // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
             // for example '11:22:33' -> 11:22:33
