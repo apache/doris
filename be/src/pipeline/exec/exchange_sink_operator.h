@@ -83,13 +83,20 @@ public:
 
     void return_available_block() {
         if (_available_block.fetch_add(1) == 0) {
+            std::lock_guard<std::mutex> lock(_lock);
+            if (_available_block == 0) {
+                return;
+            }
             Dependency::set_ready();
         }
     }
 
     void take_available_block() {
         if (_available_block.fetch_sub(1) == 1) {
-            Dependency::block();
+            std::lock_guard<std::mutex> lock(_lock);
+            if (_available_block == 0) {
+                Dependency::block();
+            }
         }
     }
 
@@ -97,6 +104,7 @@ public:
 
 private:
     std::atomic<int> _available_block;
+    std::mutex _lock;
 };
 
 /**
