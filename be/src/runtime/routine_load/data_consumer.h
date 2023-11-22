@@ -34,7 +34,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/uid_util.h"
 #include "pulsar/Client.h"
-#include <pulsar/Consumer.h>
+#include "pulsar/Consumer.h"
 #include "io/fs/kafka_consumer_pipe.h"
 
 namespace doris {
