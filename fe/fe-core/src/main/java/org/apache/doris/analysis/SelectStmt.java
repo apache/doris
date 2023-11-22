@@ -698,6 +698,11 @@ public class SelectStmt extends QueryStmt {
             if (whereClause != null) {
                 whereClause.collect(SlotRef.class, conjuntSlots);
             }
+
+            if (havingClauseAfterAnalyzed != null) {
+                havingClauseAfterAnalyzed.collect(SlotRef.class, conjuntSlots);
+            }
+
             resultSlots.removeAll(orderingSlots);
             resultSlots.removeAll(conjuntSlots);
             // reset slots need to do fetch column
