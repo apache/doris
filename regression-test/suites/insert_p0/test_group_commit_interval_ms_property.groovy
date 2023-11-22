@@ -91,8 +91,7 @@ suite("test_group_commit_interval_ms_property") {
 
             assertNotEquals(msg3.substring(msg3.indexOf("group_commit")+11, msg3.indexOf("group_commit")+43), msg4.substring(msg4.indexOf("group_commit")+11, msg4.indexOf("group_commit")+43));
 
-            sql "DROP TABLE ${table}"
-                }
+            }
         } finally {
                 // try_sql("DROP TABLE ${table}")
         }
