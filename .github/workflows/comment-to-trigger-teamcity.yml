@@ -81,22 +81,36 @@ jobs:
         if _get_pr_changed_files "${{ steps.parse.outputs.PULL_REQUEST_NUM }}"; then
           if file_changed_fe_ut; then
             echo "changed_fe_ut=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_fe_ut=false" | tee -a "$GITHUB_OUTPUT"
           fi
           if file_changed_be_ut; then
             echo "changed_be_ut=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_be_ut=false" | tee -a "$GITHUB_OUTPUT"
           fi
           if file_changed_ckb; then
             echo "changed_ckb=true" | tee -a "$GITHUB_OUTPUT"
             echo "changed_tpch=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_ckb=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_tpch=false" | tee -a "$GITHUB_OUTPUT"
           fi
           if file_changed_regression_p0; then
             echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
             echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
             echo "changed_pipelinex_p0=true" | tee -a "$GITHUB_OUTPUT"
             echo "changed_arm=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_p0=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_external=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_pipelinex_p0=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_arm=false" | tee -a "$GITHUB_OUTPUT"
           fi
           if file_changed_regression_p1; then
             echo "changed_p1=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_p1=false" | tee -a "$GITHUB_OUTPUT"
           fi
         else
           echo "INFO: failed to _get_pr_changed_files, default trigger all"

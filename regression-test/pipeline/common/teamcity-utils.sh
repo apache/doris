@@ -250,20 +250,19 @@ trigger_build() {
 
 trigger_or_skip_build() {
     # 根据相关文件是否修改，来触发or跳过跑流水线
-    FILE_CHANGED="$1"
+    FILE_CHANGED="$1" # 默认为"true"
     PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$2}"
     COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$3}"
     COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$4}"
     COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$5}"
-    if [[ -z "${FILE_CHANGED}" ||
-        -z "${PULL_REQUEST_NUM}" ||
+    if [[ -z "${PULL_REQUEST_NUM}" ||
         -z "${COMMIT_ID_FROM_TRIGGER}" ||
         -z "${COMMENT_TRIGGER_TYPE}" ]]; then
         echo "Usage: add_build FILE_CHANGED PULL_REQUEST_NUM COMMIT_ID_FROM_TRIGGER COMMENT_TRIGGER_TYPE [COMMENT_REPEAT_TIMES]"
         return 1
     fi
 
-    if [[ "${FILE_CHANGED}" == "true" ]]; then
+    if [[ "${FILE_CHANGED:-"true"}" == "true" ]]; then
         cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         trigger_build "${PULL_REQUEST_NUM}" "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}" "${COMMENT_REPEAT_TIMES}"
