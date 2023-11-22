@@ -247,6 +247,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.policy.FilterType;
@@ -904,7 +905,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit(), true);
+                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit());
             }
 
             if (right instanceof Interval) {
@@ -917,7 +918,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit(), false);
+                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit());
             }
 
             return ParserUtils.withOrigin(ctx, () -> {
@@ -1059,7 +1060,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression left = getExpression(ctx.left);
             Expression right = getExpression(ctx.right);
-            if (ConnectContext.get().getSessionVariable().getSqlMode() == SqlModeHelper.MODE_PIPES_AS_CONCAT) {
+            if (SqlModeHelper.hasPipeAsConcat()) {
                 return new UnboundFunction("concat", Lists.newArrayList(left, right));
             } else {
                 return new Or(left, right);
@@ -1119,6 +1120,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression cast = ParserUtils.withOrigin(ctx, () ->
                 new Cast(getExpression(ctx.expression()), dataType, true));
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
+            if (dataType.isVarcharType() && ((VarcharType) dataType).isWildcardVarchar()) {
+                return cast;
+            }
             List<Expression> args = ImmutableList.of(
                     cast,
                     new TinyIntLiteral((byte) 1),
@@ -1286,6 +1290,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
             case "DATEV2":
                 return new DateV2Literal(value);
+            case "DATEV1":
+                return new DateLiteral(value);
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
         }
@@ -1345,9 +1351,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
-        // TODO: add unescapeSQLString.
         String txt = ctx.STRING_LITERAL().getText();
-        String s = escapeBackSlash(txt.substring(1, txt.length() - 1));
+        String s = txt.substring(1, txt.length() - 1);
+        s = s.replace("''", "'").replace("\"\"", "\"");
+        if (!SqlModeHelper.hasNoBackSlashEscapes()) {
+            s = escapeBackSlash(s);
+        }
         return new VarcharLiteral(s);
     }
 
@@ -2033,7 +2042,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new TableSample(percent, true, seek);
         }
         SampleByRowsContext sampleByRowsContext = (SampleByRowsContext) sampleContext;
-        long rows = Long.parseLong(sampleByRowsContext.ROWS().getText());
+        long rows = Long.parseLong(sampleByRowsContext.INTEGER_VALUE().getText());
         return new TableSample(rows, false, seek);
     }
 

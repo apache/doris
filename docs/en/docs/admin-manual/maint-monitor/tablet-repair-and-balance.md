@@ -630,7 +630,7 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 * storage\_high\_watermark\_usage\_percent 和 storage\_min\_left\_capacity\_bytes
 
 	* Description: These two parameters represent the upper limit of the maximum space utilization of a disk and the lower limit of the minimum space remaining, respectively. When the space utilization of a disk is greater than the upper limit or the remaining space is less than the lower limit, the disk will no longer be used as the destination address for balanced scheduling.
-	* Default values: 0.85 and 1048576000 (1GB)
+	* Default values: 0.85 and 2097152000 (2GB)
 	* Importance:
 
 * disable\_balance

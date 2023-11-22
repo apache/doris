@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -2176,10 +2177,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
 
-    protected void recursiveResetChildrenResult(boolean inView) throws AnalysisException {
+    protected void recursiveResetChildrenResult(boolean forPushDownPredicatesToView) throws AnalysisException {
         for (int i = 0; i < children.size(); i++) {
             final Expr child = children.get(i);
-            final Expr newChild = child.getResultValue(inView);
+            final Expr newChild = child.getResultValue(forPushDownPredicatesToView);
             if (newChild != child) {
                 setChild(i, newChild);
             }
@@ -2489,6 +2490,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return getActualScalarType(originType);
         } else if (originType.getPrimitiveType() == PrimitiveType.ARRAY) {
             return getActualArrayType((ArrayType) originType);
+        } else if (originType.getPrimitiveType().isMapType()) {
+            return getActualMapType((MapType) originType);
         } else {
             return originType;
         }
@@ -2519,6 +2522,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     protected Type[] getActualArgTypes(Type[] originType) {
         return Arrays.stream(originType).map(this::getActualType).toArray(Type[]::new);
+    }
+
+    private MapType getActualMapType(MapType originMapType) {
+        return new MapType(originMapType.getKeyType(), originMapType.getValueType());
     }
 
     private ArrayType getActualArrayType(ArrayType originArrayType) {

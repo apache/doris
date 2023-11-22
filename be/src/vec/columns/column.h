@@ -670,6 +670,8 @@ public:
 
     virtual bool is_column_map() const { return false; }
 
+    virtual bool is_column_struct() const { return false; }
+
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 

@@ -122,6 +122,10 @@ public:
     virtual vectorized::schema_util::LocalSchemaChangeRecorder*
     mutable_schema_change_recorder() = 0;
 
+    virtual std::shared_ptr<PartialUpdateInfo> get_partial_update_info() = 0;
+
+    virtual bool is_partial_update() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };

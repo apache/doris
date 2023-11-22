@@ -72,9 +72,13 @@ public class PhysicalProperties {
         this.orderSpec = orderSpec;
     }
 
+    /**
+     * create hash info from orderedShuffledColumns, ignore non slot reference expression.
+     */
     public static PhysicalProperties createHash(
             Collection<? extends Expression> orderedShuffledColumns, ShuffleType shuffleType) {
         List<ExprId> partitionedSlots = orderedShuffledColumns.stream()
+                .filter(SlotReference.class::isInstance)
                 .map(SlotReference.class::cast)
                 .map(SlotReference::getExprId)
                 .collect(Collectors.toList());

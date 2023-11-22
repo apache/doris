@@ -16,11 +16,15 @@
 // under the License.
 
 
-suite("test_show_where", "query") {
+suite("test_show_where", "query,external,mysql,external_docker,external_docker_mysql") {
     String ex_db_name = "doris_test";
     String ex_tb0 = "ex_tb0";
     String ex_tb1 = "ex_tb1";
     String catalog_name = "test_show_where_mysql_jdbc_catalog";
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     try {
         sql  """ drop database if exists ${ex_db_name} """
         sql  """ create database ${ex_db_name} """
@@ -52,7 +56,8 @@ suite("test_show_where", "query") {
         String enabled = context.config.otherConfigs.get("enableJdbcTest")
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            
+            String mysql_show_db="show_test_do_not_modify"
+
             sql """drop catalog if exists ${catalog_name} """
 
             // if use 'com.mysql.cj.jdbc.Driver' here, it will report: ClassNotFound
@@ -60,20 +65,20 @@ suite("test_show_where", "query") {
                     "type"="jdbc",
                     "jdbc.user"="root",
                     "jdbc.password"="123456",
-                    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
-                    "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+                    "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/show_test_do_not_modify?useSSL=false",
+                    "jdbc.driver_url" = "${driver_url}",
                     "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
                 """
 
             sql """switch ${catalog_name}"""
-            sql """ use ${ex_db_name}"""
+            sql """ use ${mysql_show_db}"""
 
-            qt_select "show databases where schema_name= '${ex_db_name}'"
+            qt_select "show databases where schema_name= '${mysql_show_db}'"
             qt_select "show tables"
             qt_select "show tables where table_name= '${ex_tb0}'"
-            qt_select "show tables from ${ex_db_name}"
+            qt_select "show tables from ${mysql_show_db}"
             qt_select "show tables from internal.${ex_db_name}"
-            qt_select "show tables from ${catalog_name}.${ex_db_name}"
+            qt_select "show tables from ${catalog_name}.${mysql_show_db}"
 
 
             sql """switch internal"""
@@ -83,7 +88,7 @@ suite("test_show_where", "query") {
             qt_select "show tables"
             qt_select "show tables where table_name= '${ex_tb1}'"
             qt_select "show tables from internal.${ex_db_name}"
-            qt_select "show tables from ${catalog_name}.${ex_db_name}"
+            qt_select "show tables from ${catalog_name}.${mysql_show_db}"
 
         }
 

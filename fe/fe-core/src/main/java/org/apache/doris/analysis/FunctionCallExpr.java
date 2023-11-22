@@ -28,6 +28,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
@@ -1511,7 +1512,8 @@ public class FunctionCallExpr extends Expr {
                 fn.setReturnType(assignmentCompatibleType);
             }
 
-        } else if (fnName.getFunction().equalsIgnoreCase("ifnull")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
+                || fnName.getFunction().equalsIgnoreCase("nvl")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
             if (assignmentCompatibleType != Type.INVALID) {
@@ -1574,6 +1576,27 @@ public class FunctionCallExpr extends Expr {
             args[0] = Type.DOUBLE;
             System.arraycopy(childrenTypes, 1, args, 1, childrenTypes.length - 1);
             fn = getBuiltinFunction(fnName.getFunction(), args, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("bitand")
+                || fnName.getFunction().equalsIgnoreCase("bitor")
+                || fnName.getFunction().equalsIgnoreCase("bitxor")) {
+            Type[] childTypes = collectChildReturnTypes();
+            if (Arrays.stream(childTypes).anyMatch(child -> child.isDecimalV2()
+                    || child.isDecimalV3() || child.isFloatingPointType())) {
+                uncheckedCastChild(Type.BIGINT, 0);
+                uncheckedCastChild(Type.BIGINT, 1);
+                argTypes[0] = Type.BIGINT;
+                argTypes[1] = Type.BIGINT;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("bitnot")) {
+            if (children.get(0).type.isDecimalV2() || children.get(0).type.isDecimalV3()
+                    || children.get(0).type.isFloatingPointType()) {
+                uncheckedCastChild(Type.BIGINT, 0);
+                argTypes[0] = Type.BIGINT;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
@@ -1600,6 +1623,9 @@ public class FunctionCallExpr extends Expr {
                     fn = findUdf(fnName, analyzer);
                     if (analyzer.isReAnalyze() && fn instanceof AliasFunction) {
                         throw new AnalysisException("a UDF in the original function of a alias function");
+                    }
+                    if (fn != null) {
+                        FunctionUtil.checkEnableJavaUdf();
                     }
                 }
             }
@@ -1755,7 +1781,7 @@ public class FunctionCallExpr extends Expr {
             }
             final Integer constParam = (int) ((IntLiteral) getChild(1)).getValue();
             if (!Lists.newArrayList(224, 256, 384, 512).contains(constParam)) {
-                throw new AnalysisException("sha2 functions only support digest length of 224/256/384/512");
+                throw new AnalysisException("sha2's digest length only support 224/256/384/512 but meet " + constParam);
             }
         }
 
@@ -1893,12 +1919,12 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
-                    this.type = Type.DATETIME;
+                    this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
                 } else {
-                    this.type = Type.DATE;
+                    this.type = Type.DATEV2;
                 }
             } else {
-                this.type = Type.DATETIME;
+                this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
             }
         } else if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
                 && fn.getReturnType().isDatetimeV2()) {

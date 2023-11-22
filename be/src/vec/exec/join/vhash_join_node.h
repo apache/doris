@@ -262,10 +262,10 @@ public:
     }
 
 private:
-    void _init_short_circuit_for_probe() override {
+    void _init_short_circuit_for_probe() {
         _short_circuit_for_probe =
-                (_short_circuit_for_null_in_probe_side &&
-                 _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !_is_mark_join) ||
+                (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                 !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||

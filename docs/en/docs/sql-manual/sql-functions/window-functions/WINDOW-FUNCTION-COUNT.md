@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-COUNT",
+    "title": "WINDOW_FUNCTION_COUNT",
     "language": "en"
 }
 ---

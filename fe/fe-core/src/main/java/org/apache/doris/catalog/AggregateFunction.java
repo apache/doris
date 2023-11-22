@@ -58,7 +58,8 @@ public class AggregateFunction extends Function {
             FunctionSet.COLLECT_LIST, FunctionSet.COLLECT_SET);
 
     public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
-            ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx");
+            ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx", "first_value",
+                    "last_value");
 
     public static ImmutableSet<String> CUSTOM_AGGREGATE_FUNCTION_NAME_SET =
             ImmutableSet.of("group_concat");

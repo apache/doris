@@ -323,6 +323,11 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not drop key column in Unique data model table");
             }
 
+            if (olapTable.hasSequenceCol() && dropColName.equalsIgnoreCase(olapTable.getSequenceMapCol())) {
+                throw new DdlException("Can not drop sequence mapping column[" + dropColName
+                        + "] in Unique data model table[" + olapTable.getName() + "]");
+            }
+
         } else if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (null == targetIndexName) {
                 // drop column in base table

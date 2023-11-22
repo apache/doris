@@ -19,7 +19,6 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -572,10 +571,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+            return ColumnStatistic.UNKNOWN;
+        }
         if (totalColumnStatisticMap.get(table.getName() + colName) != null) {
             return totalColumnStatisticMap.get(table.getName() + colName);
         } else if (isPlayNereidsDump) {
             return ColumnStatistic.UNKNOWN;
+
         } else {
             long catalogId;
             long dbId;
@@ -622,9 +626,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
-            ColumnStatistic cache = Config.enable_stats && FeConstants.enableInternalSchemaDb
-                    ? shouldIgnoreThisCol
-                        ? ColumnStatistic.UNKNOWN : getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+            ColumnStatistic cache;
+            if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableStats
+                    || !FeConstants.enableInternalSchemaDb
+                    || shouldIgnoreThisCol) {
+                cache = ColumnStatistic.UNKNOWN;
+            } else {
+                cache = getColumnStatistic(table, colName);
+            }
             if (cache.avgSizeByte <= 0) {
                 cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())

@@ -199,6 +199,16 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
+    public void forbiddenMVRewrite() {
+        super.forbiddenMVRewrite();
+        for (TableRef ref : fromClause.getTableRefs()) {
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getQueryStmt().forbiddenMVRewrite();
+            }
+        }
+    }
+
+    @Override
     public void reset() {
         super.reset();
         selectList.reset();

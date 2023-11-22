@@ -185,7 +185,6 @@ public class DiskRebalancer extends Rebalancer {
             Set<Long> pathHigh = Sets.newHashSet();
             // we only select tablets from available high load path
             beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, medium);
-            // check if BE has low and high paths for balance after reclassification
             if (!checkAndReclassifyPaths(pathLow, pathMid, pathHigh)) {
                 continue;
             }
@@ -382,5 +381,6 @@ public class DiskRebalancer extends Rebalancer {
         if (!setDest) {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find low load path");
         }
+        LOG.info("dx test out completeSchedCtx");
     }
 }

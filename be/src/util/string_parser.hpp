@@ -571,6 +571,9 @@ inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
 template <PrimitiveType P, typename T>
 T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
                                   ParseResult* result) {
+    static_assert(
+            std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> || std::is_same_v<T, __int128>,
+            "Cast string to decimal only support target type int32_t, int64_t or __int128.");
     // Special cases:
     //   1) '' == Fail, an empty string fails to parse.
     //   2) '   #   ' == #, leading and trailing white space is ignored.
@@ -599,11 +602,9 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     // Ignore leading zeros.
-    bool leading_zero = false;
     bool found_value = false;
     while (len > 0 && UNLIKELY(*s == '0')) {
         found_value = true;
-        leading_zero = true;
         ++s;
         --len;
     }
@@ -627,6 +628,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
 
     int precision = 0;
     int max_digit = type_precision - type_scale;
+    int cur_digit = 0;
     bool found_exponent = false;
     int8_t exponent = 0;
     T value = 0;
@@ -671,42 +673,44 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     return 0;
                 }
                 *result = StringParser::PARSE_SUCCESS;
-                if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-                    value *= get_scale_multiplier<__int128>(type_scale - scale);
-                } else {
-                    value *= get_scale_multiplier<T>(type_scale - scale);
-                }
+                value *= get_scale_multiplier<T>(type_scale - scale);
 
                 return is_negative ? T(-value) : T(value);
             }
         }
     } else {
         // decimalv3
+        bool has_round = false;
         for (int i = 0; i < len; ++i) {
             const char& c = s[i];
-            // keep a rounding precision to round the decimal value
-            if (LIKELY('0' <= c && c <= '9') &&
-                ((!leading_zero && LIKELY(type_precision >= precision)) ||
-                 (leading_zero && type_precision > precision))) {
+            if (LIKELY('0' <= c && c <= '9')) {
                 found_value = true;
                 // Ignore digits once the type's precision limit is reached. This avoids
                 // overflowing the underlying storage while handling a string like
                 // 10000000000e-10 into a DECIMAL(1, 0). Adjustments for ignored digits and
                 // an exponent will be made later.
-                ++precision;
-                scale += found_dot;
-                // decimalv3 should make sure the type_scale and type_precision
-                if (!found_dot && max_digit < (precision - scale)) {
-                    // parse_overflow should only happen when the digit part reached the max
+                if (LIKELY(type_precision > precision) && !has_round) {
+                    value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
+                    ++precision;
+                    scale += found_dot;
+                    cur_digit = precision - scale;
+                } else if (!found_dot && max_digit < (precision - scale)) {
                     *result = StringParser::PARSE_OVERFLOW;
                     value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
                                                   type_precision)
                                         : vectorized::max_decimal_value<vectorized::Decimal<T>>(
                                                   type_precision);
                     return value;
+                } else if (found_dot && scale >= type_scale && !has_round) {
+                    // make rounding cases
+                    if (c > '4') {
+                        value += 1;
+                    }
+                    has_round = true;
+                    continue;
+                } else if (!found_dot) {
+                    ++cur_digit;
                 }
-                // keep a rounding precision to round the decimal value
-                value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
                 DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
             } else if (c == '.' && LIKELY(!found_dot)) {
                 found_dot = 1;
@@ -721,7 +725,6 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                 }
                 break;
             } else {
-                // jump to here: should handle the wrong character of decimal
                 if (value == 0) {
                     *result = StringParser::PARSE_FAILURE;
                     return 0;
@@ -734,9 +737,20 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     // the E/e character because we make right user-given type_precision
                     // not max number type_precision
                     if (!is_numeric_ascii(c)) {
+                        if (cur_digit > type_precision) {
+                            *result = StringParser::PARSE_OVERFLOW;
+                            value = is_negative
+                                            ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
+                                                      type_precision)
+                                            : vectorized::max_decimal_value<vectorized::Decimal<T>>(
+                                                      type_precision);
+                            return value;
+                        }
                         return is_negative ? T(-value) : T(value);
                     }
                 }
+
+                return is_negative ? T(-value) : T(value);
             }
         }
     }
@@ -747,11 +761,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
         //     scale must be set to 0 and the value set to 100 which means a precision of 3.
         precision += exponent - scale;
 
-        if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-            value *= get_scale_multiplier<__int128>(exponent - scale);
-        } else {
-            value *= get_scale_multiplier<T>(exponent - scale);
-        }
+        value *= get_scale_multiplier<T>(exponent - scale);
         scale = 0;
     } else {
         // Ex: 100e-4, the scale must be set to 4 but no adjustment to the value is needed,
@@ -780,22 +790,14 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     } else if (UNLIKELY(scale > type_scale)) {
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;
-        if (shift > 0) {
-            T divisor;
-            if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-                divisor = get_scale_multiplier<__int128>(shift);
-            } else {
-                divisor = get_scale_multiplier<T>(shift);
-            }
-            if (LIKELY(divisor > 0)) {
-                T remainder = value % divisor;
-                value /= divisor;
-                if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
-                    value += 1;
-                }
-            } else {
-                DCHECK(divisor == -1 || divisor == 0); // //DCHECK_EQ doesn't work with __int128.
-                value = 0;
+        T divisor = get_scale_multiplier<T>(shift);
+        if (UNLIKELY(divisor == std::numeric_limits<T>::max())) {
+            value = 0;
+        } else {
+            T remainder = value % divisor;
+            value /= divisor;
+            if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
+                value += 1;
             }
         }
         DCHECK(value >= 0); // //DCHECK_GE doesn't work with __int128.
@@ -804,11 +806,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     if (type_scale > scale) {
-        if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-            value *= get_scale_multiplier<__int128>(type_scale - scale);
-        } else {
-            value *= get_scale_multiplier<T>(type_scale - scale);
-        }
+        value *= get_scale_multiplier<T>(type_scale - scale);
     }
 
     return is_negative ? T(-value) : T(value);

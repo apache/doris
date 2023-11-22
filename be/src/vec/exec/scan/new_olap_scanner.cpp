@@ -189,9 +189,7 @@ Status NewOlapScanner::init() {
                 auto st = _tablet->capture_rs_readers(rd_version, &read_source.rs_splits);
                 if (!st.ok()) {
                     LOG(WARNING) << "fail to init reader.res=" << st;
-                    return Status::InternalError(
-                            "failed to initialize storage reader. tablet_id={} : {}",
-                            _tablet->tablet_id(), st.to_string());
+                    return st;
                 }
             }
             if (!_state->skip_delete_predicate()) {
@@ -501,7 +499,8 @@ void NewOlapScanner::_update_realtime_counters() {
 }
 
 void NewOlapScanner::_update_counters_before_close() {
-    if (!_state->enable_profile() || _has_updated_counter) {
+    //  Please don't directly enable the profile here, we need to set QueryStatistics using the counter inside.
+    if (_has_updated_counter) {
         return;
     }
     _has_updated_counter = true;

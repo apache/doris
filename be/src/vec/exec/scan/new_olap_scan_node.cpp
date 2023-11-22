@@ -82,10 +82,15 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
 Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
     if (!_is_pipeline_scan || _should_create_scanner) {
-        statistics->add_scan_bytes(_read_compressed_counter->value());
-        statistics->add_scan_rows(_raw_rows_counter->value());
+        statistics->add_scan_bytes(_byte_read_counter->value());
+        statistics->add_scan_rows(_rows_read_counter->value());
         statistics->add_cpu_ms(_scan_cpu_timer->value() / NANOS_PER_MILLIS);
     }
+    return Status::OK();
+}
+
+Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics, int) {
+    RETURN_IF_ERROR(collect_query_statistics(statistics));
     return Status::OK();
 }
 
@@ -397,7 +402,8 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
 //  9: optional string table_name
 //}
 // every doris_scan_range is related with one tablet so that one olap scan node contains multiple tablet
-void NewOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void NewOlapScanNode::set_scan_ranges(RuntimeState* state,
+                                      const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));

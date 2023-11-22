@@ -334,8 +334,9 @@ public class ColumnType {
                         String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
                         int index = findNextNestedField(keyValue);
                         if (index != keyValue.length() && index != 0) {
-                            ColumnType keyType = parseType("key", keyValue.substring(0, index));
-                            ColumnType valueType = parseType("value", keyValue.substring(index + 1));
+                            ColumnType keyType = parseType("key", keyValue.substring(0, index).trim());
+                            ColumnType valueType =
+                                    parseType("value", keyValue.substring(index + 1).trim());
                             ColumnType mapType = new ColumnType(columnName, Type.MAP);
                             mapType.setChildTypes(Arrays.asList(keyType, valueType));
                             return mapType;

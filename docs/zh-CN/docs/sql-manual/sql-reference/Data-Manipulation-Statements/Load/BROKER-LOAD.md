@@ -65,8 +65,8 @@ WITH BROKER broker_name
   INTO TABLE `table_name`
   [PARTITION (p1, p2, ...)]
   [COLUMNS TERMINATED BY "column_separator"]
-  [FORMAT AS "file_type"]
   [LINES TERMINATED BY "line_delimiter"]
+  [FORMAT AS "file_type"]
   [COMPRESS_TYPE AS "compress_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
@@ -92,13 +92,13 @@ WITH BROKER broker_name
 
   - `PARTITION(p1, p2, ...)`
 
-    可以指定仅导入表的某些分区。不再分区范围内的数据将被忽略。
+    可以指定仅导入表的某些分区。不在分区范围内的数据将被忽略。
 
   - `COLUMNS TERMINATED BY`
 
     指定列分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
 
-   - `LINES TERMINATED BY`
+  - `LINES TERMINATED BY`
 
     指定行分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
 
@@ -142,6 +142,14 @@ WITH BROKER broker_name
   - `PROPERTIES ("key1"="value1", ...)`
 
     指定导入的format的一些参数。如导入的文件是`json`格式，则可以在这里指定`json_root`、`jsonpaths`、`fuzzy_parse`等参数。
+
+    - <version since="dev" type="inline"> enclose </version>
+  
+      包围符。当csv数据字段中含有行分隔符或列分隔符时，为防止意外截断，可指定单字节字符作为包围符起到保护作用。例如列分隔符为","，包围符为"'"，数据为"a,'b,c'",则"b,c"会被解析为一个字段。
+
+    - <version since="dev" type="inline"> escape </version>
+
+      转义符。用于转义在字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。
 
 - `WITH BROKER broker_name`
 
@@ -227,7 +235,7 @@ WITH BROKER broker_name
 
    导入文件 `file.txt`，按逗号分隔，导入到表 `my_table`。
 
-2. 从 HDFS 导入数据，使用通配符匹配两批两批文件。分别导入到两个表中。
+2. 从 HDFS 导入数据，使用通配符匹配两批文件。分别导入到两个表中。
 
    ```sql
    LOAD LABEL example_db.label2
@@ -268,6 +276,7 @@ WITH BROKER broker_name
    (
        "username" = "",
        "password" = "",
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
@@ -429,7 +438,7 @@ WITH BROKER broker_name
    )
    ```
 
-   `my_table` 必须是 Unqiue Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
+   `my_table` 必须是 Unique Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
 
 10. 从 HDFS 导入一批数据，指定文件格式为 `json` 并指定 `json_root`、`jsonpaths`
 

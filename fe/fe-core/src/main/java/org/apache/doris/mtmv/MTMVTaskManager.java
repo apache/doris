@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
@@ -65,13 +66,14 @@ public class MTMVTaskManager {
     // keep track of all the completed tasks
     private final Deque<MTMVTask> historyTasks = Queues.newLinkedBlockingDeque();
 
-    private ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1,
+            new CustomThreadFactory("mtmv-task-scheduler"));
 
     private final AtomicInteger failedTaskCount = new AtomicInteger(0);
 
     public void startTaskScheduler() {
         if (taskScheduler.isShutdown()) {
-            taskScheduler = Executors.newScheduledThreadPool(1);
+            taskScheduler = Executors.newScheduledThreadPool(1, new CustomThreadFactory("mtmv-task-scheduler"));
         }
         taskScheduler.scheduleAtFixedRate(() -> {
             checkRunningTask();

@@ -44,9 +44,9 @@ public class StrToDate extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT,
+            FunctionSignature.ret(DateTimeV2Type.MAX).args(VarcharType.SYSTEM_DEFAULT,
                     VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(StringType.INSTANCE, StringType.INSTANCE)
+            FunctionSignature.ret(DateTimeV2Type.MAX).args(StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
@@ -95,6 +95,9 @@ public class StrToDate extends ScalarFunction
             }
         } else {
             returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
+            if (returnType.isDateTimeV2Type()) {
+                returnType = DataType.fromCatalogType(Type.DATETIMEV2_WITH_MAX_SCALAR);
+            }
         }
         return signature.withReturnType(returnType);
     }

@@ -14,13 +14,14 @@ PhysicalResultSink
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
-----------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales]
-------------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)
 --------------------------------PhysicalProject
-----------------------------------filter((customer_demographics.cd_gender = 'M')(customer_demographics.cd_marital_status = 'S')(customer_demographics.cd_education_status = 'Unknown'))
-------------------------------------PhysicalOlapScan[customer_demographics]
+----------------------------------PhysicalOlapScan[catalog_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((customer_demographics.cd_gender = 'M')(customer_demographics.cd_marital_status = 'S')(customer_demographics.cd_education_status = 'Unknown'))
+--------------------------------------PhysicalOlapScan[customer_demographics]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------filter((date_dim.d_year = 2001))

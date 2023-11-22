@@ -29,6 +29,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -108,6 +109,29 @@ public class StructType extends Type {
             }
         }
         return true;
+    }
+
+    public static Type getAssignmentCompatibleType(StructType t1, StructType t2, boolean strict) {
+        ArrayList<StructField> fieldsLeft = t1.getFields();
+        ArrayList<StructField> fieldsRight = t2.getFields();
+        ArrayList<StructField> fieldsRes = new ArrayList<>();
+
+        for (int i = 0; i < t1.getFields().size(); ++i) {
+            StructField leftField = fieldsLeft.get(i);
+            StructField rightField = fieldsRight.get(i);
+            Type itemCompatibleType = Type.getAssignmentCompatibleType(leftField.getType(), rightField.getType(),
+                    strict);
+            if (itemCompatibleType.isInvalid()) {
+                return ScalarType.INVALID;
+            }
+            fieldsRes.add(new StructField(StringUtils.isEmpty(leftField.getName()) ? rightField.getName()
+                    : leftField.getName(),
+                    itemCompatibleType, StringUtils.isEmpty(leftField.getComment()) ? rightField.getComment()
+                    : leftField.getComment(), leftField.getContainsNull() || rightField.getContainsNull()));
+
+        }
+
+        return new StructType(fieldsRes);
     }
 
     @Override

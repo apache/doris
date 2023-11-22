@@ -132,10 +132,10 @@ echo '============================================'
 run_sql "show table status;"
 echo '============================================'
 start=$(date +%s)
-run_sql "analyze database ${DB} with sync;"
+run_sql "analyze database ${DB} with full with sync;"
 end=$(date +%s)
 totalTime=$((end - start))
-echo "analyze database ${DB} with sync total time: ${totalTime} s"
+echo "analyze database ${DB} with full with sync total time: ${totalTime} s"
 echo '============================================'
 echo "Time Unit: ms"
 

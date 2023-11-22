@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -61,6 +60,8 @@ public class ShowAnalyzeStmt extends ShowStmt {
             .add("state")
             .add("progress")
             .add("schedule_type")
+            .add("start_time")
+            .add("end_time")
             .build();
 
     private long jobId;
@@ -109,7 +110,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
@@ -207,15 +208,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
             throw new AnalysisException("Where clause should looks like: "
                     + "STATE = \"PENDING|RUNNING|FINISHED|FAILED");
         }
-    }
-
-    private int analyzeColumn(String columnName) throws AnalysisException {
-        for (String title : TITLE_NAMES) {
-            if (title.equalsIgnoreCase(columnName)) {
-                return TITLE_NAMES.indexOf(title);
-            }
-        }
-        throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 
     @Override

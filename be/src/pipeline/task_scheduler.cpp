@@ -112,6 +112,7 @@ void BlockedTaskScheduler::_schedule() {
             if (state == PipelineTaskState::PENDING_FINISH) {
                 // should cancel or should finish
                 if (task->is_pending_finish()) {
+                    VLOG_DEBUG << "Task pending" << task->debug_string();
                     iter++;
                 } else {
                     _make_task_run(local_blocked_tasks, iter, PipelineTaskState::PENDING_FINISH);
@@ -324,24 +325,28 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
         return;
     }
     auto status = task->try_close();
-    if (!status.ok() && state != PipelineTaskState::CANCELED) {
-        // Call `close` if `try_close` failed to make sure allocated resources are released
-        task->close();
+    auto cancel = [&]() {
         task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                          status.to_string());
         state = PipelineTaskState::CANCELED;
-    } else if (task->is_pending_finish()) {
-        task->set_state(PipelineTaskState::PENDING_FINISH);
-        _blocked_task_scheduler->add_blocked_task(task);
-        return;
-    } else {
+    };
+
+    auto try_close_failed = !status.ok() && state != PipelineTaskState::CANCELED;
+    if (try_close_failed) {
+        cancel();
+        // Call `close` if `try_close` failed to make sure allocated resources are released
+        static_cast<void>(task->close());
+    } else if (!task->is_pending_finish()) {
         status = task->close();
         if (!status.ok() && state != PipelineTaskState::CANCELED) {
-            task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                             status.to_string());
-            state = PipelineTaskState::CANCELED;
+            cancel();
         }
-        DCHECK(!task->is_pending_finish()) << task->debug_string();
+    }
+
+    if (task->is_pending_finish()) {
+        task->set_state(PipelineTaskState::PENDING_FINISH);
+        static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
+        return;
     }
     task->set_state(state);
     task->set_close_pipeline_time();
@@ -363,11 +368,6 @@ void TaskScheduler::shutdown() {
             _fix_thread_pool->wait();
         }
     }
-}
-
-void TaskScheduler::update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                                        taskgroup::TaskGroupPtr task_group) {
-    _task_queue->update_tg_cpu_share(task_group_info, task_group);
 }
 
 } // namespace doris::pipeline

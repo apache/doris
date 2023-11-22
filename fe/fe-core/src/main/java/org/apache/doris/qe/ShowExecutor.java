@@ -170,6 +170,7 @@ import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.ProfileManager;
@@ -231,6 +232,7 @@ import java.net.URLConnection;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -1385,10 +1387,11 @@ public class ShowExecutor {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         Backend be = infoService.getBackendWithHttpPort(host, port);
         if (be == null) {
-            throw new AnalysisException(host + ":" + port + " is not a valid backend");
+            throw new AnalysisException(NetUtils.getHostPortInAccessibleFormat(host, port) + " is not a valid backend");
         }
         if (!be.isAlive()) {
-            throw new AnalysisException("Backend " + host + ":" + port + " is not alive");
+            throw new AnalysisException(
+                    "Backend " + NetUtils.getHostPortInAccessibleFormat(host, port) + " is not alive");
         }
 
         if (!url.getPath().equals("/api/_load_error_log")) {
@@ -2585,6 +2588,7 @@ public class ShowExecutor {
         List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager()
                 .showAnalysisJob(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.jobId));
@@ -2608,6 +2612,14 @@ public class ShowExecutor {
             row.add(analysisInfo.state.toString());
             row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
             row.add(analysisInfo.scheduleType.toString());
+            LocalDateTime startTime =
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.createTime),
+                            java.time.ZoneId.systemDefault());
+            LocalDateTime endTime =
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.endTime),
+                            java.time.ZoneId.systemDefault());
+            row.add(startTime.format(formatter));
+            row.add(endTime.format(formatter));
             resultRows.add(row);
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);

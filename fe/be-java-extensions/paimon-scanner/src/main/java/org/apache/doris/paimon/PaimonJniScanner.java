@@ -40,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
     private static final String PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
@@ -125,7 +124,9 @@ public class PaimonJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
-        reader.close();
+        if (reader != null) {
+            reader.close();
+        }
     }
 
     @Override

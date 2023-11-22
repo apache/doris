@@ -11,13 +11,14 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN](expr_substring(s_zip, 1, 2) = expr_substring(ca_zip, 1, 2))
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
-----------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales]
-------------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
 --------------------------PhysicalProject
-----------------------------filter((date_dim.d_year = 1998)(date_dim.d_qoy = 2))
-------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalOlapScan[store_sales]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((date_dim.d_year = 1998)(date_dim.d_qoy = 2))
+--------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store]

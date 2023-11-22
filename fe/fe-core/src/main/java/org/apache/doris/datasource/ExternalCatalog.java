@@ -102,6 +102,9 @@ public abstract class ExternalCatalog
     private ExternalSchemaCache schemaCache;
     private String comment;
 
+    public ExternalCatalog() {
+    }
+
     public ExternalCatalog(long catalogId, String name, InitCatalogLog.Type logType, String comment) {
         this.id = catalogId;
         this.name = name;
@@ -587,6 +590,14 @@ public abstract class ExternalCatalog
             ret = false;
         }
         return ret;
+    }
+
+    public String bindBrokerName() {
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
+            return properties.get(HMSExternalCatalog.BIND_BROKER_NAME);
+        }
+        return null;
     }
 
     @Override

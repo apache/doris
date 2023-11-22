@@ -640,7 +640,15 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             // from expr
             DataTypeSerDeSPtr serde;
             if (_output_vexpr_ctxs[i]->root()->type().is_decimal_v2_type()) {
-                serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128>>(scale, 27);
+                if (_output_vexpr_ctxs[i]->root()->is_nullable()) {
+                    auto nested_serde =
+                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128>>(scale,
+                                                                                           27);
+                    serde = std::make_shared<DataTypeNullableSerDe>(nested_serde);
+                } else {
+                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128>>(scale,
+                                                                                           27);
+                }
             } else {
                 serde = block.get_by_position(i).type->get_serde();
             }

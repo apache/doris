@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -326,7 +327,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     errMsg = result.getStatus().getErrorMsgsList().get(0);
                 } else {
                     errMsg = "fetchTableStructureAsync failed. backend address: "
-                            + address.getHostname() + ":" + address.getPort();
+                            + NetUtils
+                            .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
                 }
                 throw new AnalysisException(errMsg);
             }

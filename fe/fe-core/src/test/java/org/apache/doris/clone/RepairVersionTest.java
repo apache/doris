@@ -26,18 +26,10 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
-import org.apache.doris.master.ReportHandler;
-import org.apache.doris.thrift.TTablet;
-import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.Map;
 
 public class RepairVersionTest extends TestWithFeService {
     private class TableInfo {
@@ -81,70 +73,6 @@ public class RepairVersionTest extends TestWithFeService {
 
         Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
         Assertions.assertEquals(-1L, replica.getLastFailedVersion());
-    }
-
-    @Test
-    public void testRepairLastFailedVersionByReport() throws Exception {
-        TableInfo info = prepareTableForTest("tbl_repair_last_fail_version_by_report");
-        Partition partition = info.partition;
-        Tablet tablet = info.tablet;
-        Replica replica = info.replica;
-
-        replica.updateLastFailedVersion(replica.getVersion() + 1);
-        Assertions.assertEquals(partition.getCommittedVersion() + 1, replica.getLastFailedVersion());
-
-        TTabletInfo tTabletInfo = new TTabletInfo();
-        tTabletInfo.setTabletId(tablet.getId());
-        tTabletInfo.setSchemaHash(replica.getSchemaHash());
-        tTabletInfo.setVersion(replica.getVersion());
-        tTabletInfo.setPathHash(replica.getPathHash());
-        tTabletInfo.setPartitionId(partition.getId());
-        tTabletInfo.setReplicaId(replica.getId());
-
-        TTablet tTablet = new TTablet();
-        tTablet.addToTabletInfos(tTabletInfo);
-        Map<Long, TTablet> tablets = Maps.newHashMap();
-        tablets.put(tablet.getId(), tTablet);
-        Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
-
-        ReportHandler.tabletReport(replica.getBackendId(), tablets, 100L);
-
-        Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
-        Assertions.assertEquals(-1L, replica.getLastFailedVersion());
-    }
-
-    @Test
-    public void testVersionRegressive() throws Exception {
-        TableInfo info = prepareTableForTest("tbl_version_regressive");
-        Partition partition = info.partition;
-        Tablet tablet = info.tablet;
-        Replica replica = info.replica;
-
-        Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
-        Assertions.assertEquals(-1L, replica.getLastFailedVersion());
-        Assertions.assertTrue(replica.getVersion() > 1L);
-
-        TTabletInfo tTabletInfo = new TTabletInfo();
-        tTabletInfo.setTabletId(tablet.getId());
-        tTabletInfo.setSchemaHash(replica.getSchemaHash());
-        tTabletInfo.setVersion(1L); // be report version = 1 which less than fe version
-        tTabletInfo.setPathHash(replica.getPathHash());
-        tTabletInfo.setPartitionId(partition.getId());
-        tTabletInfo.setReplicaId(replica.getId());
-
-        TTablet tTablet = new TTablet();
-        tTablet.addToTabletInfos(tTabletInfo);
-        Map<Long, TTablet> tablets = Maps.newHashMap();
-        tablets.put(tablet.getId(), tTablet);
-
-        ReportHandler.tabletReport(replica.getBackendId(), tablets, 100L);
-        Assertions.assertEquals(-1L, replica.getLastFailedVersion());
-
-        DebugPointUtil.addDebugPoint("Replica.regressive_version_immediately", new DebugPoint());
-        ReportHandler.tabletReport(replica.getBackendId(), tablets, 100L);
-        Assertions.assertEquals(replica.getVersion() + 1, replica.getLastFailedVersion());
-
-        Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
     }
 
     private TableInfo prepareTableForTest(String tableName) throws Exception {
