@@ -26,18 +26,18 @@ class AggregateStateMerge : public AggregateStateUnion {
 public:
     using AggregateStateUnion::create;
 
-    AggregateStateMerge(AggregateFunctionPtr function, const DataTypes& argument_types,
+    AggregateStateMerge(AggregateFunctionPtr function, const DataTypes& argument_types_,
                         const DataTypePtr& return_type)
-            : AggregateStateUnion(function, argument_types, return_type) {}
+            : AggregateStateUnion(function, argument_types_, return_type) {}
 
     static AggregateFunctionPtr create(AggregateFunctionPtr function,
-                                       const DataTypes& argument_types,
+                                       const DataTypes& argument_types_,
                                        const DataTypePtr& return_type) {
-        CHECK(argument_types.size() == 1);
+        CHECK(argument_types_.size() == 1);
         if (function == nullptr) {
             return nullptr;
         }
-        return std::make_shared<AggregateStateMerge>(function, argument_types, return_type);
+        return std::make_shared<AggregateStateMerge>(function, argument_types_, return_type);
     }
 
     void set_version(const int version_) override {

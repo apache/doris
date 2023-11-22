@@ -81,7 +81,7 @@ DEFINE_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-DEFINE_String(mem_limit, "80%");
+DEFINE_String(mem_limit, "90%");
 
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
@@ -319,7 +319,7 @@ DEFINE_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
-DEFINE_Bool(disable_storage_row_cache, "true");
+DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
 DEFINE_Bool(disable_pk_storage_page_cache, "false");
 
@@ -350,6 +350,9 @@ DEFINE_mInt32(vertical_compaction_num_columns_per_group, "5");
 DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "200");
 // In vertical compaction, max dest segment file size
 DEFINE_mInt64(vertical_compaction_max_segment_size, "268435456");
+
+// If enabled, segments will be flushed column by column
+DEFINE_mBool(enable_vertical_segment_writer, "true");
 
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
@@ -457,7 +460,7 @@ DEFINE_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
 DEFINE_mInt32(periodic_counter_update_period_ms, "500");
 
-DEFINE_Bool(enable_single_replica_load, "false");
+DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
 DEFINE_Int32(single_replica_load_download_num_workers, "64");
 
@@ -635,8 +638,6 @@ DEFINE_Bool(path_gc_check, "true");
 DEFINE_mInt32(path_gc_check_interval_second, "86400");
 DEFINE_mInt32(path_gc_check_step, "1000");
 DEFINE_mInt32(path_gc_check_step_interval_ms, "10");
-DEFINE_mInt32(path_scan_interval_second, "86400");
-DEFINE_mInt32(path_scan_step_interval_ms, "70");
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -742,10 +743,8 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
 // share delta writers when memtable_on_sink_node = true
 DEFINE_Bool(share_delta_writers, "true");
-// number of brpc stream per load
-DEFINE_Int32(num_streams_per_load, "5");
-// timeout for open stream sink rpc in ms
-DEFINE_Int64(open_stream_sink_timeout_ms, "500");
+// timeout for open load stream rpc in ms
+DEFINE_Int64(open_load_stream_timeout_ms, "500");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -817,27 +816,6 @@ DEFINE_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 DEFINE_String(rpc_load_balancer, "rr");
 
-// Enable tracing
-// If this configuration is enabled, you should also specify the trace_export_url.
-DEFINE_Bool(enable_tracing, "false");
-
-// Enable opentelemtry collector
-DEFINE_Bool(enable_otel_collector, "false");
-
-// Current support for exporting traces:
-// zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-// collector: The collector can be used to receive and process traces and support export to a variety of
-//   third-party systems.
-DEFINE_mString(trace_exporter, "zipkin");
-DEFINE_Validator(trace_exporter, [](const std::string& config) -> bool {
-    return config == "zipkin" || config == "collector";
-});
-
-// The endpoint to export spans to.
-// export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-// export to collector like: http://127.0.0.1:4318/v1/traces
-DEFINE_String(trace_export_url, "http://127.0.0.1:9411/api/v2/spans");
-
 // The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
 // An export will be triggered when the number of spans in the queue reaches half of the maximum.
 DEFINE_Int32(max_span_queue_size, "2048");
@@ -905,7 +883,7 @@ DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
 
 DEFINE_Bool(enable_time_lut, "true");
-DEFINE_Bool(enable_simdjson_reader, "true");
+DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
@@ -969,6 +947,9 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 // Will remove after fully test.
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
+DEFINE_mBool(enable_flatten_nested_for_variant, "false");
+DEFINE_mDouble(ratio_of_defaults_as_sparse_column, "0.95");
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
@@ -1013,8 +994,6 @@ DEFINE_Int32(max_depth_in_bkd_tree, "32");
 DEFINE_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
-// semi-structure configs
-DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
 // max depth of expression tree allowed.
 DEFINE_Int32(max_depth_of_expr_tree, "600");
@@ -1034,6 +1013,8 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
+// The timeout config for S3 buffer allocation
+DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
 
 //disable shrink memory by default
@@ -1095,11 +1076,10 @@ DEFINE_Int16(bitmap_serialize_version, "1");
 DEFINE_String(group_commit_replay_wal_dir, "./wal");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
-DEFINE_Int32(group_commit_sync_wal_batch, "10");
+DEFINE_Bool(wait_internal_group_commit_finish, "false");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
-DEFINE_mInt32(group_commit_interval_seconds, "10");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
@@ -1109,10 +1089,25 @@ DEFINE_Bool(exit_on_exception, "false");
 DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
-DEFINE_String(doris_cgroup_cpu_path, "");
-DEFINE_Bool(enable_cpu_hard_limit, "false");
+DEFINE_mString(doris_cgroup_cpu_path, "");
+DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
+
+// Dir of default timezone files
+DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
+
+// Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
+DEFINE_Int32(group_commit_max_queue_size, "67108864");
+
+// Max size(bytes) of wal disk using, used for disk space back pressure, default 64M.
+DEFINE_Int32(wal_max_disk_size, "67108864");
+
+// Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
+DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
+
+// Download binlog rate limit, unit is KB/s, 0 means no limit
+DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1537,8 +1532,6 @@ void set_fuzzy_configs() {
             set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false"));
     static_cast<void>(
             set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false"));
-    static_cast<void>(
-            set_fuzzy_config("enable_simdjson_reader", ((rand() % 2) == 0) ? "true" : "false"));
     // random value from 8 to 48
     // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
     // LOG(INFO) << s.to_string();

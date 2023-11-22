@@ -4,9 +4,9 @@
 2	doris2	[8, 88]
 3	doris3	[]
 4	doris4	\N
-5	doris5	[1, NULL, 2]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, NULL, NULL, 1, 2, 999999, 111111]
+5	doris5	[1, null, 2]
+6	doris6	[null, null, null]
+7	doris7	[null, null, null, 1, 2, 999999, 111111]
 8	doris8	\N
 
 -- !select_load1 --
@@ -14,216 +14,216 @@
 2	doris2	[8, 88]
 3	doris3	[]
 4	doris4	\N
-5	doris5	[1, NULL, 2]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, NULL, NULL, 1, 2, 999999, 111111]
+5	doris5	[1, null, 2]
+6	doris6	[null, null, null]
+7	doris7	[null, null, null, 1, 2, 999999, 111111]
 8	doris8	\N
 
 -- !select_base2 --
 1	doris1	[9, 99, 999]
 2	doris2	[8, 88]
 3	doris3	[]
-5	doris5	[1, NULL, 2]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, NULL, NULL, 1, 2, 999999, 111111]
+5	doris5	[1, null, 2]
+6	doris6	[null, null, null]
+7	doris7	[null, null, null, 1, 2, 999999, 111111]
 
 -- !select_load2 --
 1	doris1	[9, 99, 999]
 2	doris2	[8, 88]
 3	doris3	[]
-5	doris5	[1, NULL, 2]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, NULL, NULL, 1, 2, 999999, 111111]
+5	doris5	[1, null, 2]
+6	doris6	[null, null, null]
+7	doris7	[null, null, null, 1, 2, 999999, 111111]
 
 -- !select_base_date --
-1	doris1	[2017-10-01, 2023-09-13, 2023-12-31]
-2	doris2	[1967-10-01, 1000-09-13]
+1	doris1	["2017-10-01", "2023-09-13", "2023-12-31"]
+2	doris2	["1967-10-01", "1000-09-13"]
 3	doris3	[]
-5	doris5	[0001-10-01, NULL, 0000-01-01]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, NULL, NULL, 2017-10-01, 2023-09-13, 2023-12-31]
+5	doris5	["0001-10-01", null, "0000-01-01"]
+6	doris6	[null, null, null]
+7	doris7	[null, null, null, "2017-10-01", "2023-09-13", "2023-12-31"]
 
 -- !select_load_date --
 1	doris1	["2017-10-01", "2023-09-13", "2023-12-31"]
 2	doris2	["1967-10-01", "1000-09-13"]
 3	doris3	[]
-5	doris5	["0001-10-01", NULL, "0000-01-01"]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, NULL, NULL, "2017-10-01", "2023-09-13", "2023-12-31"]
+5	doris5	["0001-10-01", null, "0000-01-01"]
+6	doris6	[null, null, null]
+7	doris7	[null, null, null, "2017-10-01", "2023-09-13", "2023-12-31"]
 
 -- !select_base_datetime --
-1	doris1	[2017-10-01 00:00:00, 2011-10-01 01:23:59]
-2	doris2	[2017-10-01 00:00:00, 2011-10-01 01:23:59]
+1	doris1	["2017-10-01 00:00:00", "2011-10-01 01:23:59"]
+2	doris2	["2017-10-01 00:00:00", "2011-10-01 01:23:59"]
 3	doris3	[]
-5	doris5	[2017-10-01 00:00:00, NULL, 2017-10-01 00:00:00]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, NULL, NULL, 2017-10-01 00:00:00, 2011-10-01 01:23:59]
+5	doris5	["2017-10-01 00:00:00", null, "2017-10-01 00:00:00"]
+6	doris6	[null, null, null]
+7	doris7	[null, null, null, "2017-10-01 00:00:00", "2011-10-01 01:23:59"]
 
 -- !select_load_datetime --
 1	doris1	["2017-10-01 00:00:00", "2011-10-01 01:23:59"]
 2	doris2	["2017-10-01 00:00:00", "2011-10-01 01:23:59"]
 3	doris3	[]
-5	doris5	["2017-10-01 00:00:00", NULL, "2017-10-01 00:00:00"]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, NULL, NULL, "2017-10-01 00:00:00", "2011-10-01 01:23:59"]
+5	doris5	["2017-10-01 00:00:00", null, "2017-10-01 00:00:00"]
+6	doris6	[null, null, null]
+7	doris7	[null, null, null, "2017-10-01 00:00:00", "2011-10-01 01:23:59"]
 
 -- !select_base_varchar --
 1	doris1	["2017-10-01 00:00:00", "2011-10-01 01:23:59"]
 2	doris2	["2017-10-01 00:00:00.123", "2011-10-01 01:23:59"]
 3	doris3	[]
-5	doris5	["2017-10-01 00:00:00.123456", NULL, "2017-10-01 00:00:00.123"]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, "null", NULL, "2017-10-01 00:00:00", "2011-10-01 01:23:59"]
+5	doris5	["2017-10-01 00:00:00.123456", null, "2017-10-01 00:00:00.123"]
+6	doris6	[null, null, null]
+7	doris7	[null, "null", null, "2017-10-01 00:00:00", "2011-10-01 01:23:59"]
 
 -- !select_load_varchar --
 1	doris1	["2017-10-01 00:00:00", "2011-10-01 01:23:59"]
 2	doris2	["2017-10-01 00:00:00.123", "2011-10-01 01:23:59"]
 3	doris3	[]
-5	doris5	["2017-10-01 00:00:00.123456", NULL, "2017-10-01 00:00:00.123"]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, "null", NULL, "2017-10-01 00:00:00", "2011-10-01 01:23:59"]
+5	doris5	["2017-10-01 00:00:00.123456", null, "2017-10-01 00:00:00.123"]
+6	doris6	[null, null, null]
+7	doris7	[null, "null", null, "2017-10-01 00:00:00", "2011-10-01 01:23:59"]
 
 -- !select_base_smallint --
 1	doris1	[-32768, 32767]
 2	doris2	[-1, -1, -2, 0, 3, 99]
 3	doris3	[]
 5	doris5	[-32768, 32767, 99, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, -32768, 32767]
+6	doris6	[null, null, null]
+7	doris7	[null, -32768, 32767]
 
 -- !select_smallint --
 1	doris1	[-32768, 32767]
 2	doris2	[-1, -1, -2, 0, 3, 99]
 3	doris3	[]
 5	doris5	[-32768, 32767, 99, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, -32768, 32767]
+6	doris6	[null, null, null]
+7	doris7	[null, -32768, 32767]
 
 -- !select_base_tinyint --
 1	doris1	[-128, 127]
 2	doris2	[-1, -1, -2, 0, 3, 99]
 3	doris3	[]
 5	doris5	[-128, 127, 99, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, -128, 127]
+6	doris6	[null, null, null]
+7	doris7	[null, -128, 127]
 
 -- !select_load_tinyint --
 1	doris1	[-128, 127]
 2	doris2	[-1, -1, -2, 0, 3, 99]
 3	doris3	[]
 5	doris5	[-128, 127, 99, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, -128, 127]
+6	doris6	[null, null, null]
+7	doris7	[null, -128, 127]
 
 -- !select_base_boolean --
 1	doris1	[1, 0, 1, 1, 0]
 2	doris2	[1, 0, 0, 1, 1]
 3	doris3	[]
 5	doris5	[1, 0, 1]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, 0, 1]
+6	doris6	[null, null, null]
+7	doris7	[null, 0, 1]
 
 -- !select_load_boolean --
 1	doris1	[1, 0, 1, 1, 0]
 2	doris2	[1, 0, 0, 1, 1]
 3	doris3	[]
 5	doris5	[1, 0, 1]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, 0, 1]
+6	doris6	[null, null, null]
+7	doris7	[null, 0, 1]
 
 -- !select_base_bigint --
 1	doris1	[-9223372036854775808, 9223372036854775807]
 2	doris2	[-14141, -9223372036854775808, 9223372036854775807, 9891912, 3, 99]
 3	doris3	[]
 5	doris5	[-128, 127, 99, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, -9223372036854775808, 9223372036854775807]
+6	doris6	[null, null, null]
+7	doris7	[null, -9223372036854775808, 9223372036854775807]
 
 -- !select_load_bigint --
 1	doris1	[-9223372036854775808, 9223372036854775807]
 2	doris2	[-14141, -9223372036854775808, 9223372036854775807, 9891912, 3, 99]
 3	doris3	[]
 5	doris5	[-128, 127, 99, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, -9223372036854775808, 9223372036854775807]
+6	doris6	[null, null, null]
+7	doris7	[null, -9223372036854775808, 9223372036854775807]
 
 -- !select_base_largeint --
 1	doris1	[-170141183460469231731687303715884105728, 170141183460469231731687303715884105727]
 2	doris2	[-1, 170141183460469231731687303715884105727, -2, 0, 3, 99]
 3	doris3	[]
 5	doris5	[-170141183460469231731687303715884105728, 127, 99, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, -170141183460469231731687303715884105728, 170141183460469231731687303715884105727]
+6	doris6	[null, null, null]
+7	doris7	[null, -170141183460469231731687303715884105728, 170141183460469231731687303715884105727]
 
 -- !select_load_largeint --
 1	doris1	["-170141183460469231731687303715884105728", "170141183460469231731687303715884105727"]
 2	doris2	["-1", "170141183460469231731687303715884105727", "-2", "0", "3", "99"]
 3	doris3	[]
 5	doris5	["-170141183460469231731687303715884105728", "127", "99", "-99"]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, "-170141183460469231731687303715884105728", "170141183460469231731687303715884105727"]
+6	doris6	[null, null, null]
+7	doris7	[null, "-170141183460469231731687303715884105728", "170141183460469231731687303715884105727"]
 
 -- !select_base_float --
 1	doris1	[1.4013e-45, 3.4028235e+38]
 2	doris2	[-1.1, 1.2231, 3.4028235e+38, 0, 3, 99.009888]
 3	doris3	[]
 5	doris5	[-12.8, 1.4013e-45, 3.4028235e+38, -9.9]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, 1.4013e-45, 3.4028235e+38]
+6	doris6	[null, null, null]
+7	doris7	[null, 1.4013e-45, 3.4028235e+38]
 
 -- !select_load_float --
 1	doris1	[1.4013e-45, 3.4028235e+38]
 2	doris2	[-1.1, 1.2231, 3.4028235e+38, 0, 3, 99.009888]
 3	doris3	[]
 5	doris5	[-12.8, 1.4013e-45, 3.4028235e+38, -9.9]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, 1.4013e-45, 3.4028235e+38]
+6	doris6	[null, null, null]
+7	doris7	[null, 1.4013e-45, 3.4028235e+38]
 
 -- !select_base_double --
 1	doris1	[4.94065645841247e-324, 1.7976931348623157e+308]
 2	doris2	[-1.1, 1.2231, 1.7976931348623157e+308, 0, 3, 99.00989]
 3	doris3	[]
 5	doris5	[-128, 4.94065645841247e-324, 99, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, 4.94065645841247e-324, 1.7976931348623157e+308]
+6	doris6	[null, null, null]
+7	doris7	[null, 4.94065645841247e-324, 1.7976931348623157e+308]
 
 -- !select_load_double --
 1	doris1	[4.94065645841247e-324, 1.7976931348623157e+308]
 2	doris2	[-1.1, 1.2231, 1.7976931348623157e+308, 0, 3, 99.00989]
 3	doris3	[]
 5	doris5	[-128, 4.94065645841247e-324, 99, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, 4.94065645841247e-324, 1.7976931348623157e+308]
+6	doris6	[null, null, null]
+7	doris7	[null, 4.94065645841247e-324, 1.7976931348623157e+308]
 
 -- !select_base_CHAR --
 1	doris1	["1234567890", "doris12345"]
 2	doris2	["90", "doris1245"]
 3	doris3	[]
 5	doris5	["doris-123", "doris-123", "doris-124", "doris12378"]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, "doris-123", "doris-123"]
+6	doris6	[null, null, null]
+7	doris7	[null, "doris-123", "doris-123"]
 
 -- !select_load_CHAR --
 1	doris1	["1234567890", "doris12345"]
 2	doris2	["90", "doris1245"]
 3	doris3	[]
 5	doris5	["doris-123", "doris-123", "doris-124", "doris12378"]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, "doris-123", "doris-123"]
+6	doris6	[null, null, null]
+7	doris7	[null, "doris-123", "doris-123"]
 
 -- !select_base_decimal --
 1	doris1	[-128, 127]
 2	doris2	[-1, -2, -21231, 0, 3, 99]
 3	doris3	[]
 5	doris5	[-13, 1, 9434364, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, -13, 13]
+6	doris6	[null, null, null]
+7	doris7	[null, -13, 13]
 
 -- !select_load_decimal --
 1	doris1	[-128, 127]
 2	doris2	[-1, -2, -21231, 0, 3, 99]
 3	doris3	[]
 5	doris5	[-13, 1, 9434364, -99]
-6	doris6	[NULL, NULL, NULL]
-7	doris7	[NULL, -13, 13]
+6	doris6	[null, null, null]
+7	doris7	[null, -13, 13]
 

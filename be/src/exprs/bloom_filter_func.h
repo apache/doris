@@ -416,68 +416,10 @@ struct FixedStringFindOp : public StringFindOp {
     }
 };
 
-struct DateTimeFindOp : public CommonFindOp<vectorized::VecDateTimeValue> {
-    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        vectorized::VecDateTimeValue value;
-        value.from_olap_datetime(*reinterpret_cast<const uint64_t*>(data));
-        return bloom_filter.test(Slice((char*)&value, sizeof(vectorized::VecDateTimeValue)));
-    }
-};
-
-// avoid violating C/C++ aliasing rules.
-// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101684
-
-struct DateFindOp : public CommonFindOp<vectorized::VecDateTimeValue> {
-    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        uint24_t date = *static_cast<const uint24_t*>(data);
-        uint64_t value = uint32_t(date);
-
-        vectorized::VecDateTimeValue date_value;
-        date_value.from_olap_date(value);
-        // So confusing here. For join node with condition (a.date_col = b.date_col), the actual
-        // expression is CAST(a.date_col AS DATETIME) = CAST(b.date_col AS DATETIME). So we build
-        // this bloom filter by CAST(a.date_col AS DATETIME) and also need to probe this bloom
-        // filter by a datetime value.
-        date_value.set_type(TimeType::TIME_DATETIME);
-
-        return bloom_filter.test(Slice((char*)&date_value, sizeof(vectorized::VecDateTimeValue)));
-    }
-};
-
-struct DecimalV2FindOp : public CommonFindOp<DecimalV2Value> {
-    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        auto packed_decimal = *static_cast<const decimal12_t*>(data);
-        DecimalV2Value value;
-        int64_t int_value = packed_decimal.integer;
-        int32_t frac_value = packed_decimal.fraction;
-        value.from_olap_decimal(int_value, frac_value);
-
-        constexpr int decimal_value_sz = sizeof(DecimalV2Value);
-        char data_bytes[decimal_value_sz];
-        memcpy(&data_bytes, &value, decimal_value_sz);
-        return bloom_filter.test(Slice(data_bytes, decimal_value_sz));
-    }
-};
-
 template <PrimitiveType type>
 struct BloomFilterTypeTraits {
     using T = typename PrimitiveTypeTraits<type>::CppType;
     using FindOp = CommonFindOp<T>;
-};
-
-template <>
-struct BloomFilterTypeTraits<TYPE_DATE> {
-    using FindOp = DateFindOp;
-};
-
-template <>
-struct BloomFilterTypeTraits<TYPE_DATETIME> {
-    using FindOp = DateTimeFindOp;
-};
-
-template <>
-struct BloomFilterTypeTraits<TYPE_DECIMALV2> {
-    using FindOp = DecimalV2FindOp;
 };
 
 template <>

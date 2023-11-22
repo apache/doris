@@ -127,4 +127,17 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     public boolean canPushDownRuntimeFilter() {
         return true;
     }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder shapeBuilder = new StringBuilder();
+        shapeBuilder.append(this.getClass().getSimpleName())
+                .append("[").append(table.getName()).append("]");
+        if (!getAppliedRuntimeFilters().isEmpty()) {
+            shapeBuilder.append(" apply RFs:");
+            getAppliedRuntimeFilters()
+                    .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
+        }
+        return shapeBuilder.toString();
+    }
 }

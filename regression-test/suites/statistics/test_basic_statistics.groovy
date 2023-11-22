@@ -69,6 +69,7 @@ suite("test_basic_statistics") {
     assertTrue(result[0][6] == "\'name1\'")
     assertTrue(result[0][7] == "\'name9\'")
 
+    sql """drop stats ${tbl}"""
     sql """drop table ${tbl}"""
     sql """drop database ${db}"""
 

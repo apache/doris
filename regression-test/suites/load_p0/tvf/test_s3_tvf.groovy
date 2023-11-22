@@ -150,7 +150,7 @@ suite("test_s3_tvf", "load_p0") {
             .addProperty("column_separator", "|"))
 
     for(String table : arrayTables) {
-        attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "", true)
+        attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "kd01", "kd02", "kd03", "kd04", "kd05", "kd06", "kd07", "kd08", "kd09", "kd10", "kd11", "kd12", "kd13", "kd14", "kd15", "kd16"], "", "", true)
                 .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_with_errors.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|"))

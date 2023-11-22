@@ -33,6 +33,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -329,6 +330,19 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    private boolean canCompareIP(PrimitiveType t1, PrimitiveType t2) {
+        if (t1.isIPv4Type()) {
+            return t2.isIPv4Type() || t2.isStringType();
+        } else if (t2.isIPv4Type()) {
+            return t1.isStringType();
+        } else if (t1.isIPv6Type()) {
+            return t2.isIPv6Type() || t2.isStringType();
+        } else if (t2.isIPv6Type()) {
+            return t1.isStringType();
+        }
+        return false;
+    }
+
     private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
         if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
             return Type.DATEV2;
@@ -411,6 +425,19 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
+        if (canCompareIP(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
+            if ((getChild(0).getType().isIP() && getChild(1) instanceof StringLiteral)
+                    || (getChild(1).getType().isIP() && getChild(0) instanceof StringLiteral)
+                    || (getChild(0).getType().isIP() && getChild(1).getType().isIP())) {
+                if (getChild(0).getType().isIPv4() || getChild(1).getType().isIPv4()) {
+                    return Type.IPV4;
+                }
+                if (getChild(0).getType().isIPv6() || getChild(1).getType().isIPv6()) {
+                    return Type.IPV6;
+                }
+            }
+        }
+
         // Following logical is compatible with MySQL:
         //    Cast to DOUBLE by default, because DOUBLE has the largest range of values.
         if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.VARCHAR) {
@@ -421,8 +448,15 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.STRING;
         }
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
+                    SessionVariable.getEnableDecimal256());
         }
+
+        if (t1 == PrimitiveType.DECIMALV2 && t2 == PrimitiveType.DECIMALV2) {
+            return ScalarType.getAssignmentCompatibleDecimalV2Type((ScalarType) getChild(0).getType(),
+                    (ScalarType) getChild(1).getType());
+        }
+
         if ((t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.DECIMALV2)
                 || (t2 == PrimitiveType.BIGINT && t1 == PrimitiveType.DECIMALV2)
                 || (t1 == PrimitiveType.LARGEINT && t2 == PrimitiveType.DECIMALV2)
@@ -454,7 +488,8 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType())
                 || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType())) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
+                    SessionVariable.getEnableDecimal256());
         }
 
         return Type.DOUBLE;
@@ -773,8 +808,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
-    public Expr getResultValue(boolean inView) throws AnalysisException {
-        recursiveResetChildrenResult(inView);
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        recursiveResetChildrenResult(forPushDownPredicatesToView);
         final Expr leftChildValue = getChild(0);
         final Expr rightChildValue = getChild(1);
         if (!(leftChildValue instanceof LiteralExpr)

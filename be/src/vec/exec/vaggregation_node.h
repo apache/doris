@@ -32,7 +32,6 @@
 #include <variant>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
@@ -425,7 +424,6 @@ protected:
     RuntimeProfile::Counter* _hash_table_input_counter;
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _expr_timer;
-    RuntimeProfile::Counter* _exec_timer;
 
 private:
     friend class pipeline::AggSinkOperator;

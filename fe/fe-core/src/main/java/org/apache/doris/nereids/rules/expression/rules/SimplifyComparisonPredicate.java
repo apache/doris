@@ -188,16 +188,6 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
             }
         }
 
-        if (left.getDataType() == DateType.INSTANCE && right.getDataType() == DateType.INSTANCE) {
-            // Date cp Date is not supported in BE storage engine. So cast to DateTime
-            left = new Cast(left, DateTimeType.INSTANCE);
-            if (right instanceof DateLiteral) {
-                DateLiteral l = (DateLiteral) right;
-                right = new DateTimeLiteral(l.getYear(), l.getMonth(), l.getDay(), 0, 0, 0);
-            } else {
-                right = new Cast(right, DateTimeType.INSTANCE);
-            }
-        }
         if (left != cp.left() || right != cp.right()) {
             return cp.withChildren(left, right);
         } else {

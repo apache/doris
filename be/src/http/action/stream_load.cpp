@@ -76,6 +76,9 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
+static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
+static const string CHUNK = "chunked";
+
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
@@ -141,14 +144,13 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
         return Status::InternalError("receive body don't equal with body bytes");
     }
+
+    // if we use non-streaming, MessageBodyFileSink.finish will close the file
+    RETURN_IF_ERROR(ctx->body_sink->finish());
     if (!ctx->use_streaming) {
-        // if we use non-streaming, we need to close file first,
-        // then execute_plan_fragment here
-        // this will close file
+        // we need to close file first, then execute_plan_fragment here
         ctx->body_sink.reset();
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx));
-    } else {
-        RETURN_IF_ERROR(ctx->body_sink->finish());
     }
 
     // wait stream load finish
@@ -185,8 +187,9 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
     ctx->label = req->header(HTTP_LABEL_KEY);
     Status st = Status::OK();
-    if (iequal(req->header(HTTP_GROUP_COMMIT), "true")) {
-        if (!ctx->label.empty()) {
+    if (iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
+        config::wait_internal_group_commit_finish) {
+        if (iequal(req->header(HTTP_GROUP_COMMIT), "true") && !ctx->label.empty()) {
             st = Status::InternalError("label and group_commit can't be set at the same time");
         }
         ctx->group_commit = true;
@@ -292,6 +295,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 #endif
     }
 
+    if (!http_req->header(HttpHeaders::TRANSFER_ENCODING).empty()) {
+        if (http_req->header(HttpHeaders::TRANSFER_ENCODING).find(CHUNK) != std::string::npos) {
+            ctx->is_chunked_transfer = true;
+        }
+    }
+
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
         try {
             ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
@@ -369,9 +378,15 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
-        auto pipe = std::make_shared<io::StreamLoadPipe>(
-                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
-                ctx->body_bytes /* total_length */);
+        std::shared_ptr<io::StreamLoadPipe> pipe;
+        if (ctx->is_chunked_transfer) {
+            pipe = std::make_shared<io::StreamLoadPipe>(
+                    io::kMaxPipeBufferedBytes /* max_buffered_bytes */);
+        } else {
+            pipe = std::make_shared<io::StreamLoadPipe>(
+                    io::kMaxPipeBufferedBytes /* max_buffered_bytes */,
+                    MIN_CHUNK_SIZE /* min_chunk_size */, ctx->body_bytes /* total_length */);
+        }
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
         ctx->pipe = pipe;
@@ -398,9 +413,19 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_line_delimiter(http_req->header(HTTP_LINE_DELIMITER));
     }
     if (!http_req->header(HTTP_ENCLOSE).empty() && http_req->header(HTTP_ENCLOSE).size() > 0) {
+        const auto& enclose_str = http_req->header(HTTP_ENCLOSE);
+        if (enclose_str.length() != 1) {
+            return Status::InvalidArgument("enclose must be single-char, actually is {}",
+                                           enclose_str);
+        }
         request.__set_enclose(http_req->header(HTTP_ENCLOSE)[0]);
     }
     if (!http_req->header(HTTP_ESCAPE).empty() && http_req->header(HTTP_ESCAPE).size() > 0) {
+        const auto& escape_str = http_req->header(HTTP_ESCAPE);
+        if (escape_str.length() != 1) {
+            return Status::InvalidArgument("escape must be single-char, actually is {}",
+                                           escape_str);
+        }
         request.__set_escape(http_req->header(HTTP_ESCAPE)[0]);
     }
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
@@ -497,7 +522,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_send_batch_parallelism(
                     std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid send_batch_parallelism format, {}", e.what());
+            return Status::InvalidArgument("send_batch_parallelism must be an integer, {}",
+                                           e.what());
+        } catch (const std::out_of_range& e) {
+            return Status::InvalidArgument("send_batch_parallelism out of range, {}", e.what());
         }
     }
 
@@ -599,13 +627,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     // to process this load
     if (!ctx->use_streaming) {
         return Status::OK();
-    }
-
-    if (ctx->group_commit) {
-        ctx->db_id = ctx->put_result.db_id;
-        ctx->table_id = ctx->put_result.table_id;
-        ctx->schema_version = ctx->put_result.base_schema_version;
-        return _exec_env->group_commit_mgr()->group_commit_stream_load(ctx);
     }
 
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);

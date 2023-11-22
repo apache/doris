@@ -47,6 +47,22 @@ suite('test_cast') {
         result([[-9.9]])
     }
 
+    // round
+    //result([[123456789]])
+    qt_sql_1 " select cast('123456789.0' as DECIMALV3(9, 0)) "
+
+    // result([[999999999]])
+    qt_sql_2 " select cast('999999999.0' as DECIMALV3(9, 0)) "
+
+    // result([[123456790]])
+    qt_sql_3 " select cast('123456789.9' as DECIMALV3(9, 0)) "
+
+    // result([[926895541712428044]])
+    qt_sql_4 " select cast('926895541712428044.1' as DECIMALV3(18,0)); "
+
+    // result([[99999999999999999.9]])
+    qt_sql_5 " select cast('926895541712428044.1' as DECIMAL(18,1)); "
+
     // leading-zeros
     qt_sql_decimalv3 """select CAST('0.29401599228723063' AS DECIMALV3)"""
 

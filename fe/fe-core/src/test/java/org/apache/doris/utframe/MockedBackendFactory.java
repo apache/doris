@@ -50,6 +50,10 @@ import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPublishTopicRequest;
+import org.apache.doris.thrift.TPublishTopicResult;
+import org.apache.doris.thrift.TQueryIngestBinlogRequest;
+import org.apache.doris.thrift.TQueryIngestBinlogResult;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
 import org.apache.doris.thrift.TScanCloseParams;
@@ -170,8 +174,12 @@ public class MockedBackendFactory {
                         FrontendService.Client client = null;
                         TNetworkAddress address = null;
                         try {
-                            address = backend.getFeAddress();
+                            // ATTR: backend.getFeAddress must after taskQueue.take, because fe addr thread race
                             TAgentTaskRequest request = taskQueue.take();
+                            address = backend.getFeAddress();
+                            if (address == null) {
+                                System.out.println("fe addr thread race, please check it");
+                            }
                             System.out.println(
                                     "get agent task request. type: " + request.getTaskType() + ", signature: "
                                     + request.getSignature() + ", fe addr: " + address);
@@ -300,6 +308,11 @@ public class MockedBackendFactory {
         }
 
         @Override
+        public TPublishTopicResult publishTopicInfo(TPublishTopicRequest request) throws TException {
+            return new TPublishTopicResult(new TStatus(TStatusCode.OK));
+        }
+
+        @Override
         public TStatus submitExportTask(TExportTaskRequest request) throws TException {
             return new TStatus(TStatusCode.OK);
         }
@@ -366,6 +379,12 @@ public class MockedBackendFactory {
 
         @Override
         public TIngestBinlogResult ingestBinlog(TIngestBinlogRequest ingestBinlogRequest) throws TException {
+            return null;
+        }
+
+        @Override
+        public TQueryIngestBinlogResult queryIngestBinlog(TQueryIngestBinlogRequest queryIngestBinlogRequest)
+                throws TException {
             return null;
         }
     }

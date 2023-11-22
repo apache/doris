@@ -89,10 +89,13 @@ public class StreamLoadTask implements LoadTaskInfo {
     private boolean enableProfile = false;
 
     private boolean memtableOnSinkNode = false;
+    private int streamPerNode = 20;
 
     private byte enclose = 0;
 
     private byte escape = 0;
+
+    private boolean groupCommit = false;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
@@ -307,11 +310,21 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.memtableOnSinkNode = memtableOnSinkNode;
     }
 
+    @Override
+    public int getStreamPerNode() {
+        return streamPerNode;
+    }
+
+    public void setStreamPerNode(int streamPerNode) {
+        this.streamPerNode = streamPerNode;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
+        streamLoadTask.setGroupCommit(request.isGroupCommit());
         if (request.isSetFileSize()) {
             streamLoadTask.fileSize = request.getFileSize();
         }
@@ -444,6 +457,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();
         }
+        if (request.isSetStreamPerNode()) {
+            this.streamPerNode = request.getStreamPerNode();
+        }
     }
 
     // used for stream load
@@ -518,6 +534,14 @@ public class StreamLoadTask implements LoadTaskInfo {
     @Override
     public double getMaxFilterRatio() {
         return maxFilterRatio;
+    }
+
+    public void setGroupCommit(boolean groupCommit) {
+        this.groupCommit = groupCommit;
+    }
+
+    public boolean isGroupCommit() {
+        return groupCommit;
     }
 }
 

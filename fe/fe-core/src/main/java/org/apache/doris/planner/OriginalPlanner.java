@@ -211,7 +211,7 @@ public class OriginalPlanner extends Planner {
         }
         checkAndSetTopnOpt(singleNodePlan);
 
-        if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
+        if ((queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) && !(statement instanceof InsertStmt)) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
             fragments.add(new PlanFragment(plannerContext.getNextFragmentId(), singleNodePlan,

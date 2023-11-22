@@ -41,6 +41,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/stringprintf.h"
 #include "io/fs/local_file_system.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/delete_handler.h"

@@ -50,7 +50,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,6 +68,7 @@ public class Memo {
     private static final EventProducer GROUP_MERGE_TRACER = new EventProducer(GroupMergeEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
+    private final ConnectContext connectContext;
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -77,11 +77,13 @@ public class Memo {
 
     // FOR TEST ONLY
     public Memo() {
-        root = null;
+        this.root = null;
+        this.connectContext = null;
     }
 
-    public Memo(Plan plan) {
-        root = init(plan);
+    public Memo(ConnectContext connectContext, Plan plan) {
+        this.root = init(plan);
+        this.connectContext = connectContext;
     }
 
     public static long getStateId() {
@@ -114,31 +116,6 @@ public class Memo {
 
     public int getGroupExpressionsSize() {
         return groupExpressions.size();
-    }
-
-    /** just keep LogicalExpression in Memo. */
-    public void removePhysicalExpression() {
-        groupExpressions.entrySet().removeIf(entry -> entry.getValue().getPlan() instanceof PhysicalPlan);
-
-        Iterator<Map.Entry<GroupId, Group>> iterator = groups.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<GroupId, Group> entry = iterator.next();
-            Group group = entry.getValue();
-
-            group.clearPhysicalExpressions();
-            group.clearLowestCostPlans();
-            group.removeParentPhysicalExpressions();
-            group.setExplored(false);
-
-            if (group.getLogicalExpressions().isEmpty() && group.getPhysicalExpressions().isEmpty()) {
-                iterator.remove();
-            }
-        }
-
-        // logical groupExpression reset ruleMask
-        groupExpressions.values().stream()
-                .filter(groupExpression -> groupExpression.getPlan() instanceof LogicalPlan)
-                .forEach(GroupExpression::clearApplied);
     }
 
     private Plan skipProject(Plan plan, Group targetGroup) {
@@ -240,8 +217,7 @@ public class Memo {
     }
 
     private void maybeAddStateId(CopyInResult result) {
-        if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
+        if (connectContext != null && connectContext.getSessionVariable().isEnableNereidsTrace()
                 && result.generateNewExpression) {
             stateId++;
         }
@@ -876,11 +852,12 @@ public class Memo {
 
             List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
             permute(children, 0, childrenId, new ArrayList<>());
-            Cost cost = CostCalculator.calculateCost(groupExpression, inputProperties);
+            Cost cost = CostCalculator.calculateCost(connectContext, groupExpression, inputProperties);
             for (Pair<Long, List<Integer>> c : childrenId) {
                 Cost totalCost = cost;
                 for (int i = 0; i < children.size(); i++) {
-                    totalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                    totalCost = CostCalculator.addChildCost(connectContext,
+                            groupExpression.getPlan(),
                             totalCost,
                             children.get(i).get(c.second.get(i)).second,
                             i);
@@ -968,7 +945,7 @@ public class Memo {
 
         // return any if exits except RequirePropertiesSupplier and SetOperators
         // Because PropRegulator could change their input properties
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(prop);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(connectContext, prop);
         List<List<PhysicalProperties>> requestList = requestPropertyDeriver
                 .getRequestChildrenPropertyList(groupExpression);
         Optional<List<PhysicalProperties>> any = requestList.stream()

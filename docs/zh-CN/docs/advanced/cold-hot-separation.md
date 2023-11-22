@@ -35,7 +35,7 @@ under the License.
 4. 基于普通云盘做高可用，需要实现多副本，某副本异常要做副本迁移。而将数据放到对象存储上则不存在此类问题，因为对象存储是共享的。
 
 ## 解决方案
-在Partition级别上设置freeze time，表示多久这个Partition会被freeze，并且定义freeze之后存储的remote storage的位置。在be上daemon线程会周期性的判断表是否需要freeze，若freeze后会将数据上传到s3上。
+在Partition级别上设置freeze time，表示多久这个Partition会被freeze，并且定义freeze之后存储的remote storage的位置。在be上daemon线程会周期性的判断表是否需要freeze，若freeze后会将数据上传到s3和hdfs上。
 
 冷热分层支持所有doris功能，只是把部分数据放到对象存储上，以节省成本，不牺牲功能。因此有如下特点：
 
@@ -57,7 +57,7 @@ under the License.
 
 注意：这个属性不会被CCR同步，如果这个表是被CCR复制而来的，即PROPERTIES中包含`is_being_synced = true`时，这个属性将会在这个表中被擦除。
 
-例如：
+下面演示如何创建S3 RESOURCE：
 
 ```
 CREATE RESOURCE "remote_s3"
@@ -93,6 +93,36 @@ PROPERTIES(
     "storage_policy" = "test_policy"
 );
 ```
+以及如何创建 HDFS RESOURCE：
+```
+CREATE RESOURCE "remote_hdfs" PROPERTIES (
+        "type"="hdfs",
+        "fs.defaultFS"="fs_host:default_fs_port",
+        "hadoop.username"="hive",
+        "hadoop.password"="hive",
+        "dfs.nameservices" = "my_ha",
+        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
+        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
+        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_port",
+        "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+    );
+
+    CREATE STORAGE POLICY test_policy PROPERTIES (
+        "storage_resource" = "remote_hdfs",
+        "cooldown_ttl" = "300"
+    )
+
+    CREATE TABLE IF NOT EXISTS create_table_use_created_policy (
+    k1 BIGINT,
+    k2 LARGEINT,
+    v1 VARCHAR(2048)
+    )
+    UNIQUE KEY(k1)
+    DISTRIBUTED BY HASH (k1) BUCKETS 3
+    PROPERTIES(
+    "storage_policy" = "test_policy"
+    );
+```
 或者对一个已存在的表，关联storage policy
 ```
 ALTER TABLE create_table_not_have_policy set ("storage_policy" = "test_policy");
@@ -103,6 +133,7 @@ ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="te
 ```
 **注意**，如果用户在建表时给整张table和部分partition指定了不同的storage policy，partition设置的storage policy会被无视，整张表的所有partition都会使用table的policy. 如果您需要让某个partition的policy和别的不同，则可以使用上文中对一个已存在的partition，关联storage policy的方式修改.
 具体可以参考docs目录下[resource](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md)、 [policy](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY.md)、 [create table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)、 [alter table](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md)等文档，里面有详细介绍
+
 
 ### 一些限制
 

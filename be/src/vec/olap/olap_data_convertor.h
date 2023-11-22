@@ -35,6 +35,7 @@
 #include "runtime/collection_value.h"
 #include "util/slice.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -43,6 +44,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_object.h"
 
 namespace doris {
 
@@ -198,6 +200,7 @@ private:
                                size_t num_rows) override;
         const void* get_data() const override;
         const void* get_data_at(size_t offset) const override;
+        Status convert_to_olap(const UInt8* null_map, const ColumnString* column_array);
         Status convert_to_olap() override;
 
     private:
@@ -479,6 +482,22 @@ private:
         PaddedPODArray<UInt64> _offsets; // map offsets in disk layout
         UInt64 _base_offset;
     }; //OlapColumnDataConvertorMap
+
+    class OlapColumnDataConvertorVariant : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorVariant()
+                : _root_data_convertor(std::make_unique<OlapColumnDataConvertorVarChar>(true)) {}
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
+        Status convert_to_olap() override;
+
+        const void* get_data() const override;
+        const void* get_data_at(size_t offset) const override;
+
+    private:
+        const ColumnString* _root_data_column;
+        std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
+    };
 
 private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;

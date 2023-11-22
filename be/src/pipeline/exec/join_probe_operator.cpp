@@ -41,7 +41,7 @@ Status JoinProbeLocalState<DependencyType, Derived>::init(RuntimeState* state,
     _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
     _join_filter_timer = ADD_TIMER(Base::profile(), "JoinFilterTimer");
     _build_output_block_timer = ADD_TIMER(Base::profile(), "BuildOutputBlock");
-    _probe_rows_counter = ADD_COUNTER(Base::profile(), "ProbeRows", TUnit::UNIT);
+    _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(Base::profile(), "ProbeRows", TUnit::UNIT, 1);
 
     return Status::OK();
 }
@@ -153,8 +153,8 @@ void JoinProbeLocalState<DependencyType, Derived>::_reset_tuple_is_null_column()
 
 template <typename LocalStateType>
 JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                       const DescriptorTbl& descs)
-        : Base(pool, tnode, descs),
+                                                       int operator_id, const DescriptorTbl& descs)
+        : Base(pool, tnode, operator_id, descs),
           _join_op(tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op

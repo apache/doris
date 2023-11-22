@@ -17,18 +17,17 @@
 
 #include "scanner_scheduler.h"
 
-#include <stdint.h>
-
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <list>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <typeinfo>
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -41,6 +40,7 @@
 #include "util/blocking_queue.hpp"
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
+#include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -54,6 +54,15 @@
 
 namespace doris::vectorized {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(remote_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(remote_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(limited_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(limited_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(group_local_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(group_local_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
+
 ScannerScheduler::ScannerScheduler() = default;
 
 ScannerScheduler::~ScannerScheduler() {
@@ -65,6 +74,7 @@ ScannerScheduler::~ScannerScheduler() {
         delete _pending_queues[i];
     }
     delete[] _pending_queues;
+    _deregister_metrics();
 }
 
 void ScannerScheduler::stop() {
@@ -87,7 +97,7 @@ void ScannerScheduler::stop() {
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
-    _remote_scan_thread_pool->wait();
+    _remote_scan_thread_pool->join();
     _limited_scan_thread_pool->wait();
     _group_local_scan_thread_pool->wait();
 
@@ -108,20 +118,14 @@ Status ScannerScheduler::init(ExecEnv* env) {
     }
 
     // 2. local scan thread pool
-    _local_scan_thread_pool.reset(
-            new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                   config::doris_scanner_thread_pool_queue_size, "local_scan"));
+    _local_scan_thread_pool = std::make_unique<PriorityThreadPool>(
+            config::doris_scanner_thread_pool_thread_num,
+            config::doris_scanner_thread_pool_queue_size, "local_scan");
 
     // 3. remote scan thread pool
-    static_cast<void>(
-            ThreadPoolBuilder("RemoteScanThreadPool")
-                    .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
-                    .set_max_threads(
-                            config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                                    ? config::doris_max_remote_scanner_thread_pool_thread_num
-                                    : std::max(512, CpuInfo::num_cores() * 10))
-                    .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                    .build(&_remote_scan_thread_pool));
+    _remote_scan_thread_pool = std::make_unique<PriorityThreadPool>(
+            config::doris_remote_scanner_thread_pool_thread_num,
+            config::doris_remote_scanner_thread_pool_queue_size, "RemoteScanThreadPool");
 
     // 4. limited scan thread pool
     static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
@@ -136,14 +140,13 @@ Status ScannerScheduler::init(ExecEnv* env) {
     static_cast<void>(ThreadPoolBuilder("local_scan_group")
                               .set_min_threads(config::doris_scanner_thread_pool_thread_num)
                               .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                              .set_cgroup_cpu_ctl(env->get_cgroup_cpu_ctl())
                               .build(&_group_local_scan_thread_pool));
     for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
         static_cast<void>(_group_local_scan_thread_pool->submit_func([this] {
             this->_task_group_scanner_scan(this, _task_group_local_scan_queue.get());
         }));
     }
-
+    _register_metrics();
     _is_init = true;
     return Status::OK();
 }
@@ -181,7 +184,7 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
 }
 
 [[maybe_unused]] static void* run_scanner_bthread(void* arg) {
-    auto f = reinterpret_cast<std::function<void()>*>(arg);
+    auto* f = reinterpret_cast<std::function<void()>*>(arg);
     (*f)();
     delete f;
     return nullptr;
@@ -193,7 +196,10 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
     watch.start();
     ctx->incr_num_ctx_scheduling(1);
     size_t size = 0;
-    Defer defer {[&]() { ctx->update_num_running(size, -1); }};
+    Defer defer {[&]() {
+        ctx->incr_num_scanner_scheduling(size);
+        ctx->dec_num_scheduling_ctx();
+    }};
 
     if (ctx->done()) {
         return;
@@ -212,12 +218,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
         return;
     }
 
+    ctx->inc_num_running_scanners(this_run.size());
+
     // Submit scanners to thread pool
     // TODO(cmy): How to handle this "nice"?
     int nice = 1;
     auto iter = this_run.begin();
     auto submit_to_thread_pool = [&] {
-        ctx->incr_num_scanner_scheduling(this_run.size());
         if (ctx->thread_token != nullptr) {
             // TODO llj tg how to treat this?
             while (iter != this_run.end()) {
@@ -237,7 +244,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 TabletStorageType type = (*iter)->get_storage_type();
                 bool ret = false;
                 if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-                    if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
+                    if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
+                        auto work_func = [this, scanner = *iter, ctx] {
+                            this->_scanner_scan(this, ctx, scanner);
+                        };
+                        SimplifiedScanTask simple_scan_task = {work_func, ctx};
+                        ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
+                    } else if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
                         auto work_func = [this, scanner = *iter, ctx] {
                             this->_scanner_scan(this, ctx, scanner);
                         };
@@ -254,9 +267,12 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                         ret = _local_scan_thread_pool->offer(task);
                     }
                 } else {
-                    ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
+                    PriorityThreadPool::Task task;
+                    task.work_function = [this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
-                    });
+                    };
+                    task.priority = nice;
+                    ret = _remote_scan_thread_pool->offer(task);
                 }
                 if (ret) {
                     this_run.erase(iter++);
@@ -312,10 +328,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScannerSPtr scanner) {
     SCOPED_ATTACH_TASK(scanner->runtime_state());
+    // for cpu hard limit, thread name should not be reset
 #if !defined(USE_BTHREAD_SCANNER)
-    Thread::set_self_name("_scanner_scan");
+    if (ctx->_should_reset_thread_name) {
+        Thread::set_self_name("_scanner_scan");
+    }
 #else
-    if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr) {
+    if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr && ctx->_should_reset_thread_name) {
         Thread::set_self_name("_scanner_scan");
     }
 #endif
@@ -371,8 +390,8 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     bool should_stop = false;
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && raw_bytes_read < raw_bytes_threshold &&
-           (raw_rows_read < raw_rows_threshold || num_rows_in_block < state->batch_size())) {
+    while (!eos && raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold &&
+           num_rows_in_block < state->batch_size()) {
         // TODO llj task group should should_yield?
         if (UNLIKELY(ctx->done())) {
             // No need to set status on error here.
@@ -447,23 +466,42 @@ void ScannerScheduler::_task_group_scanner_scan(ScannerScheduler* scheduler,
         auto success = scan_queue->take(&scan_task);
         if (success) {
             int64_t time_spent = 0;
-            if (!scan_task.is_empty_task) {
-                RuntimeProfile::Counter tmp_timer(TUnit::TIME_NS);
-                {
-                    SCOPED_CPU_TIMER(&tmp_timer);
-                    scan_task.scan_func();
-                }
-                time_spent = tmp_timer.value();
-            } else {
-                {
-                    SCOPED_RAW_TIMER(&time_spent);
-                    usleep(taskgroup::SCAN_THREAD_TIME_SLICE_US);
-                }
-                time_spent = time_spent * _core_num / _total_query_thread_num;
+            {
+                SCOPED_RAW_TIMER(&time_spent);
+                scan_task.scan_func();
             }
             scan_queue->update_statistics(scan_task, time_spent);
         }
     }
 }
 
+void ScannerScheduler::_register_metrics() {
+    REGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size,
+                         [this]() { return _local_scan_thread_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num,
+                         [this]() { return _local_scan_thread_pool->get_active_threads(); });
+    REGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size,
+                         [this]() { return _remote_scan_thread_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num,
+                         [this]() { return _remote_scan_thread_pool->get_active_threads(); });
+    REGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size,
+                         [this]() { return _limited_scan_thread_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num,
+                         [this]() { return _limited_scan_thread_pool->num_threads(); });
+    REGISTER_HOOK_METRIC(group_local_scan_thread_pool_queue_size,
+                         [this]() { return _group_local_scan_thread_pool->get_queue_size(); })
+    REGISTER_HOOK_METRIC(group_local_scan_thread_pool_thread_num,
+                         [this]() { return _group_local_scan_thread_pool->num_threads(); });
+}
+
+void ScannerScheduler::_deregister_metrics() {
+    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_thread_num);
+}
 } // namespace doris::vectorized

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
@@ -52,6 +53,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopFront;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPosition;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayProduct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPushBack;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPushFront;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
@@ -62,6 +65,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayWithConstant;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayZip;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
@@ -182,6 +186,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -440,6 +447,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayCompact, context);
     }
 
+    default R visitArrayConcat(ArrayConcat arrayConcat, C context) {
+        return visitScalarFunction(arrayConcat, context);
+    }
+
     default R visitArrayContains(ArrayContains arrayContains, C context) {
         return visitScalarFunction(arrayContains, context);
     }
@@ -516,6 +527,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayProduct, context);
     }
 
+    default R visitArrayPushBack(ArrayPushBack arrayPushBack, C context) {
+        return visitScalarFunction(arrayPushBack, context);
+    }
+
+    default R visitArrayPushFront(ArrayPushFront arrayPushFront, C context) {
+        return visitScalarFunction(arrayPushFront, context);
+    }
+
     default R visitArrayRange(ArrayRange arrayRange, C context) {
         return visitScalarFunction(arrayRange, context);
     }
@@ -562,6 +581,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayReverseSort(ArrayReverseSort arrayReverseSort, C context) {
         return visitScalarFunction(arrayReverseSort, context);
+    }
+
+    default R visitArrayZip(ArrayZip arrayZip, C context) {
+        return visitScalarFunction(arrayZip, context);
     }
 
     default R visitAscii(Ascii ascii, C context) {
@@ -1074,6 +1097,18 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv4NumToString(Ipv4NumToString ipv4NumToString, C context) {
         return visitScalarFunction(ipv4NumToString, context);
+    }
+
+    default R visitIpv4StringToNum(Ipv4StringToNum ipv4StringToNum, C context) {
+        return visitScalarFunction(ipv4StringToNum, context);
+    }
+
+    default R visitIpv4StringToNumOrDefault(Ipv4StringToNumOrDefault ipv4StringToNumOrDefault, C context) {
+        return visitScalarFunction(ipv4StringToNumOrDefault, context);
+    }
+
+    default R visitIpv4StringToNumOrNull(Ipv4StringToNumOrNull ipv4StringToNumOrNull, C context) {
+        return visitScalarFunction(ipv4StringToNumOrNull, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {

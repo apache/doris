@@ -167,7 +167,8 @@ int HttpStreamAction::on_header(HttpRequest* req) {
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
-    ctx->group_commit = iequal(req->header(HTTP_GROUP_COMMIT), "true");
+    ctx->group_commit = iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
+                        config::wait_internal_group_commit_finish;
 
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true" ? true : false;
 
@@ -324,12 +325,6 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
 
-    if (ctx->group_commit) {
-        ctx->db_id = ctx->put_result.db_id;
-        ctx->table_id = ctx->put_result.table_id;
-        ctx->schema_version = ctx->put_result.base_schema_version;
-        return _exec_env->group_commit_mgr()->group_commit_stream_load(ctx);
-    }
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 

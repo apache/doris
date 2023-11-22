@@ -76,7 +76,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return HashUtil::zlib_crc_hash(v, 8, seed);
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        auto* date_val = (const vectorized::VecDateTimeValue*)v;
+        auto* date_val = (const VecDateTimeValue*)v;
         char buf[64];
         int len = date_val->to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, len, seed);
@@ -103,6 +103,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return HashUtil::zlib_crc_hash(v, 8, seed);
     case TYPE_DECIMAL128I:
         return HashUtil::zlib_crc_hash(v, 16, seed);
+    case TYPE_DECIMAL256:
+        return HashUtil::zlib_crc_hash(v, 32, seed);
     default:
         DCHECK(false) << "invalid type: " << type;
         return 0;

@@ -32,7 +32,7 @@ namespace doris::pipeline {
 
 Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
-        Base::_eos_dependency->set_ready_for_read();
+        Base::_scan_dependency->set_eos();
         return Status::OK();
     }
 
@@ -52,8 +52,11 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     return Status::OK();
 }
 
-void FileScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
-    int max_scanners = config::doris_scanner_thread_pool_thread_num;
+void FileScanLocalState::set_scan_ranges(RuntimeState* state,
+                                         const std::vector<TScanRangeParams>& scan_ranges) {
+    int max_scanners =
+            config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
+    max_scanners = max_scanners == 0 ? 1 : max_scanners;
     if (scan_ranges.size() <= max_scanners) {
         _scan_ranges = scan_ranges;
     } else {
@@ -92,7 +95,7 @@ Status FileScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
 Status FileScanLocalState::_process_conjuncts() {
     RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::_process_conjuncts());
-    if (Base::_eos_dependency->read_blocked_by() == nullptr) {
+    if (Base::_scan_dependency->eos()) {
         return Status::OK();
     }
     // TODO: Push conjuncts down to reader.
@@ -102,8 +105,9 @@ Status FileScanLocalState::_process_conjuncts() {
 Status FileScanOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::prepare(state));
     if (state->get_query_ctx() != nullptr &&
-        state->get_query_ctx()->file_scan_range_params_map.count(_id) > 0) {
-        TFileScanRangeParams& params = state->get_query_ctx()->file_scan_range_params_map[_id];
+        state->get_query_ctx()->file_scan_range_params_map.contains(node_id())) {
+        TFileScanRangeParams& params =
+                state->get_query_ctx()->file_scan_range_params_map[node_id()];
         _output_tuple_id = params.dest_tuple_id;
     }
     return Status::OK();
