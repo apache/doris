@@ -20,6 +20,7 @@ package org.apache.doris.persist;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -35,6 +36,8 @@ import java.util.Map;
 import java.util.Objects;
 
 public class AlterMTMV implements Writable {
+    @SerializedName("ot")
+    private MTMVAlterOpType opType;
     @SerializedName("mn")
     private TableNameInfo mvName;
     @SerializedName("ri")
@@ -50,14 +53,16 @@ public class AlterMTMV implements Writable {
     @SerializedName("c")
     private MTMVCache cache;
 
-    public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo) {
+    public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, MTMVAlterOpType opType) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
         this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
+        this.opType = Objects.requireNonNull(opType, "require opType object");
         this.needRebuildJob = true;
     }
 
-    public AlterMTMV(TableNameInfo mvName) {
+    public AlterMTMV(TableNameInfo mvName, MTMVAlterOpType opType) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
+        this.opType = Objects.requireNonNull(opType, "require opType object");
     }
 
     public TableNameInfo getMvName() {
@@ -98,6 +103,10 @@ public class AlterMTMV implements Writable {
 
     public void setNeedRebuildJob(boolean needRebuildJob) {
         this.needRebuildJob = needRebuildJob;
+    }
+
+    public MTMVAlterOpType getOpType() {
+        return opType;
     }
 
     public MTMVTask getTask() {

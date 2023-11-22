@@ -22,6 +22,10 @@ import com.google.gson.annotations.SerializedName;
 import java.util.Set;
 
 public class MTMVCache {
+    // if mtmv query sql is `select * from view1`;
+    // and `view1` query sql is `select * from table1 join table2`
+    // then baseTables will include: `table1` and `table2`
+    // baseViews will include `view1`
     @SerializedName("bt")
     private Set<BaseTableInfo> baseTables;
     @SerializedName("bv")

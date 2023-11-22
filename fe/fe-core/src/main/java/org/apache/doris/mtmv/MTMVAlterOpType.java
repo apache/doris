@@ -17,35 +17,9 @@
 
 package org.apache.doris.mtmv;
 
-import com.google.gson.annotations.SerializedName;
-
-/**
- * EnvInfo
- */
-public class EnvInfo {
-    @SerializedName("ci")
-    private long ctlId;
-    @SerializedName("di")
-    private long dbId;
-
-    public EnvInfo(long ctlId, long dbId) {
-        this.ctlId = ctlId;
-        this.dbId = dbId;
-    }
-
-    public long getCtlId() {
-        return ctlId;
-    }
-
-    public long getDbId() {
-        return dbId;
-    }
-
-    @Override
-    public String toString() {
-        return "EnvInfo{"
-                + "ctlId='" + ctlId + '\''
-                + ", dbId='" + dbId + '\''
-                + '}';
-    }
+public enum MTMVAlterOpType {
+    ALTER_REFRESH_INFO,
+    ALTER_STATUS,
+    ALTER_PROPERTY,
+    ADD_TASK;
 }

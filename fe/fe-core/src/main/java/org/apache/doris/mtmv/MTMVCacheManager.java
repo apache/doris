@@ -18,7 +18,6 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -34,9 +33,7 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -62,6 +59,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+/**
+ * when do some operation, do something about cache
+ */
 public class MTMVCacheManager implements MTMVHookService {
     private static final Logger LOG = LogManager.getLogger(MTMVCacheManager.class);
     private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
@@ -135,8 +135,8 @@ public class MTMVCacheManager implements MTMVHookService {
         return false;
     }
 
-    public static MTMVCache generateMTMVCache(MTMV mtmv) {
-        Plan plan = getPlanBySql(mtmv);
+    public static MTMVCache generateMTMVCache(MTMV mtmv, ConnectContext ctx) {
+        Plan plan = getPlanBySql(mtmv.getQuerySql(), ctx);
         return new MTMVCache(getBaseTables(plan), getBaseViews(plan));
     }
 
@@ -166,24 +166,16 @@ public class MTMVCacheManager implements MTMVHookService {
         return result;
     }
 
-    private static Plan getPlanBySql(MTMV mtmv) {
+    private static Plan getPlanBySql(String querySql, ConnectContext ctx) {
         List<StatementBase> statements;
         try {
-            statements = new NereidsParser().parseSQL(mtmv.getQuerySql());
+            statements = new NereidsParser().parseSQL(querySql);
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
         StatementBase parsedStmt = statements.get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.changeDefaultCatalog(mtmv.getEnvInfo().getCtlName());
-        ctx.setDatabase(mtmv.getEnvInfo().getDbName());
-        ctx.setQualifiedUser(Auth.ROOT_USER);
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-        ctx.getState().reset();
-        ctx.setThreadLocalInfo();
-        NereidsPlanner planner = new NereidsPlanner(new StatementContext());
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         return planner.plan(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
     }
 
@@ -233,11 +225,20 @@ public class MTMVCacheManager implements MTMVHookService {
 
     }
 
+    /**
+     * modify `tableMTMVs` by MTMVCache
+     * @param mtmv
+     * @param dbId
+     */
     @Override
     public void registerMTMV(MTMV mtmv, Long dbId) {
         refreshMTMVCache(mtmv.getCache(), new BaseTableInfo(mtmv.getId(), dbId));
     }
 
+    /**
+     * remove cache of mtmv
+     * @param mtmv
+     */
     @Override
     public void deregisterMTMV(MTMV mtmv) {
         removeMTMV(new BaseTableInfo(mtmv));
@@ -253,6 +254,12 @@ public class MTMVCacheManager implements MTMVHookService {
 
     }
 
+    /**
+     * modify `tableMTMVs` by MTMVCache
+     * @param mtmv
+     * @param cache
+     * @param task
+     */
     @Override
     public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
         if (task.getStatus() == TaskStatus.SUCCESS) {
@@ -261,11 +268,19 @@ public class MTMVCacheManager implements MTMVHookService {
         }
     }
 
+    /**
+     * update mtmv status to `SCHEMA_CHANGE`
+     * @param table
+     */
     @Override
     public void dropTable(Table table) {
         processBaseTableChange(table, "The base table has been deleted:");
     }
 
+    /**
+     * update mtmv status to `SCHEMA_CHANGE`
+     * @param table
+     */
     @Override
     public void alterTable(Table table) {
         processBaseTableChange(table, "The base table has been updated:");

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -61,8 +60,6 @@ public class MTMVService {
         LOG.info("deregisterHook: " + name);
     }
 
-    // when create mtmv,triggered when playing back logs
-    // when replay, db not create finish, so use dbId as param
     public void registerMTMV(MTMV mtmv, Long dbId) {
         Objects.requireNonNull(mtmv);
         LOG.info("registerMTMV: " + mtmv.getName());
@@ -71,7 +68,6 @@ public class MTMVService {
         }
     }
 
-    // when drop mtmv,triggered when playing back logs
     public void deregisterMTMV(MTMV mtmv) {
         Objects.requireNonNull(mtmv);
         LOG.info("deregisterMTMV: " + mtmv.getName());
@@ -80,7 +76,6 @@ public class MTMVService {
         }
     }
 
-    // when create mtmv,only trigger once
     public void createMTMV(MTMV mtmv) throws DdlException {
         Objects.requireNonNull(mtmv);
         LOG.info("createMTMV: " + mtmv.getName());
@@ -89,7 +84,6 @@ public class MTMVService {
         }
     }
 
-    // when drop mtmv,only trigger once
     public void dropMTMV(MTMV mtmv) throws DdlException {
         Objects.requireNonNull(mtmv);
         LOG.info("dropMTMV: " + mtmv.getName());
@@ -98,7 +92,6 @@ public class MTMVService {
         }
     }
 
-    // when alter mtmv,only trigger once
     public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
         Objects.requireNonNull(mtmv);
         Objects.requireNonNull(alterMTMV);
@@ -108,7 +101,6 @@ public class MTMVService {
         }
     }
 
-    // when refresh mtmv,only trigger once
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
         Objects.requireNonNull(info);
         LOG.info("refreshMTMV, RefreshMTMVInfo: {}", info);
@@ -117,8 +109,7 @@ public class MTMVService {
         }
     }
 
-    // when base table is dropped,only trigger once
-    public void dropTable(Table table) throws UserException {
+    public void dropTable(Table table) {
         Objects.requireNonNull(table);
         LOG.info("dropTable, tableName: {}", table.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
@@ -126,8 +117,7 @@ public class MTMVService {
         }
     }
 
-    // when base table is Modified,only trigger once
-    public void alterTable(Table table) throws UserException {
+    public void alterTable(Table table) {
         Objects.requireNonNull(table);
         LOG.info("alterTable, tableName: {}", table.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
@@ -135,7 +125,6 @@ public class MTMVService {
         }
     }
 
-    //when task finished, triggered when playing back logs
     public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
         Objects.requireNonNull(mtmv);
         Objects.requireNonNull(task);
