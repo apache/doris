@@ -30,7 +30,7 @@
 namespace doris {
 namespace pipeline {
 
-DataQueue::DataQueue(int child_count, WriteDependency* dependency)
+DataQueue::DataQueue(int child_count)
         : _queue_blocks_lock(child_count),
           _queue_blocks(child_count),
           _free_blocks_lock(child_count),
@@ -41,7 +41,8 @@ DataQueue::DataQueue(int child_count, WriteDependency* dependency)
           _cur_bytes_in_queue(child_count),
           _cur_blocks_nums_in_queue(child_count),
           _flag_queue_idx(0),
-          _dependency(dependency) {
+          _source_dependency(nullptr),
+          _sink_dependency(nullptr) {
     for (int i = 0; i < child_count; ++i) {
         _queue_blocks_lock[i].reset(new std::mutex());
         _free_blocks_lock[i].reset(new std::mutex());
@@ -117,11 +118,11 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
             }
             _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
             _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
-            if (_dependency) {
+            if (_sink_dependency) {
                 if (!_is_finished[_flag_queue_idx]) {
-                    _dependency->block_reading();
+                    _source_dependency->block();
                 }
-                _dependency->set_ready_for_write();
+                _sink_dependency->set_ready();
             }
         } else {
             if (_is_finished[_flag_queue_idx]) {
@@ -141,9 +142,9 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
         _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
         _queue_blocks[child_idx].emplace_back(std::move(block));
         _cur_blocks_nums_in_queue[child_idx] += 1;
-        if (_dependency) {
-            _dependency->set_ready_for_read();
-            _dependency->block_writing();
+        if (_sink_dependency) {
+            _source_dependency->set_ready();
+            _sink_dependency->block();
         }
         //this only use to record the queue[0] for profile
         _max_bytes_in_queue = std::max(_max_bytes_in_queue, _cur_bytes_in_queue[0].load());
@@ -154,8 +155,8 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
 void DataQueue::set_finish(int child_idx) {
     std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
     _is_finished[child_idx] = true;
-    if (_dependency) {
-        _dependency->set_ready_for_read();
+    if (_source_dependency) {
+        _source_dependency->set_ready();
     }
 }
 
@@ -164,8 +165,8 @@ void DataQueue::set_canceled(int child_idx) {
     DCHECK(!_is_finished[child_idx]);
     _is_canceled[child_idx] = true;
     _is_finished[child_idx] = true;
-    if (_dependency) {
-        _dependency->set_ready_for_read();
+    if (_source_dependency) {
+        _source_dependency->set_ready();
     }
 }
 

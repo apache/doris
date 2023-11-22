@@ -184,7 +184,7 @@ public class OdbcScanNode extends ExternalScanNode {
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
             if (shouldPushDownConjunct(odbcType, p)) {
-                String filter = JdbcScanNode.conjunctExprToString(odbcType, p);
+                String filter = JdbcScanNode.conjunctExprToString(odbcType, p, null);
                 filters.add(filter);
                 conjuncts.remove(p);
             }

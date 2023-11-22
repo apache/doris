@@ -128,6 +128,7 @@ Status IcebergTableReader::init_reader(
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
+    parquet_reader->iceberg_sanitize(_all_required_col_names);
     Status status = parquet_reader->init_reader(
             _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
             conjuncts, tuple_descriptor, row_descriptor, colname_to_slot_id,

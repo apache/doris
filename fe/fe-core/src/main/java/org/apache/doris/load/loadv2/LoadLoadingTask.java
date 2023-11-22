@@ -137,7 +137,7 @@ public class LoadLoadingTask extends LoadTask {
         Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
         if (this.jobProfile != null) {
-            this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
+            this.jobProfile.setExecutionProfile(curCoordinator.getExecutionProfile());
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);

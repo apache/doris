@@ -25,20 +25,26 @@ Status CgroupCpuCtl::init() {
     _doris_cgroup_cpu_path = config::doris_cgroup_cpu_path;
     if (_doris_cgroup_cpu_path.empty()) {
         LOG(INFO) << "doris cgroup cpu path is not specify, path=" << _doris_cgroup_cpu_path;
-        return Status::InternalError("doris cgroup cpu path {} is not specify.",
-                                     _doris_cgroup_cpu_path);
+        return Status::InternalError<false>("doris cgroup cpu path {} is not specify.",
+                                            _doris_cgroup_cpu_path);
     }
 
     if (access(_doris_cgroup_cpu_path.c_str(), F_OK) != 0) {
         LOG(ERROR) << "doris cgroup cpu path not exists, path=" << _doris_cgroup_cpu_path;
-        return Status::InternalError("doris cgroup cpu path {} not exists.",
-                                     _doris_cgroup_cpu_path);
+        return Status::InternalError<false>("doris cgroup cpu path {} not exists.",
+                                            _doris_cgroup_cpu_path);
     }
 
     if (_doris_cgroup_cpu_path.back() != '/') {
         _doris_cgroup_cpu_path = _doris_cgroup_cpu_path + "/";
     }
     return Status::OK();
+}
+
+void CgroupCpuCtl::get_cgroup_cpu_info(uint64_t* cpu_shares, uint64_t* cpu_hard_limit) {
+    std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
+    *cpu_shares = this->_cpu_shares;
+    *cpu_hard_limit = this->_cpu_hard_limit;
 }
 
 void CgroupCpuCtl::update_cpu_hard_limit(int cpu_hard_limit) {
@@ -72,14 +78,14 @@ Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, int value, std::st
     int fd = open(file_path.c_str(), is_append ? O_RDWR | O_APPEND : O_RDWR);
     if (fd == -1) {
         LOG(ERROR) << "open path failed, path=" << file_path;
-        return Status::InternalError("open path failed, path={}", file_path);
+        return Status::InternalError<false>("open path failed, path={}", file_path);
     }
 
     auto str = fmt::format("{}\n", value);
     int ret = write(fd, str.c_str(), str.size());
     if (ret == -1) {
         LOG(ERROR) << msg << " write sys file failed";
-        return Status::InternalError("{} write sys file failed", msg);
+        return Status::InternalError<false>("{} write sys file failed", msg);
     }
     LOG(INFO) << msg << " success";
     return Status::OK();
@@ -94,8 +100,8 @@ Status CgroupV1CpuCtl::init() {
         int ret = mkdir(_cgroup_v1_cpu_query_path.c_str(), S_IRWXU);
         if (ret != 0) {
             LOG(ERROR) << "cgroup v1 mkdir query failed, path=" << _cgroup_v1_cpu_query_path;
-            return Status::InternalError("cgroup v1 mkdir query failed, path=",
-                                         _cgroup_v1_cpu_query_path);
+            return Status::InternalError<false>("cgroup v1 mkdir query failed, path=",
+                                                _cgroup_v1_cpu_query_path);
         }
     }
 
@@ -105,8 +111,8 @@ Status CgroupV1CpuCtl::init() {
         int ret = mkdir(_cgroup_v1_cpu_tg_path.c_str(), S_IRWXU);
         if (ret != 0) {
             LOG(ERROR) << "cgroup v1 mkdir workload group failed, path=" << _cgroup_v1_cpu_tg_path;
-            return Status::InternalError("cgroup v1 mkdir workload group failed, path=",
-                                         _cgroup_v1_cpu_tg_path);
+            return Status::InternalError<false>("cgroup v1 mkdir workload group failed, path=",
+                                                _cgroup_v1_cpu_tg_path);
         }
     }
 

@@ -161,6 +161,9 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
                 file 'basic.csv'
                 time 10000 // limit inflight 10s
             }
+
+            sql "sync"
+
             qt_sql """ select id,score from ${tableName2} order by id;"""
             sql """ DROP TABLE IF EXISTS ${tableName2}; """
         }

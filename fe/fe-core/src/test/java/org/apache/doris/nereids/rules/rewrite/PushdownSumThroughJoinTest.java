@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -28,18 +29,28 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 class PushdownSumThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-    private static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
-    private static final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
 
     @Test
     void testSingleJoinLeftSum() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_SUM_THROUGH_JOIN.type());
+            }
+        };
         Alias sum = new Sum(scan1.getOutput().get(1)).alias("sum");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -47,7 +58,6 @@ class PushdownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .printlnTree()
                 .applyTopDown(new PushdownSumThroughJoin())
                 .matches(
                         logicalAggregate(
@@ -61,6 +71,12 @@ class PushdownSumThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testSingleJoinRightSum() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_SUM_THROUGH_JOIN.type());
+            }
+        };
         Alias sum = new Sum(scan2.getOutput().get(1)).alias("sum");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -68,7 +84,6 @@ class PushdownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .printlnTree()
                 .applyTopDown(new PushdownSumThroughJoin())
                 .matches(
                         logicalAggregate(
@@ -82,6 +97,12 @@ class PushdownSumThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testAggNotOutputGroupBy() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_SUM_THROUGH_JOIN.type());
+            }
+        };
         // agg don't output group by
         Alias sum = new Sum(scan1.getOutput().get(1)).alias("sum");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
@@ -90,7 +111,6 @@ class PushdownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .printlnTree()
                 .applyTopDown(new PushdownSumThroughJoin())
                 .matches(
                         logicalAggregate(

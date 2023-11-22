@@ -45,16 +45,23 @@ public:
     bool can_write() override { return true; }
 };
 
+class SortSinkDependency final : public Dependency {
+public:
+    using SharedState = SortSharedState;
+    SortSinkDependency(int id, int node_id) : Dependency(id, node_id, "SortSinkDependency", true) {}
+    ~SortSinkDependency() override = default;
+};
+
 enum class SortAlgorithm { HEAP_SORT, TOPN_SORT, FULL_SORT };
 
 class SortSinkOperatorX;
 
-class SortSinkLocalState : public PipelineXSinkLocalState<SortDependency> {
+class SortSinkLocalState : public PipelineXSinkLocalState<SortSinkDependency> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
 
 public:
     SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<SortDependency>(parent, state) {}
+            : PipelineXSinkLocalState<SortSinkDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 

@@ -174,8 +174,12 @@ public class MockedBackendFactory {
                         FrontendService.Client client = null;
                         TNetworkAddress address = null;
                         try {
-                            address = backend.getFeAddress();
+                            // ATTR: backend.getFeAddress must after taskQueue.take, because fe addr thread race
                             TAgentTaskRequest request = taskQueue.take();
+                            address = backend.getFeAddress();
+                            if (address == null) {
+                                System.out.println("fe addr thread race, please check it");
+                            }
                             System.out.println(
                                     "get agent task request. type: " + request.getTaskType() + ", signature: "
                                     + request.getSignature() + ", fe addr: " + address);

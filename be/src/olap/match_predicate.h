@@ -48,6 +48,8 @@ public:
 
     virtual PredicateType type() const override;
 
+    const std::string& get_value() const { return _value; }
+
     //evaluate predicate on Bitmap
     virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* roaring) const override {

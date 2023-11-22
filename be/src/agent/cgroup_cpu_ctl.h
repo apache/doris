@@ -47,6 +47,9 @@ public:
 
     void update_cpu_soft_limit(int cpu_shares);
 
+    // for log
+    void get_cgroup_cpu_info(uint64_t* cpu_shares, uint64_t* cpu_hard_limit);
+
 protected:
     Status write_cg_sys_file(std::string file_path, int value, std::string msg, bool is_append);
 

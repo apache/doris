@@ -164,14 +164,23 @@ enum TTopicInfoType {
     WORKLOAD_GROUP
 }
 
+struct TWorkloadGroupInfo {
+  1: optional i64 id
+  2: optional string name
+  3: optional i64 version
+  4: optional i64 cpu_share
+  5: optional i32 cpu_hard_limit
+  6: optional string mem_limit
+  7: optional bool enable_memory_overcommit
+  8: optional bool enable_cpu_hard_limit
+}
+
 struct TopicInfo {
-    1: optional string topic_key
-    2: required TTopicInfoType topic_type
-    3: optional map<string, string> info_map
+    1: optional TWorkloadGroupInfo workload_group_info
 }
 
 struct TPublishTopicRequest {
-    1: required list<TopicInfo> topic_list
+    1: required map<TTopicInfoType, list<TopicInfo>> topic_map
 }
 
 struct TPublishTopicResult {

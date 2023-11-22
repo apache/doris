@@ -32,7 +32,7 @@ namespace doris::pipeline {
 
 Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
-        Base::_eos_dependency->set_ready_for_read();
+        Base::_scan_dependency->set_eos();
         return Status::OK();
     }
 
@@ -95,7 +95,7 @@ Status FileScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
 Status FileScanLocalState::_process_conjuncts() {
     RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::_process_conjuncts());
-    if (Base::_eos_dependency->read_blocked_by() == nullptr) {
+    if (Base::_scan_dependency->eos()) {
         return Status::OK();
     }
     // TODO: Push conjuncts down to reader.

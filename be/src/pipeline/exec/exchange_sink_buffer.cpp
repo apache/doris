@@ -91,6 +91,13 @@ bool ExchangeSinkBuffer<Parent>::can_write() const {
 }
 
 template <typename Parent>
+void ExchangeSinkBuffer<Parent>::_set_ready_to_finish(bool all_done) {
+    if (_finish_dependency && _should_stop && all_done) {
+        _finish_dependency->set_ready();
+    }
+}
+
+template <typename Parent>
 bool ExchangeSinkBuffer<Parent>::is_pending_finish() {
     //note(wb) angly implementation here, because operator couples the scheduling logic
     // graceful implementation maybe as follows:
@@ -160,14 +167,11 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
             send_now = true;
             _rpc_channel_is_idle[ins_id.lo] = false;
             _busy_channels++;
-            if (_finish_dependency) {
-                _finish_dependency->block_finishing();
-            }
         }
         _instance_to_package_queue[ins_id.lo].emplace(std::move(request));
         _total_queue_size++;
         if (_queue_dependency && _total_queue_size > _queue_capacity) {
-            _queue_dependency->block_writing();
+            _queue_dependency->block();
         }
     }
     if (send_now) {
@@ -196,9 +200,6 @@ Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& req
             send_now = true;
             _rpc_channel_is_idle[ins_id.lo] = false;
             _busy_channels++;
-            if (_finish_dependency) {
-                _finish_dependency->block_finishing();
-            }
         }
         _instance_to_broadcast_package_queue[ins_id.lo].emplace(request);
     }
@@ -222,10 +223,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
 
     if (_is_finishing) {
         _rpc_channel_is_idle[id] = true;
-        _busy_channels--;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
         return Status::OK();
     }
 
@@ -294,7 +292,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         q.pop();
         _total_queue_size--;
         if (_queue_dependency && _total_queue_size <= _queue_capacity) {
-            _queue_dependency->set_ready_for_write();
+            _queue_dependency->set_ready();
         }
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
@@ -361,10 +359,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         broadcast_q.pop();
     } else {
         _rpc_channel_is_idle[id] = true;
-        _busy_channels--;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
     }
 
     return Status::OK();
@@ -396,11 +391,8 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
     } else {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
         if (!_rpc_channel_is_idle[id]) {
-            _busy_channels--;
             _rpc_channel_is_idle[id] = true;
-            if (_finish_dependency && _busy_channels == 0) {
-                _finish_dependency->set_ready_to_finish();
-            }
+            _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
         }
     }
 }
@@ -417,11 +409,8 @@ void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
     if (!_rpc_channel_is_idle[id]) {
-        _busy_channels--;
         _rpc_channel_is_idle[id] = true;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
     }
 }
 

@@ -970,7 +970,7 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
         DCHECK(expr->children().size() == 2);
 
         auto noneq_checker = [](const std::string& fn_name) {
-            return fn_name != "ne" && fn_name != "eq";
+            return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";
         };
         StringRef value;
         int slot_ref_child = -1;

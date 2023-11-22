@@ -346,13 +346,16 @@ public class OneRangePartitionEvaluator
         if (!(result.result instanceof EqualTo)) {
             return result;
         }
-        equalTo = (EqualTo) result.result;
+        boolean isRejectNot = false;
         if (equalTo.left() instanceof Slot && equalTo.right() instanceof Literal) {
             Slot slot = (Slot) equalTo.left();
             if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
                 ColumnRange atLeastRange = ColumnRange.singleton((Literal) equalTo.right());
                 result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
+                if (leftColumnRanges.get(slot).isSingleton()) {
+                    isRejectNot = true;
+                }
             }
         } else if (equalTo.left() instanceof Literal && equalTo.right() instanceof Slot) {
             Slot slot = (Slot) equalTo.right();
@@ -360,7 +363,15 @@ public class OneRangePartitionEvaluator
                 Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
                 ColumnRange atMostRange = ColumnRange.singleton((Literal) equalTo.left());
                 result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
+                if (rightColumnRanges.get(slot).isSingleton()) {
+                    isRejectNot = true;
+                }
             }
+        } else {
+            isRejectNot = false;
+        }
+        if (!isRejectNot) {
+            result = result.withRejectNot(false);
         }
         return result;
     }
@@ -383,6 +394,7 @@ public class OneRangePartitionEvaluator
             Map<Slot, ColumnRange> slotRanges = result.childrenResult.get(0).columnRanges;
             result = intersectSlotRange(result, slotRanges, slot, unionLiteralRange);
         }
+        result = result.withRejectNot(false);
         return result;
     }
 
@@ -392,14 +404,15 @@ public class OneRangePartitionEvaluator
         if (!(result.result instanceof IsNull)) {
             return result;
         }
-
+        result = result.withRejectNot(false);
         Expression child = isNull.child();
         if (!(child instanceof Slot) || !isPartitionSlot((Slot) child)) {
             return result;
         }
 
         if (!partitionSlotContainsNull.get((Slot) child)) {
-            return new EvaluateRangeResult(BooleanLiteral.FALSE, result.columnRanges, result.childrenResult);
+            return new EvaluateRangeResult(BooleanLiteral.FALSE,
+                    result.columnRanges, result.childrenResult, false);
         }
         return result;
     }
@@ -434,12 +447,16 @@ public class OneRangePartitionEvaluator
     @Override
     public EvaluateRangeResult visitNot(Not not, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(not, context);
-
-        Map<Slot, ColumnRange> newRanges = result.childrenResult.get(0).columnRanges.entrySet()
-                .stream()
-                .map(slotToRange -> Pair.of(slotToRange.getKey(), slotToRange.getValue().complete()))
-                .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
-        result = new EvaluateRangeResult(result.result, newRanges, result.childrenResult);
+        if (result.isRejectNot()) {
+            Map<Slot, ColumnRange> newRanges = Maps.newHashMap();
+            for (Map.Entry<Slot, ColumnRange> entry : result.childrenResult.get(0).columnRanges.entrySet()) {
+                Slot slot = entry.getKey();
+                ColumnRange childRange = entry.getValue();
+                ColumnRange partitionRange = result.columnRanges.get(slot);
+                newRanges.put(slot, partitionRange.intersect(childRange.complete()));
+            }
+            result = new EvaluateRangeResult(result.result, newRanges, result.childrenResult);
+        }
         return returnFalseIfExistEmptyRange(result);
     }
 
@@ -662,11 +679,37 @@ public class OneRangePartitionEvaluator
         private final Map<Slot, ColumnRange> columnRanges;
         private final List<EvaluateRangeResult> childrenResult;
 
+        // rejectNot = true, if \exist e \in R, pred(e)=true, then we have \forAll e \in R, !pred(e)=false
+        // that is, if pred holds true over R, then !pred does not hold true over R.
+        // example 1. rejectNot=false
+        //      R=(1,10), pred: k = 5. "k = 5" holds true over R, and "NOT k = 5" holds true over R.
+        // example 2. rejectNot=false
+        //      R=(1,10), pred: k = 11. "k=10" dose not holds over R
+        // example 3. rejectNot=false
+        //      R=(1,10), pred: k in (4, 5). "k in (4, 5)" holds true over R, and "NOT k in (4, 5)" holds over R
+        // example 3. rejectNot=true
+        //      R=(1,10), pred: k < 11. "k<11" holds true over R, and "NOT k<11" dose not hold over R
+        private final boolean rejectNot;
+
         public EvaluateRangeResult(Expression result, Map<Slot, ColumnRange> columnRanges,
-                List<EvaluateRangeResult> childrenResult) {
+                                   List<EvaluateRangeResult> childrenResult, boolean rejectNot) {
             this.result = result;
             this.columnRanges = columnRanges;
             this.childrenResult = childrenResult;
+            this.rejectNot = rejectNot;
+        }
+
+        public EvaluateRangeResult(Expression result, Map<Slot, ColumnRange> columnRanges,
+                List<EvaluateRangeResult> childrenResult) {
+            this(result, columnRanges, childrenResult, childrenResult.stream().allMatch(r -> r.isRejectNot()));
+        }
+
+        public EvaluateRangeResult withRejectNot(boolean rejectNot) {
+            return new EvaluateRangeResult(result, columnRanges, childrenResult, rejectNot);
+        }
+
+        public boolean isRejectNot() {
+            return rejectNot;
         }
     }
 

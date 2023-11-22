@@ -114,10 +114,33 @@ public class DecommissionBackendTest extends TestWithFeService {
 
     @Test
     public void testDecommissionBackendById() throws Exception {
-
+        // 1. create connect context
+        connectContext = createDefaultCtx();
         ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
-        Backend srcBackend = idToBackendRef.values().asList().get(0);
+        Assertions.assertEquals(backendNum(), idToBackendRef.size());
+
+        // 2. create database db1
+        createDatabase("db2");
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
+
+        // 3. create table tbl1
+        createTable("create table db2.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+
+        // 4. query tablet num
+        int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
+        Assertions.assertTrue(tabletNum > 0);
+
+        // 5. execute decommission
+        Backend srcBackend = null;
+        for (Backend backend : idToBackendRef.values()) {
+            if (!Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).isEmpty()) {
+                srcBackend = backend;
+                break;
+            }
+        }
+
         Assertions.assertNotNull(srcBackend);
+
         // decommission backend by id
         String decommissionByIdStmtStr = "alter system decommission backend \"" + srcBackend.getId() + "\"";
         AlterSystemStmt decommissionByIdStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionByIdStmtStr);
@@ -148,17 +171,17 @@ public class DecommissionBackendTest extends TestWithFeService {
         ImmutableMap<Long, Backend> idToBackendRef = infoService.getIdToBackend();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
-        // 2. create database db2
-        createDatabase("db2");
+        // 2. create database db3
+        createDatabase("db3");
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         long availableBeNum = infoService.getAllBackendIds(true).stream()
                 .filter(beId -> infoService.checkBackendScheduleAvailable(beId)).count();
 
         // 3. create table tbl1 tbl2
-        createTable("create table db2.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '"
+        createTable("create table db3.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '"
                 + availableBeNum + "');");
-        createTable("create table db2.tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+        createTable("create table db3.tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
@@ -177,7 +200,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertNotNull(srcBackend);
 
         // 5. drop table tbl1
-        dropTable("db2.tbl1", false);
+        dropTable("db3.tbl1", false);
 
         // 6. execute decommission
         String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
@@ -195,7 +218,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
 
         // tbl1 has been dropped successfully
-        final String sql = "show create table db2.tbl1;";
+        final String sql = "show create table db3.tbl1;";
         Assertions.assertThrows(AnalysisException.class, () -> showCreateTable(sql));
 
         // TabletInvertedIndex still holds these tablets of srcBackend, but they are all in recycled status
@@ -204,7 +227,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertTrue(Env.getCurrentRecycleBin().allTabletsInRecycledStatus(tabletList));
 
         // recover tbl1, because tbl1 has more than one replica, so it still can be recovered
-        Assertions.assertDoesNotThrow(() -> recoverTable("db2.tbl1"));
+        Assertions.assertDoesNotThrow(() -> recoverTable("db3.tbl1"));
         Assertions.assertDoesNotThrow(() -> showCreateTable(sql));
 
         addNewBackend();

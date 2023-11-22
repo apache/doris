@@ -27,11 +27,15 @@ public:
     MultiCastDataStreamSink(std::shared_ptr<pipeline::MultiCastDataStreamer>& streamer)
             : DataSink(streamer->row_desc()), _multi_cast_data_streamer(streamer) {
         _profile = _multi_cast_data_streamer->profile();
+        init_sink_common_profile();
     };
 
     ~MultiCastDataStreamSink() override = default;
 
     Status send(RuntimeState* state, Block* block, bool eos = false) override {
+        SCOPED_TIMER(_exec_timer);
+        COUNTER_UPDATE(_blocks_sent_counter, 1);
+        COUNTER_UPDATE(_output_rows_counter, block->rows());
         static_cast<void>(_multi_cast_data_streamer->push(state, block, eos));
         return Status::OK();
     };

@@ -106,7 +106,7 @@ suite("test_routine_load","p0") {
                     '[\"$.k00\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\"]',
                     ]
 
-    def columns = [ 
+    def columns = [
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -116,8 +116,8 @@ suite("test_routine_load","p0") {
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                   ]
 
-    def timezoneColumns = 
-                  [ 
+    def timezoneColumns =
+                  [
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -140,7 +140,7 @@ suite("test_routine_load","p0") {
     def formats = [
                     "csv",
                     "json",
-                  ]            
+                  ]
 
     def loadedRows = [0,0,0,0,17,17,17]
 
@@ -152,8 +152,172 @@ suite("test_routine_load","p0") {
     String kafka_port = context.config.otherConfigs.get("kafka_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-    // exec_mem_limit
+    // send_batch_parallelism
     def i = 0
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+                def name = "routine_load_" + tableName
+                sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]}),
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "send_batch_parallelism" = "2",
+                        "max_batch_interval" = "5",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${topics[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                sql "sync"
+                i++
+            }
+
+            i = 0
+            for (String tableName in tables) {
+                while (true) {
+                    sleep(1000)
+                    def res = sql "show routine load for ${jobs[i]}"
+                    def state = res[0][8].toString()
+                    if (state == "NEED_SCHEDULE") {
+                        continue;
+                    }
+                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                    assertEquals(res[0][8].toString(), "RUNNING")
+                    break;
+                }
+
+                def count = 0
+                def tableName1 =  "routine_load_" + tableName
+                while (true) {
+                    def res = sql "select count(*) from ${tableName1}"
+                    def state = sql "show routine load for ${jobs[i]}"
+                    log.info("routine load state: ${state[0][8].toString()}".toString())
+                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                    if (res[0][0] > 0) {
+                        break
+                    }
+                    if (count >= 120) {
+                        log.error("routine load can not visible for long time")
+                        assertEquals(20, res[0][0])
+                        break
+                    }
+                    sleep(5000)
+                    count++
+                }
+
+                if (i <= 3) {
+                    qt_sql_send_batch_parallelism "select * from ${tableName1} order by k00,k01"
+                } else {
+                    qt_sql_send_batch_parallelism "select * from ${tableName1} order by k00"
+                }
+
+                sql "stop routine load for ${jobs[i]}"
+                i++
+            }
+        } finally {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
+        }
+    }
+
+    i = 0
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+                def name = "routine_load_" + tableName
+                try {
+                    sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]}),
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "send_batch_parallelism" = "x",
+                        "max_batch_interval" = "5",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${topics[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                }catch (Exception e) {
+                    log.info("exception: ${e.toString()}".toString())
+                    assertEquals(e.toString().contains("send_batch_parallelism must be greater than 0"), true)
+                }
+                sql "sync"
+                i++
+            }
+        } finally {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
+        }
+    }
+
+    i = 0
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+                def name = "routine_load_" + tableName
+                try {
+                    sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]}),
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "send_batch_parallelism" = "-1",
+                        "max_batch_interval" = "5",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${topics[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                }catch (Exception e) {
+                    log.info("exception: ${e.toString()}".toString())
+                    assertEquals(e.toString().contains("send_batch_parallelism must be greater than 0"), true)
+                }
+                sql "sync"
+                i++
+            }
+        } finally {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
+        }
+    }
+
+
+    // exec_mem_limit
+    i = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             for (String tableName in tables) {
@@ -216,7 +380,7 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
+
                 if (i <= 3) {
                     qt_sql_exec_mem_limit "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -538,7 +702,7 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
+
                 if (i <= 3) {
                     qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -603,7 +767,7 @@ suite("test_routine_load","p0") {
                 } else {
                     qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00"
                 }
-                
+
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -829,7 +993,7 @@ suite("test_routine_load","p0") {
             }
         }
     }
-    
+
     // disable_simdjson_reader and load json
     i = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -927,7 +1091,7 @@ suite("test_routine_load","p0") {
             }
         }
     }
-    
+
 
     // TODO: need update kafka script
     // i = 0
@@ -1071,13 +1235,13 @@ suite("test_routine_load","p0") {
                         sleep(5000)
                         count++
                     }
-                    
+
                     if (i <= 3) {
                         qt_sql_multi_table_one_data "select * from ${tableName1} order by k00,k01"
                     } else {
                         qt_sql_multi_table_one_data "select * from ${tableName1} order by k00"
                     }
-                    
+
                     i++
                 }
             } finally {
@@ -1150,13 +1314,13 @@ suite("test_routine_load","p0") {
                         sleep(5000)
                         count++
                     }
-                    
+
                     if (i <= 3) {
                         qt_sql_multi_table "select * from ${tableName1} order by k00,k01"
                     } else {
                         qt_sql_multi_table "select * from ${tableName1} order by k00"
                     }
-                    
+
                     i++
                 }
             } finally {

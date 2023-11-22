@@ -133,7 +133,7 @@ Status OlapScanLocalState::_init_profile() {
 Status OlapScanLocalState::_process_conjuncts() {
     SCOPED_TIMER(_process_conjunct_timer);
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts());
-    if (ScanLocalState::_eos_dependency->read_blocked_by() == nullptr) {
+    if (ScanLocalState::_scan_dependency->eos()) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
@@ -213,7 +213,7 @@ bool OlapScanLocalState::_storage_no_merge() {
 
 Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
-        ScanLocalState::_eos_dependency->set_ready_for_read();
+        ScanLocalState::_scan_dependency->set_eos();
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
@@ -408,7 +408,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                     iter->second));
         }
         if (eos) {
-            ScanLocalState::_eos_dependency->set_ready_for_read();
+            ScanLocalState::_scan_dependency->set_eos();
         }
 
         for (auto& iter : _colname_to_value_range) {

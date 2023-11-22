@@ -357,6 +357,7 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
 }
 
 int64_t MemTableWriter::active_memtable_mem_consumption() {
+    std::lock_guard<std::mutex> l(_lock);
     return _mem_table != nullptr ? _mem_table->memory_usage() : 0;
 }
 

@@ -30,12 +30,12 @@
 namespace doris {
 namespace pipeline {
 
-class WriteDependency;
+class Dependency;
 
 class DataQueue {
 public:
     //always one is enough, but in union node it's has more children
-    DataQueue(int child_count = 1, WriteDependency* dependency = nullptr);
+    DataQueue(int child_count = 1);
     ~DataQueue() = default;
 
     Status get_block_from_queue(std::unique_ptr<vectorized::Block>* block,
@@ -60,11 +60,16 @@ public:
     int64_t max_size_of_queue() const { return _max_size_of_queue; }
 
     bool data_exhausted() const { return _data_exhausted; }
-    void set_dependency(WriteDependency* dependency) { _dependency = dependency; }
+    void set_dependency(Dependency* source_dependency, Dependency* sink_dependency) {
+        _source_dependency = source_dependency;
+        _sink_dependency = sink_dependency;
+    }
 
 private:
-    friend class AggDependency;
-    friend class UnionDependency;
+    friend class AggSourceDependency;
+    friend class UnionSourceDependency;
+    friend class AggSinkDependency;
+    friend class UnionSinkDependency;
 
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
     std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _queue_blocks;
@@ -90,7 +95,8 @@ private:
     int64_t _max_size_of_queue = 0;
     static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
 
-    WriteDependency* _dependency = nullptr;
+    Dependency* _source_dependency = nullptr;
+    Dependency* _sink_dependency = nullptr;
 };
 
 } // namespace pipeline

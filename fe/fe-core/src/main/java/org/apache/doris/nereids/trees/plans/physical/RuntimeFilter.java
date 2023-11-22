@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * runtime filter
@@ -128,7 +129,11 @@ public class RuntimeFilter {
         targetSlots.add(target);
     }
 
-    public void addTargetExpressoin(Expression targetExpr) {
+    public List<Slot> getTargetSlots() {
+        return targetSlots;
+    }
+
+    public void addTargetExpression(Expression targetExpr) {
         targetExpressions.add(targetExpr);
     }
 
@@ -140,6 +145,19 @@ public class RuntimeFilter {
                 .append("(ndv/size = ").append(buildSideNdv).append("/")
                 .append(org.apache.doris.planner.RuntimeFilter.expectRuntimeFilterSize(buildSideNdv))
                 .append(")");
+        return sb.toString();
+    }
+
+    /**
+     * print rf in explain shape plan
+     * @return brief version of toString()
+     */
+    public String shapeInfo() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("RF").append(id.asInt())
+                .append(" ").append(getSrcExpr().toSql()).append("->[").append(
+                        targetSlots.stream().map(slot -> slot.getName()).collect(Collectors.joining(",")))
+                .append("]");
         return sb.toString();
     }
 }

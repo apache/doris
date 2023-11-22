@@ -144,7 +144,7 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
                         fs->delete_file(idx_path),
                         strings::Substitute("Failed to delete file=$0", idx_path));
                 // Erase the origin index file cache
-                static_cast<void>(InvertedIndexSearcherCache::instance()->erase(idx_path));
+                RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(idx_path));
             }
         }
     }

@@ -306,6 +306,12 @@ void ParquetReader::_init_file_description() {
     }
 }
 
+void ParquetReader::iceberg_sanitize(const std::vector<std::string>& read_columns) {
+    if (_file_metadata != nullptr) {
+        _file_metadata->iceberg_sanitize(read_columns);
+    }
+}
+
 Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         const std::vector<std::string>& missing_column_names,
@@ -416,7 +422,7 @@ Status ParquetReader::set_fill_columns(
         _lazy_read_ctx.all_read_columns.emplace_back(read_col);
         PrimitiveType column_type = schema.get_column(read_col)->type.type;
         if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
-            _has_complex_type = true;
+            _lazy_read_ctx.has_complex_type = true;
         }
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_col);
@@ -450,7 +456,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!_has_complex_type && _enable_lazy_mat &&
+    if (!_lazy_read_ctx.has_complex_type && _enable_lazy_mat &&
         _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
@@ -736,7 +742,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if (_has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
+    if (_lazy_read_ctx.has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
         _colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();

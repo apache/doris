@@ -750,4 +750,30 @@ public class GlobalTransactionMgr implements Writable {
         return total;
     }
 
+    public List<TransactionState> getPreCommittedTxnList(Long dbId) throws AnalysisException {
+        return getDatabaseTransactionMgr(dbId).getPreCommittedTxnList();
+    }
+
+    public void cleanLabel(Long dbId, String label) throws AnalysisException {
+        getDatabaseTransactionMgr(dbId).cleanLabel(label);
+    }
+
+    public Long getTransactionIdByLabel(Long dbId, String label, List<TransactionStatus> statusList)
+            throws UserException {
+        return getDatabaseTransactionMgr(dbId).getTransactionIdByLabel(label, statusList);
+    }
+
+    public int getRunningTxnNums(Long dbId) throws AnalysisException {
+        return getDatabaseTransactionMgr(dbId).getRunningTxnNums();
+    }
+
+    public void updateMultiTableRunningTransactionTableIds(Long dbId, Long transactionId, List<Long> tableIds)
+            throws AnalysisException {
+        getDatabaseTransactionMgr(dbId).updateMultiTableRunningTransactionTableIds(transactionId, tableIds);
+    }
+
+    public void putTransactionTableNames(Long dbId, Long transactionId, List<Long> tableIds)
+            throws AnalysisException {
+        getDatabaseTransactionMgr(dbId).putTransactionTableNames(transactionId, tableIds);
+    }
 }
