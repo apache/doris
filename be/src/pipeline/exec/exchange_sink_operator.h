@@ -64,47 +64,33 @@ private:
     int _mult_cast_id = -1;
 };
 
-class ExchangeSinkQueueDependency final : public WriteDependency {
+class ExchangeSinkQueueDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
-    ExchangeSinkQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
+    ExchangeSinkQueueDependency(int id, int node_id)
+            : Dependency(id, node_id, "ResultQueueDependency", true) {}
     ~ExchangeSinkQueueDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
 };
 
-class BroadcastDependency final : public WriteDependency {
+class BroadcastDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastDependency);
-    BroadcastDependency(int id) : WriteDependency(id, "BroadcastDependency"), _available_block(0) {}
+    BroadcastDependency(int id, int node_id)
+            : Dependency(id, node_id, "BroadcastDependency", true), _available_block(0) {}
     ~BroadcastDependency() override = default;
-
-    [[nodiscard]] WriteDependency* write_blocked_by() override {
-        if (config::enable_fuzzy_mode && _available_block == 0 &&
-            _should_log(_write_dependency_watcher.elapsed_time())) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _available_block > 0 ? nullptr : this;
-    }
 
     void set_available_block(int available_block) { _available_block = available_block; }
 
-    void return_available_block() { _available_block++; }
-
-    void take_available_block() { _available_block--; }
-
-    void* shared_state() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
-        return nullptr;
+    void return_available_block() {
+        if (_available_block.fetch_add(1) == 0) {
+            Dependency::set_ready();
+        }
     }
 
-    void set_ready_for_write() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
-    }
-
-    void block_writing() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
+    void take_available_block() {
+        if (_available_block.fetch_sub(1) == 1) {
+            Dependency::block();
+        }
     }
 
     int available_blocks() const { return _available_block; }
@@ -131,28 +117,13 @@ private:
  *                         | ExchangeSource1 |                                                        | ExchangeSource2 |
  *                         +-----------------+                                                        +------------------+
  */
-class LocalExchangeChannelDependency final : public WriteDependency {
+class LocalExchangeChannelDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
-    LocalExchangeChannelDependency(int id, std::shared_ptr<bool> mem_available)
-            : WriteDependency(id, "LocalExchangeChannelDependency"),
-              _mem_available(mem_available) {}
+    LocalExchangeChannelDependency(int id, int node_id)
+            : Dependency(id, node_id, "LocalExchangeChannelDependency", true) {}
     ~LocalExchangeChannelDependency() override = default;
-
-    WriteDependency* write_blocked_by() override {
-        if (config::enable_fuzzy_mode && !_is_runnable() &&
-            _should_log(_write_dependency_watcher.elapsed_time())) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _is_runnable() ? nullptr : this;
-    }
-
-    void* shared_state() override { return nullptr; }
-
-private:
-    bool _is_runnable() const { return _ready_for_write || *_mem_available; }
-    std::shared_ptr<bool> _mem_available;
+    // TODO(gabriel): blocked by memory
 };
 
 class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
@@ -168,13 +139,14 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    WriteDependency* dependency() override { return _exchange_sink_dependency.get(); }
+    Dependency* dependency() override { return _exchange_sink_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
     Status get_next_available_buffer(vectorized::BroadcastPBlockHolder** holder);
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
+    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
     RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
     RuntimeProfile::Counter* local_bytes_send_counter() { return _local_bytes_send_counter; }
     RuntimeProfile::Counter* local_sent_rows() { return _local_sent_rows; }
@@ -210,27 +182,28 @@ private:
     friend class vectorized::BlockSerializer<ExchangeSinkLocalState>;
 
     std::unique_ptr<ExchangeSinkBuffer<ExchangeSinkLocalState>> _sink_buffer;
-    RuntimeProfile::Counter* _serialize_batch_timer;
-    RuntimeProfile::Counter* _compress_timer;
-    RuntimeProfile::Counter* _brpc_send_timer;
-    RuntimeProfile::Counter* _brpc_wait_timer;
-    RuntimeProfile::Counter* _bytes_sent_counter;
-    RuntimeProfile::Counter* _uncompressed_bytes_counter;
-    RuntimeProfile::Counter* _local_sent_rows;
-    RuntimeProfile::Counter* _local_send_timer;
-    RuntimeProfile::Counter* _split_block_hash_compute_timer;
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
-    RuntimeProfile::Counter* _blocks_sent_counter;
+    RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
+    RuntimeProfile::Counter* _compress_timer = nullptr;
+    RuntimeProfile::Counter* _brpc_send_timer = nullptr;
+    RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
+    RuntimeProfile::Counter* _bytes_sent_counter = nullptr;
+    RuntimeProfile::Counter* _uncompressed_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _local_sent_rows = nullptr;
+    RuntimeProfile::Counter* _local_send_timer = nullptr;
+    RuntimeProfile::Counter* _split_block_hash_compute_timer = nullptr;
+    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
     // Throughput per total time spent in sender
-    RuntimeProfile::Counter* _overall_throughput;
+    RuntimeProfile::Counter* _overall_throughput = nullptr;
     // Used to counter send bytes under local data exchange
-    RuntimeProfile::Counter* _local_bytes_send_counter;
-    RuntimeProfile::Counter* _merge_block_timer;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
+    RuntimeProfile::Counter* _local_bytes_send_counter = nullptr;
+    RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
-    RuntimeProfile::Counter* _wait_queue_timer;
-    RuntimeProfile::Counter* _wait_broadcast_buffer_timer;
+    RuntimeProfile::Counter* _wait_queue_timer = nullptr;
+    RuntimeProfile::Counter* _wait_broadcast_buffer_timer = nullptr;
     std::vector<RuntimeProfile::Counter*> _wait_channel_timer;
 
     // Sender instance id, unique within a fragment.

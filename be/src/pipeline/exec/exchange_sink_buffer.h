@@ -47,7 +47,7 @@ using InstanceLoId = int64_t;
 namespace pipeline {
 class BroadcastDependency;
 class ExchangeSinkQueueDependency;
-class FinishDependency;
+class Dependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -189,13 +189,20 @@ public:
     void update_profile(RuntimeProfile* profile);
 
     void set_dependency(std::shared_ptr<ExchangeSinkQueueDependency> queue_dependency,
-                        std::shared_ptr<FinishDependency> finish_dependency) {
+                        std::shared_ptr<Dependency> finish_dependency) {
         _queue_dependency = queue_dependency;
         _finish_dependency = finish_dependency;
     }
     void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
 
+    void set_should_stop() {
+        _should_stop = true;
+        _set_ready_to_finish(_busy_channels == 0);
+    }
+
 private:
+    void _set_ready_to_finish(bool all_done);
+
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle
@@ -242,8 +249,9 @@ private:
     std::atomic<int> _total_queue_size = 0;
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
-    std::shared_ptr<FinishDependency> _finish_dependency = nullptr;
+    std::shared_ptr<Dependency> _finish_dependency = nullptr;
     QueryStatistics* _statistics = nullptr;
+    std::atomic<bool> _should_stop {false};
 };
 
 } // namespace pipeline

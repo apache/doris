@@ -90,8 +90,11 @@ At the same time, we do not recommend that users create multiple materialized vi
 
 The aggregate functions currently supported by the materialized view function are:
 
-+ SUM, MIN, MAX (Version 0.12)
-+ COUNT, BITMAP\_UNION, HLL\_UNION (Version 0.13)
+- SUM, MIN, MAX (Version 0.12)
+- COUNT, BITMAP_UNION, HLL_UNION (Version 0.13)
+- [GENERIC_AGGREGATE](https://doris.apache.org/zh-CN/docs/sql-manual/sql-reference/Data-Types/AGG_STATE?_highlight=agg_state) (Version 2.0)
+
+Some aggregate functions that are not within the original support range will be converted into agg_state type to implement pre-aggregation.
 
 ### Update strategy
 
