@@ -73,8 +73,8 @@ suite("test_base_insert_job") {
     sql """
           CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
      """
-    
-    Thread.sleep(2500)
+    // Magnify the waiting time. In extreme cases, it may be on the edge of time  window and the execution may just be missed.
+    Thread.sleep(5000)
 
     def datas = sql """select * from ${tableName}"""
     println datas
