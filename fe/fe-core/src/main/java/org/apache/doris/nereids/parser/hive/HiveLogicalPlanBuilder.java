@@ -78,7 +78,7 @@ public class HiveLogicalPlanBuilder extends LogicalPlanBuilder {
         }
         return ParserUtils.withOrigin(ctx.strictIdentifier(), () -> {
             String alias = StringUtils.isEmpty(ctx.strictIdentifier().getText())
-                        ? ctx.strictIdentifier().getText() : DEFAULT_TABLE_ALIAS;
+                        ? DEFAULT_TABLE_ALIAS : ctx.strictIdentifier().getText();
             if (null != ctx.identifierList()) {
                 throw new ParseException("Do not implemented", ctx);
             }
