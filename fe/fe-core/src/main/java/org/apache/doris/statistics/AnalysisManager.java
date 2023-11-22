@@ -158,6 +158,7 @@ public class AnalysisManager implements Writable {
             // Set the job state to RUNNING when its first task becomes RUNNING.
             if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
                 job.state = AnalysisState.RUNNING;
+                job.markStartTime(System.currentTimeMillis());
                 replayCreateAnalysisJob(job);
             }
             boolean allFinished = true;
@@ -199,6 +200,13 @@ public class AnalysisManager implements Writable {
         AnalysisInfo job = systemJobInfoMap.get(info.jobId);
         if (job == null) {
             return null;
+        }
+        synchronized (job) {
+            // Set the job state to RUNNING when its first task becomes RUNNING.
+            if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
+                job.state = AnalysisState.RUNNING;
+                job.markStartTime(System.currentTimeMillis());
+            }
         }
         int failedCount = 0;
         StringJoiner reason = new StringJoiner(", ");
@@ -1002,7 +1010,6 @@ public class AnalysisManager implements Writable {
     }
 
     public void registerSysJob(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> taskInfos) {
-        jobInfo.state = AnalysisState.RUNNING;
         systemJobInfoMap.put(jobInfo.jobId, jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
     }

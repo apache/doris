@@ -2662,7 +2662,7 @@ public class ShowExecutor {
             }
             row.add(analysisInfo.scheduleType.toString());
             LocalDateTime startTime =
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.createTime),
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),
                             java.time.ZoneId.systemDefault());
             LocalDateTime endTime =
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.endTime),
