@@ -23,8 +23,6 @@
 namespace doris {
 class TExpr;
 
-namespace stream_load {
-
 LoadStreams::LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStreamStubPool* pool)
         : _load_id(load_id), _dst_id(dst_id), _use_cnt(num_use), _pool(pool) {}
 
@@ -87,5 +85,4 @@ void LoadStreamStubPool::erase(UniqueId load_id, int64_t dst_id) {
     _template_stubs.erase(load_id);
 }
 
-} // namespace stream_load
 } // namespace doris

@@ -69,6 +69,7 @@
 namespace doris {
 class DeltaWriterV2;
 class LoadStreamStub;
+class LoadStreams;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -76,10 +77,6 @@ class TDataSink;
 class TExpr;
 class TabletSchema;
 class TupleDescriptor;
-
-namespace stream_load {
-class LoadStreams;
-}
 
 namespace vectorized {
 
@@ -219,8 +216,7 @@ private:
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
-    std::unordered_map<int64_t, std::shared_ptr<::doris::stream_load::LoadStreams>>
-            _streams_for_node;
+    std::unordered_map<int64_t, std::shared_ptr<LoadStreams>> _streams_for_node;
 
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
