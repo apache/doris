@@ -175,5 +175,9 @@ public class NereidsTracer {
         TRACE_PATH = Optional.ofNullable(TRACE_PATH).orElse(System.getenv("DORIS_HOME") + "/log/nereids_trace");
         new File(TRACE_PATH).mkdirs();
     }
+
+    public static void disable() {
+        NereidsTracer.shouldLog = false;
+    }
 }
 
