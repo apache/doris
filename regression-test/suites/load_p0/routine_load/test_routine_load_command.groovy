@@ -62,170 +62,170 @@ suite("test_routine_load_command","p0") {
 
     // show command
     def i = 0
-    // if (enabled != null && enabled.equalsIgnoreCase("true")) {
-    //     try {
-    //         for (String tableName in tables) {
-    //             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-    //             sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
-    //             def name = "routine_load_" + tableName
-    //             sql """
-    //                 CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
-    //                 COLUMNS(${columns[i]}),
-    //                 COLUMNS TERMINATED BY "|"
-    //                 PROPERTIES
-    //                 (
-    //                     "max_batch_interval" = "5",
-    //                     "max_batch_rows" = "300000",
-    //                     "max_batch_size" = "209715200"
-    //                 )
-    //                 FROM KAFKA
-    //                 (
-    //                     "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-    //                     "kafka_topic" = "${topics[i]}",
-    //                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
-    //                 );
-    //             """
-    //             sql "sync"
-    //             i++
-    //         }
+                def name = "routine_load_" + tableName
+                sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]}),
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "max_batch_interval" = "5",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${topics[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                sql "sync"
+                i++
+            }
 
-    //         i = 0
-    //         for (String tableName in tables) {
-    //             while (true) {
-    //                 sleep(1000)
-    //                 def res = sql "show routine load for ${jobs[i]}"
-    //                 def state = res[0][8].toString()
-    //                 if (state == "NEED_SCHEDULE") {
-    //                     continue;
-    //                 }
-    //                 log.info("reason of state changed: ${res[0][17].toString()}".toString())
-    //                 assertEquals(res[0][8].toString(), "RUNNING")
-    //                 break;
-    //             }
+            i = 0
+            for (String tableName in tables) {
+                while (true) {
+                    sleep(1000)
+                    def res = sql "show routine load for ${jobs[i]}"
+                    def state = res[0][8].toString()
+                    if (state == "NEED_SCHEDULE") {
+                        continue;
+                    }
+                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                    assertEquals(res[0][8].toString(), "RUNNING")
+                    break;
+                }
 
-    //             def count = 0
-    //             def tableName1 =  "routine_load_" + tableName
-    //             while (true) {
-    //                 def res = sql "select count(*) from ${tableName1}"
-    //                 def state = sql "show routine load for ${jobs[i]}"
-    //                 log.info("routine load state: ${state[0][8].toString()}".toString())
-    //                 log.info("routine load statistic: ${state[0][14].toString()}".toString())
-    //                 log.info("reason of state changed: ${state[0][17].toString()}".toString())
-    //                 if (res[0][0] > 0) {
-    //                     break
-    //                 }
-    //                 if (count >= 120) {
-    //                     log.error("routine load can not visible for long time")
-    //                     assertEquals(20, res[0][0])
-    //                     break
-    //                 }
-    //                 sleep(5000)
-    //                 count++
-    //             }
+                def count = 0
+                def tableName1 =  "routine_load_" + tableName
+                while (true) {
+                    def res = sql "select count(*) from ${tableName1}"
+                    def state = sql "show routine load for ${jobs[i]}"
+                    log.info("routine load state: ${state[0][8].toString()}".toString())
+                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                    if (res[0][0] > 0) {
+                        break
+                    }
+                    if (count >= 120) {
+                        log.error("routine load can not visible for long time")
+                        assertEquals(20, res[0][0])
+                        break
+                    }
+                    sleep(5000)
+                    count++
+                }
                 
-    //             if (i <= 3) {
-    //                 qt_show_command "select * from ${tableName1} order by k00,k01"
-    //             } else {
-    //                 qt_show_command "select * from ${tableName1} order by k00"
-    //             }
+                if (i <= 3) {
+                    qt_show_command "select * from ${tableName1} order by k00,k01"
+                } else {
+                    qt_show_command "select * from ${tableName1} order by k00"
+                }
 
-    //             def res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = \"${jobs[i]}\""
-    //             log.info("routine load task DataSource: ${res[0][8].toString()}".toString())
-    //             def json = parseJson(res[0][8])
-    //             assertEquals("20", "${res[0][8][5]}".toString()+"${res[0][8][6]}".toString())
+                def res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = \"${jobs[i]}\""
+                log.info("routine load task DataSource: ${res[0][8].toString()}".toString())
+                def json = parseJson(res[0][8])
+                assertEquals("20", "${res[0][8][5]}".toString()+"${res[0][8][6]}".toString())
 
-    //             sql "stop routine load for ${jobs[i]}"
-    //             i++
-    //         }
-    //     } finally {
-    //         for (String tableName in tables) {
-    //             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-    //         }
-    //     }
-    // }
+                sql "stop routine load for ${jobs[i]}"
+                i++
+            }
+        } finally {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
+        }
+    }
 
-    // // pause and resume command
-    // i = 0
-    // if (enabled != null && enabled.equalsIgnoreCase("true")) {
-    //     try {
-    //         for (String tableName in tables) {
-    //             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-    //             sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+    // pause and resume command
+    i = 0
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
-    //             def name = "routine_load_" + tableName
-    //             sql """
-    //                 CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
-    //                 COLUMNS(${columns[i]}),
-    //                 COLUMNS TERMINATED BY "|"
-    //                 PROPERTIES
-    //                 (
-    //                     "max_batch_interval" = "5",
-    //                     "max_batch_rows" = "300000",
-    //                     "max_batch_size" = "209715200"
-    //                 )
-    //                 FROM KAFKA
-    //                 (
-    //                     "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-    //                     "kafka_topic" = "${topics[i]}",
-    //                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
-    //                 );
-    //             """
-    //             sql "sync"
-    //             i++
-    //         }
+                def name = "routine_load_" + tableName
+                sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]}),
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "max_batch_interval" = "5",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${topics[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                sql "sync"
+                i++
+            }
 
-    //         i = 0
-    //         for (String tableName in tables) {
-    //             sql "pause routine load for ${jobs[i]}"
-    //             sql "resume routine load for ${jobs[i]}"
-    //             while (true) {
-    //                 sleep(1000)
-    //                 def res = sql "show routine load for ${jobs[i]}"
-    //                 def state = res[0][8].toString()
-    //                 if (state == "NEED_SCHEDULE") {
-    //                     continue;
-    //                 }
-    //                 log.info("reason of state changed: ${res[0][17].toString()}".toString())
-    //                 assertEquals(res[0][8].toString(), "RUNNING")
-    //                 break;
-    //             }
+            i = 0
+            for (String tableName in tables) {
+                sql "pause routine load for ${jobs[i]}"
+                sql "resume routine load for ${jobs[i]}"
+                while (true) {
+                    sleep(1000)
+                    def res = sql "show routine load for ${jobs[i]}"
+                    def state = res[0][8].toString()
+                    if (state == "NEED_SCHEDULE") {
+                        continue;
+                    }
+                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                    assertEquals(res[0][8].toString(), "RUNNING")
+                    break;
+                }
 
-    //             def count = 0
-    //             def tableName1 =  "routine_load_" + tableName
-    //             while (true) {
-    //                 def res = sql "select count(*) from ${tableName1}"
-    //                 def state = sql "show routine load for ${jobs[i]}"
-    //                 log.info("routine load state: ${state[0][8].toString()}".toString())
-    //                 log.info("routine load statistic: ${state[0][14].toString()}".toString())
-    //                 log.info("reason of state changed: ${state[0][17].toString()}".toString())
-    //                 if (res[0][0] > 0) {
-    //                     break
-    //                 }
-    //                 if (count >= 120) {
-    //                     log.error("routine load can not visible for long time")
-    //                     assertEquals(20, res[0][0])
-    //                     break
-    //                 }
-    //                 sleep(5000)
-    //                 count++
-    //             }
+                def count = 0
+                def tableName1 =  "routine_load_" + tableName
+                while (true) {
+                    def res = sql "select count(*) from ${tableName1}"
+                    def state = sql "show routine load for ${jobs[i]}"
+                    log.info("routine load state: ${state[0][8].toString()}".toString())
+                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                    if (res[0][0] > 0) {
+                        break
+                    }
+                    if (count >= 120) {
+                        log.error("routine load can not visible for long time")
+                        assertEquals(20, res[0][0])
+                        break
+                    }
+                    sleep(5000)
+                    count++
+                }
                 
-    //             if (i <= 3) {
-    //                 qt_pause_and_resume_command "select * from ${tableName1} order by k00,k01"
-    //             } else {
-    //                 qt_pause_and_resume_command "select * from ${tableName1} order by k00"
-    //             }
+                if (i <= 3) {
+                    qt_pause_and_resume_command "select * from ${tableName1} order by k00,k01"
+                } else {
+                    qt_pause_and_resume_command "select * from ${tableName1} order by k00"
+                }
 
-    //             sql "stop routine load for ${jobs[i]}"
-    //             i++
-    //         }
-    //     } finally {
-    //         for (String tableName in tables) {
-    //             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-    //         }
-    //     }
-    // }
+                sql "stop routine load for ${jobs[i]}"
+                i++
+            }
+        } finally {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
+        }
+    }
 
     // update command
     i = 0
