@@ -139,7 +139,7 @@ void DataDir::stop_bg_worker() {
     if (_meta != nullptr) {
         _meta->stop(true);
     }
-    
+
     _stop_bg_worker = true;
 }
 
