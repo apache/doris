@@ -297,8 +297,8 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     }
 }
 
-void get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                             TabletSchemaSPtr& common_schema) {
+Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                               TabletSchemaSPtr& common_schema, bool check_schema_size) {
     // Pick tablet schema with max schema version
     const TabletSchemaSPtr base_schema =
             *std::max_element(schemas.cbegin(), schemas.cend(),
@@ -323,6 +323,12 @@ void get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     for (int32_t unique_id : variant_column_unique_id) {
         update_least_common_schema(schemas, common_schema, unique_id);
     }
+    if (check_schema_size &&
+        common_schema->columns().size() > config::variant_max_merged_tablet_schema_size) {
+        return Status::DataQualityError("Reached max column size limit {}",
+                                        config::variant_max_merged_tablet_schema_size);
+    }
+    return Status::OK();
 }
 
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
