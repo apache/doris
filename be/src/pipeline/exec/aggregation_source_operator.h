@@ -48,11 +48,29 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
+class AggSourceDependency final : public Dependency {
+public:
+    using SharedState = AggSharedState;
+    AggSourceDependency(int id, int node_id) : Dependency(id, node_id, "AggSourceDependency") {}
+    ~AggSourceDependency() override = default;
+
+    void block() override {
+        if (_is_streaming_agg_state()) {
+            Dependency::block();
+        }
+    }
+
+private:
+    bool _is_streaming_agg_state() {
+        return ((SharedState*)Dependency::_shared_state.get())->data_queue != nullptr;
+    }
+};
+
 class AggSourceOperatorX;
 
-class AggLocalState final : public PipelineXLocalState<AggDependency> {
+class AggLocalState final : public PipelineXLocalState<AggSourceDependency> {
 public:
-    using Base = PipelineXLocalState<AggDependency>;
+    using Base = PipelineXLocalState<AggSourceDependency>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
     ~AggLocalState() override = default;
@@ -90,6 +108,24 @@ protected:
     Status _serialize_with_serialized_key_result_with_spilt_data(RuntimeState* state,
                                                                  vectorized::Block* block,
                                                                  SourceState& source_state);
+    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
+    Status _reset_hash_table();
+    Status _merge_spilt_data();
+    void _make_nullable_output_key(vectorized::Block* block) {
+        if (block->rows() != 0) {
+            auto& shared_state = *Base ::_shared_state;
+            for (auto cid : shared_state.make_nullable_keys) {
+                block->get_by_position(cid).column =
+                        make_nullable(block->get_by_position(cid).column);
+                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
+            }
+        }
+    }
+    void _release_tracker() {
+        Base::_shared_state->mem_tracker->release(
+                Base::_shared_state->mem_usage_record.used_in_state +
+                Base::_shared_state->mem_usage_record.used_in_arena);
+    }
 
     RuntimeProfile::Counter* _get_results_timer;
     RuntimeProfile::Counter* _serialize_result_timer;
@@ -117,7 +153,7 @@ class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
     using Base = OperatorX<AggLocalState>;
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                       const DescriptorTbl& descs);
+                       const DescriptorTbl& descs, bool is_streaming = false);
     ~AggSourceOperatorX() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -127,6 +163,7 @@ public:
 
 private:
     friend class AggLocalState;
+    const bool _is_streaming;
 
     bool _needs_finalize;
     bool _without_key;

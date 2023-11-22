@@ -209,6 +209,11 @@ public class BDBEnvironment {
                 .filter(Frontend::isAlive)
                 .map(fe -> new InetSocketAddress(fe.getHost(), fe.getEditLogPort()))
                 .collect(Collectors.toSet());
+
+        if (addresses.isEmpty()) {
+            LOG.info("addresses is empty");
+            return null;
+        }
         return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
     }
 

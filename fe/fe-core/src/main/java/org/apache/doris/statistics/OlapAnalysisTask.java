@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -129,21 +130,26 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             }
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql;
-            // Single distribution column is not fit for DUJ1 estimator, use linear estimator.
-            Set<String> distributionColumns = tbl.getDistributionColumnNames();
-            if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
+            if (useLinearAnalyzeTemplate()) {
                 params.put("min", StatisticsUtil.quote(min));
                 params.put("max", StatisticsUtil.quote(max));
+                // For single unique key, use count as ndv.
+                if (isSingleUniqueKey()) {
+                    params.put("ndvFunction", String.valueOf(rowCount));
+                } else {
+                    params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+                }
                 sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
             } else {
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
                 sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
             }
             LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
-                    + "limited [{}], distribute column [{}], partition column [{}], key column [{}]",
+                    + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "
+                    + "is single unique key [{}]",
                     col.getName(), params.get("rowCount"), rowsToSample, params.get("scaleFactor"),
                     limitFlag, tbl.isDistributionColumn(col.getName()),
-                    tbl.isPartitionColumn(col.getName()), col.isKey());
+                    tbl.isPartitionColumn(col.getName()), col.isKey(), isSingleUniqueKey());
             runQuery(sql, false);
         }
     }
@@ -277,5 +283,29 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             sampleRows = Math.max(tableSample.getSampleValue(), 1);
         }
         return sampleRows;
+    }
+
+    /**
+     * Check if the task should use linear analyze template.
+     * @return True for single unique key column and single distribution column.
+     */
+    protected boolean useLinearAnalyzeTemplate() {
+        if (isSingleUniqueKey()) {
+            return true;
+        }
+        Set<String> distributionColumns = tbl.getDistributionColumnNames();
+        return distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase());
+    }
+
+    /**
+     * Check if the olap table has a single unique key.
+     * @return True if the table has a single unique/agg key. False otherwise.
+     */
+    protected boolean isSingleUniqueKey() {
+        int keysNum = ((OlapTable) tbl).getKeysNum();
+        KeysType keysType = ((OlapTable) tbl).getKeysType();
+        return col.isKey()
+            && keysNum == 1
+            && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.AGG_KEYS));
     }
 }

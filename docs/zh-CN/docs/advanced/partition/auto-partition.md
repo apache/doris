@@ -26,7 +26,7 @@ under the License.
 
 # 自动分区
 
-<version since="2.0.3">
+<version since="2.1">
 
 </version>
 

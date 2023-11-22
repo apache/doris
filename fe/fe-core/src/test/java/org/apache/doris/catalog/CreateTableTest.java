@@ -268,11 +268,13 @@ public class CreateTableTest extends TestWithFeService {
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
+                .expectThrowsWithMsg(DdlException.class,
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
-                        () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
-                                + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+                        () -> createTable(
+                                "create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
+                                        + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "sequence column only support UNIQUE_KEYS",

@@ -29,7 +29,6 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -175,9 +174,9 @@ public class AnalysisManager implements Writable {
             }
             if (allFinished) {
                 if (hasFailure) {
-                    job.state = AnalysisState.FAILED;
+                    job.markFailed();
                 } else {
-                    job.state = AnalysisState.FINISHED;
+                    job.markFinished();
                     try {
                         updateTableStats(job);
                     } catch (Throwable e) {
@@ -224,9 +223,9 @@ public class AnalysisManager implements Writable {
                     taskMap.size() - failedCount, failedCount, 0, taskMap.size());
             if (failedCount > 0) {
                 job.message = reason.toString();
-                job.state = AnalysisState.FAILED;
+                job.markFailed();
             } else {
-                job.state = AnalysisState.FINISHED;
+                job.markFinished();
             }
             autoJobs.offer(job);
             systemJobInfoMap.remove(info.jobId);
@@ -505,7 +504,7 @@ public class AnalysisManager implements Writable {
                 partitionNames, analysisType);
         infoBuilder.setColToPartitions(colToPartitions);
         infoBuilder.setTaskIds(Lists.newArrayList());
-
+        infoBuilder.setTblUpdateTime(table.getUpdateTime());
         return infoBuilder.build();
     }
 
@@ -601,9 +600,9 @@ public class AnalysisManager implements Writable {
         }
         TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
         if (tableStats == null) {
-            updateTableStatsStatus(new TableStatsMeta(tbl.getId(), tbl.estimatedRowCount(), jobInfo));
+            updateTableStatsStatus(new TableStatsMeta(tbl.estimatedRowCount(), jobInfo, tbl));
         } else {
-            tableStats.updateByJob(jobInfo);
+            tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);
         }
 
@@ -1003,21 +1002,6 @@ public class AnalysisManager implements Writable {
         jobInfo.state = AnalysisState.RUNNING;
         systemJobInfoMap.put(jobInfo.jobId, jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
-    }
-
-    @VisibleForTesting
-    protected Set<String> findReAnalyzeNeededPartitions(TableIf table) {
-        TableStatsMeta tableStats = findTableStatsStatus(table.getId());
-        if (tableStats == null) {
-            return table.getPartitionNames().stream().map(table::getPartition)
-                    .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
-        }
-        return table.getPartitionNames().stream()
-                .map(table::getPartition)
-                .filter(Partition::hasData)
-                .filter(partition ->
-                        partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
-                .collect(Collectors.toSet());
     }
 
     protected void logAutoJob(AnalysisInfo autoJob) {

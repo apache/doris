@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -33,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -210,7 +210,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
         }
 
-        if (cp instanceof EqualTo || cp instanceof NullSafeEqual) {
+        if (cp instanceof EqualPredicate) {
             return estimateEqualTo(cp, statsForLeft, statsForRight, context);
         } else {
             if (cp instanceof LessThan || cp instanceof LessThanEqual) {
@@ -255,7 +255,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             ColumnStatistic statsForLeft, ColumnStatistic statsForRight) {
         Expression left = cp.left();
         Expression right = cp.right();
-        if (cp instanceof EqualTo || cp instanceof NullSafeEqual) {
+        if (cp instanceof EqualPredicate) {
             return estimateColumnEqualToColumn(left, statsForLeft, right, statsForRight, context);
         }
         if (cp instanceof GreaterThan || cp instanceof GreaterThanEqual) {

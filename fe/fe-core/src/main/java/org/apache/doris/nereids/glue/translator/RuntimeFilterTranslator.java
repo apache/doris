@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.CTEScanNode;
@@ -47,7 +46,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -70,10 +68,6 @@ public class RuntimeFilterTranslator {
 
     public RuntimeFilterContext getContext() {
         return context;
-    }
-
-    public List<Slot> getTargetOnScanNode(RelationId id) {
-        return context.getTargetOnOlapScanNodeMap().getOrDefault(id, Collections.emptyList());
     }
 
     /**

@@ -26,7 +26,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSourceOperator, SourceOperator)
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<SortDependency>(state, parent) {}
+        : PipelineXLocalState<SortSourceDependency>(state, parent) {}
 
 SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)

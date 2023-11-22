@@ -23,6 +23,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -105,6 +106,11 @@ public class InSubquery extends SubqueryExpr {
         Preconditions.checkArgument(children.size() == 2);
         Preconditions.checkArgument(children.get(1) instanceof ListQuery);
         return new InSubquery(children.get(0), (ListQuery) children.get(1), isNot);
+    }
+
+    @Override
+    public List<Expression> children() {
+        return Lists.newArrayList(compareExpr, listQuery);
     }
 
     @Override

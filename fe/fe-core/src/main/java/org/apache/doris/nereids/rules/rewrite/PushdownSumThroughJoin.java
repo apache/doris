@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -65,25 +66,41 @@ public class PushdownSumThroughJoin implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalAggregate(innerLogicalJoin())
-                        .when(agg -> agg.child().getOtherJoinConjuncts().size() == 0)
+                        .when(agg -> agg.child().getOtherJoinConjuncts().isEmpty())
                         .whenNot(agg -> agg.child().children().stream().anyMatch(p -> p instanceof LogicalAggregate))
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
                                     .allMatch(f -> f instanceof Sum && !f.isDistinct() && f.child(0) instanceof Slot);
                         })
-                        .then(agg -> pushSum(agg, agg.child(), ImmutableList.of()))
+                        .thenApply(ctx -> {
+                            Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
+                                    .getSessionVariable().getEnableNereidsRules();
+                            if (!enableNereidsRules.contains(RuleType.PUSHDOWN_SUM_THROUGH_JOIN.type())) {
+                                return null;
+                            }
+                            LogicalAggregate<LogicalJoin<Plan, Plan>> agg = ctx.root;
+                            return pushSum(agg, agg.child(), ImmutableList.of());
+                        })
                         .toRule(RuleType.PUSHDOWN_SUM_THROUGH_JOIN),
                 logicalAggregate(logicalProject(innerLogicalJoin()))
                         .when(agg -> agg.child().isAllSlots())
-                        .when(agg -> agg.child().child().getOtherJoinConjuncts().size() == 0)
+                        .when(agg -> agg.child().child().getOtherJoinConjuncts().isEmpty())
                         .whenNot(agg -> agg.child().children().stream().anyMatch(p -> p instanceof LogicalAggregate))
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
                                     .allMatch(f -> f instanceof Sum && !f.isDistinct() && f.child(0) instanceof Slot);
                         })
-                        .then(agg -> pushSum(agg, agg.child().child(), agg.child().getProjects()))
+                        .thenApply(ctx -> {
+                            Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
+                                    .getSessionVariable().getEnableNereidsRules();
+                            if (!enableNereidsRules.contains(RuleType.PUSHDOWN_SUM_THROUGH_JOIN.type())) {
+                                return null;
+                            }
+                            LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> agg = ctx.root;
+                            return pushSum(agg, agg.child().child(), agg.child().getProjects());
+                        })
                         .toRule(RuleType.PUSHDOWN_SUM_THROUGH_JOIN)
         );
     }

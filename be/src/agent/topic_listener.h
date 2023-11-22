@@ -25,6 +25,6 @@ class TopicListener {
 public:
     virtual ~TopicListener() {}
 
-    virtual void handle_topic_info(const TPublishTopicRequest& topic_request) = 0;
+    virtual void handle_topic_info(const std::vector<TopicInfo>& topic_info_list) = 0;
 };
 } // namespace doris

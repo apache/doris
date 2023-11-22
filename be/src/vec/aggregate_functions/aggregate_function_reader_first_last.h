@@ -108,6 +108,7 @@ public:
     using StoreType = std::conditional_t<is_copy, CopiedValue<ColVecType, arg_is_nullable>,
                                          Value<ColVecType, arg_is_nullable>>;
     static constexpr bool nullable = arg_is_nullable;
+    static constexpr bool result_nullable = result_is_nullable;
 
     void reset() {
         _data_value.reset();
@@ -202,7 +203,13 @@ public:
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override { return _argument_type; }
+    DataTypePtr get_return_type() const override {
+        if constexpr (Data::result_nullable) {
+            return make_nullable(_argument_type);
+        } else {
+            return _argument_type;
+        }
+    }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         this->data(place).insert_result_into(to);

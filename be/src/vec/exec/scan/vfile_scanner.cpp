@@ -329,10 +329,6 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
-        if (_params->format_type == TFileFormatType::FORMAT_WAL) {
-            block->swap(*_src_block_ptr);
-            break;
-        }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
@@ -467,7 +463,7 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
 
 Status VFileScanner::_fill_columns_from_path(size_t rows) {
     DataTypeSerDe::FormatOptions _text_formatOptions;
-    for (auto& kv : *_partition_columns) {
+    for (auto& kv : _partition_col_descs) {
         auto doris_column = _src_block_ptr->get_by_name(kv.first).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
@@ -500,7 +496,7 @@ Status VFileScanner::_fill_missing_columns(size_t rows) {
     }
 
     SCOPED_TIMER(_fill_missing_columns_timer);
-    for (auto& kv : *_missing_columns) {
+    for (auto& kv : _missing_col_descs) {
         if (kv.second == nullptr) {
             // no default column, fill with null
             auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
@@ -930,9 +926,8 @@ Status VFileScanner::_get_next_reader() {
 }
 
 Status VFileScanner::_generate_fill_columns() {
-    _partition_columns.reset(
-            new std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>());
-    _missing_columns.reset(new std::unordered_map<std::string, VExprContextSPtr>());
+    _partition_col_descs.clear();
+    _missing_col_descs.clear();
 
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
@@ -949,8 +944,8 @@ Status VFileScanner::_generate_fill_columns() {
                 if (size == 4 && memcmp(data, "null", 4) == 0) {
                     data = const_cast<char*>("\\N");
                 }
-                _partition_columns->emplace(slot_desc->col_name(),
-                                            std::make_tuple(data, slot_desc));
+                _partition_col_descs.emplace(slot_desc->col_name(),
+                                             std::make_tuple(data, slot_desc));
             }
         }
     }
@@ -969,16 +964,11 @@ Status VFileScanner::_generate_fill_columns() {
                 return Status::InternalError("failed to find default value expr for slot: {}",
                                              slot_desc->col_name());
             }
-            _missing_columns->emplace(slot_desc->col_name(), it->second);
+            _missing_col_descs.emplace(slot_desc->col_name(), it->second);
         }
     }
 
-    RETURN_IF_ERROR(_cur_reader->set_fill_columns(*_partition_columns, *_missing_columns));
-    if (_cur_reader->fill_all_columns()) {
-        _partition_columns.reset(nullptr);
-        _missing_columns.reset(nullptr);
-    }
-    return Status::OK();
+    return _cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs);
 }
 
 Status VFileScanner::_init_expr_ctxes() {

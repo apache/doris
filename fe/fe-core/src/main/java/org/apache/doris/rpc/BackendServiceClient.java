@@ -161,6 +161,12 @@ public class BackendServiceClient {
         return stub.groupCommitInsert(request);
     }
 
+    public Future<InternalService.PGetWalQueueSizeResponse> getWalQueueSize(
+            InternalService.PGetWalQueueSizeRequest request) {
+        return stub.getWalQueueSize(request);
+    }
+
+
     public void shutdown() {
         if (!channel.isShutdown()) {
             channel.shutdown();

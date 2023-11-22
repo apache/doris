@@ -60,6 +60,8 @@ public class ShowAnalyzeStmt extends ShowStmt {
             .add("state")
             .add("progress")
             .add("schedule_type")
+            .add("start_time")
+            .add("end_time")
             .build();
 
     private long jobId;
@@ -206,15 +208,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
             throw new AnalysisException("Where clause should looks like: "
                     + "STATE = \"PENDING|RUNNING|FINISHED|FAILED");
         }
-    }
-
-    private int analyzeColumn(String columnName) throws AnalysisException {
-        for (String title : TITLE_NAMES) {
-            if (title.equalsIgnoreCase(columnName)) {
-                return TITLE_NAMES.indexOf(title);
-            }
-        }
-        throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 
     @Override

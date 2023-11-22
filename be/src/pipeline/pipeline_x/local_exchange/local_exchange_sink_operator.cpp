@@ -27,7 +27,7 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
     auto& p = _parent->cast<LocalExchangeSinkOperatorX>();
     RETURN_IF_ERROR(p._partitioner->clone(state, _partitioner));
-    _shared_state->running_sink_operators++;
+    _shared_state->add_running_sink_operators();
     return Status::OK();
 }
 
@@ -60,6 +60,7 @@ Status LocalExchangeSinkLocalState::split_rows(RuntimeState* state,
         if (size > 0) {
             data_queue[i].enqueue({new_block, {row_idx, start, size}});
         }
+        _shared_state->set_ready_for_read(i);
     }
 
     return Status::OK();
@@ -83,7 +84,7 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     }
 
     if (source_state == SourceState::FINISHED) {
-        local_state._shared_state->running_sink_operators--;
+        local_state._shared_state->sub_running_sink_operators();
     }
 
     return Status::OK();

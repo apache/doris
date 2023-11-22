@@ -142,12 +142,15 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
-                .setSampleRows(StatisticsUtil.getHugeTableSampleRows())
+                .setSampleRows(analysisMethod.equals(AnalysisMethod.SAMPLE)
+                        ? StatisticsUtil.getHugeTableSampleRows() : -1)
                 .setScheduleType(ScheduleType.AUTOMATIC)
                 .setState(AnalysisState.PENDING)
                 .setTaskIds(new ArrayList<>())
                 .setLastExecTimeInMs(System.currentTimeMillis())
-                .setJobType(JobType.SYSTEM).build();
+                .setJobType(JobType.SYSTEM)
+                .setTblUpdateTime(table.getUpdateTime())
+                .build();
         analysisInfos.add(jobInfo);
     }
 

@@ -61,9 +61,17 @@ using HashTableCtxVariants = std::variant<
         vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN,
                                           HashJoinProbeLocalState>>;
 
+class HashJoinProbeDependency final : public Dependency {
+public:
+    using SharedState = HashJoinSharedState;
+    HashJoinProbeDependency(int id, int node_id)
+            : Dependency(id, node_id, "HashJoinProbeDependency") {}
+    ~HashJoinProbeDependency() override = default;
+};
+
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState final
-        : public JoinProbeLocalState<HashJoinDependency, HashJoinProbeLocalState> {
+        : public JoinProbeLocalState<HashJoinProbeDependency, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(HashJoinProbeLocalState);
@@ -96,6 +104,11 @@ public:
 private:
     void _prepare_probe_block();
     bool _need_probe_null_map(vectorized::Block& block, const std::vector<int>& res_col_ids);
+    std::vector<uint16_t> _convert_block_to_null(vectorized::Block& block);
+    Status _extract_join_column(vectorized::Block& block,
+                                vectorized::ColumnUInt8::MutablePtr& null_map,
+                                vectorized::ColumnRawPtrs& raw_ptrs,
+                                const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
     template <int JoinOpType, typename Parent>
     friend struct vectorized::ProcessHashTableProbe;

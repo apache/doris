@@ -328,6 +328,8 @@ public class AnalysisManagerTest {
 
             int count = 0;
             int[] rowCount = new int[]{100, 200};
+
+            final Column c = new Column("col1", PrimitiveType.INT);
             @Mock
             public long getRowCount() {
                 return rowCount[count++];
@@ -335,16 +337,25 @@ public class AnalysisManagerTest {
 
             @Mock
             public List<Column> getBaseSchema() {
-                return Lists.newArrayList(new Column("col1", PrimitiveType.INT));
+                return Lists.newArrayList(c);
+            }
+
+            @Mock
+            public List<Column> getColumns() {
+                return Lists.newArrayList(c);
             }
 
         };
         OlapTable olapTable = new OlapTable();
-        TableStatsMeta stats1 = new TableStatsMeta(0, 50, new AnalysisInfoBuilder().setColName("col1").build());
+        TableStatsMeta stats1 = new TableStatsMeta(
+                50, new AnalysisInfoBuilder().setColToPartitions(new HashMap<>())
+                .setColName("col1").build(), olapTable);
         stats1.updatedRows.addAndGet(50);
 
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
-        TableStatsMeta stats2 = new TableStatsMeta(0, 190, new AnalysisInfoBuilder().setColName("col1").build());
+        TableStatsMeta stats2 = new TableStatsMeta(
+                190, new AnalysisInfoBuilder()
+                .setColToPartitions(new HashMap<>()).setColName("col1").build(), olapTable);
         stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
 

@@ -35,6 +35,7 @@
 #include <atomic>
 
 #include "olap/wal_writer.h"
+#include "vwal_writer.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
@@ -573,15 +574,6 @@ private:
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 
-    Status write_wal(OlapTableBlockConvertor* block_convertor, OlapTabletFinder* tablet_finder,
-                     vectorized::Block* block, RuntimeState* state, int64_t num_rows,
-                     int64_t filtered_rows);
-
-    void _group_commit_block(vectorized::Block* input_block, int64_t num_rows, int64_t filter_rows,
-                             RuntimeState* state, vectorized::Block* block,
-                             OlapTableBlockConvertor* block_convertor,
-                             OlapTabletFinder* tablet_finder);
-
     TDataSink _t_sink;
 
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -681,14 +673,10 @@ private:
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
     bool _group_commit = false;
-    std::shared_ptr<WalWriter> _wal_writer = nullptr;
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
-
-    int64_t _tb_id;
-    int64_t _db_id;
-    int64_t _wal_id;
+    std::shared_ptr<VWalWriter> _v_wal_writer = nullptr;
 };
 } // namespace doris::vectorized

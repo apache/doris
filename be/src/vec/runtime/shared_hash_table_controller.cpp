@@ -72,7 +72,7 @@ void SharedHashTableController::signal(int my_node_id, Status status) {
         _shared_contexts.erase(it);
     }
     for (auto& dep : _dependencies[my_node_id]) {
-        dep->set_ready_for_write();
+        dep->set_ready();
     }
     _cv.notify_all();
 }
@@ -85,7 +85,7 @@ void SharedHashTableController::signal(int my_node_id) {
         _shared_contexts.erase(it);
     }
     for (auto& dep : _dependencies[my_node_id]) {
-        dep->set_ready_for_write();
+        dep->set_ready();
     }
     _cv.notify_all();
 }

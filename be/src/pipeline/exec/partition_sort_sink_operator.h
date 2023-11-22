@@ -50,13 +50,21 @@ public:
     bool can_write() override { return true; }
 };
 
+class PartitionSortSinkDependency final : public Dependency {
+public:
+    using SharedState = PartitionSortNodeSharedState;
+    PartitionSortSinkDependency(int id, int node_id)
+            : Dependency(id, node_id, "PartitionSortSinkDependency", true) {}
+    ~PartitionSortSinkDependency() override = default;
+};
+
 class PartitionSortSinkOperatorX;
-class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortDependency> {
+class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortSinkDependency> {
     ENABLE_FACTORY_CREATOR(PartitionSortSinkLocalState);
 
 public:
     PartitionSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<PartitionSortDependency>(parent, state) {}
+            : PipelineXSinkLocalState<PartitionSortSinkDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 

@@ -55,7 +55,7 @@ Status EsScanLocalState::_init_profile() {
 
 Status EsScanLocalState::_process_conjuncts() {
     RETURN_IF_ERROR(Base::_process_conjuncts());
-    if (Base::_eos_dependency->read_blocked_by() == nullptr) {
+    if (Base::_scan_dependency->eos()) {
         return Status::OK();
     }
 
@@ -66,7 +66,7 @@ Status EsScanLocalState::_process_conjuncts() {
 
 Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
-        Base::_eos_dependency->set_ready_for_read();
+        Base::_scan_dependency->set_eos();
         return Status::OK();
     }
 

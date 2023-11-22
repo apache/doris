@@ -2299,4 +2299,16 @@ suite('nereids_arith_p0_decimal') {
 	// 	select id, BITAND(kdcml128v3, kbool), BITOR(kdcml128v3, kbool), BITXOR(kdcml128v3, kbool) from expr_test order by id"""
 	// qt_sql_test_Decimal128V3_Boolean_notn_4 """
 	// 	select id, BITAND(kdcml128v3, kbool), BITOR(kdcml128v3, kbool), BITXOR(kdcml128v3, kbool) from expr_test_not_nullable order by id"""
+
+
+	// decimal add precision
+	sql """drop table if exists test_arithmetic_expressions"""
+	sql """
+		CREATE TABLE IF NOT EXISTS test_arithmetic_expressions (
+            `a` DECIMALV3(9, 3) NOT NULL,
+            `b` DECIMALV3(9, 3) NOT NULL
+        ) DISTRIBUTED BY HASH(a) PROPERTIES("replication_num" = "1");
+	"""
+	sql "select a + b from test_arithmetic_expressions"
+	sql """drop table if exists test_arithmetic_expressions"""
 }

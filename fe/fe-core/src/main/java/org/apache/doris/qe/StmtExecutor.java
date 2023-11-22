@@ -149,6 +149,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -892,10 +893,16 @@ public class StmtExecutor {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-
-        profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
-                context.getSessionVariable().profileLevel, this.planner,
-                context.getSessionVariable().getEnablePipelineXEngine());
+        // If any error happends in update profile, we should ignore this error
+        // and ensure the sql is finished normally. For example, if update profile
+        // failed, the insert stmt should be success
+        try {
+            profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
+                    context.getSessionVariable().profileLevel, this.planner,
+                    context.getSessionVariable().getEnablePipelineXEngine());
+        } catch (Throwable t) {
+            LOG.warn("failed to update profile, ingore this error", t);
+        }
     }
 
     // Analyze one statement to structure in memory.
@@ -1446,7 +1453,7 @@ public class StmtExecutor {
             }
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-            profile.addExecutionProfile(coord.getExecutionProfile());
+            profile.setExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
 
@@ -1854,7 +1861,33 @@ public class StmtExecutor {
             txnId = context.getTxnEntry().getTxnConf().getTxnId();
         } else if (insertStmt instanceof NativeInsertStmt && ((NativeInsertStmt) insertStmt).isGroupCommit()) {
             isGroupCommit = true;
+            if (Env.getCurrentEnv().getGroupCommitManager().isBlock(insertStmt.getTargetTable().getId())) {
+                String msg = "insert table " + insertStmt.getTargetTable().getId() + " is blocked on schema change";
+                LOG.info(msg);
+                throw new DdlException(msg);
+            }
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) insertStmt;
+            Backend backend = context.getInsertGroupCommit(insertStmt.getTargetTable().getId());
+            if (backend == null || !backend.isAlive() || backend.isDecommissioned()) {
+                List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+                if (allBackendIds.isEmpty()) {
+                    throw new DdlException("No alive backend");
+                }
+                Collections.shuffle(allBackendIds);
+                boolean find = false;
+                for (Long beId : allBackendIds) {
+                    backend = Env.getCurrentSystemInfo().getBackend(beId);
+                    if (!backend.isDecommissioned()) {
+                        context.setInsertGroupCommit(insertStmt.getTargetTable().getId(), backend);
+                        find = true;
+                        LOG.debug("choose new be {}", backend.getId());
+                        break;
+                    }
+                }
+                if (!find) {
+                    throw new DdlException("No suitable backend");
+                }
+            }
             int maxRetry = 3;
             for (int i = 0; i < maxRetry; i++) {
                 GroupCommitPlanner groupCommitPlanner = nativeInsertStmt.planForGroupCommit(context.queryId);
@@ -1922,7 +1955,7 @@ public class StmtExecutor {
                 coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
-                profile.addExecutionProfile(coord.getExecutionProfile());
+                profile.setExecutionProfile(coord.getExecutionProfile());
 
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
@@ -2683,7 +2716,7 @@ public class StmtExecutor {
             }
             RowBatch batch;
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-            profile.addExecutionProfile(coord.getExecutionProfile());
+            profile.setExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));

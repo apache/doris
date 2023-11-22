@@ -422,8 +422,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             auto task = std::make_unique<PipelineXTask>(
                     _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
                     _runtime_states[i]->runtime_profile(),
-                    _op_id_to_le_state.count(
-                            _pipelines[pip_idx]->operator_xs().front()->operator_id()) > 0
+                    _op_id_to_le_state.contains(
+                            _pipelines[pip_idx]->operator_xs().front()->operator_id())
                             ? _op_id_to_le_state
                                       [_pipelines[pip_idx]->operator_xs().front()->operator_id()]
                             : nullptr,
@@ -592,13 +592,14 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
     _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
     DataSinkOperatorXPtr sink;
-    sink.reset(new LocalExchangeSinkOperatorX(
-            local_exchange_id, _runtime_state->query_parallel_instance_num(), texprs));
+    auto num_instances = _runtime_state->query_parallel_instance_num();
+    sink.reset(new LocalExchangeSinkOperatorX(local_exchange_id, num_instances, texprs));
     RETURN_IF_ERROR(cur_pipe->set_sink(sink));
     RETURN_IF_ERROR(cur_pipe->sink_x()->init());
 
     auto shared_state = LocalExchangeSharedState::create_shared();
-    shared_state->data_queue.resize(_runtime_state->query_parallel_instance_num());
+    shared_state->data_queue.resize(num_instances);
+    shared_state->source_dependencies.resize(num_instances, nullptr);
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
@@ -938,7 +939,7 @@ Status PipelineXFragmentContext::submit() {
     if (!st.ok()) {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
-            std::call_once(_close_once_flag, [this] { _close_action(); });
+            _close_fragment_instance();
         }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
@@ -968,7 +969,11 @@ void PipelineXFragmentContext::close_if_prepare_failed() {
     }
 }
 
-void PipelineXFragmentContext::_close_action() {
+void PipelineXFragmentContext::_close_fragment_instance() {
+    if (_is_fragment_instance_closed) {
+        return;
+    }
+    Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
@@ -1029,4 +1034,18 @@ bool PipelineXFragmentContext::_has_inverted_index_or_partial_update(TOlapTableS
     return false;
 }
 
+std::string PipelineXFragmentContext::debug_string() {
+    fmt::memory_buffer debug_string_buffer;
+    for (size_t j = 0; j < _tasks.size(); j++) {
+        fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
+        for (size_t i = 0; i < _tasks[j].size(); i++) {
+            if (_tasks[j][i]->get_state() == PipelineTaskState::FINISHED) {
+                continue;
+            }
+            fmt::format_to(debug_string_buffer, "Task {}: {}\n", i, _tasks[j][i]->debug_string());
+        }
+    }
+
+    return fmt::to_string(debug_string_buffer);
+}
 } // namespace doris::pipeline

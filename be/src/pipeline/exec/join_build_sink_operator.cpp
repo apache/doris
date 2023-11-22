@@ -115,8 +115,9 @@ void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
 }
 
 template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<HashJoinBuildSinkDependency, HashJoinBuildSinkLocalState>;
 template class JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<NestedLoopJoinDependency, NestedLoopJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+                                       NestedLoopJoinBuildSinkLocalState>;
 
 } // namespace doris::pipeline
