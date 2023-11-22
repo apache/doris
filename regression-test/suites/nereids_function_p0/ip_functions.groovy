@@ -36,6 +36,10 @@ suite("ip_functions") {
     qt_ip14 "SELECT ipv6numtostring(unhex('2A0206B8000000000000000000000011'));"
     qt_ip15 "SELECT ipv6numtostring(unhex('FDFE0000000000005A55CAFFFEFA9089'));"
     qt_ip16 "SELECT ipv6numtostring(unhex(''));"
-    qt_ip17 "SELECT inet6_ntoa(unhex('0A0005091'));"
-    qt_ip18 "SELECT inet6_ntoa(unhex('2A0206B8000000000000000000000011'));"
+    qt_ip17 "SELECT ipv6numtostring(unhex('KK'));"
+    qt_ip18 "SELECT ipv6numtostring(unhex('0A000509'));"
+    qt_ip19 "SELECT ipv6numtostring(unhex('abcd123456'));"
+    qt_ip20 "SELECT ipv6numtostring(unhex('ffffffffffffffffffffffffffffffffffffffffffffffffffffff'));"
+    qt_ip21 "SELECT inet6_ntoa(unhex('0A0005091'));"
+    qt_ip22 "SELECT inet6_ntoa(unhex('2A0206B8000000000000000000000011'));"
 }

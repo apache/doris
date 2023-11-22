@@ -303,6 +303,8 @@ public:
         std::vector<IPv6Address> ipv6_addresses(input_rows_count);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
+            bool is_empty = false;
+
             if (col_ipv6) {
                 const auto& vec_in = col_ipv6->get_data();
                 memcpy(ipv6_addresses[i].data, reinterpret_cast<const unsigned char*>(&vec_in[i]),
@@ -310,14 +312,20 @@ public:
             } else {
                 const auto str_ref = col_string->get_data_at(i);
                 const char* value = str_ref.data;
-                size_t value_size = std::min(str_ref.size, IPV6_BINARY_LENGTH);
-                memcpy(ipv6_addresses[i].data, value, value_size);
-                memset(ipv6_addresses[i].data + value_size, 0, IPV6_BINARY_LENGTH - value_size);
+                size_t value_size = str_ref.size;
+
+                if (value_size > IPV6_BINARY_LENGTH) {
+                    is_empty = true;
+                } else {
+                    memcpy(ipv6_addresses[i].data, value, value_size);
+                    memset(ipv6_addresses[i].data + value_size, 0, IPV6_BINARY_LENGTH - value_size);
+                }
             }
 
             const unsigned char* src = ipv6_addresses[i].data;
-            bool is_empty = col_string && std::all_of(src, src + IPV6_BINARY_LENGTH,
-                                                      [](unsigned char c) { return c == '\0'; });
+            is_empty = is_empty ||
+                       (col_string && std::all_of(src, src + IPV6_BINARY_LENGTH,
+                                                  [](unsigned char c) { return c == '\0'; }));
 
             if (is_empty) {
                 offsets_res[i] = pos - begin;
