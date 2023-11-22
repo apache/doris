@@ -282,7 +282,7 @@ public class ExpressionUtils {
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
-            List<E> exprs, Function<Expression, Expression> rewriteFunction) {
+            Collection<E> exprs, Function<Expression, Expression> rewriteFunction) {
         return exprs.stream()
                 .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
                 .collect(ImmutableList.toImmutableList());
@@ -320,10 +320,6 @@ public class ExpressionUtils {
             }
         }
         return builder.build();
-    }
-
-    public static boolean isAllLiteral(Expression... children) {
-        return Arrays.stream(children).allMatch(c -> c instanceof Literal);
     }
 
     public static boolean isAllLiteral(List<Expression> children) {

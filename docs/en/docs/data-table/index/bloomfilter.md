@@ -1,6 +1,6 @@
 ---
 {
-    "title": "BloomFilter index",
+    "title": "BloomFilter Index",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# BloomFilter index
+# BloomFilter Index
 
 BloomFilter is a fast search algorithm for multi-hash function mapping proposed by Bloom in 1970. Usually used in some occasions where it is necessary to quickly determine whether an element belongs to a set, but is not strictly required to be 100% correct, BloomFilter has the following characteristics:
 
@@ -40,7 +40,7 @@ Figure below shows an example of Bloom Filter with m=18, k=3 (m is the size of t
 
 So how to judge whether the plot and the elements are in the set? Similarly, all the offset positions of this element are obtained after hash function calculation. If these positions are all 1, then it is judged that this element is in this set, if one is not 1, then it is judged that this element is not in this set. It's that simple!
 
-## Doris BloomFilter index and usage scenarios
+## Doris BloomFilter Index and Usage Scenarios
 
 When we use HBase, we know that the Hbase data block index provides an effective method to find the data block of the HFile that should be read when accessing a specific row. But its utility is limited. The default size of the HFile data block is 64KB, and this size cannot be adjusted too much.
 
@@ -99,7 +99,7 @@ Check that the BloomFilter index we built on the table is to use:
 SHOW CREATE TABLE <table_name>;
 ```
 
-### Delete BloomFilter index
+### Delete BloomFilter Index
 
 Deleting the index is to remove the index column from the bloom_filter_columns attribute:
 
@@ -107,7 +107,7 @@ Deleting the index is to remove the index column from the bloom_filter_columns a
 ALTER TABLE <db.table_name> SET ("bloom_filter_columns" = "");
 ```
 
-### Modify BloomFilter index
+### Modify BloomFilter Index
 
 Modifying the index is to modify the bloom_filter_columns attribute of the table:
 
@@ -115,7 +115,7 @@ Modifying the index is to modify the bloom_filter_columns attribute of the table
 ALTER TABLE <db.table_name> SET ("bloom_filter_columns" = "k1,k3");
 ```
 
-### **Doris BloomFilter usage scenarios**
+### **Doris BloomFilter Usage Scenarios**
 
 You can consider establishing a Bloom Filter index for a column when the following conditions are met:
 
@@ -123,7 +123,7 @@ You can consider establishing a Bloom Filter index for a column when the followi
 2. The query will be filtered according to the high frequency of the column, and most of the query conditions are in and = filtering.
 3. Unlike Bitmap, BloomFilter is suitable for high cardinality columns. Such as UserID. Because if it is created on a low-cardinality column, such as a "gender" column, each Block will almost contain all values, causing the BloomFilter index to lose its meaning.
 
-### **Doris BloomFilter use precautions**
+### **Doris BloomFilter Use Precautions**
 
 1. It does not support the creation of Bloom Filter indexes for Tinyint, Float, and Double columns.
 2. The Bloom Filter index only has an acceleration effect on in and = filtering queries.

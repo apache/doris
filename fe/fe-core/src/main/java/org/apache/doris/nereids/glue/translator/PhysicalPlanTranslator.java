@@ -69,7 +69,7 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -139,6 +139,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
+import org.apache.doris.planner.BackendPartitionedSchemaScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.EmptySetNode;
@@ -711,13 +712,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Table table = schemaScan.getTable();
         List<Slot> slots = ImmutableList.copyOf(schemaScan.getOutput());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
-        SchemaScanNode scanNode = new SchemaScanNode(schemaScan.translatePlanNodeId(), tupleDescriptor);
+
+        // For the information_schema.rowsets table, the scan fragment needs to be sent to all BEs.
+        // For other information_schema tables, the scan fragment only needs to be sent to one of the BEs.
+        SchemaScanNode scanNode = null;
+        if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
+                table.getName())) {
+            scanNode = new BackendPartitionedSchemaScanNode(schemaScan.translatePlanNodeId(), tupleDescriptor);
+        } else {
+            scanNode = new SchemaScanNode(schemaScan.translatePlanNodeId(), tupleDescriptor);
+        }
+        SchemaScanNode finalScanNode = scanNode;
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(schemaScan.getRelationId())
-                        .forEach(expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
+                        .forEach(expr -> runtimeFilterGenerator
+                                .translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
         );
-        scanNode.finalizeForNereids();
+        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         context.addScanNode(scanNode);
         PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, schemaScan);
         context.addPlanFragment(planFragment);
@@ -1102,7 +1114,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         JoinType joinType = hashJoin.getJoinType();
 
         List<Expr> execEqConjuncts = hashJoin.getHashJoinConjuncts().stream()
-                .map(EqualTo.class::cast)
+                .map(EqualPredicate.class::cast)
                 .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());

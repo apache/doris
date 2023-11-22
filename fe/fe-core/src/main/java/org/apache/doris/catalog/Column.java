@@ -734,7 +734,7 @@ public class Column implements Writable, GsonPostProcessable {
                 int scale = sType.getScalarScale();
                 int precision = sType.getScalarPrecision();
                 // not default
-                if (scale > 0 && precision != 9) {
+                if (!sType.isDefaultDecimal()) {
                     sb.append("(").append(precision).append(", ").append(scale)
                             .append(")");
                 }

@@ -235,7 +235,7 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
     std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
     int64_t total_free_memory = 0;
 
-    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+    ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
                 return !task_group->enable_memory_overcommit();
             },
@@ -277,7 +277,7 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
     MonotonicStopWatch watch;
     watch.start();
     std::vector<taskgroup::TaskGroupPtr> task_groups;
-    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+    ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
                 return task_group->enable_memory_overcommit();
             },

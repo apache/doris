@@ -583,7 +583,8 @@ public class NativeInsertStmt extends InsertStmt {
 
         // check if size of select item equal with columns mentioned in statement
         if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT,
+                    mentionedColumns.size(), queryStmt.getResultExprs().size());
         }
 
         if (analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
@@ -921,6 +922,9 @@ public class NativeInsertStmt extends InsertStmt {
                 throw new DdlException("txn does not exist: " + transactionId);
             }
             txnState.addTableIndexes((OlapTable) targetTable);
+            if (!isFromDeleteOrUpdateStmt && isPartialUpdate) {
+                txnState.setSchemaForPartialUpdate((OlapTable) targetTable);
+            }
         }
     }
 
@@ -1008,7 +1012,7 @@ public class NativeInsertStmt extends InsertStmt {
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
             for (Column insertCol : targetColumns) {
-                if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
+                if (insertCol.getName() != null && insertCol.getName().equalsIgnoreCase(col.getName())) {
                     if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
                         throw new UserException("Partial update should not include invisible column except"
                                     + " delete sign column: " + col.getName());
@@ -1023,7 +1027,11 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         isPartialUpdate = true;
-        partialUpdateCols.addAll(targetColumnNames);
+        for (String name : targetColumnNames) {
+            Column column = olapTable.getFullSchema().stream()
+                    .filter(col -> col.getName().equalsIgnoreCase(name)).findFirst().get();
+            partialUpdateCols.add(column.getName());
+        }
         if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
                 && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
             partialUpdateCols.add(Column.SEQUENCE_COL);

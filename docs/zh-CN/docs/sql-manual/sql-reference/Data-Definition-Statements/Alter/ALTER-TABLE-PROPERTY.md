@@ -153,8 +153,8 @@ ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "
 ```sql
 ALTER TABLE example_db.mysql_table SET ("replication_num" = "2");
 ALTER TABLE example_db.mysql_table SET ("default.replication_num" = "2");
-ALTER TABLE example_db.mysql_table SET ("replication_allocation" = "tag.location.tag1: 1");
-ALTER TABLE example_db.mysql_table SET ("default.replication_allocation" = "tag.location.tag1: 1");
+ALTER TABLE example_db.mysql_table SET ("replication_allocation" = "tag.location.default: 1");
+ALTER TABLE example_db.mysql_table SET ("default.replication_allocation" = "tag.location.default: 1");
 ```
 
 注：

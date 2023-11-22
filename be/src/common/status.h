@@ -470,6 +470,8 @@ public:
 
     int code() const { return _code; }
 
+    std::string msg() const { return _err_msg != nullptr ? _err_msg->_msg : ""; }
+
     /// Clone this status and add the specified prefix to the message.
     ///
     /// If this status is OK, then an OK status will be returned.

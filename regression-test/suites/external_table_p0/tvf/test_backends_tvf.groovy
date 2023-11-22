@@ -58,4 +58,13 @@ suite("test_backends_tvf","p0,external,tvf,external_docker") {
             MaxDiskUsedPct, RemoteUsedCapacity, Tag, ErrMsg, Version, Status
             HeartbeatFailureCounter, NodeRole from backends();
     """
+
+
+    // test exception
+    test {
+        sql """ select * from backends("backendId" = "10003"); """
+
+        // check exception
+        exception "backends table-valued-function does not support any params"
+    }
 }

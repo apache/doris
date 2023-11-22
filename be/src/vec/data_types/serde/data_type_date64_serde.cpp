@@ -62,18 +62,15 @@ void DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int 
     }
 }
 
-Status DataTypeDate64SerDe::deserialize_column_from_json_vector(IColumn& column,
-                                                                std::vector<Slice>& slices,
-                                                                int* num_deserialized,
-                                                                const FormatOptions& options,
-                                                                int nesting_level) const {
+Status DataTypeDate64SerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options,
-                                                           int nesting_level) const {
+                                                           const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;
     if (options.date_olap_format) {
@@ -132,18 +129,15 @@ void DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, in
     }
 }
 
-Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(IColumn& column,
-                                                                  std::vector<Slice>& slices,
-                                                                  int* num_deserialized,
-                                                                  const FormatOptions& options,
-                                                                  int nesting_level) const {
+Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
 Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                             const FormatOptions& options,
-                                                             int nesting_level) const {
+                                                             const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;
     if (options.date_olap_format) {
@@ -256,8 +250,20 @@ Status DataTypeDate64SerDe::_write_column_to_mysql(const IColumn& column,
     const auto col_index = index_check_const(row_idx, col_const);
     auto time_num = data[col_index];
     VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);
+    // _nesting_level >= 2 means this datetimev2 is in complex type
+    // and we should add double quotes
+    if (_nesting_level >= 2) {
+        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+    }
     if (UNLIKELY(0 != result.push_vec_datetime(time_val))) {
         return Status::InternalError("pack mysql buffer failed.");
+    }
+    if (_nesting_level >= 2) {
+        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
     }
     return Status::OK();
 }

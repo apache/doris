@@ -78,6 +78,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
@@ -608,6 +609,15 @@ public class TabletScheduler extends MasterDaemon {
         }
     }
 
+    public void updateDestPathHash(TabletSchedCtx tabletCtx) {
+        // find dest replica
+        Optional<Replica> destReplica = tabletCtx.getReplicas()
+                .stream().filter(replica -> replica.getBackendId() == tabletCtx.getDestBackendId()).findAny();
+        if (destReplica.isPresent() && tabletCtx.getDestPathHash() != -1) {
+            destReplica.get().setPathHash(tabletCtx.getDestPathHash());
+        }
+    }
+
     public void updateDiskBalanceLastSuccTime(long beId, long pathHash) {
         PathSlot pathSlot = backendsWorkingSlots.get(beId);
         if (pathSlot == null) {
@@ -1067,7 +1077,7 @@ public class TabletScheduler extends MasterDaemon {
 
         List<Replica> replicas = tabletCtx.getTablet().getReplicas();
         boolean otherCatchup = replicas.stream().anyMatch(
-                r -> r.getId() != replica.getId()
+                r -> r != replica
                 && (r.getVersion() > replica.getVersion()
                         || (r.getVersion() == replica.getVersion() && r.getLastFailedVersion() < 0)));
         if (!otherCatchup) {
@@ -1630,6 +1640,7 @@ public class TabletScheduler extends MasterDaemon {
             // if we have a success task, then stat must be refreshed before schedule a new task
             updateDiskBalanceLastSuccTime(tabletCtx.getSrcBackendId(), tabletCtx.getSrcPathHash());
             updateDiskBalanceLastSuccTime(tabletCtx.getDestBackendId(), tabletCtx.getDestPathHash());
+            updateDestPathHash(tabletCtx);
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
         } else {
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,

@@ -861,22 +861,9 @@ public class OlapScanNode extends ScanNode {
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
         } else {
-            selectedPartitionIds = null;
+            selectedPartitionIds = olapTable.getPartitionIds();
         }
-
-        if (selectedPartitionIds == null) {
-            selectedPartitionIds = Lists.newArrayList();
-            for (Partition partition : olapTable.getPartitions()) {
-                if (!partition.hasData()) {
-                    continue;
-                }
-                selectedPartitionIds.add(partition.getId());
-            }
-        } else {
-            selectedPartitionIds = selectedPartitionIds.stream()
-                    .filter(id -> olapTable.getPartition(id).hasData())
-                    .collect(Collectors.toList());
-        }
+        selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);
         selectedPartitionNum = selectedPartitionIds.size();
 
         for (long id : selectedPartitionIds) {
@@ -947,9 +934,13 @@ public class OlapScanNode extends ScanNode {
         }
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
-            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
-            selectedRows += selectedTable.getRowCount();
-            selectedPartitionList.add(partitionId);
+            final MaterializedIndex selectedIndex = partition.getIndex(selectedIndexId);
+            // selectedIndex is not expected to be null, because MaterializedIndex ids in one rollup's partitions
+            // are all same. skip this partition here.
+            if (selectedIndex != null) {
+                selectedRows += selectedIndex.getRowCount();
+                selectedPartitionList.add(partitionId);
+            }
         }
         selectedPartitionList.sort(Comparator.naturalOrder());
 
@@ -969,7 +960,7 @@ public class OlapScanNode extends ScanNode {
         // 3. Sampling partition. If Seek is specified, the partition will be the same for each sampling.
         long hitRows = 0; // The number of rows hit by the tablet
         long partitionSeek = tableSample.getSeek() != -1
-                ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * selectedPartitionIds.size());
+                ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * selectedPartitionList.size());
         for (int i = 0; i < selectedPartitionList.size(); i++) {
             int seekPid = (int) ((i + partitionSeek) % selectedPartitionList.size());
             final Partition partition = olapTable.getPartition(selectedPartitionList.get(seekPid));
@@ -1255,11 +1246,9 @@ public class OlapScanNode extends ScanNode {
     public int getNumInstances() {
         // In pipeline exec engine, the instance num equals be_num * parallel instance.
         // so here we need count distinct be_num to do the work. make sure get right instance
-        if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()) {
-            int parallelInstance = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-            long numBackend = scanRangeLocations.stream().flatMap(rangeLoc -> rangeLoc.getLocations().stream())
-                    .map(loc -> loc.backend_id).distinct().count();
-            return (int) (parallelInstance * numBackend);
+        if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
+                && ConnectContext.get().getSessionVariable().getEnableSharedScan()) {
+            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
         return scanRangeLocations.size();
     }
@@ -1316,7 +1305,7 @@ public class OlapScanNode extends ScanNode {
     // If scan is key search, should not enable the shared scan opt to prevent the performance problem
     // 1. where contain the eq or in expr of key column slot
     // 2. key column slot is distribution column and first column
-    public boolean isKeySearch() {
+    protected boolean isKeySearch() {
         List<SlotRef> whereSlot = Lists.newArrayList();
         for (Expr conjunct : conjuncts) {
             if (conjunct instanceof BinaryPredicate) {

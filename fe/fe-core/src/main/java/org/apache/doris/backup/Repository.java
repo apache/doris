@@ -59,6 +59,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.UUID;
 
 /*
  * Repository represents a remote storage for backup to or restore from
@@ -251,7 +252,7 @@ public class Repository implements Writable {
             }
 
             // exist, download and parse the repo info file
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + System.currentTimeMillis();
+            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + allocLocalFileSuffix();
             try {
                 st = fileSystem.downloadWithFileSize(repoInfoFilePath, localFilePath, remoteFile.getSize());
                 if (!st.ok()) {
@@ -419,7 +420,7 @@ public class Repository implements Writable {
     public Status getSnapshotInfoFile(String label, String backupTimestamp, List<BackupJobInfo> infos) {
         String remoteInfoFilePath = assembleJobInfoFilePath(label, -1) + backupTimestamp;
         File localInfoFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "info_" + System.currentTimeMillis());
+                + "info_" + allocLocalFileSuffix());
         try {
             Status st = download(remoteInfoFilePath, localInfoFile.getPath());
             if (!st.ok()) {
@@ -441,7 +442,7 @@ public class Repository implements Writable {
     public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas, int metaVersion) {
         String remoteMetaFilePath = assembleMetaInfoFilePath(label);
         File localMetaFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "meta_" + System.currentTimeMillis());
+                + "meta_" + allocLocalFileSuffix());
 
         try {
             Status st = download(remoteMetaFilePath, localMetaFile.getAbsolutePath());
@@ -732,9 +733,9 @@ public class Repository implements Writable {
                 }
             }
         } else {
-            // get specified timestamp
-            // path eg: /path/to/backup/__info_2081-04-19-12-59-11
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/" + Repository.PREFIX_JOB_INFO + timestamp;
+            // get specified timestamp, different repos might have snapshots with same timestamp.
+            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/"
+                    + Repository.PREFIX_JOB_INFO + allocLocalFileSuffix();
             try {
                 String remoteInfoFilePath = assembleJobInfoFilePath(snapshotName, -1) + timestamp;
                 Status st = download(remoteInfoFilePath, localFilePath);
@@ -770,6 +771,11 @@ public class Repository implements Writable {
         }
 
         return info;
+    }
+
+    // Allocate an unique suffix.
+    private String allocLocalFileSuffix() {
+        return System.currentTimeMillis() + UUID.randomUUID().toString().replace("-", "_");
     }
 
     @Override

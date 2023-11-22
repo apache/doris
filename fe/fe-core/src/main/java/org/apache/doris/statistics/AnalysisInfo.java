@@ -182,6 +182,17 @@ public class AnalysisInfo implements Writable {
     @SerializedName("usingSqlForPartitionColumn")
     public final boolean usingSqlForPartitionColumn;
 
+    /**
+     * Used to store the newest partition version of tbl when creating this job.
+     */
+    public final long tblUpdateTime;
+
+    @SerializedName("createTime")
+    public final long createTime = System.currentTimeMillis();
+
+    @SerializedName("endTime")
+    public long endTime;
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
@@ -189,7 +200,7 @@ public class AnalysisInfo implements Writable {
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn) {
+            boolean usingSqlForPartitionColumn, long tblUpdateTime) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -224,6 +235,7 @@ public class AnalysisInfo implements Writable {
         }
         this.forceFull = forceFull;
         this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
+        this.tblUpdateTime = tblUpdateTime;
     }
 
     @Override
@@ -315,5 +327,15 @@ public class AnalysisInfo implements Writable {
             }
         }
         return analysisInfo;
+    }
+
+    public void markFinished() {
+        state = AnalysisState.FINISHED;
+        endTime = System.currentTimeMillis();
+    }
+
+    public void markFailed() {
+        state = AnalysisState.FAILED;
+        endTime = System.currentTimeMillis();
     }
 }
