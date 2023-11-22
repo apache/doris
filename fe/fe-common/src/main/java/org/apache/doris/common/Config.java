@@ -2288,4 +2288,11 @@ public class Config extends ConfigBase {
                     + "If it is less than this value, it will be diagnosed as balanced."
     })
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
+
+    @ConfField(masterOnly = true, description = {
+            "设置 root 用户初始化2阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。"
+                    + "后续 root 用户的 'set password' 操作会将 root 初始化密码覆盖",
+            "Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. "
+                    + "Subsequent 'set password' operations for root user will overwrite the initial root password"})
+    public static String initial_root_password = "";
 }
