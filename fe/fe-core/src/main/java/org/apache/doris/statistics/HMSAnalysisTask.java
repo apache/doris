@@ -81,7 +81,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         String rowCount = columnResult.get(0).get(0);
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTableStatsStatus(
-                        new TableStatsMeta(table.getId(), Long.parseLong(rowCount), info));
+                        new TableStatsMeta(Long.parseLong(rowCount), info, tbl));
         job.rowCountDone(this);
     }
 

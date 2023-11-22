@@ -58,6 +58,9 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
           _task_idx(task_idx) {
     _pipeline_task_watcher.start();
     _sink->get_dependency(_downstream_dependency);
+    for (auto& op : _operators) {
+        _source_dependency.insert({op->operator_id(), op->get_dependency()});
+    }
 }
 
 Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams& local_params,
@@ -86,7 +89,11 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
                 op_idx == _operators.size() - 1
                         ? _parent_profile
                         : state->get_local_state(_operators[op_idx + 1]->operator_id())->profile(),
-                scan_ranges, deps, _local_exchange_state, _task_idx};
+                scan_ranges,
+                deps,
+                _local_exchange_state,
+                _task_idx,
+                _source_dependency[_operators[op_idx]->operator_id()]};
         RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
     }
 
@@ -183,7 +190,7 @@ Status PipelineXTask::_open() {
         for (size_t i = 0; i < 2; i++) {
             auto st = local_state->open(_state);
             if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
-                _blocked_dep = _filter_dependency->filter_blocked_by(this);
+                _blocked_dep = _filter_dependency->is_blocked_by(this);
                 if (_blocked_dep) {
                     set_state(PipelineTaskState::BLOCKED_FOR_RF);
                     set_use_blocking_queue();
