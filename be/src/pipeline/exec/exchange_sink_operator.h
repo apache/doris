@@ -79,6 +79,15 @@ public:
             : Dependency(id, node_id, "BroadcastDependency", true), _available_block(0) {}
     ~BroadcastDependency() override = default;
 
+    Dependency* is_blocked_by(PipelineXTask* task = nullptr) override {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        auto ready = _available_block > 0;
+        if (!ready && task) {
+            add_block_task(task);
+        }
+        return ready ? nullptr : this;
+    }
+
     void set_available_block(int available_block) { _available_block = available_block; }
 
     void return_available_block() {
@@ -87,11 +96,7 @@ public:
         }
     }
 
-    void take_available_block() {
-        if (_available_block.fetch_sub(1) == 1) {
-            Dependency::block();
-        }
-    }
+    void take_available_block() { _available_block--; }
 
     int available_blocks() const { return _available_block; }
 
