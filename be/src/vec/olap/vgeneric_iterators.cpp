@@ -79,7 +79,7 @@ Status VStatisticsIterator::next_batch(Block* block) {
             }
         } else {
             for (int i = 0; i < block->columns(); ++i) {
-                static_cast<void>(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
+                RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
             }
         }
         _output_rows += size;
