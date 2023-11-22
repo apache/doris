@@ -156,7 +156,6 @@ void PipelineXTask::_init_profile() {
     _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
     _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
-    _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
     _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
@@ -289,16 +288,14 @@ Status PipelineXTask::execute(bool* eos) {
     return Status::OK();
 }
 
-Status PipelineXTask::finalize() {
-    SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
-    Defer defer {[&]() {
-        if (_task_queue) {
-            _task_queue->update_statistics(this, _finalize_timer->value());
-        }
-    }};
-    SCOPED_TIMER(_finalize_timer);
-    return _sink->finalize(_state);
+void PipelineXTask::finalize() {
+    PipelineTask::finalize();
+    std::unique_lock<std::mutex> lc(_release_lock);
+    _finished = true;
+    std::vector<DependencySPtr> {}.swap(_downstream_dependency);
+    DependencyMap {}.swap(_upstream_dependency);
+
+    _local_exchange_state = nullptr;
 }
 
 Status PipelineXTask::try_close(Status exec_status) {
@@ -338,6 +335,10 @@ Status PipelineXTask::close(Status exec_status) {
 }
 
 std::string PipelineXTask::debug_string() {
+    std::unique_lock<std::mutex> lc(_release_lock);
+    if (_finished) {
+        return "ALREADY FINISHED";
+    }
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
@@ -374,7 +375,7 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
     for (size_t j = 0; j < _finish_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _finish_dependencies[i]->debug_string(j + 1));
+                       _finish_dependencies[j]->debug_string(j + 1));
     }
     return fmt::to_string(debug_string_buffer);
 }

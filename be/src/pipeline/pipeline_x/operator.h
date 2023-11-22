@@ -182,8 +182,6 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
-
     [[nodiscard]] bool can_terminate_early() override { return false; }
 
     [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
@@ -517,8 +515,6 @@ public:
     [[nodiscard]] int node_id() const { return _node_id; }
 
     [[nodiscard]] std::string get_name() const override { return _name; }
-
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
 
     virtual bool should_dry_run(RuntimeState* state) { return false; }
 

@@ -42,8 +42,6 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
     _hash_table_size_counter = ADD_COUNTER(_profile, "HashTableSize", TUnit::UNIT);
     _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
-    _partition_sort_timer = ADD_TIMER(_profile, "PartitionSortTime");
-    _get_sorted_timer = ADD_TIMER(_profile, "GetSortedTime");
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
     _init_hash_method();

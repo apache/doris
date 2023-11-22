@@ -241,12 +241,6 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* block,
                         SourceState source_state) = 0;
 
-    virtual Status finalize(RuntimeState* state) {
-        std::stringstream error_msg;
-        error_msg << " not a sink, can not finalize";
-        return Status::NotSupported(error_msg.str());
-    }
-
     /**
      * pending_finish means we have called `close` and there are still some work to do before finishing.
      * Now it is a pull-based pipeline and operators pull data from its child by this method.
@@ -323,8 +317,6 @@ public:
         return Status::OK();
     }
 
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
-
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override {
         _sink->set_query_statistics(statistics);
@@ -390,8 +382,6 @@ public:
                 false));
         return Status::OK();
     }
-
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
 
     bool can_read() override { return _node->can_read(); }
 

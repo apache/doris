@@ -313,23 +313,15 @@ void TaskScheduler::_do_work(size_t index) {
             task->set_eos_time();
             // TODO: pipeline parallel need to wait the last task finish to call finalize
             //  and find_p_dependency
-            status = task->finalize();
-            if (!status.ok()) {
-                // execute failed，cancel all fragment
-                fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                     "finalize fail:" + status.msg());
-            } else {
-                VLOG_DEBUG << fmt::format(
-                        "Try close task: {}, fragment_ctx->is_canceled(): {}",
-                        PrintInstanceStandardInfo(
-                                task->query_context()->query_id(),
-                                task->fragment_context()->get_fragment_instance_id()),
-                        fragment_ctx->is_canceled());
-                _try_close_task(task,
-                                fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
-                                                            : PipelineTaskState::FINISHED,
-                                status);
-            }
+            VLOG_DEBUG << fmt::format(
+                    "Try close task: {}, fragment_ctx->is_canceled(): {}",
+                    PrintInstanceStandardInfo(task->query_context()->query_id(),
+                                              task->fragment_context()->get_fragment_instance_id()),
+                    fragment_ctx->is_canceled());
+            _try_close_task(task,
+                            fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
+                                                        : PipelineTaskState::FINISHED,
+                            status);
             VLOG_DEBUG << fmt::format(
                     "Task {} is eos, status {}.",
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
@@ -388,7 +380,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     }
     task->set_state(state);
     task->set_close_pipeline_time();
-    task->release_dependency();
+    task->finalize();
     task->set_running(false);
     // close_a_pipeline may delete fragment context and will core in some defer
     // code, because the defer code will access fragment context it self.
