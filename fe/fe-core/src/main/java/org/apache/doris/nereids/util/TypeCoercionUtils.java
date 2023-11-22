@@ -414,6 +414,21 @@ public class TypeCoercionUtils {
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
+        } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
+                || (input.getDataType().isStringLikeType()) && targetType.isStringLikeType()) {
+            return input;
+        } else {
+            checkCanCastTo(input.getDataType(), targetType);
+            return unSafeCast(input, targetType);
+        }
+    }
+
+    /**
+     * like castIfNotSameType does, but varchar or char type would be cast to target length exactly
+     */
+    public static Expression castIfNotSameTypeStrict(Expression input, DataType targetType) {
+        if (input.isNullLiteral()) {
+            return new NullLiteral(targetType);
         } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)) {
             return input;
         } else {
