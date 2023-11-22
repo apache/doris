@@ -93,27 +93,36 @@ Status OlapMeta::init() {
     rocksdb::DB* db;
     std::vector<rocksdb::ColumnFamilyHandle*> handles;
     rocksdb::Status s = DB::Open(options, db_path, column_families, &handles, &db);
-    _db = std::unique_ptr<rocksdb::DB, std::function<void(rocksdb::DB*)>>(db, [](rocksdb::DB* db) {
-        rocksdb::Status s = db->SyncWAL();
-        if (!s.ok()) {
-            LOG(WARNING) << "rocksdb sync wal failed: " << s.ToString();
-        }
-        rocksdb::CancelAllBackgroundWork(db, true);
-        s = db->Close();
-        if (!s.ok()) {
-            LOG(WARNING) << "rocksdb close failed: " << s.ToString();
-        }
-        LOG(INFO) << "finish close rocksdb for OlapMeta";
+    // rocksdb::DB should not stop its bg work in its de-counstructor.
+    _db = std::unique_ptr<rocksdb::DB>(db);
 
-        delete db;
-    });
     for (auto handle : handles) {
         _handles.emplace_back(handle);
     }
+
     if (!s.ok() || _db == nullptr) {
         return Status::Error<META_OPEN_DB_ERROR>("rocks db open failed, reason: {}", s.ToString());
     }
     return Status::OK();
+}
+
+void OlapMeta::stop(bool wait) {
+    if (_db != nullptr) {
+        rocksdb::Status s = _db->SyncWAL();
+        if (!s.ok()) {
+            LOG(WARNING) << "rocksdb sync wal failed: " << s.ToString();
+        }
+
+        rocksdb::CancelAllBackgroundWork(_db.get(), wait);
+
+        s = _db->Close();
+
+        if (!s.ok()) {
+            LOG(WARNING) << "rocksdb close failed: " << s.ToString();
+        }
+
+        LOG(INFO) << "finish close rocksdb for OlapMeta";
+    }
 }
 
 Status OlapMeta::get(const int column_family_index, const std::string& key, std::string* value) {

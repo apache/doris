@@ -49,6 +49,8 @@ public:
 
     Status init();
 
+    void stop(bool wait=true);
+
     Status get(const int column_family_index, const std::string& key, std::string* value);
 
     bool key_may_exist(const int column_family_index, const std::string& key, std::string* value);
