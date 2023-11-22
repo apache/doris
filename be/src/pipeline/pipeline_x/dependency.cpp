@@ -54,12 +54,6 @@ void Dependency::set_ready() {
 }
 
 Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
-    if (config::enable_fuzzy_mode && !_ready && _should_log(_watcher.elapsed_time())) {
-        LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                     << _node_id << " block tasks: " << _blocked_task.size()
-                     << "task: " << (task ? task->fragment_context()->debug_string() : "");
-    }
-
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load() || _is_cancelled();
     if (!ready && !push_to_blocking_queue() && task) {
