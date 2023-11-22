@@ -489,10 +489,11 @@ Status PulsarDataConsumer::assign_partition(const std::string& partition, std::s
     LOG(INFO) << ss.str();
 
     // do subscribe
-    pulsar::ConsumerConfiguration consumerConfig;
-    consumerConfig->subscriptionType = pulsar::SubscriptionType::Shared;
+    pulsar::ConsumerConfiguration conf;
+    conf.setConsumerType(pulsar::ConsumerShared);
+
     pulsar::Result result;
-    result = _p_client->subscribe(partition, _subscription, consumerConfig, _p_consumer);
+    result = _p_client->subscribe(partition, _subscription, conf, _p_consumer);
     if (result != pulsar::ResultOk) {
         LOG(WARNING) << "PAUSE: failed to create pulsar consumer: " << ctx->brief(true) << ", err: " << result;
         return Status::InternalError("PAUSE: failed to create pulsar consumer: " +
