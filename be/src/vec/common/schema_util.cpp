@@ -226,6 +226,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 

@@ -124,6 +124,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DOUBLE;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
