@@ -371,7 +371,6 @@ void RowsetBuilder::_build_current_tablet_schema(int64_t index_id,
                                table_schema_param->partial_update_input_columns(),
                                table_schema_param->is_strict_mode(),
                                table_schema_param->is_unique_key_ignore_mode());
-
 }
 
 } // namespace doris
