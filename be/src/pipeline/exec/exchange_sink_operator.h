@@ -91,9 +91,8 @@ public:
     void set_available_block(int available_block) { _available_block = available_block; }
 
     void return_available_block() {
-        if (_available_block.fetch_add(1) == 0) {
-            Dependency::set_ready();
-        }
+        _available_block++;
+        Dependency::set_ready();
     }
 
     void take_available_block() { _available_block--; }
