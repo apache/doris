@@ -106,7 +106,8 @@ void VWalScannerTest::init_desc_table() {
             TTypeNode node;
             node.__set_type(TTypeNodeType::SCALAR);
             TScalarType scalar_type;
-            scalar_type.__set_type(TPrimitiveType::INT);
+            scalar_type.__set_type(TPrimitiveType::VARCHAR);
+            scalar_type.__set_len(32);
             node.__set_scalar_type(scalar_type);
             type.types.push_back(node);
         }
@@ -132,7 +133,8 @@ void VWalScannerTest::init_desc_table() {
             TTypeNode node;
             node.__set_type(TTypeNodeType::SCALAR);
             TScalarType scalar_type;
-            scalar_type.__set_type(TPrimitiveType::BIGINT);
+            scalar_type.__set_type(TPrimitiveType::VARCHAR);
+            scalar_type.__set_len(32);
             node.__set_scalar_type(scalar_type);
             type.types.push_back(node);
         }
@@ -147,7 +149,7 @@ void VWalScannerTest::init_desc_table() {
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
-    // k3
+    // c3
     {
         TSlotDescriptor slot_desc;
 
@@ -159,7 +161,7 @@ void VWalScannerTest::init_desc_table() {
             node.__set_type(TTypeNodeType::SCALAR);
             TScalarType scalar_type;
             scalar_type.__set_type(TPrimitiveType::VARCHAR);
-            scalar_type.__set_len(10);
+            scalar_type.__set_len(32);
             node.__set_scalar_type(scalar_type);
             type.types.push_back(node);
         }
@@ -187,7 +189,7 @@ void VWalScannerTest::init_desc_table() {
         t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
     }
 
-    static_cast<void>(DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl));
+    auto st = DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
 
     _runtime_state.set_desc_tbl(_desc_tbl);
 }
@@ -213,10 +215,15 @@ void VWalScannerTest::init() {
 
     _env = ExecEnv::GetInstance();
     _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
-    static_cast<void>(_env->_wal_manager->add_wal_path(db_id, tb_id, txn_id, label));
+    auto st = _env->_wal_manager->add_wal_path(db_id, tb_id, txn_id, label);
 }
 
 TEST_F(VWalScannerTest, normal) {
+    std::vector<size_t> index_vector;
+    index_vector.emplace_back(0);
+    index_vector.emplace_back(1);
+    index_vector.emplace_back(2);
+    _env->_wal_manager->add_wal_column_index(txn_id, index_vector);
     //    config::group_commit_replay_wal_dir = wal_dir;
     NewFileScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node._output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);
@@ -239,6 +246,7 @@ TEST_F(VWalScannerTest, normal) {
     _kv_cache.reset(new ShardedKVCache(48));
     _runtime_state._wal_id = txn_id;
     VFileScanner scanner(&_runtime_state, &scan_node, -1, scan_range, _profile, _kv_cache.get());
+    scanner._is_load = false;
     vectorized::VExprContextSPtrs _conjuncts;
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
     std::unordered_map<std::string, int> _colname_to_slot_id;

@@ -175,9 +175,9 @@ public class AnalysisManager implements Writable {
             }
             if (allFinished) {
                 if (hasFailure) {
-                    job.state = AnalysisState.FAILED;
+                    job.markFailed();
                 } else {
-                    job.state = AnalysisState.FINISHED;
+                    job.markFinished();
                     try {
                         updateTableStats(job);
                     } catch (Throwable e) {
@@ -224,9 +224,9 @@ public class AnalysisManager implements Writable {
                     taskMap.size() - failedCount, failedCount, 0, taskMap.size());
             if (failedCount > 0) {
                 job.message = reason.toString();
-                job.state = AnalysisState.FAILED;
+                job.markFailed();
             } else {
-                job.state = AnalysisState.FINISHED;
+                job.markFinished();
             }
             autoJobs.offer(job);
             systemJobInfoMap.remove(info.jobId);
@@ -340,6 +340,7 @@ public class AnalysisManager implements Writable {
         constructJob(jobInfo, analysisTaskInfos.values());
         if (isSync) {
             syncExecute(analysisTaskInfos.values());
+            jobInfo.state = AnalysisState.FINISHED;
             updateTableStats(jobInfo);
             return null;
         }
@@ -593,8 +594,9 @@ public class AnalysisManager implements Writable {
     public void updateTableStats(AnalysisInfo jobInfo) {
         TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId,
                 jobInfo.dbId, jobInfo.tblId);
-        // External Table update table stats after table level task finished.
-        if (tbl instanceof ExternalTable) {
+        // External Table only update table stats when all tasks finished.
+        // Because it needs to get the row count from the result of row count task.
+        if (tbl instanceof ExternalTable && !jobInfo.state.equals(AnalysisState.FINISHED)) {
             return;
         }
         TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());

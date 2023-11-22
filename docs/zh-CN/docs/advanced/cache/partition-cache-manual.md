@@ -70,14 +70,12 @@ MySQL [(none)]> set [global] enable_partition_cache=true;
 如果同时开启了两个缓存策略，下面的参数，需要注意一下:
 
 ```text
-cache_last_version_interval_second=900
+cache_last_version_interval_second=30
 ```
 
 如果分区的最新版本的时间离现在的间隔，大于cache_last_version_interval_second，则会优先把整个查询结果缓存。如果小于这个间隔，如果符合PartitionCache的条件，则按PartitionCache数据。
 
-## 相关参数
-
-具体参数介绍见 query-cache.md
+具体参数介绍和未尽事项见 query-cache.md。
 
 ## 实现原理示例
 

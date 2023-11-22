@@ -768,6 +768,7 @@ message PWriteStreamSinkResponse {
     repeated int64 success_tablet_ids = 2;
     repeated int64 failed_tablet_ids = 3;
     optional bytes load_stream_profile = 4;
+    repeated PTabletSchemaWithIndex tablet_schemas = 5;
 }
 
 message PStreamHeader {
@@ -775,6 +776,7 @@ message PStreamHeader {
         APPEND_DATA = 1;
         CLOSE_LOAD = 2;
         ADD_SEGMENT = 3;
+        GET_SCHEMA = 4;
     }
     optional PUniqueId load_id = 1;
     optional int64 partition_id = 2;
@@ -785,7 +787,17 @@ message PStreamHeader {
     optional bool segment_eos = 7;
     optional int64 src_id = 8;
     optional SegmentStatisticsPB segment_statistics = 9;
-    repeated PTabletID tablets_to_commit = 10;
+    repeated PTabletID tablets = 10;
+}
+
+message PGetWalQueueSizeRequest{
+    optional int64 table_id = 1;
+    optional int64 txn_id = 2;
+}
+
+message PGetWalQueueSizeResponse{
+    required PStatus status = 1;
+    optional int64 size = 2;
 }
 
 service PBackendService {
@@ -829,6 +841,7 @@ service PBackendService {
     rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
     rpc glob(PGlobRequest) returns (PGlobResponse);
     rpc group_commit_insert(PGroupCommitInsertRequest) returns (PGroupCommitInsertResponse);
+    rpc get_wal_queue_size(PGetWalQueueSizeRequest) returns(PGetWalQueueSizeResponse);
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
 };
 

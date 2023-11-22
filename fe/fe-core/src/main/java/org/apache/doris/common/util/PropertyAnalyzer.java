@@ -169,6 +169,9 @@ public class PropertyAnalyzer {
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
 
+    public static final String PROPERTIES_GROUP_COMMIT_INTERVAL_MS = "group_commit_interval_ms";
+    public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE = 10000;
+
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
@@ -1146,6 +1149,34 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
+    }
+
+    /**
+     * Found property with "group_commit_interval_ms" prefix and return a time in ms.
+     * e.g.
+     * "group_commit_interval_ms"="1000"
+     * Returns:
+     * 1000
+     *
+     * @param properties
+     * @param defaultValue
+     * @return
+     * @throws AnalysisException
+     */
+    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties) throws AnalysisException {
+        int groupCommitIntervalMs = PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
+            String groupIntervalCommitMsStr = properties.get(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            try {
+                groupCommitIntervalMs = Integer.parseInt(groupIntervalCommitMsStr);
+            } catch (Exception e) {
+                throw new AnalysisException("schema version format error");
+            }
+
+            properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+        }
+
+        return groupCommitIntervalMs;
     }
 
     /**
