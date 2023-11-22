@@ -80,17 +80,17 @@ suite("test_base_insert_job") {
             "replication_allocation" = "tag.location.default: 1"
         );
         """
-    def currentMs=System.currentTimeMillis()+1000;
+    sql """ stop job for one_time """
+    def currentMs=System.currentTimeMillis()+3000;
     def   dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(currentMs), ZoneId.systemDefault());
     
     def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     def startTime= dateTime.format(formatter);
-    sql """ stop job for one_time """
     sql """
           CREATE JOB one_time  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into one_time_test_base_insert_job (timestamp, type, user_id) values ('2023-03-18','1','12213');
      """
     // Magnify the waiting time. In extreme cases, it may be on the edge of time  window and the execution may just be missed.
-    Thread.sleep(5000)
+    Thread.sleep(6000)
     
     def tasks = sql """show job tasks for one_time"""
     assert tasks.size() == 1
