@@ -84,30 +84,19 @@ enum class RuntimeFilterType {
     MAX_FILTER = 6  // only max
 };
 
-static RuntimeFilterType get_minmax_filter_type(TMinMaxRuntimeFilterType::type ttype) {
-    switch (ttype) {
-    case TMinMaxRuntimeFilterType::MIN: {
-        return RuntimeFilterType::MIN_FILTER;
-    }
-    case TMinMaxRuntimeFilterType::MAX: {
-        return RuntimeFilterType::MAX_FILTER;
-    }
-    case TMinMaxRuntimeFilterType::MIN_MAX: {
-        return RuntimeFilterType::MINMAX_FILTER;
-    }
-    default: {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "Invalid minmax runtime filter type!");
-    }
-    }
-}
-
-static RuntimeFilterType get_runtime_filter_type(TRuntimeFilterType::type ttype) {
-    switch (ttype) {
+static RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc) {
+    switch (desc->type) {
     case TRuntimeFilterType::BLOOM: {
         return RuntimeFilterType::BLOOM_FILTER;
     }
     case TRuntimeFilterType::MIN_MAX: {
+        if (desc->__isset.min_max_type) {
+            if (desc->min_max_type == TMinMaxRuntimeFilterType::MIN) {
+                return RuntimeFilterType::MIN_FILTER;
+            } else if (desc->min_max_type == TMinMaxRuntimeFilterType::MAX) {
+                return RuntimeFilterType::MAX_FILTER;
+            }
+        }
         return RuntimeFilterType::MINMAX_FILTER;
     }
     case TRuntimeFilterType::IN: {
@@ -214,15 +203,10 @@ public:
               _wait_infinitely(_state->runtime_filter_wait_infinitely()),
               _rf_wait_time_ms(_state->runtime_filter_wait_time_ms()),
               _enable_pipeline_exec(_state->enable_pipeline_exec()),
-              _profile(new RuntimeProfile(_name)) {
-        if (desc->__isset.min_max_type && desc->type == TRuntimeFilterType::MIN_MAX) {
-            _runtime_filter_type = get_minmax_filter_type(desc->min_max_type);
-        } else {
-            _runtime_filter_type = get_runtime_filter_type(desc->type);
-        }
-        _name = fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                            to_string(_runtime_filter_type));
-    }
+              _runtime_filter_type(get_runtime_filter_type(desc)),
+              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                to_string(_runtime_filter_type))),
+              _profile(new RuntimeProfile(_name)) {}
 
     IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc)
             : _query_ctx(query_ctx),
@@ -241,15 +225,10 @@ public:
               _wait_infinitely(query_ctx->runtime_filter_wait_infinitely()),
               _rf_wait_time_ms(query_ctx->runtime_filter_wait_time_ms()),
               _enable_pipeline_exec(query_ctx->enable_pipeline_exec()),
-              _profile(new RuntimeProfile(_name)) {
-        if (desc->__isset.min_max_type && desc->type == TRuntimeFilterType::MIN_MAX) {
-            _runtime_filter_type = get_minmax_filter_type(desc->min_max_type);
-        } else {
-            _runtime_filter_type = get_runtime_filter_type(desc->type);
-        }
-        _name = fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                            to_string(_runtime_filter_type));
-    }
+              _runtime_filter_type(get_runtime_filter_type(desc)),
+              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                to_string(_runtime_filter_type))),
+              _profile(new RuntimeProfile(_name)) {}
 
     ~IRuntimeFilter() = default;
 
