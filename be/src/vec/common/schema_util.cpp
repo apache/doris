@@ -350,9 +350,10 @@ void inherit_tablet_index(TabletSchemaSPtr& schema) {
     }
 }
 
-TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                         const TabletSchemaSPtr& base_schema) {
-    auto output_schema = std::make_shared<TabletSchema>();
+Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                               const TabletSchemaSPtr& base_schema, TabletSchemaSPtr& output_schema,
+                               bool check_schema_size) {
+    output_schema = std::make_shared<TabletSchema>();
     std::vector<int32_t> variant_column_unique_id;
     if (base_schema == nullptr) {
         // Pick tablet schema with max schema version
@@ -390,7 +391,12 @@ TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& sc
     }
 
     inherit_tablet_index(output_schema);
-    return output_schema;
+    if (check_schema_size &&
+        output_schema->columns().size() > config::variant_max_merged_tablet_schema_size) {
+        return Status::DataQualityError("Reached max column size limit {}",
+                                        config::variant_max_merged_tablet_schema_size);
+    }
+    return Status::OK();
 }
 
 Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos) {

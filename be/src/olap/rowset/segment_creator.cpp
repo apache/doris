@@ -194,8 +194,9 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         // ctx.tablet_schema:  A(bigint), B(double)
         // => update_schema:   A(bigint), B(double), C(int), D(int)
         std::lock_guard<std::mutex> lock(*(_context->schema_lock));
-        TabletSchemaSPtr update_schema = vectorized::schema_util::get_least_common_schema(
-                {_context->tablet_schema, flush_schema}, nullptr);
+        TabletSchemaSPtr update_schema;
+        static_cast<void>(vectorized::schema_util::get_least_common_schema(
+                {_context->tablet_schema, flush_schema}, nullptr, update_schema));
         CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
                 << "Rowset merge schema columns count is " << update_schema->num_columns()
                 << ", but flush_schema is larger " << flush_schema->num_columns()
