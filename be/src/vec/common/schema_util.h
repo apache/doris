@@ -94,8 +94,8 @@ void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& vari
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
 // Return the final merged schema as common schema
-void get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                             TabletSchemaSPtr& common_schema);
+Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                               TabletSchemaSPtr& common_schema, bool check_schema_size = false);
 
 // Get least common types for extracted columns which has Path info,
 // with a speicified variant column's unique id

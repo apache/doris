@@ -1149,6 +1149,9 @@ DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 // typically employed to ensure CPU scheduling for write operations.
 DECLARE_mBool(enable_scan_thread_low_thread_priority);
 
+// The max columns size for a tablet schema
+DECLARE_mInt32(variant_max_merged_tablet_schema_size);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

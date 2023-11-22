@@ -2652,14 +2652,16 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
     }
 }
 
-void Tablet::update_by_least_common_schema(const TabletSchemaSPtr& update_schema) {
+Status Tablet::update_by_least_common_schema(const TabletSchemaSPtr& update_schema) {
     std::lock_guard wrlock(_meta_lock);
     auto final_schema = std::make_shared<TabletSchema>();
     CHECK(_max_version_schema->schema_version() >= update_schema->schema_version());
-    vectorized::schema_util::get_least_common_schema(
-            {_max_version_schema, update_schema}, final_schema);
+    bool check_max_schema_size = true;
+    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
+            {_max_version_schema, update_schema}, final_schema, check_max_schema_size));
     _max_version_schema = final_schema;
     VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_structure();
+    return Status::OK();
 }
 
 // fetch value by row column

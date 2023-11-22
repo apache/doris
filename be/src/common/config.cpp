@@ -1083,6 +1083,8 @@ DEFINE_Bool(exit_on_exception, "false");
 DEFINE_Bool(enable_scan_thread_low_thread_priority, "false");
 
 DEFINE_mInt64(threshold_rows_to_estimate_sparse_column, "1000");
+
+DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 // clang-format off
 
 #ifdef BE_TEST

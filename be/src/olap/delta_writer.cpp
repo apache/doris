@@ -538,7 +538,7 @@ Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes,
         // _tabelt->tablet_schema:  A(bigint), B(double)
         //  => update_schema:       A(bigint), B(double), C(int), D(int)
         RowsetWriterContext& rw_ctx = _rowset_writer->mutable_context();
-        _tablet->update_by_least_common_schema(rw_ctx.tablet_schema);
+        RETURN_IF_ERROR(_tablet->update_by_least_common_schema(rw_ctx.tablet_schema));
     }
 
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
