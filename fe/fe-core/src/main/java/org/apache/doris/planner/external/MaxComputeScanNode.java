@@ -45,7 +45,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 public class MaxComputeScanNode extends FileQueryScanNode {
 
@@ -119,22 +118,28 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                 }
                 List<String> partitionSpecs = getPartitionSpecs();
                 for (String partitionSpec : partitionSpecs) {
-                    long totalRows = catalog.getTotalRows(table.getDbName(), table.getName(), partitionSpec);
-                    addBatchSplits(result, odpsTable, Optional.of(partitionSpec), totalRows);
+                    addPartitionSplits(result, odpsTable, partitionSpec);
                 }
             } else {
-                long totalRows = catalog.getTotalRows(table.getDbName(), table.getName());
-                addBatchSplits(result, odpsTable, Optional.empty(), totalRows);
+                addBatchSplits(result, odpsTable, table.getTotalRows());
             }
         } catch (TunnelException e) {
-            throw new UserException("Max Compute tunnel SDK exception.", e);
+            throw new UserException("Max Compute tunnel SDK exception: " + e.getMessage(), e);
 
         }
         return result;
     }
 
-    private static void addBatchSplits(List<Split> result, Table odpsTable,
-                                      Optional<String> partitionSpec, long totalRows) {
+    private static void addPartitionSplits(List<Split> result, Table odpsTable, String partitionSpec) {
+        long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
+        // use '-1' to read whole partition, avoid expending too much time on calling table.getTotalRows()
+        Pair<Long, Long> range = Pair.of(0L, -1L);
+        FileSplit rangeSplit = new FileSplit(new Path("/virtual_slice_part"),
+                range.first, range.second, -1, modificationTime, null, Collections.emptyList());
+        result.add(new MaxComputeSplit(partitionSpec, rangeSplit));
+    }
+
+    private static void addBatchSplits(List<Split> result, Table odpsTable, long totalRows) {
         List<Pair<Long, Long>> sliceRange = new ArrayList<>();
         long fileNum = odpsTable.getFileNum();
         long start = 0;
@@ -157,11 +162,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                 Pair<Long, Long> range = sliceRange.get(i);
                 FileSplit rangeSplit = new FileSplit(new Path("/virtual_slice_" + i),
                         range.first, range.second, totalRows, modificationTime, null, Collections.emptyList());
-                if (partitionSpec.isPresent()) {
-                    result.add(new MaxComputeSplit(partitionSpec.get(), rangeSplit));
-                } else {
-                    result.add(new MaxComputeSplit(rangeSplit));
-                }
+                result.add(new MaxComputeSplit(rangeSplit));
             }
         }
     }

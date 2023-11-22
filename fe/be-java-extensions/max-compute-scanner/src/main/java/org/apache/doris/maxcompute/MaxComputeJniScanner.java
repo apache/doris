@@ -61,11 +61,11 @@ public class MaxComputeJniScanner extends JniScanner {
     private static final String START_OFFSET = "start_offset";
     private static final String SPLIT_SIZE = "split_size";
     private static final String PUBLIC_ACCESS = "public_access";
-    private final RootAllocator arrowAllocator = new RootAllocator(Integer.MAX_VALUE);
     private final Map<String, MaxComputeTableScan> tableScans = new ConcurrentHashMap<>();
     private final String region;
     private final String project;
     private final String table;
+    private RootAllocator arrowAllocator;
     private PartitionSpec partitionSpec;
     private Set<String> partitionColumns;
     private MaxComputeTableScan curTableScan;
@@ -173,6 +173,11 @@ public class MaxComputeJniScanner extends JniScanner {
                     .collect(Collectors.toSet());
             List<Column> maxComputeColumns = new ArrayList<>(readColumns);
             maxComputeColumns.removeIf(e -> partitionColumns.contains(e.getName()));
+            if (maxComputeColumns.isEmpty() && !partitionColumns.isEmpty()) {
+                // query columns required non-null, when query partition table
+                maxComputeColumns.add(session.getSchema().getColumn(0));
+            }
+            arrowAllocator = new RootAllocator(Integer.MAX_VALUE);
             curReader = session.openArrowRecordReader(start, totalRows, maxComputeColumns, arrowAllocator);
             remainBatchRows = totalRows;
         } catch (TunnelException e) {
@@ -256,7 +261,8 @@ public class MaxComputeJniScanner extends JniScanner {
         startOffset = -1;
         splitSize = -1;
         if (curReader != null) {
-            arrowAllocator.releaseBytes(arrowAllocator.getAllocatedMemory());
+            arrowAllocator.close();
+            arrowAllocator = null;
             curReader.close();
             curReader = null;
         }
@@ -281,15 +287,25 @@ public class MaxComputeJniScanner extends JniScanner {
     private int readVectors(int expectedRows) throws IOException {
         VectorSchemaRoot batch;
         int curReadRows = 0;
-        while (curReadRows < expectedRows && (batch = curReader.read()) != null) {
+        while (curReadRows < expectedRows) {
+            batch = curReader.read();
+            if (batch == null) {
+                break;
+            }
             try {
                 List<FieldVector> fieldVectors = batch.getFieldVectors();
                 int batchRows = 0;
                 for (FieldVector column : fieldVectors) {
+                    Integer readColumnId = readColumnsToId.get(column.getName());
+                    if (readColumnId == null) {
+                        // use for partition if no column need to read.
+                        batchRows = column.getValueCount();
+                        continue;
+                    }
                     columnValue.reset(column);
                     batchRows = column.getValueCount();
                     for (int j = 0; j < batchRows; j++) {
-                        appendData(readColumnsToId.get(column.getName()), columnValue);
+                        appendData(readColumnId, columnValue);
                     }
                 }
                 if (partitionSpec != null) {
@@ -305,6 +321,8 @@ public class MaxComputeJniScanner extends JniScanner {
                     }
                 }
                 curReadRows += batchRows;
+            } catch (Exception e) {
+                throw new RuntimeException("Fail to read arrow data, reason: " + e.getMessage(), e);
             } finally {
                 batch.close();
             }

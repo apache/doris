@@ -25,11 +25,9 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
-import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.tunnel.TableTunnel;
-import com.aliyun.odps.tunnel.TunnelException;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
@@ -42,6 +40,7 @@ import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
     private Odps odps;
+    private TableTunnel tunnel;
     @SerializedName(value = "region")
     private String region;
     @SerializedName(value = "accessKey")
@@ -95,26 +94,16 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         }
         odps.setEndpoint(odpsUrl);
         odps.setDefaultProject(defaultProject);
-    }
-
-    public long getTotalRows(String project, String table) throws TunnelException {
-        return getTableTunnel().getDownloadSession(project, table, null).getRecordCount();
-    }
-
-    public long getTotalRows(String project, String table, String partitionSpec) throws TunnelException {
-        return getTableTunnel()
-                .getDownloadSession(project, table, new PartitionSpec(partitionSpec), null)
-                .getRecordCount();
-    }
-
-    private TableTunnel getTableTunnel() {
-        makeSureInitialized();
-        TableTunnel tunnel = new TableTunnel(odps);
+        tunnel = new TableTunnel(odps);
         String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
         if (enablePublicAccess) {
             tunnelUrl = tunnelUrl.replace("-inc", "");
         }
         tunnel.setEndpoint(tunnelUrl);
+    }
+
+    public TableTunnel getTableTunnel() {
+        makeSureInitialized();
         return tunnel;
     }
 
