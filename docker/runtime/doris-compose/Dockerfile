@@ -40,3 +40,5 @@ RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/$jacoco_version/jac
     mkdir /jacoco && \
     unzip jacoco.zip -d /jacoco
 
+# in docker, run 'chmod 755 doris_be' first time cost 1min, remove it.
+RUN sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/be/bin/start_be.sh
