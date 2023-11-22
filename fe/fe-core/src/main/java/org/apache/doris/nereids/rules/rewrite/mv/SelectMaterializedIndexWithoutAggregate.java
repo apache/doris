@@ -247,7 +247,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             return slots.stream().allMatch(slot -> {
                 PrimitiveType dataType =
                         columnTypes.getOrDefault(slot.getName(), PrimitiveType.NULL_TYPE);
-                return dataType == slot.getDataType().toCatalogDataType().getPrimitiveType();
+                return dataType == PrimitiveType.NULL_TYPE
+                        || dataType == slot.getDataType().toCatalogDataType().getPrimitiveType();
             });
         }
         return true;
