@@ -802,6 +802,8 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 DECLARE_Bool(share_delta_writers);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
+// timeout for load stream close wait in ms
+DECLARE_Int64(close_load_stream_timeout_ms);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
