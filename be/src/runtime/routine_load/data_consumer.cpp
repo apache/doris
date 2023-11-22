@@ -539,7 +539,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         auto msg = std::make_unique<pulsar::Message>();
         // consume 1 message at a time
         consumer_watch.start();
-        pulsar::Result res = _p_consumer.receive(*(msg.get()));
+        pulsar::Result res = _p_consumer.receive(*(msg.get()), 30000 /* timeout, ms */);
         consumer_watch.stop();
         switch (res) {
         case pulsar::ResultOk:
