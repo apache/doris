@@ -1249,4 +1249,30 @@ PARTITION `p599` VALUES IN (599)
     assert all_finished(show_result)
 
 
+    // unique table update rows
+    sql """
+        CREATE TABLE unique_tbl_update_rows_test (col1 varchar(11451) not null,
+        col2 int not null, col3 int not null, col4 int not null)
+        DUPLICATE KEY(`col1`)
+        DISTRIBUTED BY HASH(col1)
+        BUCKETS 3
+        PROPERTIES(
+            "replication_num"="1"
+        );
+    """
+
+    sql """insert into unique_tbl_update_rows_test values('21',5,1,7); """
+    sql """ANALYZE TABLE unique_tbl_update_rows_test WITH SYNC"""
+    sql """insert into unique_tbl_update_rows_test values('21',5,1,7); """
+    sql """ANALYZE TABLE unique_tbl_update_rows_test WITH SYNC"""
+    def unique_table_update_rows_result = sql """SHOW TABLE STATS unique_tbl_update_rows_test"""
+    def check_update_rows = { r ->
+        for (int i = 0; i < r.size; i++) {
+            if (r[i][0] == "0") {
+                return  true
+            }
+        }
+        return false
+    }
+    check_update_rows(unique_table_update_rows_result)
 }
