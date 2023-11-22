@@ -136,7 +136,7 @@ public class TableStatsMeta implements Writable {
         }
         jobType = analyzedJob.jobType;
         if (tableIf != null && analyzedJob.colToPartitions.keySet()
-                .containsAll(tableIf.getColumns().stream().map(Column::getName).collect(
+                .containsAll(tableIf.getBaseSchema().stream().map(Column::getName).collect(
                         Collectors.toSet()))) {
             updatedRows.set(0);
         }
