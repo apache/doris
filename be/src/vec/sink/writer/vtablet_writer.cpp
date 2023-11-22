@@ -1149,9 +1149,9 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
                      << "output_tuple_slot_num " << _output_tuple_desc->slots().size()
                      << " output_expr_num " << _vec_output_expr_ctxs.size();
-        return Status::InvalidArgument("output_tuple_slot_num {} should be equal to "
-                                       "output_expr_num {}", _output_tuple_desc->slots().size(),
-                                       _vec_output_expr_ctxs.size());
+        return Status::InvalidArgument(
+                "output_tuple_slot_num {} should be equal to output_expr_num {}",
+                _output_tuple_desc->slots().size(), _vec_output_expr_ctxs.size());
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
