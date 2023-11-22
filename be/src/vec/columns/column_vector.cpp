@@ -33,13 +33,13 @@
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/bit_cast.h"
 #include "vec/common/memcpy_small.h"
 #include "vec/common/nan_utils.h"
 #include "vec/common/radix_sort.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -168,9 +168,10 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 }
 
 template <typename T>
-void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type,
+                                             uint32_t rows, uint32_t offset,
                                              const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if constexpr (!std::is_same_v<T, Int64>) {
@@ -341,7 +342,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 
 template <typename T>
 UInt64 ColumnVector<T>::get64(size_t n) const {
-    return ext::bit_cast<UInt64>(data[n]);
+    return static_cast<UInt64>(data[n]);
 }
 
 template <typename T>

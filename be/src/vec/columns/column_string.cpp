@@ -161,9 +161,10 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     }
 }
 
-void ColumnString::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::PrimitiveType type,
+void ColumnString::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data == nullptr) {
@@ -204,6 +205,19 @@ size_t ColumnString::filter(const Filter& filter) {
     }
 
     return filter_arrays_impl<UInt8, Offset>(chars, offsets, filter);
+}
+
+Status ColumnString::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    auto* col = static_cast<ColumnString*>(col_ptr);
+    Chars& res_chars = col->chars;
+    Offsets& res_offsets = col->offsets;
+    Filter filter;
+    filter.resize_fill(offsets.size(), 0);
+    for (size_t i = 0; i < sel_size; i++) {
+        filter[sel[i]] = 1;
+    }
+    filter_arrays_impl<UInt8, Offset>(chars, offsets, res_chars, res_offsets, filter, sel_size);
+    return Status::OK();
 }
 
 ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {

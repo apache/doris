@@ -457,7 +457,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // datetime
     {
-        vectorized::VecDateTimeValue data_time_value;
+        VecDateTimeValue data_time_value;
         const char* date = "20210407000000";
         data_time_value.from_date_str(date, strlen(date));
         std::cout << data_time_value.type() << std::endl;
@@ -498,7 +498,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // date
     {
-        vectorized::VecDateTimeValue data_time_value;
+        VecDateTimeValue data_time_value;
         const char* date = "20210407";
         data_time_value.from_date_str(date, strlen(date));
         __int64_t dt;
@@ -514,7 +514,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // datev2
     {
-        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> data_time_value;
+        DateV2Value<DateV2ValueType> data_time_value;
         const char* date = "20210407";
         data_time_value.from_date_str(date, strlen(date));
         uint32_t dt;

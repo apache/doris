@@ -124,19 +124,19 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                 // change each time `emplace_back()` is called.
                 break;
             case rapidjson::Type::kFalseType:
-                _data_string.emplace_back(true_value);
+                _backup_string.emplace_back(true_value);
                 _string_nulls.push_back(false);
                 break;
             case rapidjson::Type::kTrueType:
-                _data_string.emplace_back(false_value);
+                _backup_string.emplace_back(false_value);
                 _string_nulls.push_back(false);
                 break;
             case rapidjson::Type::kNullType:
-                _data_string.push_back({});
+                _backup_string.emplace_back();
                 _string_nulls.push_back(true);
                 break;
             default:
-                _data_string.push_back({});
+                _backup_string.emplace_back();
                 _string_nulls.push_back(true);
                 break;
             }

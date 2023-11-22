@@ -25,12 +25,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.scheduler.constants.JobCategory;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import lombok.Getter;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 
@@ -41,8 +39,9 @@ public class ShowJobTaskStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
-                    .add("JobId")
                     .add("TaskId")
+                    .add("JobId")
+                    .add("JobName")
                     .add("CreateTime")
                     .add("StartTime")
                     .add("EndTime")
@@ -50,13 +49,12 @@ public class ShowJobTaskStmt extends ShowStmt {
                     .add("ExecuteSql")
                     .add("Result")
                     .add("ErrorMsg")
+                    .add("TaskType")
                     .build();
 
     @Getter
     private final LabelName labelName;
 
-    @Getter
-    private JobCategory jobCategory; // optional
 
     @Getter
     private String dbFullName; // optional
@@ -65,12 +63,6 @@ public class ShowJobTaskStmt extends ShowStmt {
 
     public ShowJobTaskStmt(String category, LabelName labelName) {
         this.labelName = labelName;
-        String jobCategoryName = category;
-        if (StringUtils.isBlank(jobCategoryName)) {
-            this.jobCategory = JobCategory.SQL;
-        } else {
-            this.jobCategory = JobCategory.valueOf(jobCategoryName.toUpperCase());
-        }
     }
 
     @Override
@@ -112,9 +104,6 @@ public class ShowJobTaskStmt extends ShowStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        if (jobCategory.isPersistent()) {
-            return RedirectStatus.FORWARD_NO_SYNC;
-        }
         return RedirectStatus.NO_FORWARD;
     }
 }

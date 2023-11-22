@@ -386,7 +386,7 @@ private:
     template <int JoinOpType, typename Parent>
     friend struct ProcessHashTableProbe;
 
-    void _init_short_circuit_for_probe() override {
+    void _init_short_circuit_for_probe() {
         _short_circuit_for_probe =
                 (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                  !_is_mark_join) ||

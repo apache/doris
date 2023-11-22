@@ -59,6 +59,10 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _root(_operators.back()),
           _sink(sink) {
     _pipeline_task_watcher.start();
+    _query_statistics.reset(new QueryStatistics());
+    _sink->set_query_statistics(_query_statistics);
+    _collect_query_statistics_with_every_batch =
+            _pipeline->collect_query_statistics_with_every_batch();
 }
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
@@ -211,16 +215,6 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
     _task_queue = task_queue;
 }
 
-void PipelineTask::yield() {
-    int64_t time_spent = 0;
-    Defer defer {[&]() {
-        time_spent = time_spent * _core_num / _total_query_thread_num;
-        _task_queue->update_statistics(this, time_spent);
-    }};
-    SCOPED_RAW_TIMER(&time_spent);
-    usleep(THREAD_TIME_SLICE_US);
-}
-
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
@@ -228,12 +222,8 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
-    // todo(wb) use a more lightweight timer
-    RuntimeProfile::Counter tmp_timer(TUnit::TIME_NS);
-
     Defer defer {[&]() {
         if (_task_queue) {
-            time_spent = tmp_timer.value();
             _task_queue->update_statistics(this, time_spent);
         }
     }};
@@ -241,7 +231,7 @@ Status PipelineTask::execute(bool* eos) {
     *eos = false;
     if (!_opened) {
         {
-            SCOPED_CPU_TIMER(&tmp_timer);
+            SCOPED_RAW_TIMER(&time_spent);
             auto st = _open();
             if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
@@ -266,6 +256,18 @@ Status PipelineTask::execute(bool* eos) {
         }
     }
 
+    auto status = Status::OK();
+    auto handle_group_commit = [&]() {
+        if (UNLIKELY(_fragment_context->is_group_commit() && !status.ok() && _block != nullptr)) {
+            auto* future_block = dynamic_cast<vectorized::FutureBlock*>(_block.get());
+            std::unique_lock<doris::Mutex> l(*(future_block->lock));
+            if (!future_block->is_handled()) {
+                future_block->set_result(status, 0, 0);
+                future_block->cv->notify_all();
+            }
+        }
+    };
+
     this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
         if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
@@ -276,12 +278,12 @@ Status PipelineTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
-        if (tmp_timer.value() > THREAD_TIME_SLICE) {
+        if (time_spent > THREAD_TIME_SLICE) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
         // TODO llj: Pipeline entity should_yield
-        SCOPED_CPU_TIMER(&tmp_timer);
+        SCOPED_RAW_TIMER(&time_spent);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
@@ -289,23 +291,22 @@ Status PipelineTask::execute(bool* eos) {
         {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
+            status = _root->get_block(_state, block, _data_state);
+            if (UNLIKELY(!status.ok())) {
+                handle_group_commit();
+                return status;
+            }
         }
         *eos = _data_state == SourceState::FINISHED;
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            auto status = _sink->sink(_state, block, _data_state);
-            if (UNLIKELY(!status.ok() || block->rows() == 0)) {
-                if (_fragment_context->is_group_commit()) {
-                    auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block);
-                    std::unique_lock<doris::Mutex> l(*(future_block->lock));
-                    if (!future_block->is_handled()) {
-                        future_block->set_result(status, 0, 0);
-                        future_block->cv->notify_all();
-                    }
-                }
+            if (_data_state == SourceState::FINISHED ||
+                _collect_query_statistics_with_every_batch) {
+                RETURN_IF_ERROR(_collect_query_statistics());
             }
+            status = _sink->sink(_state, block, _data_state);
+            handle_group_commit();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -329,6 +330,23 @@ Status PipelineTask::finalize() {
     }};
     SCOPED_TIMER(_finalize_timer);
     return _sink->finalize(_state);
+}
+
+Status PipelineTask::_collect_query_statistics() {
+    // The execnode tree of a fragment will be split into multiple pipelines, we only need to collect the root pipeline.
+    if (_pipeline->is_root_pipeline()) {
+        // If the current fragment has only one instance, we can collect all of them;
+        // otherwise, we need to collect them based on the sender_id.
+        if (_state->num_per_fragment_instances() == 1) {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get()));
+        } else {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get(),
+                                                            _state->per_fragment_instance_idx()));
+        }
+    }
+    return Status::OK();
 }
 
 Status PipelineTask::try_close(Status exec_status) {
@@ -452,9 +470,6 @@ std::string PipelineTask::debug_string() {
 }
 
 taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
-    if (_is_empty_task) {
-        return _empty_group_entity;
-    }
     return _fragment_context->get_task_group_entity();
 }
 

@@ -111,7 +111,7 @@ public class LoadLoadingTask extends LoadTask {
         this.loadId = loadId;
         planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
                 strictMode, isPartialUpdate, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
-                this.useNewLoadScanNode, userInfo);
+                this.useNewLoadScanNode, userInfo, singleTabletLoadPerSink);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -137,7 +137,7 @@ public class LoadLoadingTask extends LoadTask {
         Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
         if (this.jobProfile != null) {
-            this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
+            this.jobProfile.setExecutionProfile(curCoordinator.getExecutionProfile());
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);

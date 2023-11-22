@@ -66,8 +66,8 @@ private:
     mutable std::shared_mutex _rwlock;
     Field _orderby_extrem {Field::Types::Null};
     std::shared_ptr<ColumnPredicate> _predictate {nullptr};
-    TabletSchemaSPtr _tablet_schema;
-    std::unique_ptr<Arena> _predicate_arena;
+    TabletSchemaSPtr _tablet_schema {nullptr};
+    std::unique_ptr<Arena> _predicate_arena {nullptr};
     std::function<std::string(const Field&)> _get_value_fn;
     bool _nulls_first = true;
     bool _inited = false;
@@ -172,6 +172,12 @@ private:
         using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType;
         auto v = field.get<DecimalField<Decimal128I>>();
         return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
+    }
+
+    static std::string get_decimal256_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType;
+        auto v = field.get<DecimalField<Decimal256>>();
+        return cast_to_string<TYPE_DECIMAL256, ValueType>(v.get_value(), v.get_scale());
     }
 };
 

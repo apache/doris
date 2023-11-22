@@ -73,14 +73,15 @@ public abstract class StatisticsCollector extends MasterDaemon {
             return;
         }
 
-        Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
+        Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        analysisManager.createTaskForEachColumns(jobInfo, analysisTaskInfos, false);
+        analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
+        Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
         if (StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)) {
-            analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, false);
+            analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTasks, false);
         }
-        Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTaskInfos);
-        analysisTaskInfos.values().forEach(analysisTaskExecutor::submitTask);
+        Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
+        analysisTasks.values().forEach(analysisTaskExecutor::submitTask);
     }
 
 }

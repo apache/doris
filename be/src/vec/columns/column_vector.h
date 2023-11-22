@@ -34,7 +34,6 @@
 #include <typeinfo>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/integral_types.h"
@@ -198,10 +197,10 @@ public:
 
     void insert_date_column(const char* data_ptr, size_t num) {
         data.reserve(data.size() + num);
-        size_t input_value_size = sizeof(uint24_t);
+        constexpr size_t input_value_size = sizeof(uint24_t);
 
         for (int i = 0; i < num; i++) {
-            uint64_t val = 0;
+            uint24_t val = 0;
             memcpy((char*)(&val), data_ptr, input_value_size);
             data_ptr += input_value_size;
 
@@ -217,8 +216,7 @@ public:
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + value_size * i;
             uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
-            vectorized::VecDateTimeValue datetime =
-                    VecDateTimeValue::create_from_olap_datetime(value);
+            VecDateTimeValue datetime = VecDateTimeValue::create_from_olap_datetime(value);
             this->insert_data(reinterpret_cast<char*>(&datetime), 0);
         }
     }
@@ -288,7 +286,7 @@ public:
         }
     }
 
-    void ALWAYS_INLINE update_crc_with_value_without_null(size_t idx, uint64_t& hash) const {
+    void ALWAYS_INLINE update_crc_with_value_without_null(size_t idx, uint32_t& hash) const {
         if constexpr (!std::is_same_v<T, Int64>) {
             hash = HashUtil::zlib_crc_hash(&data[idx], sizeof(T), hash);
         } else {
@@ -303,7 +301,7 @@ public:
         }
     }
 
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override {
         if (null_data) {
             for (size_t i = start; i < end; i++) {
@@ -322,7 +320,8 @@ public:
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
 
-    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
@@ -412,6 +411,10 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return this->template get_ratio_of_default_rows_impl<Self>(sample_ratio);
+    }
+
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
@@ -427,8 +430,6 @@ public:
     }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }

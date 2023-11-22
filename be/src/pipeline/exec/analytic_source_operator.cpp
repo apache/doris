@@ -20,6 +20,7 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris::pipeline {
 
@@ -38,7 +39,7 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
 
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
 
@@ -173,6 +174,10 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
                 _fn_place_ptr +
                         _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i],
                 agg_columns.data(), nullptr);
+
+        // If the end is not greater than the start, the current window should be empty.
+        _current_window_empty =
+                std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
     }
 }
 
@@ -198,12 +203,26 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
         _shared_state->current_row_position++;
     }
 
+    const auto& offsets_of_aggregate_states =
+            _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states;
     for (int i = 0; i < _agg_functions_size; ++i) {
         for (int j = get_result_start; j < _window_end_position; ++j) {
-            _agg_functions[i]->insert_result_info(
-                    _fn_place_ptr + _parent->cast<AnalyticSourceOperatorX>()
-                                            ._offsets_of_aggregate_states[i],
-                    _result_window_columns[i].get());
+            if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
+                _result_window_columns[i]->is_nullable()) {
+                if (_current_window_empty) {
+                    _result_window_columns[i]->insert_default();
+                } else {
+                    auto* dst = assert_cast<vectorized::ColumnNullable*>(
+                            _result_window_columns[i].get());
+                    dst->get_null_map_data().push_back(0);
+                    _agg_functions[i]->insert_result_info(
+                            _fn_place_ptr + offsets_of_aggregate_states[i],
+                            &dst->get_nested_column());
+                }
+                continue;
+            }
+            _agg_functions[i]->insert_result_info(_fn_place_ptr + offsets_of_aggregate_states[i],
+                                                  _result_window_columns[i].get());
         }
     }
 }
@@ -331,8 +350,8 @@ Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
 }
 
 AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                 const DescriptorTbl& descs)
-        : OperatorX<AnalyticLocalState>(pool, tnode, descs),
+                                                 int operator_id, const DescriptorTbl& descs)
+        : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs),
           _window(tnode.analytic_node.window),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
           _output_tuple_id(tnode.analytic_node.output_tuple_id),
@@ -378,8 +397,8 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._shared_state->input_eos &&
         (local_state._output_block_index == local_state._shared_state->input_blocks.size() ||
          local_state._shared_state->input_total_rows == 0)) {
@@ -414,13 +433,8 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return Status::OK();
 }
 
-Dependency* AnalyticSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
-}
-
 Status AnalyticLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();

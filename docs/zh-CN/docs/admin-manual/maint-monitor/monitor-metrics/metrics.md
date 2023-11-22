@@ -196,7 +196,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_cache_lookup_count`| |  | 记录指定 LRU Cache 被查找的次数 | |
 |`doris_be_cache_hit_count`| |  | 记录指定 LRU Cache 的命中次数 | |
 |`doris_be_cache_hit_ratio`| |  | 记录指定 LRU Cache 的命中率 | 用于观测cache是否有效 | P0|
-|| {name="DataPageCache"} | 字节 | DataPageCache 用于缓存数据的 Data Page | 数据Cache，直接影响查询效率 | P0|
+|| {name="DataPageCache"} | Num | DataPageCache 用于缓存数据的 Data Page | 数据Cache，直接影响查询效率 | P0|
 || {name="IndexPageCache"} | Num| IndexPageCache 用于缓存数据的 Index Page | 索引Cache，直接影响查询效率 | P0|
 || {name="LastestSuccessChannelCache"} | Num| LastestSuccessChannelCache 用于缓存导入接收端的 LoadChannel | |
 || {name="SegmentCache"} | Num | SegmentCache 用于缓存已打开的 Segment，如索引信息 | |
@@ -248,7 +248,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_meta_request_total`| |Num | 访问 RocksDB 中的 meta 的次数累计 | 通过斜率观测 BE 元数据访问频率 | P0 |
 ||{type="read"} | Num| 读取次数 | |
 ||{type="write"} | Num| 写入次数 | |
-|`doris_be_plan_fragment_count`| | Num | 当前已接收的 fragment instance 的数量 | 观测是否出现 instance 堆积 | P0 |
+|`doris_be_fragment_instance_count`| | Num | 当前已接收的 fragment instance 的数量 | 观测是否出现 instance 堆积 | P0 |
 |`doris_be_process_fd_num_limit_hard`| |Num| BE 进程的文件句柄数硬限。通过 `/proc/pid/limits` 采集 | |
 |`doris_be_process_fd_num_limit_soft`| |Num| BE 进程的文件句柄数软限。通过 `/proc/pid/limits` 采集 | |
 |`doris_be_process_fd_num_used`| |Num| BE 进程已使用的文件句柄数。通过 `/proc/pid/limits` 采集 | |

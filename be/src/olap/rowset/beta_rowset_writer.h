@@ -58,9 +58,6 @@ class SegmentWriter;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
-namespace vectorized::schema_util {
-class LocalSchemaChangeRecorder;
-}
 
 class BetaRowsetWriter : public RowsetWriter {
     friend class SegcompactionWorker;
@@ -81,7 +78,7 @@ public:
 
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
 
-    Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush() override;
 
@@ -95,6 +92,8 @@ public:
     Status build(RowsetSharedPtr& rowset) override;
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
+
+    PUniqueId load_id() override { return _context.load_id; }
 
     Version version() override { return _context.version; }
 
@@ -139,6 +138,8 @@ public:
         return _context.partial_update_info && _context.partial_update_info->is_partial_update;
     }
 
+    const RowsetWriterContext& context() const override { return _context; }
+
 private:
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     Status _check_segment_number_limit();
@@ -169,7 +170,8 @@ private:
     // After unfold block structure changed to -> [A | B | C | D | E | F]
     // The expanded D, E, F is dynamic part of the block
     // The flushed Block columns should match exactly from the same type of frontend meta
-    Status _unfold_variant_column(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
+    Status expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
+    void update_rowset_schema(TabletSchemaSPtr flush_schema);
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment

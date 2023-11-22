@@ -32,6 +32,8 @@
 #include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/io/var_int.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -293,6 +295,22 @@ bool read_date_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_tim
 }
 
 template <typename T>
+bool read_ipv4_text_impl(T& x, ReadBuffer& buf) {
+    static_assert(std::is_same_v<IPv4, T>);
+    bool res = IPv4Value::from_string(x, buf.to_string());
+    buf.position() = buf.end();
+    return res;
+}
+
+template <typename T>
+bool read_ipv6_text_impl(T& x, ReadBuffer& buf) {
+    static_assert(std::is_same_v<IPv6, T>);
+    bool res = IPv6Value::from_string(x, buf.to_string());
+    buf.position() = buf.end();
+    return res;
+}
+
+template <typename T>
 bool read_datetime_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
@@ -442,6 +460,16 @@ template <PrimitiveType P, typename T>
 StringParser::ParseResult try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision,
                                                 UInt32 scale) {
     return read_decimal_text_impl<P, T>(x, in, precision, scale);
+}
+
+template <typename T>
+bool try_read_ipv4_text(T& x, ReadBuffer& in) {
+    return read_ipv4_text_impl<T>(x, in);
+}
+
+template <typename T>
+bool try_read_ipv6_text(T& x, ReadBuffer& in) {
+    return read_ipv6_text_impl<T>(x, in);
 }
 
 template <typename T>

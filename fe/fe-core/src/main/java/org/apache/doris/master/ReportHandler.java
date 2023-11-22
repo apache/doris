@@ -43,6 +43,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.metric.GaugeMetric;
@@ -143,7 +144,8 @@ public class ReportHandler extends Daemon {
         if (backend == null) {
             tStatus.setStatusCode(TStatusCode.INTERNAL_ERROR);
             List<String> errorMsgs = Lists.newArrayList();
-            errorMsgs.add("backend[" + host + ":" + bePort + "] does not exist.");
+            errorMsgs.add("backend[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, bePort) + "] does not exist.");
             tStatus.setErrorMsgs(errorMsgs);
             return result;
         }
@@ -304,6 +306,7 @@ public class ReportHandler extends Daemon {
         // do the diff. find out (intersection) / (be - meta) / (meta - be)
         List<Policy> policiesInFe = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
         List<Resource> resourcesInFe = Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.S3);
+        resourcesInFe.addAll(Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.HDFS));
 
         List<Resource> resourceToPush = new ArrayList<>();
         List<Policy> policyToPush = new ArrayList<>();
@@ -587,6 +590,7 @@ public class ReportHandler extends Daemon {
     private static void sync(Map<Long, TTablet> backendTablets, ListMultimap<Long, Long> tabletSyncMap,
                              long backendId, long backendReportVersion) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        OUTER:
         for (Long dbId : tabletSyncMap.keySet()) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -609,11 +613,11 @@ public class ReportHandler extends Daemon {
                     continue;
                 }
 
-                if (backendReportVersion < Env.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
-                    break;
-                }
-
                 try {
+                    if (backendReportVersion < Env.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
+                        break OUTER;
+                    }
+
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -975,6 +979,9 @@ public class ReportHandler extends Daemon {
             for (int i = 0; i < tabletMetaList.size(); i++) {
                 long tabletId = tabletIds.get(i);
                 TabletMeta tabletMeta = tabletMetaList.get(i);
+                if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                    continue;
+                }
                 // always get old schema hash(as effective one)
                 int effectiveSchemaHash = tabletMeta.getOldSchemaHash();
                 StorageMediaMigrationTask task = new StorageMediaMigrationTask(backendId, tabletId,

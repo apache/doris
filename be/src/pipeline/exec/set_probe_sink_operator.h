@@ -31,7 +31,7 @@ class RuntimeState;
 namespace vectorized {
 class Block;
 template <class HashTableContext, bool is_intersected>
-struct HashTableProbeX;
+struct HashTableProbe;
 } // namespace vectorized
 
 namespace pipeline {
@@ -81,11 +81,12 @@ public:
             : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    int64_t* valid_element_in_hash_tbl() { return &_shared_state->valid_element_in_hash_tbl; }
 
 private:
     friend class SetProbeSinkOperatorX<is_intersect>;
     template <class HashTableContext, bool is_intersected>
-    friend struct vectorized::HashTableProbeX;
+    friend struct vectorized::HashTableProbe;
 
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
@@ -98,7 +99,8 @@ template <bool is_intersect>
 class SetProbeSinkOperatorX final : public DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>> {
 public:
     using Base = DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>;
-    using DataSinkOperatorXBase::id;
+    using DataSinkOperatorXBase::operator_id;
+    using Base::get_local_state;
     using typename Base::LocalState;
 
     friend class SetProbeSinkLocalState<is_intersect>;
@@ -120,8 +122,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);

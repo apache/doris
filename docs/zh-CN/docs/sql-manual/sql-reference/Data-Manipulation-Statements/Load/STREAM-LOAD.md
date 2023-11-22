@@ -152,6 +152,10 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 28. comment: <version since="1.2.3" type="inline"> 字符串类型, 默认值为空. 给任务增加额外的信息. </version>
 
+29. enclose: <version since="dev" type="inline"> 包围符。当csv数据字段中含有行分隔符或列分隔符时，为防止意外截断，可指定单字节字符作为包围符起到保护作用。例如列分隔符为","，包围符为"'"，数据为"a,'b,c'",则"b,c"会被解析为一个字段。 </version>
+  
+30. escape <version since="dev" type="inline"> 转义符。用于转义在字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。 </version>
+
 ### Example
 
 1. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重。指定超时时间为 100 秒
@@ -211,12 +215,12 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 10. 简单模式，导入json数据
     
     表结构：
-
+     ```
      `category` varchar(512) NULL COMMENT "",
      `author` varchar(512) NULL COMMENT "",
      `title` varchar(512) NULL COMMENT "",
      `price` double NULL COMMENT ""
-
+    ```
     json数据格式：
     ```
     {"category":"C++","author":"avc","title":"C++ primer","price":895}

@@ -157,8 +157,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const double*>(item));
         break;
     case TYPE_DATE: {
-        vectorized::VecDateTimeValue value =
-                binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(*(int64_t*)item);
+        VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(*(int64_t*)item);
 
         char buf[64];
         char* pos = value.to_string(buf);
@@ -167,8 +166,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         break;
     }
     case TYPE_DATETIME: {
-        vectorized::VecDateTimeValue value =
-                binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(*(int64_t*)item);
+        VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(*(int64_t*)item);
 
         char buf[64];
         char* pos = value.to_string(buf);
@@ -177,9 +175,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         break;
     }
     case TYPE_DATEV2: {
-        vectorized::DateV2Value<vectorized::DateV2ValueType> value =
-                binary_cast<uint32_t, doris::vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-                        *(int32_t*)item);
+        DateV2Value<DateV2ValueType> value =
+                binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(int32_t*)item);
 
         char buf[64];
         char* pos = value.to_string(buf);
@@ -188,10 +185,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         break;
     }
     case TYPE_DATETIMEV2: {
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> value =
-                binary_cast<uint64_t,
-                            doris::vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-                        *(int64_t*)item);
+        DateV2Value<DateTimeV2ValueType> value =
+                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)item);
 
         char buf[64];
         char* pos = value.to_string(buf, type.scale);
@@ -250,7 +245,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I: {
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256: {
         auto decimal_type = remove_nullable(type_ptr);
         auto val = decimal_type->to_string(*column, row);
         fmt::format_to(_insert_stmt_buffer, "{}", val);

@@ -25,7 +25,6 @@
 #include <ostream>
 #include <set>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "io/fs/file_reader.h"
@@ -289,6 +288,9 @@ Status ColumnReader::get_row_ranges_by_zone_map(
 }
 
 Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const {
+    if (_segment_zone_map == nullptr) {
+        return Status::InternalError("segment zonemap not exist");
+    }
     // TODO: this work to get min/max value seems should only do once
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
@@ -1377,11 +1379,11 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
                sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
         std::string str = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::to_string(mem_value);
 
-        vectorized::VecDateTimeValue value;
+        VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
         value.cast_to_date();
 
-        int64 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+        int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
@@ -1395,11 +1397,11 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         std::string str =
                 FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::to_string(mem_value);
 
-        vectorized::VecDateTimeValue value;
+        VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
         value.to_datetime();
 
-        int64 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+        int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }

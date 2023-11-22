@@ -64,7 +64,6 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -351,7 +350,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             this.isPartialUpdate = true;
         }
         jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
-
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
         } else if (stmt.getFormat().equals("json")) {
@@ -384,6 +382,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(PROPS_FUZZY_PARSE, "true");
         } else {
             jobProperties.put(PROPS_FUZZY_PARSE, "false");
+        }
+        if (stmt.getEnclose() != null) {
+            jobProperties.put(LoadStmt.KEY_ENCLOSE, stmt.getEnclose());
+        }
+        if (stmt.getEscape() != null) {
+            jobProperties.put(LoadStmt.KEY_ESCAPE, stmt.getEscape());
         }
     }
 
@@ -894,6 +898,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 throw new MetaNotFoundException("txn does not exist: " + txnId);
             }
             txnState.addTableIndexes(planner.getDestTable());
+            if (isPartialUpdate) {
+                txnState.setSchemaForPartialUpdate((OlapTable) table);
+            }
 
             return planParams;
         } finally {
@@ -914,6 +921,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 throw new MetaNotFoundException("txn does not exist: " + txnId);
             }
             txnState.addTableIndexes(planner.getDestTable());
+            if (isPartialUpdate) {
+                txnState.setSchemaForPartialUpdate((OlapTable) table);
+            }
 
             return planParams;
         } finally {
@@ -1446,8 +1456,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
             return rows;
         }
-        DatabaseTransactionMgr databaseTransactionMgr = Env.getCurrentEnv().getGlobalTransactionMgr()
-                .getDatabaseTransactionMgr(dbId);
 
         routineLoadTaskInfoList.forEach(entity -> {
             long txnId = entity.getTxnId();
@@ -1455,7 +1463,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 rows.add(entity.getTaskShowInfo());
                 return;
             }
-            TransactionState transactionState = databaseTransactionMgr.getTransactionState(entity.getTxnId());
+            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(dbId, entity.getTxnId());
             if (null != transactionState && null != transactionState.getTransactionStatus()) {
                 entity.setTxnStatus(transactionState.getTransactionStatus());
             }

@@ -27,7 +27,6 @@
 #include <utility>
 #include <vector>
 
-#include "exec/text_converter.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
@@ -98,6 +97,8 @@ public:
         std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
         // lazy read missing columns or all missing columns
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+        // should turn off filtering by page index, lazy read and dict filter if having complex type
+        bool has_complex_type = false;
     };
 
     /**
@@ -205,7 +206,6 @@ private:
     int64_t _lazy_read_filtered_rows = 0;
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
-    std::unique_ptr<TextConverter> _text_converter = nullptr;
     std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr = nullptr;
     int64_t _total_read_rows = 0;
     const TupleDescriptor* _tuple_descriptor;

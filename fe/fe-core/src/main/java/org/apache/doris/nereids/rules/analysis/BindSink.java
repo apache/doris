@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -51,7 +52,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -107,6 +107,25 @@ public class BindSink implements AnalysisRuleFactory {
                         throw new AnalysisException("insert into cols should be corresponding to the query output");
                     }
 
+                    try {
+                        if (table.hasSequenceCol() && table.getSequenceMapCol() != null
+                                    && !sink.getColNames().isEmpty() && !boundSink.isPartialUpdate()) {
+                            Column seqCol = table.getFullSchema().stream()
+                                            .filter(col -> col.getName().equals(table.getSequenceMapCol()))
+                                            .findFirst().get();
+                            Optional<String> foundCol = sink.getColNames().stream()
+                                            .filter(col -> col.equals(table.getSequenceMapCol()))
+                                            .findFirst();
+                            if (!foundCol.isPresent() && (seqCol.getDefaultValue() == null
+                                    || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP))) {
+                                throw new AnalysisException("Table " + table.getName()
+                                    + " has sequence column, need to specify the sequence column");
+                            }
+                        }
+                    } catch (Exception e) {
+                        throw new AnalysisException(e.getMessage(), e.getCause());
+                    }
+
                     Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
                     for (int i = 0; i < boundSink.getCols().size(); ++i) {
                         columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
@@ -149,7 +168,9 @@ public class BindSink implements AnalysisRuleFactory {
                                     throw new AnalysisException("sequence column is not contained in"
                                             + " target table " + table.getName());
                                 }
-                                columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
+                                if (columnToOutput.get(seqCol.get().getName()) != null) {
+                                    columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
+                                }
                             } else if (sink.isPartialUpdate()) {
                                 // If the current load is a partial update, the values of unmentioned
                                 // columns will be filled in SegmentWriter. And the output of sink node
@@ -204,7 +225,6 @@ public class BindSink implements AnalysisRuleFactory {
                             // we skip it.
                             continue;
                         }
-                        maybeFallbackCastUnsupportedType(expr, ctx.connectContext);
                         DataType inputType = expr.getDataType();
                         DataType targetType = DataType.fromCatalogType(table.getFullSchema().get(i).getType());
                         Expression castExpr = expr;
@@ -285,17 +305,6 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                     return column;
                 }).collect(ImmutableList.toImmutableList());
-    }
-
-    private void maybeFallbackCastUnsupportedType(Expression expression, ConnectContext ctx) {
-        if (expression.getDataType().isMapType()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to try to fall back to original planner");
-            }
-            throw new AnalysisException("failed to cast type when binding sink, type is: " + expression.getDataType());
-        }
     }
 
     private boolean isSourceAndTargetStringLikeType(DataType input, DataType target) {

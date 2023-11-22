@@ -33,7 +33,7 @@ OURFILE
 
 This statement is used to export query results to a file using the `SELECT INTO OUTFILE` command. Currently, it supports exporting to remote storage, such as HDFS, S3, BOS, COS (Tencent Cloud), through the Broker process, S3 protocol, or HDFS protocol.
     
-**grammar:**
+#### grammar:
 
 ```sql
 query_stmt
@@ -42,7 +42,7 @@ INTO OUTFILE "file_path"
 [properties]
 ```
 
-**illustrate:**
+#### illustrate:
 
 1. file_path
 
@@ -128,6 +128,57 @@ INTO OUTFILE "file_path"
     select * from tbl1 limit 10 
     INTO OUTFILE "file:///home/work/path/result_";
     ```
+
+#### DataType Mapping
+
+Parquet and ORC file formats have their own data types. The export function of Doris can automatically export the Doris data types to the corresponding data types of the Parquet/ORC file format. The following are the data type mapping relationship of the Doris data types and the Parquet/ORC file format data types:
+
+1. The mapping relationship between the Doris data types to the ORC data types is: 
+
+    | Doris Type | Orc Type |
+    | --- | --- |
+    | boolean | boolean  |
+    | tinyint | tinyint |
+    | smallint | smallint |
+    | int | int |
+    | bigint | bigint |
+    | largeInt | string |
+    | date | string |
+    | datev2 | string |
+    | datetime | string |
+    | datetimev2 | timestamp |
+    | float | float |
+    | double | double |
+    | char / varchar / string | string |
+    | decimal | decimal |
+    | struct | struct |
+    | map | map  |
+    | array | array |
+
+2. When Doris exports data to the Parquet file format, the Doris memory data will be converted to Arrow memory data format first, and then the paraquet file format is written by Arrow. The mapping relationship between the Doris data types to the ARROW data types is: 
+
+    | Doris Type | Arrow Type |
+    | --- | --- |
+    | boolean  | boolean |
+    | tinyint  | int8 |
+    | smallint  | int16 |
+    | int  | int32 |
+    | bigint  | int64 |
+    | largeInt | utf8 |
+    | date | utf8 |
+    | datev2 | utf8 |
+    | datetime | utf8 |
+    | datetimev2 | utf8 |
+    | float  | float32 |
+    | double | float64 |
+    | char / varchar / string | utf8 |
+    | decimal | decimal128 |
+    | struct | struct |
+    | map | map |
+    | array | list |
+
+
+
 
 ### example
 

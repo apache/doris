@@ -17,9 +17,167 @@
 
 #include "dependency.h"
 
+#include <memory>
+#include <mutex>
+
+#include "common/logging.h"
+#include "pipeline/pipeline_fragment_context.h"
+#include "pipeline/pipeline_task.h"
+#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/memory/mem_tracker.h"
 
 namespace doris::pipeline {
+
+void Dependency::add_block_task(PipelineXTask* task) {
+    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
+            << "Duplicate task: " << task->debug_string();
+    _blocked_task.push_back(task);
+}
+
+void WriteDependency::add_write_block_task(PipelineXTask* task) {
+    DCHECK(_write_blocked_task.empty() ||
+           _write_blocked_task[_write_blocked_task.size() - 1] != task)
+            << "Duplicate task: " << task->debug_string();
+    _write_blocked_task.push_back(task);
+}
+
+void FinishDependency::add_block_task(PipelineXTask* task) {
+    DCHECK(_finish_blocked_task.empty() ||
+           _finish_blocked_task[_finish_blocked_task.size() - 1] != task)
+            << "Duplicate task: " << task->debug_string();
+    _finish_blocked_task.push_back(task);
+}
+
+void RuntimeFilterDependency::add_block_task(PipelineXTask* task) {
+    DCHECK(_filter_blocked_task.empty() ||
+           _filter_blocked_task[_filter_blocked_task.size() - 1] != task)
+            << "Duplicate task: " << task->debug_string();
+    DCHECK(_blocked_by_rf) << "It is not allowed: task: " << task->debug_string()
+                           << " \n dependency: " << debug_string()
+                           << " \n state: " << get_state_name(task->get_state());
+    _filter_blocked_task.push_back(task);
+}
+
+void Dependency::set_ready_for_read() {
+    if (_ready_for_read) {
+        return;
+    }
+    _read_dependency_watcher.stop();
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        if (_ready_for_read) {
+            return;
+        }
+        _ready_for_read = true;
+        local_block_task.swap(_blocked_task);
+    }
+    for (auto* task : local_block_task) {
+        task->try_wake_up(this);
+    }
+}
+
+void SetDependency::set_ready_for_read() {
+    if (_child_idx == 0) {
+        WriteDependency::set_ready_for_read();
+    } else {
+        _set_state->probe_finished_children_dependency[0]->set_ready_for_read();
+    }
+}
+
+void WriteDependency::set_ready_for_write() {
+    if (_ready_for_write) {
+        return;
+    }
+    _write_dependency_watcher.stop();
+
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock<std::mutex> lc(_write_task_lock);
+        if (_ready_for_write) {
+            return;
+        }
+        _ready_for_write = true;
+        local_block_task.swap(_write_blocked_task);
+    }
+    for (auto* task : local_block_task) {
+        task->try_wake_up(this);
+    }
+}
+
+void FinishDependency::set_ready_to_finish() {
+    if (_ready_to_finish) {
+        return;
+    }
+    _finish_dependency_watcher.stop();
+
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        if (_ready_to_finish) {
+            return;
+        }
+        _ready_to_finish = true;
+        local_block_task.swap(_finish_blocked_task);
+    }
+    for (auto* task : local_block_task) {
+        task->try_wake_up(this);
+    }
+}
+
+Dependency* Dependency::read_blocked_by(PipelineXTask* task) {
+    if (config::enable_fuzzy_mode && !_ready_for_read &&
+        _should_log(_read_dependency_watcher.elapsed_time())) {
+        LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                     << _node_id << " block tasks: " << _blocked_task.size()
+                     << " write block tasks: "
+                     << (is_write_dependency()
+                                 ? ((WriteDependency*)this)->_write_blocked_task.size()
+                                 : 0)
+                     << " write done: "
+                     << (is_write_dependency() ? ((WriteDependency*)this)->_ready_for_write.load()
+                                               : true)
+                     << "task: " << (task ? task->fragment_context()->debug_string() : "");
+    }
+
+    std::unique_lock<std::mutex> lc(_task_lock);
+    auto ready_for_read = _ready_for_read.load();
+    if (!ready_for_read && !push_to_blocking_queue() && task) {
+        add_block_task(task);
+    }
+    return ready_for_read ? nullptr : this;
+}
+
+RuntimeFilterDependency* RuntimeFilterDependency::filter_blocked_by(PipelineXTask* task) {
+    if (!_blocked_by_rf) {
+        return nullptr;
+    }
+    std::unique_lock<std::mutex> lc(_task_lock);
+    if (*_blocked_by_rf) {
+        if (LIKELY(task)) {
+            add_block_task(task);
+        }
+        return this;
+    }
+    return nullptr;
+}
+
+FinishDependency* FinishDependency::finish_blocked_by(PipelineXTask* task) {
+    std::unique_lock<std::mutex> lc(_task_lock);
+    if (!_ready_to_finish && task) {
+        add_block_task(task);
+    }
+    return _ready_to_finish ? nullptr : this;
+}
+
+WriteDependency* WriteDependency::write_blocked_by(PipelineXTask* task) {
+    std::unique_lock<std::mutex> lc(_write_task_lock);
+    const auto ready_for_write = _ready_for_write.load();
+    if (!ready_for_write && task) {
+        add_write_block_task(task);
+    }
+    return ready_for_write ? nullptr : this;
+}
 
 template Status HashJoinDependency::extract_join_column<true>(
         vectorized::Block&,
@@ -35,29 +193,43 @@ template Status HashJoinDependency::extract_join_column<false>(
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}",
-                   std::string(indentation_level * 2, ' '), _name, _id,
-                   read_blocked_by() == nullptr);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, _ready_for_read={}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready_for_read);
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string WriteDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "{}{}: id={}, read block task = {},write block "
+                   "task = {}, _ready_for_write = {}, _ready_for_read = {}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _write_blocked_task.size(), _ready_for_write, _ready_for_read);
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string FinishDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, _ready_to_finish = {}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id,
+                   _finish_blocked_task.size(), _ready_to_finish);
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string RuntimeFilterDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(
+            debug_string_buffer, "{}{}: id={}, block task = {}, _blocked_by_rf = {}, _filters = {}",
+            std::string(indentation_level * 2, ' '), _name, _node_id, _filter_blocked_task.size(),
+            _blocked_by_rf ? _blocked_by_rf->load() : false, _filters);
     return fmt::to_string(debug_string_buffer);
 }
 
 std::string AndDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}, children=[",
-                   std::string(indentation_level * 2, ' '), _name, _id,
-                   read_blocked_by() == nullptr);
-    for (auto& child : _children) {
-        fmt::format_to(debug_string_buffer, "{}, \n", child->debug_string(indentation_level = 1));
-    }
-    fmt::format_to(debug_string_buffer, "{}]", std::string(indentation_level * 2, ' '));
-    return fmt::to_string(debug_string_buffer);
-}
-
-std::string OrDependency::debug_string(int indentation_level) {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}, children=[",
-                   std::string(indentation_level * 2, ' '), _name, _id,
-                   read_blocked_by() == nullptr);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, children=[",
+                   std::string(indentation_level * 2, ' '), _name, _node_id);
     for (auto& child : _children) {
         fmt::format_to(debug_string_buffer, "{}, \n", child->debug_string(indentation_level = 1));
     }
@@ -290,6 +462,12 @@ std::vector<uint16_t> HashJoinDependency::convert_block_to_null(vectorized::Bloc
     return results;
 }
 
+void SetSharedState::set_probe_finished_children(int child_id) {
+    if (child_id + 1 < probe_finished_children_dependency.size()) {
+        probe_finished_children_dependency[child_id + 1]->set_ready_for_write();
+    }
+}
+
 template <bool BuildSide>
 Status HashJoinDependency::extract_join_column(vectorized::Block& block,
                                                vectorized::ColumnUInt8::MutablePtr& null_map,
@@ -324,6 +502,123 @@ Status HashJoinDependency::extract_join_column(vectorized::Block& block,
         }
     }
     return Status::OK();
+}
+
+bool RuntimeFilterTimer::has_ready() {
+    std::unique_lock<std::mutex> lc(_lock);
+    return _runtime_filter->is_ready();
+}
+
+void RuntimeFilterTimer::call_timeout() {
+    std::unique_lock<std::mutex> lc(_lock);
+    if (_call_ready) {
+        return;
+    }
+    _call_timeout = true;
+    if (_parent) {
+        _parent->sub_filters();
+    }
+}
+
+void RuntimeFilterTimer::call_ready() {
+    std::unique_lock<std::mutex> lc(_lock);
+    if (_call_timeout) {
+        return;
+    }
+    _call_ready = true;
+    if (_parent) {
+        _parent->sub_filters();
+    }
+}
+
+void RuntimeFilterTimer::call_has_ready() {
+    std::unique_lock<std::mutex> lc(_lock);
+    DCHECK(!_call_timeout);
+    if (!_call_ready) {
+        _parent->sub_filters();
+    }
+}
+
+void RuntimeFilterTimer::call_has_release() {
+    // When the use count is equal to 1, only the timer queue still holds ownership,
+    // so there is no need to take any action.
+}
+
+struct RuntimeFilterTimerQueue {
+    constexpr static int64_t interval = 50;
+    void start() {
+        while (true) {
+            std::unique_lock<std::mutex> lk(cv_m);
+
+            cv.wait(lk, [this] { return !_que.empty(); });
+            {
+                std::unique_lock<std::mutex> lc(_que_lock);
+                std::list<std::shared_ptr<RuntimeFilterTimer>> new_que;
+                for (auto& it : _que) {
+                    if (it.use_count() == 1) {
+                        it->call_has_release();
+                    } else if (it->has_ready()) {
+                        it->call_has_ready();
+                    } else {
+                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                        if (ms_since_registration > it->wait_time_ms()) {
+                            it->call_timeout();
+                        } else {
+                            new_que.push_back(std::move(it));
+                        }
+                    }
+                }
+                new_que.swap(_que);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+        }
+    }
+    ~RuntimeFilterTimerQueue() { _thread.detach(); }
+    RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
+    static void push_filter_timer(std::shared_ptr<RuntimeFilterTimer> filter) {
+        static RuntimeFilterTimerQueue timer_que;
+
+        timer_que.push(filter);
+    }
+
+    void push(std::shared_ptr<RuntimeFilterTimer> filter) {
+        std::unique_lock<std::mutex> lc(_que_lock);
+        _que.push_back(filter);
+        cv.notify_all();
+    }
+
+    std::thread _thread;
+    std::condition_variable cv;
+    std::mutex cv_m;
+    std::mutex _que_lock;
+
+    std::list<std::shared_ptr<RuntimeFilterTimer>> _que;
+};
+
+void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
+    _filters++;
+    int64_t registration_time = runtime_filter->registration_time();
+    int32 wait_time_ms = runtime_filter->wait_time_ms();
+    auto filter_timer = std::make_shared<RuntimeFilterTimer>(
+            registration_time, wait_time_ms,
+            std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()), runtime_filter);
+    runtime_filter->set_filter_timer(filter_timer);
+    RuntimeFilterTimerQueue::push_filter_timer(filter_timer);
+}
+
+void RuntimeFilterDependency::sub_filters() {
+    auto value = _filters.fetch_sub(1);
+    if (value == 1) {
+        std::vector<PipelineXTask*> local_block_task {};
+        {
+            std::unique_lock<std::mutex> lc(_task_lock);
+            *_blocked_by_rf = false;
+            local_block_task.swap(_filter_blocked_task);
+        }
+        for (auto* task : local_block_task) {
+            task->try_wake_up(this);
+        }
+    }
 }
 
 } // namespace doris::pipeline

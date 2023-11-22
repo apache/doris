@@ -56,69 +56,63 @@ public:
     Status try_close(RuntimeState* state) override;
 };
 
-struct OpenDependency : public Dependency {
+class ScanDependency final : public Dependency {
 public:
-    ENABLE_FACTORY_CREATOR(OpenDependency);
-    OpenDependency(int id) : Dependency(id, "OpenDependency") {}
-    void* shared_state() override { return nullptr; }
-    [[nodiscard]] Dependency* read_blocked_by() override { return nullptr; }
-    [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
-};
+    ENABLE_FACTORY_CREATOR(ScanDependency);
+    ScanDependency(int id, int node_id)
+            : Dependency(id, node_id, "ScanDependency"), _scanner_ctx(nullptr) {}
 
-class EosDependency : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(EosDependency);
-    EosDependency(int id) : Dependency(id, "EosDependency") {}
-    void* shared_state() override { return nullptr; }
-};
-
-class ScannerDoneDependency : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(ScannerDoneDependency);
-    ScannerDoneDependency(int id, vectorized::ScannerContext* scanner_ctx)
-            : Dependency(id, "ScannerDoneDependency"), _scanner_ctx(scanner_ctx) {}
-    void* shared_state() override { return nullptr; }
-    [[nodiscard]] Dependency* read_blocked_by() override {
-        return _scanner_ctx->done() ? nullptr : this;
-    }
-    void set_ready_for_read() override {
-        // ScannerContext is set done outside this function now and only stop watcher here.
-        _read_dependency_watcher.stop();
-    }
-
-private:
-    vectorized::ScannerContext* _scanner_ctx;
-};
-
-class DataReadyDependency : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(DataReadyDependency);
-    DataReadyDependency(int id, vectorized::ScannerContext* scanner_ctx)
-            : Dependency(id, "DataReadyDependency"), _scanner_ctx(scanner_ctx) {}
-
-    void* shared_state() override { return nullptr; }
-
-    [[nodiscard]] Dependency* read_blocked_by() override {
-        if (_scanner_ctx->get_num_running_scanners() == 0 && _scanner_ctx->should_be_scheduled()) {
+    // TODO(gabriel):
+    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
+        if (_scanner_ctx && _scanner_ctx->get_num_running_scanners() == 0 &&
+            _scanner_ctx->should_be_scheduled()) {
             _scanner_ctx->reschedule_scanner_ctx();
         }
-        if (config::enable_fuzzy_mode && !_ready_for_read &&
-            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _ready_for_read ? nullptr : this;
+        return Dependency::read_blocked_by(task);
     }
+
+    bool push_to_blocking_queue() override { return true; }
+
+    void block_reading() override {
+        if (_eos) {
+            return;
+        }
+        if (_scanner_done) {
+            return;
+        }
+        Dependency::block_reading();
+    }
+
+    bool eos() const { return _eos.load(); }
+    void set_eos() {
+        if (_eos) {
+            return;
+        }
+        _eos = true;
+        Dependency::set_ready_for_read();
+    }
+
+    void set_scanner_done() {
+        if (_scanner_done) {
+            return;
+        }
+        _scanner_done = true;
+        Dependency::set_ready_for_read();
+    }
+
+    void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
 
 private:
     vectorized::ScannerContext* _scanner_ctx;
+    std::atomic<bool> _eos {false};
+    std::atomic<bool> _scanner_done {false};
 };
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
-              vectorized::RuntimeFilterConsumer(parent->id(), parent->runtime_filter_descs(),
+              vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
 
@@ -136,7 +130,8 @@ public:
     [[nodiscard]] virtual int runtime_filter_num() const = 0;
 
     virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
@@ -150,11 +145,8 @@ protected:
 
     virtual Status _init_profile() = 0;
 
-    std::shared_ptr<OpenDependency> _open_dependency;
-    std::shared_ptr<EosDependency> _eos_dependency;
-    std::shared_ptr<OrDependency> _source_dependency;
-    std::shared_ptr<ScannerDoneDependency> _scanner_done_dependency;
-    std::shared_ptr<DataReadyDependency> _data_ready_dependency;
+    std::atomic<bool> _opened {false};
+    std::shared_ptr<ScanDependency> _scan_dependency;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
@@ -219,11 +211,14 @@ class ScanLocalState : public ScanLocalStateBase {
     }
 
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override {}
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
 
     int64_t get_push_down_count() override;
+
+    Dependency* dependency() override { return _scan_dependency.get(); }
 
 protected:
     template <typename LocalStateType>
@@ -412,12 +407,7 @@ protected:
 template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
-    bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override;
-
     Status try_close(RuntimeState* state) override;
-
-    Dependency* wait_for_dependency(RuntimeState* state) override;
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
@@ -434,10 +424,13 @@ public:
 
     int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;
+    using OperatorX<LocalStateType>::operator_id;
+    using OperatorX<LocalStateType>::get_local_state;
 
 protected:
     using LocalState = LocalStateType;
-    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                  const DescriptorTbl& descs);
     virtual ~ScanOperatorX() = default;
     template <typename Derived>
     friend class ScanLocalState;

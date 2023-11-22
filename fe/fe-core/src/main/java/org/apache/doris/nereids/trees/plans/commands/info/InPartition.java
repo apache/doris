@@ -21,8 +21,6 @@ import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -38,7 +36,6 @@ import java.util.stream.Collectors;
 public class InPartition extends PartitionDefinition {
     private final String partitionName;
     private final List<List<Expression>> values;
-    private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public InPartition(String partitionName, List<List<Expression>> values) {
         this.partitionName = partitionName;
@@ -47,11 +44,7 @@ public class InPartition extends PartitionDefinition {
 
     @Override
     public void validate(Map<String, String> properties) {
-        try {
-            replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
+        super.validate(properties);
         if (values.stream().anyMatch(l -> l.stream().anyMatch(MaxValue.class::isInstance))) {
             throw new AnalysisException("MAXVALUE cannot be used in 'in partition'");
         }

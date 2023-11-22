@@ -43,6 +43,8 @@ public class TransientTaskManager {
     private TaskDisruptor disruptor;
 
     public TransientTaskManager() {
+        disruptor = new TaskDisruptor(this);
+        disruptor.start();
     }
 
     public TransientTaskExecutor getMemoryTaskExecutor(Long taskId) {

@@ -43,6 +43,8 @@
 
 namespace doris::vectorized {
 
+using namespace std::chrono_literals;
+
 ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::VScanNode* parent,
                                const doris::TupleDescriptor* output_tuple_desc,
                                const std::list<VScannerSPtr>& scanners_, int64_t limit_,
@@ -63,6 +65,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
         _is_finished = true;
+        _set_scanner_done();
     }
     if (limit < 0) {
         limit = -1;
@@ -123,16 +126,16 @@ Status ScannerContext::init() {
     // 3. get thread token
     if (_state->get_query_ctx()) {
         thread_token = _state->get_query_ctx()->get_token();
+        _simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
+        if (_simple_scan_scheduler) {
+            _should_reset_thread_name = false;
+        }
     }
 #endif
 
     // 4. This ctx will be submitted to the scanner scheduler right after init.
     // So set _num_scheduling_ctx to 1 here.
     _num_scheduling_ctx = 1;
-    if (_finish_dependency) {
-        std::lock_guard l(_transfer_lock);
-        _finish_dependency->block_finishing();
-    }
 
     _num_unfinished_scanners = _scanners.size();
 
@@ -164,6 +167,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block() {
 
     block = vectorized::Block::create_unique(_output_tuple_desc->slots(), _batch_size,
                                              true /*ignore invalid slots*/);
+
     COUNTER_UPDATE(_newly_create_free_blocks_num, 1);
 
     _serving_blocks_num++;
@@ -186,6 +190,10 @@ void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& 
     std::lock_guard l(_transfer_lock);
     auto old_bytes_in_queue = _cur_bytes_in_queue;
     for (auto& b : blocks) {
+        auto st = validate_block_schema(b.get());
+        if (!st.ok()) {
+            set_status_on_error(st, false);
+        }
         _cur_bytes_in_queue += b->allocated_bytes();
         _blocks_queue.push_back(std::move(b));
     }
@@ -208,13 +216,17 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     // (if the scheduler continues to schedule, it will cause a lot of busy running).
     // At this point, consumers are required to trigger new scheduling to ensure that
     // data can be continuously fetched.
-    if (should_be_scheduled() && _num_running_scanners == 0) {
+    int64_t cur_bytes_in_queue = _cur_bytes_in_queue;
+    int32_t serving_blocks_num = _serving_blocks_num;
+    bool to_be_schedule = should_be_scheduled();
+    int num_running_scanners = _num_running_scanners;
+
+    bool is_scheduled = false;
+    if (to_be_schedule && _num_running_scanners == 0) {
+        is_scheduled = true;
         auto state = _scanner_scheduler->submit(this);
         if (state.ok()) {
             _num_scheduling_ctx++;
-            if (_finish_dependency) {
-                _finish_dependency->block_finishing();
-            }
         } else {
             set_status_on_error(state, false);
         }
@@ -226,7 +238,13 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         SCOPED_TIMER(_scanner_wait_batch_timer);
         while (!(!_blocks_queue.empty() || _is_finished || !status().ok() ||
                  state->is_cancelled())) {
-            _blocks_queue_added_cv.wait(l);
+            if (!is_scheduled && _num_running_scanners == 0 && should_be_scheduled()) {
+                LOG(INFO) << "fatal, cur_bytes_in_queue " << cur_bytes_in_queue
+                          << ", serving_blocks_num " << serving_blocks_num
+                          << ", num_running_scanners " << num_running_scanners
+                          << ", to_be_scheudle " << to_be_schedule << (void*)this;
+            }
+            _blocks_queue_added_cv.wait_for(l, 1s);
         }
     }
 
@@ -241,8 +259,6 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     if (!_blocks_queue.empty()) {
         *block = std::move(_blocks_queue.front());
         _blocks_queue.pop_front();
-
-        RETURN_IF_ERROR(validate_block_schema((*block).get()));
 
         auto block_bytes = (*block)->allocated_bytes();
         _cur_bytes_in_queue -= block_bytes;
@@ -282,27 +298,33 @@ Status ScannerContext::validate_block_schema(Block* block) {
 }
 
 void ScannerContext::set_should_stop() {
-    if (_scanner_done_dependency) {
-        _scanner_done_dependency->set_ready_for_read();
-    }
     std::lock_guard l(_transfer_lock);
     _should_stop = true;
+    _set_scanner_done();
     _blocks_queue_added_cv.notify_one();
+    set_ready_to_finish();
 }
 
-void ScannerContext::update_num_running(int32_t scanner_inc, int32_t sched_inc) {
+void ScannerContext::inc_num_running_scanners(int32_t inc) {
     std::lock_guard l(_transfer_lock);
-    _num_running_scanners += scanner_inc;
-    _num_scheduling_ctx += sched_inc;
-    if (_finish_dependency) {
-        if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
-            _finish_dependency->set_ready_to_finish();
-        } else {
-            _finish_dependency->block_finishing();
-        }
+    _num_running_scanners += inc;
+}
+
+void ScannerContext::dec_num_scheduling_ctx() {
+    std::lock_guard l(_transfer_lock);
+    _num_scheduling_ctx--;
+    set_ready_to_finish();
+    if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
+        _ctx_finish_cv.notify_one();
     }
-    _blocks_queue_added_cv.notify_one();
-    _ctx_finish_cv.notify_one();
+}
+
+void ScannerContext::set_ready_to_finish() {
+    // `_should_stop == true` means this task has already ended and wait for pending finish now.
+    if (_finish_dependency && _should_stop && _num_running_scanners == 0 &&
+        _num_scheduling_ctx == 0) {
+        _finish_dependency->set_ready_to_finish();
+    }
 }
 
 bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
@@ -314,10 +336,8 @@ bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
         _process_status = status;
         _status_error = true;
         _blocks_queue_added_cv.notify_one();
-        if (_scanner_done_dependency) {
-            _scanner_done_dependency->set_ready_for_read();
-        }
         _should_stop = true;
+        _set_scanner_done();
         return true;
     }
     return false;
@@ -409,6 +429,12 @@ bool ScannerContext::no_schedule() {
     return _num_running_scanners == 0 && _num_scheduling_ctx == 0;
 }
 
+void ScannerContext::_set_scanner_done() {
+    if (_dependency) {
+        _dependency->set_scanner_done();
+    }
+}
+
 std::string ScannerContext::debug_string() {
     return fmt::format(
             "id: {}, sacnners: {}, blocks in queue: {},"
@@ -427,9 +453,6 @@ void ScannerContext::reschedule_scanner_ctx() {
     //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
     if (state.ok()) {
         _num_scheduling_ctx++;
-        if (_finish_dependency) {
-            _finish_dependency->block_finishing();
-        }
     } else {
         set_status_on_error(state, false);
     }
@@ -446,17 +469,12 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
     // We have to decrease _num_running_scanners before schedule, otherwise
     // schedule does not woring due to _num_running_scanners.
     _num_running_scanners--;
-    if (_finish_dependency && _num_running_scanners == 0 && _num_scheduling_ctx == 0) {
-        _finish_dependency->set_ready_to_finish();
-    }
+    set_ready_to_finish();
 
     if (should_be_scheduled()) {
         auto state = _scanner_scheduler->submit(this);
         if (state.ok()) {
             _num_scheduling_ctx++;
-            if (_finish_dependency) {
-                _finish_dependency->block_finishing();
-            }
         } else {
             set_status_on_error(state, false);
         }
@@ -471,9 +489,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
         (--_num_unfinished_scanners) == 0) {
         _dispose_coloate_blocks_not_in_queue();
         _is_finished = true;
-        if (_scanner_done_dependency) {
-            _scanner_done_dependency->set_ready_for_read();
-        }
+        _set_scanner_done();
         _blocks_queue_added_cv.notify_one();
     }
     _ctx_finish_cv.notify_one();

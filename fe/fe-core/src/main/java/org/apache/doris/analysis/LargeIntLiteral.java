@@ -143,24 +143,30 @@ public class LargeIntLiteral extends LiteralExpr {
     // little endian for hash code
     @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
-        ByteBuffer buffer = ByteBuffer.allocate(16);
+        int buffLen = 0;
+        if (type == PrimitiveType.DECIMAL256) {
+            buffLen = 32;
+        } else {
+            buffLen = 16;
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(buffLen);
         buffer.order(ByteOrder.LITTLE_ENDIAN);
         byte[] byteArray = value.toByteArray();
         int len = byteArray.length;
         int end = 0;
-        if (len > 16) {
-            end = len - 16;
+        if (len > buffLen) {
+            end = len - buffLen;
         }
 
         for (int i = len - 1; i >= end; --i) {
             buffer.put(byteArray[i]);
         }
         if (value.signum() >= 0) {
-            while (len++ < 16) {
+            while (len++ < buffLen) {
                 buffer.put((byte) 0);
             }
         } else {
-            while (len++ < 16) {
+            while (len++ < buffLen) {
                 buffer.put((byte) 0xFF);
             }
         }
