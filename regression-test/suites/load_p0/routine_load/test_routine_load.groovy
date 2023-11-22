@@ -1845,7 +1845,6 @@ suite("test_routine_load","p0") {
                     log.info("routine load state: ${state[0][8].toString()}".toString())
                     log.info("routine load statistic: ${state[0][14].toString()}".toString())
                     log.info("reason of state changed: ${state[0][17].toString()}".toString())
-                    log.info("reason of state changed: ${state[0][18].toString()}".toString())
                     if (res[0][0] > 0) {
                         break
                     }
