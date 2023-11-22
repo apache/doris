@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.GroupCommitScanNode;
@@ -61,7 +62,7 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
         if (table == null) {
             throw new AnalysisException("table with table_id " + tableId + " is not exists");
         }
-        if (!(table.isOlapTable())) {
+        if (!(table instanceof OlapTable)) {
             throw new AnalysisException("Only support OLAP table, but table type of table_id "
                     + tableId + " is " + table.getType());
         }

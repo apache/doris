@@ -188,7 +188,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     private OlapTable getOlapTableDirectly(SlotRef left) {
-        if (left.getTableDirect().isOlapTable()) {
+        if (left.getTableDirect() instanceof OlapTable) {
             return (OlapTable) left.getTableDirect();
         }
         return null;

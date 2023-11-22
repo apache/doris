@@ -685,7 +685,7 @@ public class DatabaseTransactionMgr {
                     TableCommitInfo tableCommitInfo = tableCommitInfoIterator.next();
                     long tableId = tableCommitInfo.getTableId();
                     OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                    if (table != null && table.isOlapTable()) {
+                    if (table != null && table instanceof OlapTable) {
                         if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
                             throw new TransactionCommitFailedException("transaction [" + transactionId
                                     + "] check schema compatibility failed, partial update can't commit with"
@@ -695,7 +695,7 @@ public class DatabaseTransactionMgr {
                 }
             } else {
                 for (Table table : tableList) {
-                    if (table.isOlapTable()) {
+                    if (table instanceof OlapTable) {
                         if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
                             throw new TransactionCommitFailedException("transaction [" + transactionId
                                     + "] check schema compatibility failed, partial update can't commit with"

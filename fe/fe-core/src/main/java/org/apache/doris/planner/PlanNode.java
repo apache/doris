@@ -35,6 +35,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
@@ -1047,7 +1048,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         if (slotRef.getSrcSlotRef() != null) {
             slotRef = slotRef.getSrcSlotRef();
         }
-        if (slotRef.getTable().isOlapTable()) {
+        if (slotRef.getTable() instanceof OlapTable) {
             return slotRef;
         }
         if (this instanceof HashJoinNode) {

@@ -151,7 +151,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
                     columnName, FeNameFormat.getColumnNameRegex());
         }
 
-        if (optPartitionNames != null && table.isOlapTable()) {
+        if (optPartitionNames != null && table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
                 throw new AnalysisException("Not a partitioned table: " + olapTable.getName());

@@ -91,10 +91,6 @@ public interface TableIf {
         }
     }
 
-    default boolean isOlapTable() {
-        return false;
-    }
-
     List<Column> getBaseSchema(boolean full);
 
     void setNewFullSchema(List<Column> newSchema);

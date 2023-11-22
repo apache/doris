@@ -32,6 +32,7 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ColumnStats;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.Pair;
@@ -332,13 +333,13 @@ public class HashJoinNode extends JoinNodeBase {
 
         public double lhsNumRows() {
             TableIf table = lhs.getParent().getTable();
-            Preconditions.checkState(table.isOlapTable());
+            Preconditions.checkState(table instanceof OlapTable);
             return table.getRowCount();
         }
 
         public double rhsNumRows() {
             TableIf table = rhs.getParent().getTable();
-            Preconditions.checkState(table.isOlapTable());
+            Preconditions.checkState(table instanceof OlapTable);
             return table.getRowCount();
         }
 

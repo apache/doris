@@ -138,12 +138,6 @@ public class StatisticsAutoCollectorTest {
                 columns.add(new Column("c2", PrimitiveType.HLL));
                 return columns;
             }
-
-            @Mock
-            public boolean isOlapTable() {
-                return true;
-            }
-
         };
         StatisticsAutoCollector saa = new StatisticsAutoCollector();
         List<AnalysisInfo> analysisInfos =
@@ -262,11 +256,6 @@ public class StatisticsAutoCollectorTest {
             @Mock
             public long getDataSize(boolean singleReplica) {
                 return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5 + 1000000000;
-            }
-
-            @Mock
-            public boolean isOlapTable() {
-                return true;
             }
         };
 

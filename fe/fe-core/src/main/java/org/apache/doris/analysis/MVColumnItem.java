@@ -164,7 +164,7 @@ public class MVColumnItem {
     }
 
     public Column toMVColumn(Table table) throws DdlException {
-        if (table.isOlapTable()) {
+        if (table instanceof OlapTable) {
             return toMVColumn((OlapTable) table);
         } else if (table instanceof InlineView) {
             return toMVColumn((InlineView) table);

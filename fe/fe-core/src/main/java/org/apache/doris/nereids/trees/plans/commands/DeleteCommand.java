@@ -76,7 +76,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
     private void checkTable(ConnectContext ctx) {
         List<String> qualifieredTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(qualifieredTableName, ctx.getEnv());
-        if (!(table.isOlapTable())) {
+        if (!(table instanceof OlapTable)) {
             throw new AnalysisException("table must be olapTable in delete command");
         }
         targetTable = ((OlapTable) table);

@@ -684,7 +684,7 @@ public class DynamicPartitionUtil {
     }
 
     public static boolean isDynamicPartitionTable(Table table) {
-        if (!(table.isOlapTable())
+        if (!(table instanceof OlapTable)
                 || !(((OlapTable) table).getPartitionInfo().getType().equals(PartitionType.RANGE))) {
             return false;
         }

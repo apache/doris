@@ -188,7 +188,7 @@ public class LoadScanProvider {
         }
         // add columnExpr for sequence column
         TableIf targetTable = getTargetTable();
-        if (targetTable.isOlapTable() && ((OlapTable) targetTable).hasSequenceCol()) {
+        if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()) {
             OlapTable olapTable = (OlapTable) targetTable;
             String sequenceCol = olapTable.getSequenceMapCol();
             if (sequenceCol != null) {

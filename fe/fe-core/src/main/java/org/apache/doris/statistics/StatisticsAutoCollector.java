@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.Config;
@@ -109,7 +110,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     // return true if skip auto analyze this time.
     protected boolean skip(TableIf table) {
-        if (!(table.isOlapTable() || table instanceof ExternalTable)) {
+        if (!(table instanceof OlapTable || table instanceof ExternalTable)) {
             return true;
         }
         if (table.getDataSize(true) < StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5) {

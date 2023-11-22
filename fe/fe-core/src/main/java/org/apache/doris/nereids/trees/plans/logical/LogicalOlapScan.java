@@ -172,7 +172,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     @Override
     public OlapTable getTable() {
-        Preconditions.checkArgument(table.isOlapTable());
+        Preconditions.checkArgument(table instanceof OlapTable);
         return (OlapTable) table;
     }
 

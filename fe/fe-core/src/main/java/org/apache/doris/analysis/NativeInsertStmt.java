@@ -245,7 +245,7 @@ public class NativeInsertStmt extends InsertStmt {
             throws AnalysisException {
         if (tableId != -1) {
             TableIf table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
-            Preconditions.checkState(table.isOlapTable());
+            Preconditions.checkState(table instanceof OlapTable);
             OlapTable olapTable = (OlapTable) table;
             tblName.setDb(olapTable.getDatabase().getFullName());
             tblName.setTbl(olapTable.getName());
@@ -377,7 +377,7 @@ public class NativeInsertStmt extends InsertStmt {
                     insertType.labePrefix + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_"));
         }
         if (!isExplain() && !isTransactionBegin) {
-            if (targetTable.isOlapTable()) {
+            if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         Lists.newArrayList(targetTable.getId()), label.getLabelName(),
@@ -388,7 +388,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         // init data sink
-        if (!isExplain() && targetTable.isOlapTable()) {
+        if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
@@ -418,7 +418,7 @@ public class NativeInsertStmt extends InsertStmt {
         // Get table
         initTargetTable(analyzer);
 
-        if (targetTable.isOlapTable()) {
+        if (targetTable instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) targetTable;
 
             // partition
@@ -879,7 +879,7 @@ public class NativeInsertStmt extends InsertStmt {
                 continue;
             } else {
                 // process sequence col, map sequence column to other column
-                if (targetTable.isOlapTable() && ((OlapTable) targetTable).hasSequenceCol()
+                if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()
                         && col.getName().equals(Column.SEQUENCE_COL)
                         && ((OlapTable) targetTable).getSequenceMapCol() != null) {
                     if (resultExprByName.stream().map(Pair::key)
@@ -923,7 +923,7 @@ public class NativeInsertStmt extends InsertStmt {
         if (dataSink != null) {
             return dataSink;
         }
-        if (targetTable.isOlapTable()) {
+        if (targetTable instanceof OlapTable) {
             checkInnerGroupCommit();
             OlapTableSink sink;
             if (isGroupCommitTvf) {
@@ -979,7 +979,7 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public void complete() throws UserException {
-        if (!isExplain() && targetTable.isOlapTable()) {
+        if (!isExplain() && targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).complete(analyzer);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
@@ -1074,9 +1074,8 @@ public class NativeInsertStmt extends InsertStmt {
             LOG.warn("analyze group commit failed", e);
             return;
         }
-
         if (ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
-                && targetTable.isOlapTable()
+                && targetTable instanceof OlapTable
                 && !ConnectContext.get().isTxnModel()
                 && getQueryStmt() instanceof SelectStmt
                 && ((SelectStmt) getQueryStmt()).getTableRefs().isEmpty() && targetPartitionNames == null
@@ -1143,7 +1142,7 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     private void trySetPartialUpdate() throws UserException {
-        if (isFromDeleteOrUpdateStmt || isPartialUpdate || !(targetTable.isOlapTable())) {
+        if (isFromDeleteOrUpdateStmt || isPartialUpdate || !(targetTable instanceof OlapTable)) {
             return;
         }
         OlapTable olapTable = (OlapTable) targetTable;

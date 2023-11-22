@@ -125,8 +125,6 @@ class PruneOlapScanTabletTest implements MemoPatternMatchSupported {
                 result = DistributionInfo.DistributionInfoType.HASH;
                 distributionInfo.getBucketNum();
                 result = tabletIds.size();
-                olapTable.isOlapTable();
-                result = true;
             }
         };
 

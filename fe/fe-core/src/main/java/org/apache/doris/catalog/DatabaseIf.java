@@ -237,7 +237,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     default OlapTable getOlapTableOrDdlException(String tableName) throws DdlException {
         T table = getTableOrDdlException(tableName);
-        if (!table.isOlapTable()) {
+        if (!(table instanceof OlapTable)) {
             throw new DdlException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
         }
         return (OlapTable) table;
@@ -245,7 +245,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     default OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
         T table = getTableOrAnalysisException(tableName);
-        if (!(table.isOlapTable())) {
+        if (!(table instanceof OlapTable)) {
             throw new AnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
         }
         return (OlapTable) table;

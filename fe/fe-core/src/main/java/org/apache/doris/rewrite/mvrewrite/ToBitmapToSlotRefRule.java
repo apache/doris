@@ -82,7 +82,7 @@ public class ToBitmapToSlotRefRule implements ExprRewriteRule {
         }
         Column column = queryColumnSlotRef.getColumn();
         TableIf table = queryColumnSlotRef.getTable();
-        if (column == null || table == null || !(table.isOlapTable())) {
+        if (column == null || table == null || !(table instanceof OlapTable)) {
             return expr;
         }
         OlapTable olapTable = (OlapTable) table;

@@ -140,7 +140,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv());
-        if (!(table.isOlapTable())) {
+        if (!(table instanceof OlapTable)) {
             throw new AnalysisException("target table in update command should be an olapTable");
         }
         targetTable = ((OlapTable) table);

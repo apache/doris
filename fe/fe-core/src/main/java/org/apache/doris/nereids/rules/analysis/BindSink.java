@@ -269,7 +269,7 @@ public class BindSink implements AnalysisRuleFactory {
                 sink.getNameParts());
         Pair<DatabaseIf, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv());
-        if (!(pair.second.isOlapTable())) {
+        if (!(pair.second instanceof OlapTable)) {
             try {
                 cascadesContext.getConnectContext().getSessionVariable().enableFallbackToOriginalPlannerOnce();
             } catch (Exception e) {
