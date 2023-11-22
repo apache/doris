@@ -82,8 +82,8 @@ public class DemoMultiBackendsTest {
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 1000;
         FeConstants.default_scheduler_interval_millisecond = 100;
+        Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
 
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 3);

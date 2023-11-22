@@ -30,7 +30,7 @@ namespace io {
 
 class LocalFileWriter final : public FileWriter {
 public:
-    LocalFileWriter(Path path, int fd, FileSystemSPtr fs);
+    LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data = true);
     LocalFileWriter(Path path, int fd);
     ~LocalFileWriter() override;
 
@@ -46,6 +46,7 @@ private:
 private:
     int _fd; // owned
     bool _dirty = false;
+    const bool _sync_data;
 };
 
 } // namespace io

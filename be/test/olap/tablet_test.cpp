@@ -28,6 +28,7 @@
 #include "gutil/strings/numbers.h"
 #include "http/action/pad_rowset_action.h"
 #include "io/fs/local_file_system.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
@@ -281,12 +282,12 @@ TEST_F(TestTablet, pad_rowset) {
 
     Version version(5, 5);
     std::vector<RowSetSplits> splits;
-    ASSERT_FALSE(_tablet->capture_rs_readers(version, &splits).ok());
+    ASSERT_FALSE(_tablet->capture_rs_readers(version, &splits, false).ok());
     splits.clear();
 
     PadRowsetAction action(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
     static_cast<void>(action._pad_rowset(_tablet, version));
-    ASSERT_TRUE(_tablet->capture_rs_readers(version, &splits).ok());
+    ASSERT_TRUE(_tablet->capture_rs_readers(version, &splits, false).ok());
 }
 
 TEST_F(TestTablet, cooldown_policy) {

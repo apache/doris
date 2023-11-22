@@ -84,8 +84,7 @@ public class AlterTest {
     public static void beforeClass() throws Exception {
         FeConstants.runningUnitTest = true;
         FeConstants.default_scheduler_interval_millisecond = 100;
-        FeConstants.tablet_checker_interval_ms = 100;
-        FeConstants.tablet_checker_interval_ms = 100;
+        Config.tablet_checker_interval_ms = 100;
         Config.dynamic_partition_check_interval_seconds = 1;
         Config.disable_storage_medium_check = true;
         Config.enable_storage_policy = true;

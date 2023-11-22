@@ -48,7 +48,7 @@ public class WebConfigurer implements WebMvcConfigurer {
         registry.addMapping("/**")
                 .allowCredentials(false)
                 .allowedMethods("*")
-                .allowedOrigins("*")
+                .allowedOrigins(Config.access_control_allowed_origin_domain)
                 .allowedHeaders("*")
                 .maxAge(3600);
     }

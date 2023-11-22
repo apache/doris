@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 
 import com.google.common.collect.ImmutableList;
@@ -64,13 +63,6 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));
 
-        // DateTimeV2 -> Date
-        assertRewrite(
-                new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), new DateTimeLiteral(1, 1, 1, 0, 0, 0)));
-        assertRewrite(
-                new LessThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new LessThan(new Cast(d, DateTimeType.INSTANCE), new DateTimeLiteral(1, 1, 2, 0, 0, 0)));
         assertRewrite(
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));

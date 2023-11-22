@@ -165,6 +165,11 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
     }
 
     @Override
+    public String shapeInfo() {
+        return this.getClass().getSimpleName() + "[" + phase + "]";
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
     }

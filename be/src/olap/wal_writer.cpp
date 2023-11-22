@@ -17,6 +17,9 @@
 
 #include "olap/wal_writer.h"
 
+#include <atomic>
+
+#include "common/config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -25,12 +28,16 @@
 
 namespace doris {
 
-WalWriter::WalWriter(const std::string& file_name) : _file_name(file_name) {}
+const char* k_wal_magic = "WAL1";
+const uint32_t k_wal_magic_length = 4;
+
+WalWriter::WalWriter(const std::string& file_name,
+                     const std::shared_ptr<std::atomic_size_t>& all_wal_disk_bytes)
+        : _file_name(file_name), _disk_bytes(0), _all_wal_disk_bytes(all_wal_disk_bytes) {}
 
 WalWriter::~WalWriter() {}
 
 Status WalWriter::init() {
-    _batch = config::group_commit_sync_wal_batch;
     RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_file_name, &_file_writer));
     return Status::OK();
 }
@@ -44,30 +51,70 @@ Status WalWriter::finalize() {
 }
 
 Status WalWriter::append_blocks(const PBlockArray& blocks) {
+    {
+        std::unique_lock l(_mutex);
+        while (_all_wal_disk_bytes->load(std::memory_order_relaxed) > config::wal_max_disk_size) {
+            cv.wait_for(l, std::chrono::milliseconds(WalWriter::MAX_WAL_WRITE_WAIT_TIME));
+        }
+    }
     size_t total_size = 0;
     for (const auto& block : blocks) {
         total_size += LENGTH_SIZE + block->ByteSizeLong() + CHECKSUM_SIZE;
     }
-    std::string binary(total_size, '\0');
-    char* row_binary = binary.data();
     size_t offset = 0;
     for (const auto& block : blocks) {
-        unsigned long row_length = block->GetCachedSize();
-        memcpy(row_binary + offset, &row_length, LENGTH_SIZE);
+        uint8_t len_buf[sizeof(uint64_t)];
+        uint64_t block_length = block->ByteSizeLong();
+        encode_fixed64_le(len_buf, block_length);
+        RETURN_IF_ERROR(_file_writer->append({len_buf, sizeof(uint64_t)}));
         offset += LENGTH_SIZE;
-        memcpy(row_binary + offset, block->SerializeAsString().data(), row_length);
-        offset += row_length;
-        uint32_t checksum = crc32c::Value(block->SerializeAsString().data(), row_length);
-        memcpy(row_binary + offset, &checksum, CHECKSUM_SIZE);
+        std::string content = block->SerializeAsString();
+        RETURN_IF_ERROR(_file_writer->append(content));
+        offset += block_length;
+        uint8_t checksum_buf[sizeof(uint32_t)];
+        uint32_t checksum = crc32c::Value(content.data(), block_length);
+        encode_fixed32_le(checksum_buf, checksum);
+        RETURN_IF_ERROR(_file_writer->append({checksum_buf, sizeof(uint32_t)}));
         offset += CHECKSUM_SIZE;
     }
-    DCHECK(offset == total_size);
-    // write rows
-    RETURN_IF_ERROR(_file_writer->append({row_binary, offset}));
-    _count++;
-    if (_count % _batch == 0) {
-        //todo sync data
-        //LOG(INFO) << "count=" << count << ",do sync";
+    if (offset != total_size) {
+        return Status::InternalError(
+                "failed to write block to wal expected= " + std::to_string(total_size) +
+                ",actually=" + std::to_string(offset));
+    }
+    _disk_bytes.store(_disk_bytes.fetch_add(total_size, std::memory_order_relaxed),
+                      std::memory_order_relaxed);
+    _all_wal_disk_bytes->store(
+            _all_wal_disk_bytes->fetch_add(total_size, std::memory_order_relaxed),
+            std::memory_order_relaxed);
+    return Status::OK();
+}
+
+Status WalWriter::append_header(uint32_t version, std::string col_ids) {
+    size_t total_size = 0;
+    uint64_t length = col_ids.size();
+    total_size += k_wal_magic_length;
+    total_size += VERSION_SIZE;
+    total_size += LENGTH_SIZE;
+    total_size += length;
+    size_t offset = 0;
+    RETURN_IF_ERROR(_file_writer->append({k_wal_magic, k_wal_magic_length}));
+    offset += k_wal_magic_length;
+
+    uint8_t version_buf[sizeof(uint32_t)];
+    encode_fixed32_le(version_buf, version);
+    RETURN_IF_ERROR(_file_writer->append({version_buf, sizeof(uint32_t)}));
+    offset += VERSION_SIZE;
+    uint8_t len_buf[sizeof(uint64_t)];
+    encode_fixed64_le(len_buf, length);
+    RETURN_IF_ERROR(_file_writer->append({len_buf, sizeof(uint64_t)}));
+    offset += LENGTH_SIZE;
+    RETURN_IF_ERROR(_file_writer->append(col_ids));
+    offset += length;
+    if (offset != total_size) {
+        return Status::InternalError(
+                "failed to write header to wal expected= " + std::to_string(total_size) +
+                ",actually=" + std::to_string(offset));
     }
     return Status::OK();
 }

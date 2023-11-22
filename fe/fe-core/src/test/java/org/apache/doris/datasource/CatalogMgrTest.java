@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
@@ -773,6 +774,22 @@ public class CatalogMgrTest extends TestWithFeService {
         String alterComment = "ALTER CATALOG hive_c SET PROPERTIES"
                 + " (\"comment\" = \"alter comment\");";
         mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterComment));
-        Assertions.assertEquals(env.getCatalogMgr().getCatalog("hive_c").getComment(), "alter comment");
+        // we do not set `comment` auto by `comment in properties`
+        Assertions.assertEquals("create", env.getCatalogMgr().getCatalog("hive_c").getComment());
+    }
+
+    @Test
+    public void testAlterCatalogComment() throws Exception {
+        ConnectContext rootCtx = createDefaultCtx();
+        CreateCatalogStmt catalogWithComment = (CreateCatalogStmt) parseAndAnalyzeStmt(
+                "create catalog hive_c1 comment 'create' properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
+                rootCtx);
+        env.getCatalogMgr().createCatalog(catalogWithComment);
+        Assertions.assertEquals("create", env.getCatalogMgr().getCatalog("hive_c1").getComment());
+
+        String alterComment = "ALTER CATALOG hive_c1 MODIFY COMMENT 'new_comment';";
+        mgr.alterCatalogComment((AlterCatalogCommentStmt) parseAndAnalyzeStmt(alterComment));
+        // we do not set `comment` auto by `comment in properties`
+        Assertions.assertEquals("new_comment", env.getCatalogMgr().getCatalog("hive_c1").getComment());
     }
 }

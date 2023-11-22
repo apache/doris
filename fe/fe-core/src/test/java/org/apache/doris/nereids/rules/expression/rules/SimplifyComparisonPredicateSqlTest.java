@@ -57,7 +57,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                     logicalFilter()
-                        .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a < 2023-06-16 00:00:00)")))
+                        .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a < '2023-06-16 00:00:00')")))
                         .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(b < 111.12)")))
                 );
 
@@ -66,7 +66,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalFilter()
-                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a <= 2023-06-16 00:00:00)")))
+                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a <= '2023-06-16 00:00:00')")))
                                 .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(b <= 111.11)")))
                 );
 
@@ -82,7 +82,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalFilter()
-                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a > 2023-06-16 00:00:00)")))
+                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a > '2023-06-16 00:00:00')")))
                                 .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(b > 111.11)")))
                 );
 
@@ -91,7 +91,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalFilter()
-                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a >= 2023-06-16 00:00:00)")))
+                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a >= '2023-06-16 00:00:00')")))
                                 .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(b >= 111.12)")))
                 );
     }

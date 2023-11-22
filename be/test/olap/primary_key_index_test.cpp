@@ -167,4 +167,157 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     }
 }
 
+TEST_F(PrimaryKeyIndexTest, multiple_pages) {
+    std::string filename = kTestDir + "/multiple_pages";
+    io::FileWriterPtr file_writer;
+    auto fs = io::global_local_filesystem();
+    EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+
+    config::primary_key_data_page_size = 5 * 5;
+    PrimaryKeyIndexBuilder builder(file_writer.get(), 0);
+    static_cast<void>(builder.init());
+    size_t num_rows = 0;
+    std::vector<std::string> keys {"00000", "00002", "00004", "00006", "00008",
+                                   "00010", "00012", "00014", "00016", "00018"};
+    for (const std::string& key : keys) {
+        static_cast<void>(builder.add_item(key));
+        num_rows++;
+    }
+    EXPECT_EQ("00000", builder.min_key().to_string());
+    EXPECT_EQ("00018", builder.max_key().to_string());
+    EXPECT_EQ(builder.size(), 2 * 5 * 5);
+    EXPECT_GT(builder.data_page_num(), 1);
+    segment_v2::PrimaryKeyIndexMetaPB index_meta;
+    EXPECT_TRUE(builder.finalize(&index_meta));
+    EXPECT_EQ(builder.disk_size(), file_writer->bytes_appended());
+    EXPECT_TRUE(file_writer->close().ok());
+    EXPECT_EQ(num_rows, builder.num_rows());
+
+    PrimaryKeyIndexReader index_reader;
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+    EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta).ok());
+    EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta).ok());
+    EXPECT_EQ(num_rows, index_reader.num_rows());
+
+    std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
+    EXPECT_TRUE(index_reader.new_iterator(&index_iterator).ok());
+    bool exact_match = false;
+    uint32_t row_id;
+    for (size_t i = 0; i < keys.size(); i++) {
+        bool exists = index_reader.check_present(keys[i]);
+        EXPECT_TRUE(exists);
+        auto status = index_iterator->seek_at_or_after(&keys[i], &exact_match);
+        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(exact_match);
+        row_id = index_iterator->get_current_ordinal();
+        EXPECT_EQ(i, row_id);
+    }
+    for (size_t i = 0; i < keys.size(); i++) {
+        bool exists = index_reader.check_present(keys[i]);
+        EXPECT_TRUE(exists);
+        auto status = index_iterator->seek_to_ordinal(i);
+        EXPECT_TRUE(status.ok());
+        row_id = index_iterator->get_current_ordinal();
+        EXPECT_EQ(i, row_id);
+    }
+    {
+        auto status = index_iterator->seek_to_ordinal(10);
+        EXPECT_TRUE(status.ok());
+        row_id = index_iterator->get_current_ordinal();
+        EXPECT_EQ(10, row_id);
+    }
+
+    std::vector<std::string> non_exist_keys {"00001", "00003", "00005", "00007", "00009",
+                                             "00011", "00013", "00015", "00017"};
+    for (size_t i = 0; i < non_exist_keys.size(); i++) {
+        Slice slice(non_exist_keys[i]);
+        bool exists = index_reader.check_present(slice);
+        EXPECT_FALSE(exists);
+        auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
+        EXPECT_TRUE(status.ok());
+        EXPECT_FALSE(exact_match);
+        row_id = index_iterator->get_current_ordinal();
+        EXPECT_EQ(i + 1, row_id);
+    }
+    {
+        string key("00019");
+        Slice slice(key);
+        bool exists = index_reader.check_present(slice);
+        EXPECT_FALSE(exists);
+        auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
+        EXPECT_FALSE(exact_match);
+        EXPECT_TRUE(status.is<ErrorCode::ENTRY_NOT_FOUND>());
+    }
+}
+
+TEST_F(PrimaryKeyIndexTest, single_page) {
+    std::string filename = kTestDir + "/single_page";
+    io::FileWriterPtr file_writer;
+    auto fs = io::global_local_filesystem();
+    EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+    config::primary_key_data_page_size = 32768;
+
+    PrimaryKeyIndexBuilder builder(file_writer.get(), 0);
+    static_cast<void>(builder.init());
+    size_t num_rows = 0;
+    std::vector<std::string> keys {"00000", "00002", "00004", "00006", "00008",
+                                   "00010", "00012", "00014", "00016", "00018"};
+    for (const std::string& key : keys) {
+        static_cast<void>(builder.add_item(key));
+        num_rows++;
+    }
+    EXPECT_EQ("00000", builder.min_key().to_string());
+    EXPECT_EQ("00018", builder.max_key().to_string());
+    EXPECT_EQ(builder.size(), 2 * 5 * 5);
+    EXPECT_EQ(builder.data_page_num(), 1);
+    segment_v2::PrimaryKeyIndexMetaPB index_meta;
+    EXPECT_TRUE(builder.finalize(&index_meta));
+    EXPECT_EQ(builder.disk_size(), file_writer->bytes_appended());
+    EXPECT_TRUE(file_writer->close().ok());
+    EXPECT_EQ(num_rows, builder.num_rows());
+
+    PrimaryKeyIndexReader index_reader;
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+    EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta).ok());
+    EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta).ok());
+    EXPECT_EQ(num_rows, index_reader.num_rows());
+
+    std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
+    EXPECT_TRUE(index_reader.new_iterator(&index_iterator).ok());
+    bool exact_match = false;
+    uint32_t row_id;
+    for (size_t i = 0; i < keys.size(); i++) {
+        bool exists = index_reader.check_present(keys[i]);
+        EXPECT_TRUE(exists);
+        auto status = index_iterator->seek_at_or_after(&keys[i], &exact_match);
+        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(exact_match);
+        row_id = index_iterator->get_current_ordinal();
+        EXPECT_EQ(i, row_id);
+    }
+
+    std::vector<std::string> non_exist_keys {"00001", "00003", "00005", "00007", "00009",
+                                             "00011", "00013", "00015", "00017"};
+    for (size_t i = 0; i < non_exist_keys.size(); i++) {
+        Slice slice(non_exist_keys[i]);
+        bool exists = index_reader.check_present(slice);
+        EXPECT_FALSE(exists);
+        auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
+        EXPECT_TRUE(status.ok());
+        EXPECT_FALSE(exact_match);
+        row_id = index_iterator->get_current_ordinal();
+        EXPECT_EQ(i + 1, row_id);
+    }
+    {
+        string key("00019");
+        Slice slice(key);
+        bool exists = index_reader.check_present(slice);
+        EXPECT_FALSE(exists);
+        auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
+        EXPECT_FALSE(exact_match);
+        EXPECT_TRUE(status.is<ErrorCode::ENTRY_NOT_FOUND>());
+    }
+}
 } // namespace doris

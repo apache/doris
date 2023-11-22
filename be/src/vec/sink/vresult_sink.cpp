@@ -18,7 +18,6 @@
 #include "vec/sink/vresult_sink.h"
 
 #include <fmt/format.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <time.h>
 
 #include <new>
@@ -33,8 +32,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
+#include "util/arrow/row_batch.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/sink/varrow_flight_result_writer.h"
@@ -84,6 +83,7 @@ Status VResultSink::prepare(RuntimeState* state) {
                              fragment_instance_id.hi, fragment_instance_id.lo);
     // create profile
     _profile = state->obj_pool()->add(new RuntimeProfile(title));
+    init_sink_common_profile();
     // prepare output_expr
     RETURN_IF_ERROR(prepare_exprs(state));
 
@@ -98,12 +98,15 @@ Status VResultSink::prepare(RuntimeState* state) {
         _writer.reset(new (std::nothrow)
                               VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
         break;
-    case TResultSinkType::ARROW_FLIGHT_PROTOCAL:
-        state->exec_env()->result_mgr()->register_row_descriptor(state->fragment_instance_id(),
-                                                                 _row_desc);
+    case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
+        std::shared_ptr<arrow::Schema> arrow_schema;
+        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
+        state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
+                                                               arrow_schema);
         _writer.reset(new (std::nothrow) VArrowFlightResultWriter(_sender.get(), _output_vexpr_ctxs,
-                                                                  _profile, _row_desc));
+                                                                  _profile, arrow_schema));
         break;
+    }
     default:
         return Status::InternalError("Unknown result sink type");
     }
@@ -131,6 +134,9 @@ Status VResultSink::second_phase_fetch_data(RuntimeState* state, Block* final_bl
 }
 
 Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
+    COUNTER_UPDATE(_blocks_sent_counter, 1);
+    COUNTER_UPDATE(_output_rows_counter, block->rows());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         DCHECK(_sink_type == TResultSinkType::MYSQL_PROTOCAL);
         RETURN_IF_ERROR(second_phase_fetch_data(state, block));

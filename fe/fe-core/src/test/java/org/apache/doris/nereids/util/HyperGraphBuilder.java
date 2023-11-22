@@ -20,7 +20,6 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -131,9 +130,9 @@ public class HyperGraphBuilder {
 
     private void randomBuildInit(int tableNum, int edgeNum) {
         Preconditions.checkArgument(edgeNum >= tableNum - 1,
-                String.format("We can't build a connected graph with %d tables %d edges", tableNum, edgeNum));
+                "We can't build a connected graph with %s tables %s edges", tableNum, edgeNum);
         Preconditions.checkArgument(edgeNum <= tableNum * (tableNum - 1) / 2,
-                String.format("The edges are redundant with %d tables %d edges", tableNum, edgeNum));
+                "The edges are redundant with %s tables %s edges", tableNum, edgeNum);
 
         int[] tableRowCounts = new int[tableNum];
         for (int i = 1; i <= tableNum; i++) {
@@ -203,9 +202,9 @@ public class HyperGraphBuilder {
 
     public HyperGraphBuilder addEdge(JoinType joinType, int node1, int node2) {
         Preconditions.checkArgument(node1 >= 0 && node1 < rowCounts.size(),
-                String.format("%d must in [%d, %d)", node1, 0, rowCounts.size()));
+                "%d must in [%s, %ds", node1, 0, rowCounts.size());
         Preconditions.checkArgument(node2 >= 0 && node1 < rowCounts.size(),
-                String.format("%d must in [%d, %d)", node1, 0, rowCounts.size()));
+                "%d must in [%d, %d)", node1, 0, rowCounts.size());
 
         BitSet leftBitmap = new BitSet();
         leftBitmap.set(node1);
@@ -218,8 +217,8 @@ public class HyperGraphBuilder {
         if (!fullKey.isPresent()) {
             Optional<BitSet> leftKey = findPlan(leftBitmap);
             Optional<BitSet> rightKey = findPlan(rightBitmap);
-            assert leftKey.isPresent() && rightKey.isPresent() : String.format("can not find plan %s-%s", leftBitmap,
-                    rightBitmap);
+            Preconditions.checkArgument(leftKey.isPresent() && rightKey.isPresent(),
+                    "can not find plan %s-%s", leftBitmap, rightBitmap);
             Plan leftPlan = plans.get(leftKey.get());
             Plan rightPlan = plans.get(rightKey.get());
             LogicalJoin join = new LogicalJoin<>(joinType, leftPlan, rightPlan);
@@ -315,17 +314,20 @@ public class HyperGraphBuilder {
     private HyperGraph buildHyperGraph(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
-        JoinOrderJob joinOrderJob = new JoinOrderJob(cascadesContext.getMemo().getRoot(),
-                cascadesContext.getCurrentJobContext());
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         injectRowcount(cascadesContext.getMemo().getRoot());
-        HyperGraph hyperGraph = new HyperGraph();
-        joinOrderJob.buildGraph(cascadesContext.getMemo().getRoot(), hyperGraph);
-        return hyperGraph;
+        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
+    }
+
+    public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
+                plan);
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
     }
 
     private void injectRowcount(Group group) {
-        if (!group.isValidJoinGroup()) {
+        if (!HyperGraph.isValidJoin(group.getLogicalExpression().getPlan())) {
             LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();
             Statistics stats = injectRowcount(scanPlan);
             group.setStatistics(stats);

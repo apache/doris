@@ -60,6 +60,7 @@ public:
     int64_t max_size_of_queue() const { return _max_size_of_queue; }
 
     bool data_exhausted() const { return _data_exhausted; }
+    void set_dependency(WriteDependency* dependency) { _dependency = dependency; }
 
 private:
     friend class AggDependency;

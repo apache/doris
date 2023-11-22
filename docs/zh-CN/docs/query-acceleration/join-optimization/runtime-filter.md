@@ -103,6 +103,7 @@ Runtime Filter主要用于大表join小表的优化，如果左表的数据量�
   - `runtime_bloom_filter_max_size`: Runtime Filter中Bloom Filter的最大长度，默认16777216（16M）
   - `runtime_bloom_filter_size`: Runtime Filter中Bloom Filter的默认长度，默认2097152（2M）
   - `runtime_filter_max_in_num`: 如果join右表数据行数大于这个值，我们将不生成IN predicate，默认1024
+  - `runtime_filter_wait_infinitely`: 如果参数为 true，那么左表的scan节点将会一直等待直到接收到 runtime filer或者查询超超时，默认为false
 
 下面对查询选项做进一步说明。
 

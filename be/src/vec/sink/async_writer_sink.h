@@ -65,6 +65,7 @@ public:
         title << _name << " (frag_id=" << state->fragment_instance_id() << ")";
         // create profile
         _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
+        init_sink_common_profile();
         return Status::OK();
     }
 
@@ -80,6 +81,9 @@ public:
     }
 
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override {
+        SCOPED_TIMER(_exec_timer);
+        COUNTER_UPDATE(_blocks_sent_counter, 1);
+        COUNTER_UPDATE(_output_rows_counter, block->rows());
         return _writer->append_block(*block);
     }
 
@@ -91,11 +95,15 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override {
         // if the init failed, the _writer may be nullptr. so here need check
-        if (_writer && _writer->need_normal_close()) {
-            if (exec_status.ok() && !state->is_cancelled()) {
-                RETURN_IF_ERROR(_writer->commit_trans());
+        if (_writer) {
+            if (_writer->need_normal_close()) {
+                if (exec_status.ok() && !state->is_cancelled()) {
+                    RETURN_IF_ERROR(_writer->commit_trans());
+                }
+                RETURN_IF_ERROR(_writer->close(exec_status));
+            } else {
+                RETURN_IF_ERROR(_writer->get_writer_status());
             }
-            RETURN_IF_ERROR(_writer->close(exec_status));
         }
         return DataSink::close(state, exec_status);
     }

@@ -20,7 +20,7 @@
 #include <fstream>
 
 #include "io/fs/benchmark/benchmark_factory.hpp"
-#include "io/fs/s3_file_write_bufferpool.h"
+#include "io/fs/s3_file_bufferpool.h"
 #include "util/cpu_info.h"
 #include "util/threadpool.h"
 
@@ -114,13 +114,13 @@ int main(int argc, char** argv) {
     int num_cores = doris::CpuInfo::num_cores();
 
     // init s3 write buffer pool
-    std::unique_ptr<doris::ThreadPool> buffered_reader_prefetch_thread_pool;
-    static_cast<void>(doris::ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+    std::unique_ptr<doris::ThreadPool> s3_file_upload_thread_pool;
+    static_cast<void>(doris::ThreadPoolBuilder("S3FileUploadThreadPool")
                               .set_min_threads(num_cores)
                               .set_max_threads(num_cores)
-                              .build(&buffered_reader_prefetch_thread_pool));
+                              .build(&s3_file_upload_thread_pool));
     doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
-    s3_buffer_pool->init(524288000, 5242880, buffered_reader_prefetch_thread_pool.get());
+    s3_buffer_pool->init(524288000, 5242880, s3_file_upload_thread_pool.get());
 
     try {
         doris::io::MultiBenchmark multi_bm(FLAGS_fs_type, FLAGS_operation, std::stoi(FLAGS_threads),

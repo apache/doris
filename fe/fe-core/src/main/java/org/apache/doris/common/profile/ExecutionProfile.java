@@ -18,6 +18,7 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -30,7 +31,10 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -63,6 +67,8 @@ public class ExecutionProfile {
     // instance id -> dummy value
     private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
 
+    private int waitCount = 0;
+
     private TUniqueId queryId;
 
     public ExecutionProfile(TUniqueId queryId, int fragmentNum) {
@@ -79,12 +85,34 @@ public class ExecutionProfile {
         this.queryId = queryId;
     }
 
+    public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
+        RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
+        for (int i = 0; i < fragmentProfiles.size(); ++i) {
+            RuntimeProfile oldFragmentProfile = fragmentProfiles.get(i);
+            RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
+            fragmentsProfile.addChild(newFragmentProfile);
+            List<RuntimeProfile> allInstanceProfiles = new ArrayList<RuntimeProfile>();
+            for (Pair<RuntimeProfile, Boolean> runtimeProfile : oldFragmentProfile.getChildList()) {
+                allInstanceProfiles.add(runtimeProfile.first);
+            }
+            RuntimeProfile mergedInstanceProfile = new RuntimeProfile("Instance" + "(instance_num="
+                    + allInstanceProfiles.size() + ")", allInstanceProfiles.get(0).nodeId());
+            newFragmentProfile.addChild(mergedInstanceProfile);
+            RuntimeProfile.mergeProfiles(allInstanceProfiles, mergedInstanceProfile, planNodeMap);
+        }
+        return fragmentsProfile;
+    }
+
     public RuntimeProfile getExecutionProfile() {
         return executionProfile;
     }
 
     public RuntimeProfile getLoadChannelProfile() {
         return loadChannelProfile;
+    }
+
+    public List<RuntimeProfile> getFragmentProfiles() {
+        return fragmentProfiles;
     }
 
     public void addToProfileAsChild(RuntimeProfile rootProfile) {
@@ -127,7 +155,11 @@ public class ExecutionProfile {
 
     public void markOneInstanceDone(TUniqueId fragmentInstanceId) {
         if (profileDoneSignal != null) {
-            profileDoneSignal.markedCountDown(fragmentInstanceId, -1L);
+            if (profileDoneSignal.markedCountDown(fragmentInstanceId, -1L)) {
+                LOG.info("Mark instance {} done succeed", DebugUtil.printId(fragmentInstanceId));
+            } else {
+                LOG.warn("Mark instance {} done failed", DebugUtil.printId(fragmentInstanceId));
+            }
         }
     }
 
@@ -135,6 +167,16 @@ public class ExecutionProfile {
         if (profileDoneSignal == null) {
             return true;
         }
+
+        waitCount++;
+
+        for (Entry<TUniqueId, Long> entry : profileDoneSignal.getLeftMarks()) {
+            if (waitCount > 2) {
+                LOG.info("Query {} waiting instance {}, waitCount: {}",
+                        DebugUtil.printId(queryId), DebugUtil.printId(entry.getKey()), waitCount);
+            }
+        }
+
         return profileDoneSignal.await(waitTimeS, TimeUnit.SECONDS);
     }
 

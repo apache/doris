@@ -97,4 +97,8 @@ public class AnalyzeStmt extends StatementBase {
     public boolean forceFull() {
         return analyzeProperties.forceFull();
     }
+
+    public boolean usingSqlForPartitionColumn() {
+        return analyzeProperties.usingSqlForPartitionColumn();
+    }
 }

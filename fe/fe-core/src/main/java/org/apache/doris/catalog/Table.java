@@ -364,7 +364,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         if (type == TableType.OLAP) {
             table = new OlapTable();
         } else if (type == TableType.MATERIALIZED_VIEW) {
-            table = new MaterializedView();
+            table = new MTMV();
         } else if (type == TableType.ODBC) {
             table = new OdbcTable();
         } else if (type == TableType.MYSQL) {
@@ -582,5 +582,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
         return Collections.emptyMap();
+    }
+
+    @Override
+    public List<Long> getChunkSizes() {
+        throw new NotImplementedException("getChunkSized not implemented");
     }
 }

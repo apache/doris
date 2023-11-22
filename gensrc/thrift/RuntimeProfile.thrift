@@ -52,6 +52,8 @@ struct TRuntimeProfileNode {
   8: required map<string, set<string>> child_counters_map
 
   9: required i64 timestamp
+
+  10: optional bool is_sink
 }
 
 // A flattened tree of runtime profiles, obtained by an

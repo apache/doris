@@ -308,8 +308,8 @@ public class InPredicate extends Predicate {
     }
 
     @Override
-    public Expr getResultValue(boolean inView) throws AnalysisException {
-        recursiveResetChildrenResult(inView);
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        recursiveResetChildrenResult(forPushDownPredicatesToView);
         final Expr leftChildValue = getChild(0);
         if (!(leftChildValue instanceof LiteralExpr) || !isLiteralChildren()) {
             return this;

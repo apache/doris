@@ -164,6 +164,7 @@ mkdir -p /soft/be/storage
                            ],
             "externalConsole": true,
             "MIMode": "gdb",
+            "miDebuggerPath": "/path/to/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -178,6 +179,8 @@ mkdir -p /soft/be/storage
 
 Among them, environment defines several environment variables DORIS_HOME UDF_RUNTIME_DIR LOG_DIR PID_DIR, which are the environment variables needed when doris_be is running. If it is not set, the startup will fail
 
+MiDebuggerPath specifies the path of the debugger (such as gdb). If miDebuggerPath is not specified, it will search for gdb path in the PATH variable of the os. The gdb version that comes with the system can be too low, you may need to manually specify the new version of gdb path.
+
 **Note: If you want attach (additional process) debugging, the configuration code is as follows:**
 
 ```
@@ -191,6 +194,7 @@ Among them, environment defines several environment variables DORIS_HOME UDF_RUN
           "program": "/home/workspace/doris/output/lib/doris_be",
           "processId":,
           "MIMode": "gdb",
+          "miDebuggerPath": "/path/to/gdb",
           "internalConsoleOptions":"openOnSessionStart",
           "setupCommands": [
                 {
@@ -231,6 +235,7 @@ An example of a complete launch.json is as follows:
             "program": "/home/workspace/doris/output/be/lib/doris_be",
             "processId": 17016,
             "MIMode": "gdb",
+            "miDebuggerPath": "/path/to/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -267,6 +272,7 @@ An example of a complete launch.json is as follows:
             ],
             "externalConsole": false,
             "MIMode": "gdb",
+            "miDebuggerPath": "/path/to/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",

@@ -94,15 +94,21 @@ private:
 
 class MultiCastDataStreamerSourceOperatorX;
 
-class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastDependency> {
+class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastDependency>,
+                                                  public vectorized::RuntimeFilterConsumer {
 public:
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSourceLocalState);
     using Base = PipelineXLocalState<MultiCastDependency>;
     using Parent = MultiCastDataStreamerSourceOperatorX;
-    MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent)
-            : Base(state, parent) {};
-
+    MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+
+    Status open(RuntimeState* state) override {
+        RETURN_IF_ERROR(Base::open(state));
+        RETURN_IF_ERROR(_acquire_runtime_filter());
+        return Status::OK();
+    }
+
     friend class MultiCastDataStreamerSourceOperatorX;
 
 private:
@@ -115,18 +121,14 @@ public:
     using Base = OperatorX<MultiCastDataStreamSourceLocalState>;
     MultiCastDataStreamerSourceOperatorX(const int consumer_id, ObjectPool* pool,
                                          const TDataStreamSink& sink,
-                                         const RowDescriptor& row_descriptor, int id)
-            : Base(pool, id),
+                                         const RowDescriptor& row_descriptor, int operator_id)
+            : Base(pool, -1, operator_id),
               _consumer_id(consumer_id),
               _t_data_stream_sink(sink),
               _row_descriptor(row_descriptor) {
         _op_name = "MULTI_CAST_DATA_STREAM_SOURCE_OPERATOR";
     };
     ~MultiCastDataStreamerSourceOperatorX() override = default;
-    Dependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._dependency->can_read(_consumer_id);
-    }
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));
@@ -163,12 +165,26 @@ public:
 
     bool is_source() const override { return true; }
 
+    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
+        return _t_data_stream_sink.runtime_filters;
+    }
+
+    int dest_id_from_sink() const { return _t_data_stream_sink.dest_node_id; }
+
 private:
     friend class MultiCastDataStreamSourceLocalState;
     const int _consumer_id;
     const TDataStreamSink _t_data_stream_sink;
     vectorized::VExprContextSPtrs _output_expr_contexts;
+    // FIXME: non-static data member '_row_descriptor' of 'MultiCastDataStreamerSourceOperatorX' shadows member inherited from type 'OperatorXBase'
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
     const RowDescriptor& _row_descriptor;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
     const RowDescriptor& _row_desc() { return _row_descriptor; }
 };
 

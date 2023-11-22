@@ -17,10 +17,17 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
+import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
+import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
+import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
+import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
+import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
+import org.apache.doris.nereids.trees.expressions.functions.table.WorkloadGroups;
 
 import com.google.common.collect.ImmutableList;
 
@@ -32,10 +39,17 @@ import com.google.common.collect.ImmutableList;
  */
 public class BuiltinTableValuedFunctions implements FunctionHelper {
     public final ImmutableList<TableValuedFunc> tableValuedFunctions = ImmutableList.of(
-            tableValued(Numbers.class, "numbers"),
+            tableValued(Backends.class, "backends"),
+            tableValued(Catalogs.class, "catalogs"),
+            tableValued(Frontends.class, "frontends"),
+            tableValued(FrontendsDisks.class, "frontends_disks"),
+            tableValued(GroupCommit.class, "group_commit"),
+            tableValued(Local.class, "local"),
+            tableValued(IcebergMeta.class, "iceberg_meta"),
             tableValued(Hdfs.class, "hdfs"),
+            tableValued(Numbers.class, "numbers"),
             tableValued(S3.class, "s3"),
-            tableValued(Local.class, "local")
+            tableValued(WorkloadGroups.class, "workload_groups")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

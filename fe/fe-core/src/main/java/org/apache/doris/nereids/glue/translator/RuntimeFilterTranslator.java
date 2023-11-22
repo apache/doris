@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.CTEScanNode;
@@ -38,6 +37,7 @@ import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -46,7 +46,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,10 +68,6 @@ public class RuntimeFilterTranslator {
 
     public RuntimeFilterContext getContext() {
         return context;
-    }
-
-    public List<Slot> getTargetOnScanNode(RelationId id) {
-        return context.getTargetOnOlapScanNodeMap().getOrDefault(id, Collections.emptyList());
     }
 
     /**
@@ -111,6 +106,11 @@ public class RuntimeFilterTranslator {
      * @param ctx plan translator context
      */
     public void createLegacyRuntimeFilter(RuntimeFilter filter, JoinNodeBase node, PlanTranslatorContext ctx) {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable()
+                .getIgnoredRuntimeFilterIds().contains(filter.getId().asInt())) {
+            return;
+        }
         Expr src = ExpressionTranslator.translate(filter.getSrcExpr(), ctx);
         List<Expr> targetExprList = new ArrayList<>();
         List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
@@ -152,8 +152,8 @@ public class RuntimeFilterTranslator {
         if (!hasInvalidTarget) {
             org.apache.doris.planner.RuntimeFilter origFilter
                     = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
-                    filter.getId(), node, src, filter.getExprOrder(), targetExprList,
-                    targetTupleIdMapList, filter.getType(), context.getLimits(), filter.getBuildSideNdv());
+                    filter, node, src, targetExprList,
+                    targetTupleIdMapList, context.getLimits());
             if (node instanceof HashJoinNode) {
                 origFilter.setIsBroadcast(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
             } else {

@@ -100,7 +100,8 @@ public:
                        const DescriptorTbl& descs);
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TDataSink");
+        return Status::InternalError("{} should not init with TDataSink",
+                                     DataSinkOperatorX<UnionSinkLocalState>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
@@ -151,7 +152,7 @@ private:
 
     Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
                              vectorized::Block* res_block) {
-        CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+        auto& local_state = get_local_state(state);
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {

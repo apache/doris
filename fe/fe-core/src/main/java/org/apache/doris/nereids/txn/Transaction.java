@@ -99,13 +99,13 @@ public class Transaction {
         try {
             coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
             coordinator.setQueryType(TQueryType.LOAD);
-            executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
+            executor.getProfile().setExecutionProfile(coordinator.getExecutionProfile());
 
             QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), coordinator);
 
             coordinator.exec();
             int execTimeout = ctx.getExecTimeout();
-            LOG.debug("Insert execution timeout:{}", execTimeout);
+            LOG.info("Insert {} execution timeout:{}", DebugUtil.printId(ctx.queryId()), execTimeout);
             boolean notTimeout = coordinator.join(execTimeout);
             if (!coordinator.isDone()) {
                 coordinator.cancel();

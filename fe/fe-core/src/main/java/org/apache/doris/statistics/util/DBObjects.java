@@ -23,14 +23,14 @@ import org.apache.doris.datasource.CatalogIf;
 
 public class DBObjects {
 
-    public final CatalogIf<DatabaseIf> catalog;
+    public final CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog;
 
-    public final DatabaseIf<TableIf> db;
+    public final DatabaseIf<? extends TableIf> db;
 
     public final TableIf table;
 
-    public DBObjects(CatalogIf<DatabaseIf> catalog,
-            DatabaseIf<TableIf> db, TableIf table) {
+    public DBObjects(CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog,
+            DatabaseIf<? extends TableIf> db, TableIf table) {
         this.catalog = catalog;
         this.db = db;
         this.table = table;

@@ -199,6 +199,16 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
+    public void forbiddenMVRewrite() {
+        super.forbiddenMVRewrite();
+        for (TableRef ref : fromClause.getTableRefs()) {
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getQueryStmt().forbiddenMVRewrite();
+            }
+        }
+    }
+
+    @Override
     public void reset() {
         super.reset();
         selectList.reset();
@@ -543,7 +553,14 @@ public class SelectStmt extends QueryStmt {
                         throw new AnalysisException("Subquery is not supported in the select list.");
                     }
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
-                    String columnLabel = item.toColumnLabel(i);
+                    String columnLabel = null;
+                    // Infer column name when item is expr, both query and ddl
+                    columnLabel = item.toColumnLabel(i);
+                    if (columnLabel == null) {
+                        // column label without position is applicative for query and do not infer
+                        // column name when item is expr
+                        columnLabel = item.toColumnLabel();
+                    }
                     SlotRef aliasRef = new SlotRef(null, columnLabel);
                     Expr existingAliasExpr = aliasSMap.get(aliasRef);
                     if (existingAliasExpr != null && !existingAliasExpr.equals(item.getExpr())) {

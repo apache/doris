@@ -51,7 +51,8 @@ private:
 
 class JDBCScanOperatorX final : public ScanOperatorX<JDBCScanLocalState> {
 public:
-    JDBCScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    JDBCScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                      const DescriptorTbl& descs);
 
 private:
     friend class JDBCScanLocalState;

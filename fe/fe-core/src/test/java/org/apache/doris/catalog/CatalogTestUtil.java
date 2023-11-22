@@ -330,4 +330,48 @@ public class CatalogTestUtil {
         backend.setAlive(true);
         return backend;
     }
+
+    public static long getTabletDataSize(long tabletId) {
+        Env env = Env.getCurrentEnv();
+        TabletInvertedIndex invertedIndex = env.getTabletInvertedIndex();
+        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            return -1L;
+        }
+
+        long dbId = tabletMeta.getDbId();
+        long tableId = tabletMeta.getTableId();
+        long partitionId = tabletMeta.getPartitionId();
+        long indexId = tabletMeta.getIndexId();
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            return -1L;
+        }
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            return -1L;
+        }
+        if (table.getType() != Table.TableType.OLAP) {
+            return -1L;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition == null) {
+                return -1L;
+            }
+            MaterializedIndex materializedIndex = partition.getIndex(indexId);
+            if (materializedIndex == null) {
+                return -1L;
+            }
+            Tablet tablet = materializedIndex.getTablet(tabletId);
+            if (tablet == null) {
+                return -1L;
+            }
+            return tablet.getDataSize(true);
+        } finally {
+            olapTable.readUnlock();
+        }
+    }
 }

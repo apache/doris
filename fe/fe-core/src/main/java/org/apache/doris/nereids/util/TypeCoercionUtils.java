@@ -82,6 +82,8 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IPv4Type;
+import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -146,10 +148,9 @@ public class TypeCoercionUtils {
      * Return Optional.empty() if we cannot do implicit cast.
      */
     public static Optional<DataType> implicitCast(DataType input, DataType expected) {
-        if ((input instanceof ArrayType || input instanceof NullType) && expected instanceof ArrayType) {
+        if (input instanceof ArrayType && expected instanceof ArrayType) {
             Optional<DataType> itemType = implicitCast(
-                    input instanceof ArrayType ? ((ArrayType) input).getItemType() : input,
-                    ((ArrayType) expected).getItemType());
+                    ((ArrayType) input).getItemType(), ((ArrayType) expected).getItemType());
             return itemType.map(ArrayType::of);
         } else if (input instanceof MapType && expected instanceof MapType) {
             Optional<DataType> keyType = implicitCast(
@@ -228,6 +229,8 @@ public class TypeCoercionUtils {
             } else if (expected instanceof NumericType) {
                 // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
                 returnType = expected.defaultConcreteType();
+            } else if (expected instanceof IPv4Type) {
+                returnType = IPv4Type.INSTANCE;
             }
         } else if (input instanceof CharacterType) {
             if (expected instanceof DecimalV2Type) {
@@ -240,6 +243,10 @@ public class TypeCoercionUtils {
                 returnType = DateTimeType.INSTANCE;
             } else if (expected instanceof JsonType) {
                 returnType = JsonType.INSTANCE;
+            } else if (expected instanceof IPv4Type) {
+                returnType = IPv4Type.INSTANCE;
+            } else if (expected instanceof IPv6Type) {
+                returnType = IPv6Type.INSTANCE;
             }
         } else if (input.isDateType()) {
             if (expected instanceof DateTimeType) {
@@ -266,17 +273,79 @@ public class TypeCoercionUtils {
     /**
      * return ture if datatype has character type in it, cannot use instance of CharacterType because of complex type.
      */
-    @Developing
     public static boolean hasCharacterType(DataType dataType) {
+        return hasSpecifiedType(dataType, CharacterType.class);
+    }
+
+    public static boolean hasDecimalV2Type(DataType dataType) {
+        return hasSpecifiedType(dataType, DecimalV2Type.class);
+    }
+
+    public static boolean hasDecimalV3Type(DataType dataType) {
+        return hasSpecifiedType(dataType, DecimalV3Type.class);
+    }
+
+    public static boolean hasDateTimeV2Type(DataType dataType) {
+        return hasSpecifiedType(dataType, DateTimeV2Type.class);
+    }
+
+    private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
         if (dataType instanceof ArrayType) {
-            return hasCharacterType(((ArrayType) dataType).getItemType());
+            return hasSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType);
         } else if (dataType instanceof MapType) {
-            return hasCharacterType(((MapType) dataType).getKeyType())
-                    || hasCharacterType(((MapType) dataType).getValueType());
+            return hasSpecifiedType(((MapType) dataType).getKeyType(), specifiedType)
+                    || hasSpecifiedType(((MapType) dataType).getValueType(), specifiedType);
         } else if (dataType instanceof StructType) {
-            return ((StructType) dataType).getFields().stream().anyMatch(f -> hasCharacterType(f.getDataType()));
+            return ((StructType) dataType).getFields().stream()
+                    .anyMatch(f -> hasSpecifiedType(f.getDataType(), specifiedType));
         }
-        return dataType instanceof CharacterType;
+        return specifiedType.isAssignableFrom(dataType.getClass());
+    }
+
+    /**
+     * replace all character types to string for correct type coercion
+     */
+    public static DataType replaceCharacterToString(DataType dataType) {
+        return replaceSpecifiedType(dataType, CharacterType.class, StringType.INSTANCE);
+    }
+
+    public static DataType replaceDecimalV2WithDefault(DataType dataType) {
+        return replaceSpecifiedType(dataType, DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
+    }
+
+    public static DataType replaceDecimalV3WithTarget(DataType dataType, DecimalV3Type target) {
+        return replaceSpecifiedType(dataType, DecimalV3Type.class, target);
+    }
+
+    public static DataType replaceDecimalV3WithWildcard(DataType dataType) {
+        return replaceSpecifiedType(dataType, DecimalV3Type.class, DecimalV3Type.WILDCARD);
+    }
+
+    public static DataType replaceDateTimeV2WithTarget(DataType dataType, DateTimeV2Type target) {
+        return replaceSpecifiedType(dataType, DateTimeV2Type.class, target);
+    }
+
+    public static DataType replaceDateTimeV2WithMax(DataType dataType) {
+        return replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.MAX);
+    }
+
+    private static DataType replaceSpecifiedType(DataType dataType,
+            Class<? extends DataType> specifiedType, DataType newType) {
+        if (dataType instanceof ArrayType) {
+            return ArrayType.of(replaceSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType, newType));
+        } else if (dataType instanceof MapType) {
+            return MapType.of(replaceSpecifiedType(((MapType) dataType).getKeyType(), specifiedType, newType),
+                    replaceSpecifiedType(((MapType) dataType).getValueType(), specifiedType, newType));
+        } else if (dataType instanceof StructType) {
+            List<StructField> newFields = ((StructType) dataType).getFields().stream()
+                    .map(f -> f.withDataType(replaceSpecifiedType(f.getDataType(), specifiedType, newType)))
+                    .collect(ImmutableList.toImmutableList());
+            return new StructType(newFields);
+        } else if (specifiedType.isAssignableFrom(dataType.getClass())) {
+            return newType;
+        } else {
+            return dataType;
+        }
     }
 
     /**
@@ -826,6 +895,10 @@ public class TypeCoercionUtils {
 
         // same type
         if (left.getDataType().equals(right.getDataType())) {
+            if (!supportCompare(left.getDataType())) {
+                throw new AnalysisException("data type " + left.getDataType()
+                        + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
+            }
             return comparisonPredicate.withChildren(left, right);
         }
 
@@ -838,6 +911,10 @@ public class TypeCoercionUtils {
         Optional<DataType> commonType = findWiderTypeForTwoForComparison(
                 left.getDataType(), right.getDataType(), false);
         if (commonType.isPresent()) {
+            if (!supportCompare(commonType.get())) {
+                throw new AnalysisException("data type " + commonType.get()
+                        + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
+            }
             left = castIfNotSameType(left, commonType.get());
             right = castIfNotSameType(right, commonType.get());
         }
@@ -853,6 +930,10 @@ public class TypeCoercionUtils {
 
         if (inPredicate.getOptions().stream().map(Expression::getDataType)
                 .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
+            if (!supportCompare(inPredicate.getCompareExpr().getDataType())) {
+                throw new AnalysisException("data type " + inPredicate.getCompareExpr().getDataType()
+                        + " could not used in InPredicate " + inPredicate.toSql());
+            }
             return inPredicate;
         }
         Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(
@@ -860,6 +941,10 @@ public class TypeCoercionUtils {
                         .stream()
                         .map(Expression::getDataType).collect(Collectors.toList()),
                 true);
+        if (optionalCommonType.isPresent() && !supportCompare(optionalCommonType.get())) {
+            throw new AnalysisException("data type " + optionalCommonType.get()
+                    + " could not used in InPredicate " + inPredicate.toSql());
+        }
 
         return optionalCommonType
                 .map(commonType -> {
@@ -970,6 +1055,11 @@ public class TypeCoercionUtils {
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
                 .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
         List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
+        if (needTypeCoercion.size() > 1 || !partitioned.get(false).isEmpty()) {
+            needTypeCoercion = needTypeCoercion.stream()
+                    .map(TypeCoercionUtils::replaceCharacterToString)
+                    .collect(Collectors.toList());
+        }
         needTypeCoercion.addAll(partitioned.get(false));
         return needTypeCoercion.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
                 (r, c) -> {
@@ -1165,6 +1255,16 @@ public class TypeCoercionUtils {
             return Optional.of(commonType);
         }
 
+        // ip type
+        if ((leftType.isIPv4Type() && rightType.isStringLikeType())
+                || (rightType.isIPv4Type() && leftType.isStringLikeType())) {
+            return Optional.of(IPv4Type.INSTANCE);
+        }
+        if ((leftType.isIPv6Type() && rightType.isStringLikeType())
+                || (rightType.isIPv6Type() && leftType.isStringLikeType())) {
+            return Optional.of(IPv6Type.INSTANCE);
+        }
+
         return Optional.of(DoubleType.INSTANCE);
     }
 
@@ -1176,6 +1276,11 @@ public class TypeCoercionUtils {
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
                 .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
         List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
+        if (needTypeCoercion.size() > 1 || !partitioned.get(false).isEmpty()) {
+            needTypeCoercion = needTypeCoercion.stream()
+                    .map(TypeCoercionUtils::replaceCharacterToString)
+                    .collect(Collectors.toList());
+        }
         needTypeCoercion.addAll(partitioned.get(false));
         return needTypeCoercion.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
                 (r, c) -> {
@@ -1493,5 +1598,18 @@ public class TypeCoercionUtils {
         // multiply do not need to cast children to same type
         return binaryArithmetic.withChildren(castIfNotSameType(left, dt1),
                 castIfNotSameType(right, dt2));
+    }
+
+    private static boolean supportCompare(DataType dataType) {
+        if (!(dataType instanceof PrimitiveType)) {
+            return false;
+        }
+        if (dataType.isObjectType()) {
+            return false;
+        }
+        if (dataType instanceof JsonType) {
+            return false;
+        }
+        return true;
     }
 }
