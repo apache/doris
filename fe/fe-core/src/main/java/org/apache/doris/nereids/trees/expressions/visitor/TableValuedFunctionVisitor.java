@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.Queries;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.WorkloadGroups;
@@ -68,6 +69,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitNumbers(Numbers numbers, C context) {
         return visitTableValuedFunction(numbers, context);
+    }
+
+    default R visitQueries(Queries queries, C context) {
+        return visitTableValuedFunction(queries, context);
     }
 
     default R visitS3(S3 s3, C context) {

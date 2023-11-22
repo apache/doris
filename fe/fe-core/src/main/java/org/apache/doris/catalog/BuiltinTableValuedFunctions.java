@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.Queries;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.WorkloadGroups;
 
@@ -48,6 +49,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(IcebergMeta.class, "iceberg_meta"),
             tableValued(Hdfs.class, "hdfs"),
             tableValued(Numbers.class, "numbers"),
+            tableValued(Queries.class, "queries"),
             tableValued(S3.class, "s3"),
             tableValued(WorkloadGroups.class, "workload_groups")
     );
