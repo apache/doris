@@ -145,10 +145,10 @@ public:
 
 private:
     Dependency* _write_blocked_dependency() {
-        _blocked_dep = _write_dependencies->write_blocked_by(this);
+        _blocked_dep = _write_dependencies->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
             set_use_blocking_queue();
-            static_cast<WriteDependency*>(_blocked_dep)->start_write_watcher();
+            static_cast<Dependency*>(_blocked_dep)->start_watcher();
             return _blocked_dep;
         }
         return nullptr;
@@ -156,10 +156,10 @@ private:
 
     Dependency* _finish_blocked_dependency() {
         for (auto* fin_dep : _finish_dependencies) {
-            _blocked_dep = fin_dep->finish_blocked_by(this);
+            _blocked_dep = fin_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
                 set_use_blocking_queue();
-                static_cast<FinishDependency*>(_blocked_dep)->start_finish_watcher();
+                _blocked_dep->start_watcher();
                 return _blocked_dep;
             }
         }
@@ -168,10 +168,10 @@ private:
 
     Dependency* _read_blocked_dependency() {
         for (auto* op_dep : _read_dependencies) {
-            _blocked_dep = op_dep->read_blocked_by(this);
+            _blocked_dep = op_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
                 set_use_blocking_queue();
-                _blocked_dep->start_read_watcher();
+                _blocked_dep->start_watcher();
                 return _blocked_dep;
             }
         }
@@ -183,7 +183,6 @@ private:
     void set_close_pipeline_time() override {}
     void _init_profile() override;
     void _fresh_profile_counter() override;
-    using DependencyMap = std::map<int, std::vector<DependencySPtr>>;
     Status _open() override;
 
     OperatorXs _operators; // left is _source, right is _root
@@ -192,12 +191,12 @@ private:
     DataSinkOperatorXPtr _sink;
 
     std::vector<Dependency*> _read_dependencies;
-    WriteDependency* _write_dependencies;
-    std::vector<FinishDependency*> _finish_dependencies;
+    Dependency* _write_dependencies;
+    std::vector<Dependency*> _finish_dependencies;
     RuntimeFilterDependency* _filter_dependency;
 
     DependencyMap _upstream_dependency;
-
+    std::map<int, DependencySPtr> _source_dependency;
     std::vector<DependencySPtr> _downstream_dependency;
     std::shared_ptr<LocalExchangeSharedState> _local_exchange_state;
     int _task_idx;

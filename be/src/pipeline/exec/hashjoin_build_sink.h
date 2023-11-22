@@ -46,16 +46,24 @@ public:
 
 class HashJoinBuildSinkOperatorX;
 
-class SharedHashTableDependency final : public WriteDependency {
+class SharedHashTableDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
     SharedHashTableDependency(int id, int node_id)
-            : WriteDependency(id, node_id, "SharedHashTableDependency") {}
+            : Dependency(id, node_id, "SharedHashTableDependency", true) {}
     ~SharedHashTableDependency() override = default;
 };
 
+class HashJoinBuildSinkDependency final : public Dependency {
+public:
+    using SharedState = HashJoinSharedState;
+    HashJoinBuildSinkDependency(int id, int node_id)
+            : Dependency(id, node_id, "HashJoinBuildSinkDependency", true) {}
+    ~HashJoinBuildSinkDependency() override = default;
+};
+
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<HashJoinBuildSinkDependency, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
     using Parent = HashJoinBuildSinkOperatorX;
@@ -78,11 +86,18 @@ public:
     void add_hash_buckets_filled_info(const std::string& info) const {
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
-    WriteDependency* dependency() override { return _shared_hash_table_dependency.get(); }
+    Dependency* dependency() override { return _shared_hash_table_dependency.get(); }
 
 protected:
     void _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
+    Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
+                        RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
+    std::vector<uint16_t> _convert_block_to_null(vectorized::Block& block);
+    Status _extract_join_column(vectorized::Block& block,
+                                vectorized::ColumnUInt8::MutablePtr& null_map,
+                                vectorized::ColumnRawPtrs& raw_ptrs,
+                                const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
     template <class HashTableContext, typename Parent>
     friend struct vectorized::ProcessHashTableBuild;

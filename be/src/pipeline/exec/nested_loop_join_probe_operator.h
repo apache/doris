@@ -51,9 +51,17 @@ public:
     Status close(RuntimeState* state) override;
 };
 
+class NestedLoopJoinProbeDependency final : public Dependency {
+public:
+    using SharedState = NestedLoopJoinSharedState;
+    NestedLoopJoinProbeDependency(int id, int node_id)
+            : Dependency(id, node_id, "NestedLoopJoinProbeDependency") {}
+    ~NestedLoopJoinProbeDependency() override = default;
+};
+
 class NestedLoopJoinProbeOperatorX;
 class NestedLoopJoinProbeLocalState final
-        : public JoinProbeLocalState<NestedLoopJoinDependency, NestedLoopJoinProbeLocalState> {
+        : public JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState> {
 public:
     using Parent = NestedLoopJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalState);

@@ -29,7 +29,7 @@ OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
 }
 
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortSinkDependency>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
@@ -117,7 +117,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
                     local_state._shared_state->blocks_buffer.push(std::move(*input_block));
                     // buffer have data, source could read this.
-                    local_state._dependency->set_ready_for_read();
+                    local_state._dependency->set_ready_to_read();
                 }
             } else {
                 RETURN_IF_ERROR(

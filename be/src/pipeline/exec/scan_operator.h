@@ -63,33 +63,21 @@ public:
             : Dependency(id, node_id, "ScanDependency"), _scanner_ctx(nullptr) {}
 
     // TODO(gabriel):
-    [[nodiscard]] Dependency* read_blocked_by(PipelineXTask* task) override {
+    [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
         if (_scanner_ctx && _scanner_ctx->get_num_running_scanners() == 0 &&
             _scanner_ctx->should_be_scheduled()) {
             _scanner_ctx->reschedule_scanner_ctx();
         }
-        return Dependency::read_blocked_by(task);
+        return Dependency::is_blocked_by(task);
     }
 
     bool push_to_blocking_queue() override { return true; }
 
-    void block_reading() override {
-        if (_eos) {
-            return;
-        }
+    void block() override {
         if (_scanner_done) {
             return;
         }
-        Dependency::block_reading();
-    }
-
-    bool eos() const { return _eos.load(); }
-    void set_eos() {
-        if (_eos) {
-            return;
-        }
-        _eos = true;
-        Dependency::set_ready_for_read();
+        Dependency::block();
     }
 
     void set_scanner_done() {
@@ -97,14 +85,13 @@ public:
             return;
         }
         _scanner_done = true;
-        Dependency::set_ready_for_read();
+        Dependency::set_ready();
     }
 
     void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
 
 private:
     vectorized::ScannerContext* _scanner_ctx;
-    std::atomic<bool> _eos {false};
     std::atomic<bool> _scanner_done {false};
 };
 

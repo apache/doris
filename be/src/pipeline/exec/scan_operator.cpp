@@ -173,7 +173,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
 
     auto status = _scan_dependency->eos() ? Status::OK() : _prepare_scanners();
     if (_scanner_ctx) {
-        _finish_dependency->should_finish_after_check();
+        _finish_dependency->block();
         DCHECK(!_scan_dependency->eos() && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
         RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
@@ -1341,7 +1341,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     if (_scanner_ctx.get()) {
         _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
     }
-    COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->read_watcher_elapse_time());
+    COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
 
     return PipelineXLocalState<>::close(state);
 }

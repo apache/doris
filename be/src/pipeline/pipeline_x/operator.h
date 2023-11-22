@@ -35,9 +35,11 @@ namespace doris::pipeline {
 struct LocalStateInfo {
     RuntimeProfile* parent_profile;
     const std::vector<TScanRangeParams> scan_ranges;
-    std::vector<DependencySPtr>& dependencys;
+    std::vector<DependencySPtr>& upstream_dependencies;
     std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
     int task_idx;
+
+    DependencySPtr dependency;
 };
 
 // This struct is used only for initializing local sink state.
@@ -99,7 +101,7 @@ public:
 
     virtual Dependency* dependency() { return nullptr; }
 
-    FinishDependency* finishdependency() { return _finish_dependency.get(); }
+    Dependency* finishdependency() { return _finish_dependency.get(); }
     RuntimeFilterDependency* filterdependency() { return _filter_dependency.get(); }
 
 protected:
@@ -132,7 +134,7 @@ protected:
     vectorized::VExprContextSPtrs _projections;
     bool _closed = false;
     vectorized::Block _origin_block;
-    std::shared_ptr<FinishDependency> _finish_dependency;
+    std::shared_ptr<Dependency> _finish_dependency;
     std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
@@ -174,6 +176,7 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
+    virtual DependencySPtr get_dependency() = 0;
 
     Status prepare(RuntimeState* state) override;
 
@@ -303,11 +306,14 @@ public:
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
         return state->get_local_state(operator_id())->template cast<LocalState>();
     }
+
+    DependencySPtr get_dependency() override;
 };
 
-template <typename DependencyType = FakeDependency>
+template <typename DependencyArg = FakeDependency>
 class PipelineXLocalState : public PipelineXLocalStateBase {
 public:
+    using DependencyType = DependencyArg;
     PipelineXLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalStateBase(state, parent) {}
     ~PipelineXLocalState() override = default;
@@ -370,9 +376,9 @@ public:
 
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
-    virtual WriteDependency* dependency() { return nullptr; }
+    virtual Dependency* dependency() { return nullptr; }
 
-    FinishDependency* finishdependency() { return _finish_dependency.get(); }
+    Dependency* finishdependency() { return _finish_dependency.get(); }
 
 protected:
     DataSinkOperatorXBase* _parent;
@@ -397,7 +403,7 @@ protected:
     RuntimeProfile::Counter* _wait_for_dependency_timer;
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
     RuntimeProfile::Counter* _exec_timer;
-    std::shared_ptr<FinishDependency> _finish_dependency;
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
@@ -553,10 +559,10 @@ public:
     }
 };
 
-template <typename DependencyType = FakeDependency>
+template <typename DependencyArg = FakeDependency>
 class PipelineXSinkLocalState : public PipelineXSinkLocalStateBase {
 public:
-    using Dependency = DependencyType;
+    using DependencyType = DependencyArg;
     PipelineXSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalStateBase(parent, state) {}
     ~PipelineXSinkLocalState() override = default;
@@ -573,11 +579,11 @@ public:
 
     virtual std::string id_name() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
-    WriteDependency* dependency() override { return _dependency; }
+    Dependency* dependency() override { return _dependency; }
 
 protected:
     DependencyType* _dependency = nullptr;
-    typename DependencyType::SharedState* _shared_state;
+    typename DependencyType::SharedState* _shared_state = nullptr;
 };
 
 /**
@@ -637,8 +643,8 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state);
 
-    WriteDependency* write_blocked_by(PipelineXTask* task);
-    WriteDependency* dependency() override { return _async_writer_dependency.get(); }
+    Dependency* write_blocked_by(PipelineXTask* task);
+    Dependency* dependency() override { return _async_writer_dependency.get(); }
     Status close(RuntimeState* state, Status exec_status) override;
 
     Status try_close(RuntimeState* state, Status exec_status) override;

@@ -44,10 +44,18 @@ public:
     bool can_write() override { return true; }
 };
 
+class NestedLoopJoinBuildSinkDependency final : public Dependency {
+public:
+    using SharedState = NestedLoopJoinSharedState;
+    NestedLoopJoinBuildSinkDependency(int id, int node_id)
+            : Dependency(id, node_id, "NestedLoopJoinBuildSinkDependency", true) {}
+    ~NestedLoopJoinBuildSinkDependency() override = default;
+};
+
 class NestedLoopJoinBuildSinkOperatorX;
 
 class NestedLoopJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<NestedLoopJoinDependency,
+        : public JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
                                          NestedLoopJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(NestedLoopJoinBuildSinkLocalState);

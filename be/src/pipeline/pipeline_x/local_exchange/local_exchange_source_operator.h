@@ -22,10 +22,19 @@
 
 namespace doris::pipeline {
 
-class LocalExchangeSourceOperatorX;
-class LocalExchangeSourceLocalState final : public PipelineXLocalState<LocalExchangeDependency> {
+struct LocalExchangeSourceDependency final : public Dependency {
 public:
-    using Base = PipelineXLocalState<LocalExchangeDependency>;
+    using SharedState = LocalExchangeSharedState;
+    LocalExchangeSourceDependency(int id, int node_id)
+            : Dependency(id, node_id, "LocalExchangeSourceDependency") {}
+    ~LocalExchangeSourceDependency() override = default;
+};
+
+class LocalExchangeSourceOperatorX;
+class LocalExchangeSourceLocalState final
+        : public PipelineXLocalState<LocalExchangeSourceDependency> {
+public:
+    using Base = PipelineXLocalState<LocalExchangeSourceDependency>;
     ENABLE_FACTORY_CREATOR(LocalExchangeSourceLocalState);
     LocalExchangeSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : Base(state, parent) {}

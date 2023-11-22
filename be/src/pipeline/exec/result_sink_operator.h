@@ -43,11 +43,11 @@ public:
     bool can_write() override;
 };
 
-class ResultSinkDependency final : public WriteDependency {
+class ResultSinkDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultSinkDependency);
     ResultSinkDependency(int id, int node_id)
-            : WriteDependency(id, node_id, "ResultSinkDependency") {}
+            : Dependency(id, node_id, "ResultSinkDependency", true) {}
     ~ResultSinkDependency() override = default;
 };
 
@@ -61,7 +61,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    WriteDependency* dependency() override { return _result_sink_dependency.get(); }
+    Dependency* dependency() override { return _result_sink_dependency.get(); }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
     RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 

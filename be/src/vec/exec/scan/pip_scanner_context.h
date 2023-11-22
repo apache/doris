@@ -77,7 +77,7 @@ public:
             _blocks_queues[id].pop_front();
 
             if (_blocks_queues[id].empty() && _dependency) {
-                _dependency->block_reading();
+                _dependency->block();
             }
         }
         _current_used_bytes -= (*block)->allocated_bytes();
@@ -150,7 +150,7 @@ public:
                         _blocks_queues[queue].emplace_back(std::move(blocks[j]));
                     }
                     if (_dependency) {
-                        _dependency->set_ready_for_read();
+                        _dependency->set_ready();
                     }
                 }
                 _next_queue_to_feed = queue + 1 < queue_size ? queue + 1 : 0;
@@ -202,7 +202,7 @@ public:
                     _colocate_mutable_blocks[i]->clear();
                 }
                 if (_dependency) {
-                    _dependency->set_ready_for_read();
+                    _dependency->set_ready();
                 }
             }
         }
@@ -256,7 +256,7 @@ private:
                     _blocks_queues[loc].emplace_back(std::move(_colocate_blocks[loc]));
                 }
                 if (_dependency) {
-                    _dependency->set_ready_for_read();
+                    _dependency->set_ready();
                 }
                 _colocate_blocks[loc] = get_free_block();
                 _colocate_mutable_blocks[loc]->set_muatable_columns(

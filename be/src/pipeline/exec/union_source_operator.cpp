@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
 #include "vec/core/block.h"
@@ -104,22 +105,22 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     int child_count = p.get_child_count();
     auto ss = create_shared_state();
     if (child_count != 0) {
-        auto& deps = info.dependencys;
+        auto& deps = info.upstream_dependencies;
         for (auto& dep : deps) {
-            ((UnionDependency*)dep.get())->set_shared_state(ss);
+            ((UnionSinkDependency*)dep.get())->set_shared_state(ss);
         }
     } else {
-        auto& deps = info.dependencys;
+        auto& deps = info.upstream_dependencies;
         DCHECK(child_count == 0);
         DCHECK(deps.size() == 1);
         DCHECK(deps.front() == nullptr);
         //child_count == 0 , we need to creat a  UnionDependency
         deps.front() =
-                std::make_shared<UnionDependency>(_parent->operator_id(), _parent->node_id());
-        ((UnionDependency*)deps.front().get())->set_shared_state(ss);
+                std::make_shared<UnionSourceDependency>(_parent->operator_id(), _parent->node_id());
+        ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_dependency(_dependency);
+    ss->data_queue.set_dependency(_dependency, info.upstream_dependencies.front().get());
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     // Const exprs materialized by this node. These exprs don't refer to any children.
@@ -146,7 +147,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
     auto& p = _parent->cast<Parent>();
     std::shared_ptr<UnionSharedState> data_queue =
-            std::make_shared<UnionSharedState>(p._child_size, _dependency);
+            std::make_shared<UnionSharedState>(p._child_size);
     return data_queue;
 }
 

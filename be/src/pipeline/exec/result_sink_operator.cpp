@@ -167,7 +167,7 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(exec_time_counter());
-    COUNTER_SET(_wait_for_dependency_timer, _result_sink_dependency->write_watcher_elapse_time());
+    COUNTER_SET(_wait_for_dependency_timer, _result_sink_dependency->watcher_elapse_time());
     Status final_status = exec_status;
     if (_writer) {
         // close the writer

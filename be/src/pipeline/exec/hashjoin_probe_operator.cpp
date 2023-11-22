@@ -28,7 +28,7 @@ namespace pipeline {
 OPERATOR_CODE_GENERATOR(HashJoinProbeOperator, StatefulOperator)
 
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : JoinProbeLocalState<HashJoinDependency, HashJoinProbeLocalState>(state, parent) {}
+        : JoinProbeLocalState<HashJoinProbeDependency, HashJoinProbeLocalState>(state, parent) {}
 
 Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
@@ -147,7 +147,7 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
     _probe_block.clear();
-    return JoinProbeLocalState<HashJoinDependency, HashJoinProbeLocalState>::close(state);
+    return JoinProbeLocalState<HashJoinProbeDependency, HashJoinProbeLocalState>::close(state);
 }
 
 bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,
@@ -402,6 +402,48 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     return Status::OK();
 }
 
+Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
+                                                     vectorized::ColumnUInt8::MutablePtr& null_map,
+                                                     vectorized::ColumnRawPtrs& raw_ptrs,
+                                                     const std::vector<int>& res_col_ids) {
+    auto& shared_state = *_shared_state;
+    for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
+        if (shared_state.is_null_safe_eq_join[i]) {
+            raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
+        } else {
+            auto column = block.get_by_position(res_col_ids[i]).column.get();
+            if (auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+                auto& col_nested = nullable->get_nested_column();
+                auto& col_nullmap = nullable->get_null_map_data();
+
+                DCHECK(null_map != nullptr);
+                vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
+                if (shared_state.store_null_in_hash_table[i]) {
+                    raw_ptrs[i] = nullable;
+                } else {
+                    raw_ptrs[i] = &col_nested;
+                }
+            } else {
+                raw_ptrs[i] = column;
+            }
+        }
+    }
+    return Status::OK();
+}
+
+std::vector<uint16_t> HashJoinProbeLocalState::_convert_block_to_null(vectorized::Block& block) {
+    std::vector<uint16_t> results;
+    for (int i = 0; i < block.columns(); ++i) {
+        if (auto& column_type = block.safe_get_by_position(i); !column_type.type->is_nullable()) {
+            DCHECK(!column_type.column->is_nullable());
+            column_type.column = make_nullable(column_type.column);
+            column_type.type = make_nullable(column_type.type);
+            results.emplace_back(i);
+        }
+    }
+    return results;
+}
+
 Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state,
                                                              vectorized::Block* output_block,
                                                              SourceState& source_state,
@@ -467,7 +509,7 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
         std::vector<int> res_col_ids(probe_expr_ctxs_sz);
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             local_state._probe_column_convert_to_null =
-                    local_state._dependency->convert_block_to_null(*input_block);
+                    local_state._convert_block_to_null(*input_block);
         }
         RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
                                      *local_state._probe_expr_call_timer, res_col_ids));
@@ -486,9 +528,8 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
             local_state._null_map_column->get_data().assign(input_block->rows(), (uint8_t)0);
         }
 
-        RETURN_IF_ERROR(local_state._dependency->extract_join_column<false>(
-                *input_block, local_state._null_map_column, local_state._probe_columns,
-                res_col_ids));
+        RETURN_IF_ERROR(local_state._extract_join_column(*input_block, local_state._null_map_column,
+                                                         local_state._probe_columns, res_col_ids));
         if (&local_state._probe_block != input_block) {
             input_block->swap(local_state._probe_block);
         }

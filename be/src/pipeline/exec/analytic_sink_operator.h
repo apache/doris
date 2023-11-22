@@ -45,19 +45,44 @@ public:
     bool can_write() override { return _node->can_write(); }
 };
 
+class AnalyticSinkDependency final : public Dependency {
+public:
+    using SharedState = AnalyticSharedState;
+    AnalyticSinkDependency(int id, int node_id)
+            : Dependency(id, node_id, "AnalyticSinkDependency", true) {}
+    ~AnalyticSinkDependency() override = default;
+};
+
 class AnalyticSinkOperatorX;
 
-class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticDependency> {
+class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSinkDependency> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
 public:
     AnalyticSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<AnalyticDependency>(parent, state) {}
+            : PipelineXSinkLocalState<AnalyticSinkDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
 private:
     friend class AnalyticSinkOperatorX;
+
+    bool _refresh_need_more_input() {
+        auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
+        if (need_more_input) {
+            _shared_state->source_dep->block();
+            _dependency->set_ready();
+        } else {
+            _dependency->block();
+            _shared_state->source_dep->set_ready();
+        }
+        return need_more_input;
+    }
+    vectorized::BlockRowPos _get_partition_by_end();
+    vectorized::BlockRowPos _compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
+                                                     vectorized::BlockRowPos end,
+                                                     bool need_check_first = false);
+    bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _evaluation_timer;

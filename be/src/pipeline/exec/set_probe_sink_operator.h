@@ -67,14 +67,31 @@ private:
     int _child_id;
 };
 
+class SetProbeSinkDependency final : public Dependency {
+public:
+    using SharedState = SetSharedState;
+    SetProbeSinkDependency(int id, int node_id)
+            : Dependency(id, node_id, "SetProbeSinkDependency", true) {}
+    ~SetProbeSinkDependency() override = default;
+
+    void set_cur_child_id(int id) {
+        _child_idx = id;
+        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
+        block();
+    }
+
+private:
+    int _child_idx {0};
+};
+
 template <bool is_intersect>
 class SetProbeSinkOperatorX;
 
 template <bool is_intersect>
-class SetProbeSinkLocalState final : public PipelineXSinkLocalState<SetDependency> {
+class SetProbeSinkLocalState final : public PipelineXSinkLocalState<SetProbeSinkDependency> {
 public:
     ENABLE_FACTORY_CREATOR(SetProbeSinkLocalState);
-    using Base = PipelineXSinkLocalState<SetDependency>;
+    using Base = PipelineXSinkLocalState<SetProbeSinkDependency>;
     using Parent = SetProbeSinkOperatorX<is_intersect>;
 
     SetProbeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)

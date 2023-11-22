@@ -40,7 +40,7 @@ Status MultiCastDataStreamSinkLocalState::init(RuntimeState* state, LocalSinkSta
                                             ->create_multi_cast_data_streamer();
     auto& deps = info.dependencys;
     for (auto dep : deps) {
-        ((MultiCastDependency*)dep.get())->set_shared_state(multi_cast_data_streamer);
+        ((MultiCastSinkDependency*)dep.get())->set_shared_state(multi_cast_data_streamer);
     }
     RETURN_IF_ERROR(Base::init(state, info));
     return Status::OK();
