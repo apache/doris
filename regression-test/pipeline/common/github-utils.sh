@@ -112,7 +112,6 @@ _get_pr_changed_files() {
     while [[ ${changed_files_count} -gt 0 ]]; do
         try_times=10
         while [[ ${try_times} -gt 0 ]]; do
-            # TODO: 修改文件多于100个的情况未处理
             set -x
             if curl -s \
                 -H "Accept: application/vnd.github+json" \
