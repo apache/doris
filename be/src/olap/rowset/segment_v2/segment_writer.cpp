@@ -1143,6 +1143,7 @@ Status SegmentWriter::_generate_primary_key_index(
         for (size_t pos = 0; pos < num_rows; pos++) {
             // use _key_coders
             std::string key = _full_encode_keys(primary_key_columns, pos);
+            _maybe_invalid_row_cache(key);
             if (_tablet_schema->has_sequence_col()) {
                 _encode_seq_column(seq_column, pos, &key);
             }
@@ -1157,6 +1158,7 @@ Status SegmentWriter::_generate_primary_key_index(
         std::vector<std::string> primary_keys;
         for (uint32_t pos = 0; pos < num_rows; pos++) {
             std::string key = _full_encode_keys(primary_key_coders, primary_key_columns, pos);
+            _maybe_invalid_row_cache(key);
             if (_tablet_schema->has_sequence_col()) {
                 _encode_seq_column(seq_column, pos, &key);
             }
