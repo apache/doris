@@ -179,8 +179,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
               with_other_conjuncts, is_mark_join,
               need_null_map_for_probe &&
                       ignore_null > (hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
-                                     probe_index, build_index, probe_rows, _probe_indexs.data(), _probe_visited,
-                                     _build_indexs.data(), mark_column.get());
+                                     probe_index, build_index, probe_rows, _probe_indexs.data(),
+                                     _probe_visited, _build_indexs.data(), mark_column.get());
         probe_index = new_probe_idx;
         build_index = new_build_idx;
         current_offset = new_current_offset;
@@ -270,44 +270,27 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
             }
         }
         output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
-    } else if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
-        auto new_filter_column = ColumnVector<UInt8>::create(row_count);
-        auto& filter_map = new_filter_column->get_data();
-
-        for (size_t i = 0; i < row_count; ++i) {
-            filter_map[i] = filter_column_ptr[i];
-        }
-
-        /// FIXME: incorrect result of semi mark join with other conjuncts(null value missed).
-        if (is_mark_join) {
-            auto mark_column =
-                    output_block->get_by_position(orig_columns - 1).column->assume_mutable();
-            ColumnFilterHelper helper(*mark_column);
-
-            // For mark join, we only filter rows which have duplicate join keys.
-            // And then, we set matched_map to the join result to do the mark join's filtering.
-            for (size_t i = 0; i < row_count; ++i) {
-                helper.insert_value(filter_map[i]);
-            }
-        }
-
-        output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
     } else if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-                         JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+                         JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                         JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
         auto new_filter_column = ColumnVector<UInt8>::create(row_count);
         auto* __restrict filter_map = new_filter_column->get_data().data();
-
-        // for left anti join, the probe side is output only when
-        // there are no matched tuples for the probe row.
-
-        // If multiple equal-conjuncts-matched tuples is splitted into several
-        // sub blocks, just filter out all the other-conjuncts-NOT-matched tuples at first,
-        // and when processing the last sub block, check whether there are any
-        // equal-conjuncts-matched tuple is output in all sub blocks,
-        // if there are none, just pick a tuple and output.
-
         for (size_t i = 0; i < row_count; ++i) {
-            filter_map[i] = _build_indexs[i] && filter_column_ptr[i];
+            if (filter_column_ptr[i]) {
+                if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
+                    filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
+                    _parent->_last_probe_match = _probe_indexs[i];
+                } else {
+                    if (_build_indexs[i]) {
+                        filter_map[i] = false;
+                        _parent->_last_probe_match = _probe_indexs[i];
+                    } else {
+                        filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
+                    }
+                }
+            } else {
+                filter_map[i] = false;
+            }
         }
 
         if (is_mark_join) {
@@ -316,7 +299,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
                                                   .column->assume_mutable()))
                                         .get_data();
             for (int i = 0; i < row_count; ++i) {
-                matched_map.push_back(!filter_map[i]);
+                matched_map.push_back(filter_map[i] ^ (JoinOpType != TJoinOp::LEFT_SEMI_JOIN));
             }
         }
 

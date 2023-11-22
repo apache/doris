@@ -232,6 +232,14 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
     if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
+        // first row is mocked
+        for (int i = 0; i < block.columns(); i++) {
+            assert_cast<vectorized::ColumnNullable*>(
+                    (*std::move(block.safe_get_by_position(i).column)).mutate().get())
+                    ->get_null_map_column()
+                    .get_data()
+                    .data()[0] = 1;
+        }
     }
     // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
     //  so we have to initialize this flag by the first build block.
@@ -445,12 +453,17 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         // data from probe side.
         local_state._build_side_mem_used += in_block->allocated_bytes();
 
+        if (local_state._build_side_mutable_block.empty()) {
+            auto tmp_build_block = vectorized::VectorizedUtils::create_empty_columnswithtypename(
+                    _child_x->row_desc());
+            local_state._build_side_mutable_block =
+                    vectorized::MutableBlock::build_mutable_block(&tmp_build_block);
+            RETURN_IF_ERROR(local_state._build_side_mutable_block.merge(
+                    *(tmp_build_block.create_same_struct_block(1, false))));
+        }
+
         if (in_block->rows() != 0) {
             SCOPED_TIMER(local_state._build_side_merge_block_timer);
-            if (local_state._build_side_mutable_block.empty()) {
-                RETURN_IF_ERROR(local_state._build_side_mutable_block.merge(
-                        *(in_block->create_same_struct_block(1, false))));
-            }
             RETURN_IF_ERROR(local_state._build_side_mutable_block.merge(*in_block));
             if (local_state._build_side_mutable_block.rows() >
                 std::numeric_limits<uint32_t>::max()) {
