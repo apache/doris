@@ -81,7 +81,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         }
     }
     if (!_should_build_hash_table) {
-        _shared_hash_table_dependency->block_writing();
+        _shared_hash_table_dependency->block();
         p._shared_hashtable_controller->append_dependency(p.node_id(),
                                                           _shared_hash_table_dependency);
     } else if (p._is_broadcast_join) {
@@ -175,6 +175,68 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
              p._join_op == TJoinOp::LEFT_ANTI_JOIN);
 }
 
+Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
+                                                 vectorized::VExprContextSPtrs& exprs,
+                                                 RuntimeProfile::Counter& expr_call_timer,
+                                                 std::vector<int>& res_col_ids) {
+    for (size_t i = 0; i < exprs.size(); ++i) {
+        int result_col_id = -1;
+        // execute build column
+        {
+            SCOPED_TIMER(&expr_call_timer);
+            RETURN_IF_ERROR(exprs[i]->execute(&block, &result_col_id));
+        }
+
+        // TODO: opt the column is const
+        block.get_by_position(result_col_id).column =
+                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
+        res_col_ids[i] = result_col_id;
+    }
+    return Status::OK();
+}
+
+std::vector<uint16_t> HashJoinBuildSinkLocalState::_convert_block_to_null(
+        vectorized::Block& block) {
+    std::vector<uint16_t> results;
+    for (int i = 0; i < block.columns(); ++i) {
+        if (auto& column_type = block.safe_get_by_position(i); !column_type.type->is_nullable()) {
+            DCHECK(!column_type.column->is_nullable());
+            column_type.column = make_nullable(column_type.column);
+            column_type.type = make_nullable(column_type.type);
+            results.emplace_back(i);
+        }
+    }
+    return results;
+}
+
+Status HashJoinBuildSinkLocalState::_extract_join_column(
+        vectorized::Block& block, vectorized::ColumnUInt8::MutablePtr& null_map,
+        vectorized::ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids) {
+    auto& shared_state = *_shared_state;
+    for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
+        if (shared_state.is_null_safe_eq_join[i]) {
+            raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
+        } else {
+            auto column = block.get_by_position(res_col_ids[i]).column.get();
+            if (auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+                auto& col_nested = nullable->get_nested_column();
+                auto& col_nullmap = nullable->get_null_map_data();
+
+                if (shared_state.store_null_in_hash_table[i]) {
+                    raw_ptrs[i] = nullable;
+                } else {
+                    DCHECK(null_map != nullptr);
+                    vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
+                    raw_ptrs[i] = &col_nested;
+                }
+            } else {
+                raw_ptrs[i] = column;
+            }
+        }
+    }
+    return Status::OK();
+}
+
 Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                                                         vectorized::Block& block, uint8_t offset) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
@@ -189,10 +251,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
 
     vectorized::ColumnUInt8::MutablePtr null_map_val;
     std::vector<int> res_col_ids(_build_expr_ctxs.size());
-    RETURN_IF_ERROR(_dependency->do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer,
-                                             res_col_ids));
+    RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
     if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
-        _dependency->convert_block_to_null(block);
+        _convert_block_to_null(block);
     }
     // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
     //  so we have to initialize this flag by the first build block.
@@ -206,7 +267,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     }
 
     // Get the key column that needs to be built
-    Status st = _dependency->extract_join_column<true>(block, null_map_val, raw_ptrs, res_col_ids);
+    Status st = _extract_join_column(block, null_map_val, raw_ptrs, res_col_ids);
 
     st = std::visit(
             Overload {
@@ -560,7 +621,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             local_state._shared_state->probe_ignore_null = true;
         }
-        local_state._dependency->set_ready_for_read();
+        local_state._dependency->set_ready_to_read();
     }
 
     return Status::OK();

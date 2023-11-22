@@ -29,7 +29,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSinkOperator, StreamingOperator)
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SortDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SortSinkDependency>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<SortSinkOperatorX>();
@@ -165,7 +165,7 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
 
     if (source_state == SourceState::FINISHED) {
         RETURN_IF_ERROR(local_state._shared_state->sorter->prepare_for_read());
-        local_state._dependency->set_ready_for_read();
+        local_state._dependency->set_ready_to_read();
     }
     return Status::OK();
 }
