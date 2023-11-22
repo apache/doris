@@ -181,16 +181,14 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         switch (executeType) {
             case ONE_TIME:
             case INSTANT:
-                jobStatus = JobStatus.FINISHED;
-                Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(jobStatus);
+                Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
                 break;
             case RECURRING:
                 TimerDefinition timerDefinition = getJobConfig().getTimerDefinition();
                 if (null != timerDefinition.getEndTimeMs()
                         && timerDefinition.getEndTimeMs() < System.currentTimeMillis()
                         + timerDefinition.getIntervalUnit().getIntervalMs(timerDefinition.getInterval())) {
-                    jobStatus = JobStatus.FINISHED;
-                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(jobStatus);
+                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
                 }
                 break;
             default:
