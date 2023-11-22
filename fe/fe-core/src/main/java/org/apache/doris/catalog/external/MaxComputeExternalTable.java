@@ -58,7 +58,6 @@ import java.util.stream.Collectors;
  */
 public class MaxComputeExternalTable extends ExternalTable {
 
-    private final MaxComputeExternalCatalog mcCatalog;
     private Table odpsTable;
     private List<String> partitionSpecs;
     private Map<String, Column> partitionNameToColumns;
@@ -66,14 +65,13 @@ public class MaxComputeExternalTable extends ExternalTable {
 
     public MaxComputeExternalTable(long id, String name, String dbName, MaxComputeExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
-        mcCatalog = catalog;
     }
 
     @Override
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
-            odpsTable = mcCatalog.getClient().tables().get(name);
+            odpsTable = ((MaxComputeExternalCatalog) catalog).getClient().tables().get(name);
             initTablePartitions();
             objectCreated = true;
         }
@@ -84,6 +82,7 @@ public class MaxComputeExternalTable extends ExternalTable {
         makeSureInitialized();
         MaxComputeMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMaxComputeMetadataCache(catalog.getId());
+        MaxComputeExternalCatalog mcCatalog = ((MaxComputeExternalCatalog) catalog);
         return metadataCache.getCachedRowCount(dbName, name, null, () -> mcCatalog.getTableTunnel()
                 .getDownloadSession(dbName, name, null)
                 .getRecordCount());
@@ -261,6 +260,7 @@ public class MaxComputeExternalTable extends ExternalTable {
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
         TMCTable tMcTable = new TMCTable();
+        MaxComputeExternalCatalog mcCatalog = ((MaxComputeExternalCatalog) catalog);
         tMcTable.setRegion(mcCatalog.getRegion());
         tMcTable.setAccessKey(mcCatalog.getAccessKey());
         tMcTable.setSecretKey(mcCatalog.getSecretKey());
