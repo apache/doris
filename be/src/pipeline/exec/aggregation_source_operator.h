@@ -51,7 +51,8 @@ public:
 class AggSourceDependency final : public Dependency {
 public:
     using SharedState = AggSharedState;
-    AggSourceDependency(int id, int node_id) : Dependency(id, node_id, "AggSourceDependency") {}
+    AggSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AggSourceDependency", query_ctx) {}
     ~AggSourceDependency() override = default;
 
     void block() override {
