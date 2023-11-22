@@ -1696,9 +1696,9 @@ public class ShowExecutor {
         List<String> partitionNames;
         LimitElement limit = showStmt.getLimitElement();
         if (limit != null && limit.hasLimit()) {
-            // only short limit is valid on Hive
-            short limited = (short) limit.getLimit();
-            partitionNames = catalog.getClient().listPartitionNames(dbName, showStmt.getTableName().getTbl(), limited);
+            // only limit is valid on Hive
+            partitionNames = catalog.getClient()
+                    .listPartitionNames(dbName, showStmt.getTableName().getTbl(), limit.getLimit());
         } else {
             partitionNames = catalog.getClient().listPartitionNames(dbName, showStmt.getTableName().getTbl());
         }

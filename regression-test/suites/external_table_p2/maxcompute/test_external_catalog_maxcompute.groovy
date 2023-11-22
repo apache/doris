@@ -78,7 +78,7 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
         sql """ refresh catalog ${mc_catalog_name} """
         sql """ switch `${mc_catalog_name}`; """
         sql """ use `${mc_db}`; """
-        qt_multi_partition_q1 """ show partitions from multi_partitions limit 10; """
+        qt_multi_partition_q1 """ show partitions from multi_partitions limit 5,3; """
         qt_multi_partition_q2 """ select pt, create_time, yy, mm, dd from multi_partitions where pt>-1 and yy > '' and mm > '' and dd >'' order by pt desc limit 3; """
         qt_multi_partition_q3 """ select sum(pt), create_time, yy, mm, dd from multi_partitions where yy > '' and mm > '' and dd >'' group by create_time, yy, mm, dd order by dd limit 3; """
         qt_multi_partition_q4 """ select count(*) from multi_partitions where pt>-1 and yy > '' and mm > '' and dd <= '30'; """

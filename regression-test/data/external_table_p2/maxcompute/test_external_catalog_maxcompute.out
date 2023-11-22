@@ -27,16 +27,9 @@ true	77	8920	182239402452
 9601	qewtoll	2020-09-21
 
 -- !multi_partition_q1 --
-pt=11/yy=2021/mm=12/dd=21
-pt=11/yy=2021/mm=12/dd=22
-pt=12/yy=2021/mm=12/dd=21
-pt=12/yy=2021/mm=12/dd=22
-pt=13/yy=2021/mm=12/dd=21
 pt=13/yy=2021/mm=12/dd=22
 pt=14/yy=2021/mm=12/dd=21
 pt=14/yy=2021/mm=12/dd=22
-pt=14/yy=2021/mm=12/dd=23
-pt=14/yy=2022/mm=01/dd=01
 
 -- !multi_partition_q2 --
 17	2022-04-23 19:12:30	2021	12	22
