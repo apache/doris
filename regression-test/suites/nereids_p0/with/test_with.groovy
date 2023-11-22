@@ -48,5 +48,8 @@ suite("test_with") {
                 SELECT * FROM outermost ORDER BY 1;
               """
 
+    order_qt_tvf_in_cte """
+        with a as (select number from numbers("number"="3")) select * from a;
+    """
 
 }

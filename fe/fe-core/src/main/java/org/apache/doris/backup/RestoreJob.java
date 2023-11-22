@@ -62,6 +62,7 @@ import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -97,7 +98,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -1435,7 +1435,8 @@ public class RestoreJob extends AbstractJob {
                         }
                         long signature = env.getNextId();
                         DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
-                                brokerAddrs.get(0), repo.getRemoteFileSystem().getProperties(),
+                                brokerAddrs.get(0),
+                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
                                 repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                         batchTask.addTask(task);
                         unfinishedSignatureToId.put(signature, beId);
@@ -2161,3 +2162,4 @@ public class RestoreJob extends AbstractJob {
         return sb.toString();
     }
 }
+

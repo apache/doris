@@ -1,6 +1,6 @@
 ---
 {
-    "title": "instr",
+    "title": "INSTR",
     "language": "zh-CN"
 }
 ---

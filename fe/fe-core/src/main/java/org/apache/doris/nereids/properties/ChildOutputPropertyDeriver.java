@@ -373,9 +373,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
             int[] offsetsOfCurrentChild = new int[distributionSpecHash.getOrderedShuffledColumns().size()];
-            for (int j = 0; j < setOperation.getChildOutput(i).size(); j++) {
+            for (int j = 0; j < setOperation.getRegularChildOutput(i).size(); j++) {
                 int offset = distributionSpecHash.getExprIdToEquivalenceSet()
-                        .getOrDefault(setOperation.getChildOutput(i).get(j).getExprId(), -1);
+                        .getOrDefault(setOperation.getRegularChildOutput(i).get(j).getExprId(), -1);
                 if (offset >= 0) {
                     offsetsOfCurrentChild[offset] = j;
                 } else {

@@ -498,18 +498,20 @@ int main(int argc, char** argv) {
             doris::BackendService::create_service(exec_env, doris::config::be_port, &be_server));
     status = be_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris Be server did not start correctly, exiting";
-        doris::shutdown_logging();
-        exit(1);
+        LOG(FATAL) << fmt::format(
+                "Doris be server did not start correctly, maybe be_port {} is conflect, "
+                "aborting...",
+                doris::config::be_port);
     }
 
     // 2. bprc service
     doris::BRpcService brpc_service(exec_env);
     status = brpc_service.start(doris::config::brpc_port, doris::config::brpc_num_threads);
     if (!status.ok()) {
-        LOG(ERROR) << "BRPC service did not start correctly, exiting";
-        doris::shutdown_logging();
-        exit(1);
+        LOG(FATAL) << fmt::format(
+                "Doris brpc service server did not start correctly, maybe brpc_port {} is "
+                "conflect, aborting...",
+                doris::config::brpc_port);
     }
 
     // 3. http service
@@ -517,9 +519,10 @@ int main(int argc, char** argv) {
                                     doris::config::webserver_num_workers);
     status = http_service.start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris Be http service did not start correctly, exiting";
-        doris::shutdown_logging();
-        exit(1);
+        LOG(FATAL) << fmt::format(
+                "Doris http service server did not start correctly, maybe webserver_port {} is "
+                "conflect, aborting...",
+                doris::config::webserver_port);
     }
 
     // 4. heart beat server
@@ -530,16 +533,14 @@ int main(int argc, char** argv) {
             doris::config::heartbeat_service_thread_count, master_info);
 
     if (!heartbeat_status.ok()) {
-        LOG(ERROR) << "Heartbeat services did not start correctly, exiting";
-        doris::shutdown_logging();
-        exit(1);
+        LOG(FATAL) << fmt::format("Heartbeat services did not start correctly, {}, exiting",
+                                  heartbeat_status.to_string());
     }
 
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status;
-        doris::shutdown_logging();
-        exit(1);
+        LOG(FATAL) << fmt::format("Heartbeat server did not start correctly, {}, exiting",
+                                  status.to_string());
     }
 
     while (!doris::k_doris_exit) {

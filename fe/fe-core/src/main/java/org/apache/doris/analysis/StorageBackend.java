@@ -22,6 +22,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.thrift.TStorageBackendType;
 
@@ -33,6 +34,47 @@ import java.util.Map;
 public class StorageBackend implements ParseNode {
     private String location;
     private StorageDesc storageDesc;
+
+    public static void checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
+        if (Strings.isNullOrEmpty(path)) {
+            throw new AnalysisException("No destination path specified.");
+        }
+        checkUri(URI.create(path), type);
+    }
+
+    public static void checkUri(URI uri, StorageBackend.StorageType type) throws AnalysisException {
+        String schema = uri.getScheme();
+        if (schema == null) {
+            throw new AnalysisException(
+                    "Invalid export path, there is no schema of URI found. please check your path.");
+        }
+        if (type == StorageBackend.StorageType.BROKER) {
+            if (!schema.equalsIgnoreCase("bos")
+                    && !schema.equalsIgnoreCase("afs")
+                    && !schema.equalsIgnoreCase("hdfs")
+                    && !schema.equalsIgnoreCase("viewfs")
+                    && !schema.equalsIgnoreCase("ofs")
+                    && !schema.equalsIgnoreCase("obs")
+                    && !schema.equalsIgnoreCase("oss")
+                    && !schema.equalsIgnoreCase("s3a")
+                    && !schema.equalsIgnoreCase("cosn")
+                    && !schema.equalsIgnoreCase("gfs")
+                    && !schema.equalsIgnoreCase("jfs")
+                    && !schema.equalsIgnoreCase("gs")) {
+                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'viewfs://', 'afs://',"
+                        + " 'bos://', 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gfs://', 'gs://'"
+                        + " or 'jfs://' path.");
+            }
+        } else if (type == StorageBackend.StorageType.S3 && !schema.equalsIgnoreCase("s3")) {
+            throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
+        } else if (type == StorageBackend.StorageType.HDFS && !schema.equalsIgnoreCase("hdfs")
+                && !schema.equalsIgnoreCase("viewfs")) {
+            throw new AnalysisException("Invalid export path. please use valid 'HDFS://' or 'viewfs://' path.");
+        } else if (type == StorageBackend.StorageType.LOCAL && !schema.equalsIgnoreCase("file")) {
+            throw new AnalysisException(
+                    "Invalid export path. please use valid '" + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
+        }
+    }
 
     public StorageBackend(String storageName, String location,
             StorageType storageType, Map<String, String> properties) {

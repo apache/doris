@@ -262,7 +262,7 @@ bool PerfCounters::init_proc_self_io_counter(Counter counter) {
 }
 
 bool PerfCounters::init_proc_self_status_counter(Counter counter) {
-    CounterData data;
+    CounterData data {};
     data.counter = counter;
     data.source = PerfCounters::PROC_SELF_STATUS;
     data.type = TUnit::BYTES;

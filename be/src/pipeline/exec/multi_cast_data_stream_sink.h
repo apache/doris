@@ -37,7 +37,7 @@ public:
     MultiCastDataStreamSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
 
-    bool can_write() override { return true; }
+    bool can_write() override { return _sink->can_write(); }
 };
 
 OperatorPtr MultiCastDataStreamSinkOperatorBuilder::build_operator() {

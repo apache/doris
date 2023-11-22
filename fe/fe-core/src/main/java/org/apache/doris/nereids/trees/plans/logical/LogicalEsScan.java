@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -27,26 +28,32 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical scan for external es catalog.
  */
 public class LogicalEsScan extends LogicalCatalogRelation {
 
+    private final Set<Expression> conjuncts;
+
     /**
      * Constructor for LogicalEsScan.
      */
     public LogicalEsScan(RelationId id, ExternalTable table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties) {
+                           Optional<LogicalProperties> logicalProperties, Set<Expression> conjuncts) {
         super(id, PlanType.LOGICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties);
+        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts should not be null"));
     }
 
     public LogicalEsScan(RelationId id, ExternalTable table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty());
+        this(id, table, qualifier, Optional.empty(), Optional.empty(), ImmutableSet.of());
     }
 
     @Override
@@ -66,13 +73,19 @@ public class LogicalEsScan extends LogicalCatalogRelation {
     @Override
     public LogicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalEsScan(relationId, (ExternalTable) table, qualifier, groupExpression,
-            Optional.of(getLogicalProperties()));
+            Optional.of(getLogicalProperties()), conjuncts);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalEsScan(relationId, (ExternalTable) table, qualifier, groupExpression, logicalProperties);
+        return new LogicalEsScan(relationId, (ExternalTable) table, qualifier, groupExpression, logicalProperties,
+                conjuncts);
+    }
+
+    public LogicalEsScan withConjuncts(Set<Expression> conjuncts) {
+        return new LogicalEsScan(relationId, (ExternalTable) table, qualifier, groupExpression,
+                Optional.of(getLogicalProperties()), conjuncts);
     }
 
     @Override
@@ -80,4 +93,12 @@ public class LogicalEsScan extends LogicalCatalogRelation {
         return visitor.visitLogicalEsScan(this, context);
     }
 
+    @Override
+    public boolean equals(Object o) {
+        return super.equals(o) && Objects.equals(conjuncts, ((LogicalEsScan) o).conjuncts);
+    }
+
+    public Set<Expression> getConjuncts() {
+        return this.conjuncts;
+    }
 }

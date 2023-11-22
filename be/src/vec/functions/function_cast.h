@@ -45,7 +45,6 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
@@ -54,6 +53,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
@@ -134,14 +134,12 @@ struct TimeCast {
     // Some examples of conversions.
     // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
     template <typename T>
-    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone,
-                               ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
+    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
         /// TODO: Maybe we can move Timecast to the io_helper.
         if (try_as_time(s, len, x, local_time_zone)) {
             return true;
         } else {
-            if (VecDateTimeValue dv {};
-                dv.from_date_str(s, len, local_time_zone, time_zone_cache, &cache_lock)) {
+            if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
                 // can be parse as a datetime
                 x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
                 return true;
@@ -965,25 +963,23 @@ struct NameToDateTime {
 
 template <typename DataType, typename Additions = void*, typename FromDataType = void*>
 bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
-                    const cctz::time_zone& local_time_zone, ZoneList& time_zone_cache,
-                    std::shared_mutex& cache_lock,
+                    const cctz::time_zone& local_time_zone,
                     Additions additions [[maybe_unused]] = Additions()) {
     if constexpr (IsDateTimeType<DataType>) {
-        return try_read_datetime_text(x, rb, local_time_zone, time_zone_cache, cache_lock);
+        return try_read_datetime_text(x, rb, local_time_zone);
     }
 
     if constexpr (IsDateType<DataType>) {
-        return try_read_date_text(x, rb, local_time_zone, time_zone_cache, cache_lock);
+        return try_read_date_text(x, rb, local_time_zone);
     }
 
     if constexpr (IsDateV2Type<DataType>) {
-        return try_read_date_v2_text(x, rb, local_time_zone, time_zone_cache, cache_lock);
+        return try_read_date_v2_text(x, rb, local_time_zone);
     }
 
     if constexpr (IsDateTimeV2Type<DataType>) {
         UInt32 scale = additions;
-        return try_read_datetime_v2_text(x, rb, local_time_zone, time_zone_cache, cache_lock,
-                                         scale);
+        return try_read_datetime_v2_text(x, rb, local_time_zone, scale);
     }
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
@@ -992,8 +988,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        auto ret =
-                TimeCast::try_parse_time(s, len, x, local_time_zone, time_zone_cache, cache_lock);
+        auto ret = TimeCast::try_parse_time(s, len, x, local_time_zone);
         x *= (1000 * 1000);
         return ret;
     }
@@ -1014,8 +1009,6 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
 template <typename DataType, typename Additions = void*>
 StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x, ReadBuffer& rb,
                                                  const cctz::time_zone& local_time_zone,
-                                                 ZoneList& time_zone_cache,
-                                                 std::shared_mutex& cache_lock,
                                                  Additions additions
                                                  [[maybe_unused]] = Additions()) {
     if constexpr (IsDataTypeDecimalV2<DataType>) {
@@ -1454,10 +1447,6 @@ struct ConvertThroughParsing {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
 
-        // For datelike type, only from FunctionConvertFromString. So we can use its' context。
-        ZoneList& time_zone_cache = context->state()->exec_env()->global_zone_cache();
-        std::shared_mutex& cache_lock = context->state()->exec_env()->zone_cache_rw_lock();
-
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
         const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
 
@@ -1508,8 +1497,8 @@ struct ConvertThroughParsing {
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 ToDataType::check_type_precision((PrecisionScaleArg(additions).precision));
                 StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
-                        vec_to[i], read_buffer, context->state()->timezone_obj(), time_zone_cache,
-                        cache_lock, PrecisionScaleArg(additions));
+                        vec_to[i], read_buffer, context->state()->timezone_obj(),
+                        PrecisionScaleArg(additions));
                 parsed = (res == StringParser::PARSE_SUCCESS ||
                           res == StringParser::PARSE_OVERFLOW ||
                           res == StringParser::PARSE_UNDERFLOW);
@@ -1518,11 +1507,10 @@ struct ConvertThroughParsing {
                         block.get_by_position(result).type.get());
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
                                                     context->state()->timezone_obj(),
-                                                    time_zone_cache, cache_lock, type->get_scale());
+                                                    type->get_scale());
             } else {
                 parsed = try_parse_impl<ToDataType, void*, FromDataType>(
-                        vec_to[i], read_buffer, context->state()->timezone_obj(), time_zone_cache,
-                        cache_lock);
+                        vec_to[i], read_buffer, context->state()->timezone_obj());
             }
             (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
             current_offset = next_offset;
@@ -2080,13 +2068,57 @@ private:
     }
 
     //TODO(Amory) . Need support more cast for key , value for map
-    WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
-        switch (from_type->get_type_id()) {
-        case TypeIndex::String:
+    WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+                                   const DataTypeMap& to_type) const {
+        if (from_type->get_type_id() == TypeIndex::String) {
             return &ConvertImplGenericFromString::execute;
-        default:
-            return create_unsupport_wrapper(from_type->get_name(), to_type.get_name());
         }
+        auto from = check_and_get_data_type<DataTypeMap>(from_type.get());
+        if (!from) {
+            return create_unsupport_wrapper(
+                    fmt::format("CAST AS Map can only be performed between Map types or from "
+                                "String. from type: {}, to type: {}",
+                                from_type->get_name(), to_type.get_name()));
+        }
+        DataTypes from_kv_types;
+        DataTypes to_kv_types;
+        from_kv_types.reserve(2);
+        to_kv_types.reserve(2);
+        from_kv_types.push_back(from->get_key_type());
+        from_kv_types.push_back(from->get_value_type());
+        to_kv_types.push_back(to_type.get_key_type());
+        to_kv_types.push_back(to_type.get_value_type());
+
+        auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
+        return [kv_wrappers, from_kv_types, to_kv_types](
+                       FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                       const size_t result, size_t /*input_rows_count*/) -> Status {
+            auto& from_column = block.get_by_position(arguments.front()).column;
+            auto from_col_map = check_and_get_column<ColumnMap>(from_column.get());
+            if (!from_col_map) {
+                return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
+                                            from_column->get_name());
+            }
+
+            Columns converted_columns(2);
+            ColumnsWithTypeAndName columnsWithTypeAndName(2);
+            columnsWithTypeAndName[0] = {from_col_map->get_keys_ptr(), from_kv_types[0], ""};
+            columnsWithTypeAndName[1] = {from_col_map->get_values_ptr(), from_kv_types[1], ""};
+
+            for (size_t i = 0; i < 2; ++i) {
+                ColumnNumbers element_arguments {block.columns()};
+                block.insert(columnsWithTypeAndName[i]);
+                size_t element_result = block.columns();
+                block.insert({to_kv_types[i], ""});
+                RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
+                                               columnsWithTypeAndName[i].column->size()));
+                converted_columns[i] = block.get_by_position(element_result).column;
+            }
+
+            block.get_by_position(result).column = ColumnMap::create(
+                    converted_columns[0], converted_columns[1], from_col_map->get_offsets_ptr());
+            return Status::OK();
+        };
     }
 
     ElementWrappers get_element_wrappers(FunctionContext* context,
@@ -2358,7 +2390,8 @@ private:
             return create_struct_wrapper(context, from_type,
                                          static_cast<const DataTypeStruct&>(*to_type));
         case TypeIndex::Map:
-            return create_map_wrapper(from_type, static_cast<const DataTypeMap&>(*to_type));
+            return create_map_wrapper(context, from_type,
+                                      static_cast<const DataTypeMap&>(*to_type));
         case TypeIndex::HLL:
             return create_hll_wrapper(context, from_type,
                                       static_cast<const DataTypeHLL&>(*to_type));

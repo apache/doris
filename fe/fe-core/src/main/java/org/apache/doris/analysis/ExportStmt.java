@@ -47,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 // EXPORT statement, export data to dirs by broker.
@@ -65,6 +66,7 @@ public class ExportStmt extends StatementBase {
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_COLUMNS = "";
     private static final String DEFAULT_PARALLELISM = "1";
+    private static final Integer DEFAULT_TIMEOUT = 7200;
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
@@ -72,7 +74,6 @@ public class ExportStmt extends StatementBase {
             .add(LoadStmt.EXEC_MEM_LIMIT)
             .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
@@ -98,6 +99,8 @@ public class ExportStmt extends StatementBase {
 
     private Integer parallelism;
 
+    private Integer timeout;
+
     private String maxFileSize;
     private String deleteExistingFiles;
     private SessionVariable sessionVariables;
@@ -117,12 +120,10 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
+        this.timeout = DEFAULT_TIMEOUT;
         this.columns = DEFAULT_COLUMNS;
-        if (ConnectContext.get() != null) {
-            this.sessionVariables = ConnectContext.get().getSessionVariable();
-        } else {
-            this.sessionVariables = VariableMgr.getDefaultSessionVariable();
-        }
+        this.sessionVariables = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
     }
 
     public String getColumns() {
@@ -356,6 +357,15 @@ public class ExportStmt extends StatementBase {
         this.maxFileSize = properties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, "");
         this.deleteExistingFiles = properties.getOrDefault(OutFileClause.PROP_DELETE_EXISTING_FILES, "");
 
+        // timeout
+        String timeoutString = properties.getOrDefault(LoadStmt.TIMEOUT_PROPERTY,
+                String.valueOf(DEFAULT_TIMEOUT));
+        try {
+            this.timeout = Integer.parseInt(timeoutString);
+        } catch (NumberFormatException e) {
+            throw new UserException("The value of timeout is invalid!");
+        }
+
         if (properties.containsKey(LABEL)) {
             FeNameFormat.checkLabel(properties.get(LABEL));
         } else {
@@ -421,5 +431,9 @@ public class ExportStmt extends StatementBase {
 
     public Integer getParallelNum() {
         return parallelism;
+    }
+
+    public Integer getTimeout() {
+        return timeout;
     }
 }

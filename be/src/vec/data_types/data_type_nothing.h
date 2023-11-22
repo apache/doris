@@ -94,7 +94,7 @@ public:
     }
 
     bool have_subtypes() const override { return false; }
-    DataTypeSerDeSPtr get_serde() const override {
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         LOG(FATAL) << get_name() << " not support serde";
     };
 };

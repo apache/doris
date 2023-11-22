@@ -639,8 +639,8 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public Expr getResultValue(boolean foldSlot) throws AnalysisException {
-        if (!foldSlot) {
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        if (!forPushDownPredicatesToView) {
             return this;
         }
         if (!isConstant() || desc == null) {
@@ -652,7 +652,7 @@ public class SlotRef extends Expr {
         }
         Expr expr = exprs.get(0);
         if (expr instanceof SlotRef) {
-            return expr.getResultValue(foldSlot);
+            return expr.getResultValue(forPushDownPredicatesToView);
         }
         if (expr.isConstant()) {
             return expr;

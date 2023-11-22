@@ -54,5 +54,9 @@ suite ("testAggQueryOnAggMV1") {
     }
     qt_select_mv "select sum(salary), deptno from emps group by deptno order by deptno;"
 
-
+    explain {
+        sql("select sum(salary) as salary from emps;")
+        contains "(emps_mv)"
+    }
+    qt_select_mv "select sum(salary) as salary from emps;"
 }

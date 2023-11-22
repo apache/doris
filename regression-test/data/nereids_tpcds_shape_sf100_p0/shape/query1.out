@@ -2,17 +2,18 @@
 -- !ds_shape_1 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----hashAgg[GLOBAL]
-------PhysicalDistribute
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
---------------PhysicalProject
-----------------PhysicalOlapScan[store_returns]
---------------PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
 ----------------PhysicalProject
-------------------filter((date_dim.d_year = 2000))
---------------------PhysicalOlapScan[date_dim]
+------------------PhysicalOlapScan[store_returns]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------filter((date_dim.d_year = 2000))
+----------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalTopN
 ------PhysicalDistribute
@@ -30,12 +31,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((cast(s_state as VARCHAR(*)) = 'SD'))
+--------------------------filter((store.s_state = 'SD'))
 ----------------------------PhysicalOlapScan[store]
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute
-----------------------hashAgg[LOCAL]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------PhysicalDistribute
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

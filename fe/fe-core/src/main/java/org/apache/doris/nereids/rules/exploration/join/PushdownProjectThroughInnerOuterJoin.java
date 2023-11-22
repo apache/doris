@@ -56,7 +56,7 @@ public class PushdownProjectThroughInnerOuterJoin implements ExplorationRuleFact
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalJoin(logicalProject(logicalJoin()), group())
+                logicalJoin(logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)), group())
                         .when(j -> j.left().child().getJoinType().isOuterJoin()
                                 || j.left().child().getJoinType().isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
@@ -69,8 +69,8 @@ public class PushdownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                                 return null;
                             }
                             return topJoin.withChildren(newLeft, topJoin.right());
-                        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN),
-                logicalJoin(group(), logicalProject(logicalJoin()))
+                        }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_INNER_OUTER_JOIN_LEFT),
+                logicalJoin(group(), logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)))
                         .when(j -> j.right().child().getJoinType().isOuterJoin()
                                 || j.right().child().getJoinType().isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
@@ -83,7 +83,7 @@ public class PushdownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                                 return null;
                             }
                             return topJoin.withChildren(topJoin.left(), newRight);
-                        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN)
+                        }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_INNER_OUTER_JOIN_RIGHT)
         );
     }
 

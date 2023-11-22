@@ -22,6 +22,7 @@
 
 #include <atomic>
 
+#include "common/exception.h"
 #include "olap/olap_common.h"
 #include "util/lock.h"
 
@@ -60,7 +61,7 @@ public:
                 std::lock_guard l(_mutex);
                 if (_has_called.load(std::memory_order_acquire)) break;
 
-                _status = fn();
+                _status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return fn(); }); }();
                 _has_called.store(true, std::memory_order_release);
 
             } while (false);

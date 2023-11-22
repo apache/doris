@@ -61,10 +61,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     // Whether adding the subquery's output to projects
     private final boolean needAddSubOutputToProjects;
 
-    /**
-     * Constructor.
-     */
-    public LogicalApply(Optional<GroupExpression> groupExpression,
+    private LogicalApply(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
             List<Expression> correlationSlot,
             SubqueryExpr subqueryExpr, Optional<Expression> correlationFilter,

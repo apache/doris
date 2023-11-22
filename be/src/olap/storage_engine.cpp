@@ -478,7 +478,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
 
         int tablet_num;
 
-        bool operator<(const DirInfo& other) {
+        bool operator<(const DirInfo& other) const {
             if (available_level != other.available_level) {
                 return available_level < other.available_level;
             }
@@ -1082,6 +1082,13 @@ void StorageEngine::start_delete_unused_rowset() {
         VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
                     << ", version:" << it->second->version().first << "-"
                     << it->second->version().second;
+        auto tablet_id = it->second->rowset_meta()->tablet_id();
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        // delete delete_bitmap of unused rowsets
+        if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
+            tablet->tablet_meta()->delete_bitmap().remove({it->second->rowset_id(), 0, 0},
+                                                          {it->second->rowset_id(), UINT32_MAX, 0});
+        }
         Status status = it->second->remove();
         VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
                     << " finished. status:" << status;

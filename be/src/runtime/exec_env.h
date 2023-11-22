@@ -22,7 +22,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
-#include <shared_mutex>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -30,16 +30,17 @@
 #include "common/status.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
-#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
-using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
+}
+namespace taskgroup {
+class TaskGroupManager;
 }
 class BfdParser;
 class BrokerMgr;
@@ -110,6 +111,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_group_scheduler() {
         return _pipeline_task_group_scheduler;
     }
+    taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
 
     // using template to simplify client cache management
     template <typename T>
@@ -175,8 +177,6 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
-    vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
-    std::shared_mutex& zone_cache_rw_lock() { return _zone_cache_rw_lock; }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
@@ -237,6 +237,7 @@ private:
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
     pipeline::TaskScheduler* _pipeline_task_group_scheduler = nullptr;
+    taskgroup::TaskGroupManager* _task_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
@@ -260,9 +261,6 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
-
-    std::unique_ptr<vectorized::ZoneList> _global_zone_cache;
-    std::shared_mutex _zone_cache_rw_lock;
 };
 
 template <>

@@ -75,8 +75,9 @@ struct AggregateFunctionCollectSetData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit::value) {
-            DCHECK(max_size == -1 || max_size == rhs.max_size);
-            max_size = rhs.max_size;
+            if (max_size == -1) {
+                max_size = rhs.max_size;
+            }
 
             for (auto& rhs_elem : rhs.data_set) {
                 if (size() >= max_size) {
@@ -131,7 +132,9 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     void merge(const SelfType& rhs, Arena* arena) {
         bool inserted;
         Set::LookupResult it;
-        DCHECK(max_size == -1 || max_size == rhs.max_size);
+        if (max_size == -1) {
+            max_size = rhs.max_size;
+        }
         max_size = rhs.max_size;
 
         for (auto& rhs_elem : rhs.data_set) {
@@ -192,7 +195,9 @@ struct AggregateFunctionCollectListData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit::value) {
-            DCHECK(max_size == -1 || max_size == rhs.max_size);
+            if (max_size == -1) {
+                max_size = rhs.max_size;
+            }
             max_size = rhs.max_size;
             for (auto& rhs_elem : rhs.data) {
                 if (size() >= max_size) {
@@ -244,7 +249,9 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
 
     void merge(const AggregateFunctionCollectListData& rhs) {
         if constexpr (HasLimit::value) {
-            DCHECK(max_size == -1 || max_size == rhs.max_size);
+            if (max_size == -1) {
+                max_size = rhs.max_size;
+            }
             max_size = rhs.max_size;
 
             data->insert_range_from(*rhs.data, 0,

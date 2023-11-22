@@ -1,6 +1,6 @@
 ---
 {
-    "title": "quarter",
+    "title": "QUARTER",
     "language": "en"
 }
 ---

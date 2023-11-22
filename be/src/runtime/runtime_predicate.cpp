@@ -132,11 +132,6 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
 
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
-    // TODO why null
-    if (!_tablet_schema) {
-        return Status::OK();
-    }
-
     bool updated = false;
 
     if (UNLIKELY(_orderby_extrem.is_null())) {
@@ -158,6 +153,10 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
         return Status::OK();
     }
 
+    // TODO defensive code
+    if (!_tablet_schema || !_tablet_schema->have_column(col_name)) {
+        return Status::OK();
+    }
     // update _predictate
     int32_t col_unique_id = _tablet_schema->column(col_name).unique_id();
     const TabletColumn& column = _tablet_schema->column_by_uid(col_unique_id);

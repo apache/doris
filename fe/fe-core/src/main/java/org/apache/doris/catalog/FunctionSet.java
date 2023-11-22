@@ -1322,13 +1322,13 @@ public class FunctionSet<T> {
 
         //vec percentile and percentile_approx
         addBuiltin(AggregateFunction.createBuiltin("percentile",
-                Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
-                "",
-                "",
-                "",
-                "",
-                "",
-                false, true, false, true));
+                        Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        false, true, false, true));
 
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
@@ -1643,6 +1643,13 @@ public class FunctionSet<T> {
             builtinFunctions.addAll(entry.getValue());
         }
         return builtinFunctions;
+    }
+
+    public List<Function> getAllFunctions() {
+        List<Function> functions = Lists.newArrayList();
+        vectorizedFunctions.forEach((k, v) -> functions.addAll(v));
+        tableFunctions.forEach((k, v) -> functions.addAll(v));
+        return functions;
     }
 
     public static final String EXPLODE_SPLIT = "explode_split";

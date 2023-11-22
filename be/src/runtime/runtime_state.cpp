@@ -293,9 +293,9 @@ Status RuntimeState::check_query_state(const std::string& msg) {
     // Usually used after SCOPED_ATTACH_TASK, during query execution.
     if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
         !config::enable_query_memory_overcommit) {
-        auto failed_msg = thread_context()->thread_mem_tracker()->query_tracker_limit_exceeded_str(
-                thread_context()->thread_mem_tracker()->tracker_limit_exceeded_str(),
-                thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(), msg);
+        auto failed_msg =
+                fmt::format("{}, {}", msg,
+                            thread_context()->thread_mem_tracker()->tracker_limit_exceeded_str());
         thread_context()->thread_mem_tracker()->print_log_usage(failed_msg);
         log_error(failed_msg);
         return Status::MemoryLimitExceeded(failed_msg);
@@ -379,6 +379,11 @@ int64_t RuntimeState::get_load_mem_limit() {
     } else {
         return _query_mem_tracker->limit();
     }
+}
+
+bool RuntimeState::enable_page_cache() const {
+    return !config::disable_storage_page_cache &&
+           (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
 }
 
 } // end namespace doris

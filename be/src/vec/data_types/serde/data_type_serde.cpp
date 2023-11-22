@@ -22,7 +22,6 @@
 
 namespace doris {
 namespace vectorized {
-DataTypeSerDe::DataTypeSerDe() = default;
 DataTypeSerDe::~DataTypeSerDe() = default;
 
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
@@ -93,5 +92,7 @@ void DataTypeSerDe::read_one_cell_from_json(IColumn& column, const rapidjson::Va
     LOG(FATAL) << fmt::format("Not support read {} from rapidjson", column.get_name());
 }
 
+const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";
+const std::string DataTypeSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
 } // namespace vectorized
 } // namespace doris

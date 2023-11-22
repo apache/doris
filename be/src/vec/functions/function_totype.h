@@ -25,6 +25,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -384,6 +385,14 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (vectorized::HasGetVariadicArgumentTypesImpl<Impl>) {
+            return Impl::get_variadic_argument_types_impl();
+        } else {
+            return {};
+        }
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {

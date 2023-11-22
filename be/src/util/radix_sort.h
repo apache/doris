@@ -248,13 +248,15 @@ public:
         /// Transform the array and calculate the histogram.
         /// NOTE This is slightly suboptimal. Look at https://github.com/powturbo/TurboHist
         for (size_t i = 0; i < size; ++i) {
-            if (!Traits::Transform::transform_is_simple)
+            if (!Traits::Transform::transform_is_simple) {
                 Traits::extractKey(arr[i]) = bitsToKey(
                         Traits::Transform::forward(keyToBits(Traits::extractKey(arr[i]))));
+            }
 
-            for (size_t pass = 0; pass < NUM_PASSES; ++pass)
+            for (size_t pass = 0; pass < NUM_PASSES; ++pass) {
                 ++histograms[pass * HISTOGRAM_SIZE +
                              getPart(pass, keyToBits(Traits::extractKey(arr[i])))];
+            }
         }
 
         {
@@ -296,13 +298,5 @@ public:
         allocator.deallocate(swap_buffer, size * sizeof(Element));
     }
 };
-
-/// Helper functions for numeric types.
-/// Use RadixSort with custom traits for complex types instead.
-
-template <typename T>
-void radixSortLSD(T* arr, size_t size) {
-    RadixSort<RadixSortNumTraits<T>>::executeLSD(arr, size);
-}
 
 } // namespace doris

@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -49,7 +52,18 @@ public class ConvertTz extends ScalarFunction
      * constructor with 3 arguments.
      */
     public ConvertTz(Expression arg0, Expression arg1, Expression arg2) {
-        super("convert_tz", arg0, arg1, arg2);
+        super("convert_tz", castDateTime(arg0), arg1, arg2);
+    }
+
+    private static Expression castDateTime(Expression arg0) {
+        // https://dev.mysql.com/doc/refman/8.0/en/date-and-time-functions.html#function_convert-tz
+        // convert_tz() should be explicit cast, so we create a explicit cast here
+        try {
+            return arg0 instanceof StringLikeLiteral ? new Cast(arg0, DateTimeV2Type.forTypeFromString(
+                    ((StringLikeLiteral) arg0).getStringValue()), true) : arg0;
+        } catch (Exception e) {
+            return new NullLiteral(DateTimeV2Type.SYSTEM_DEFAULT);
+        }
     }
 
     /**

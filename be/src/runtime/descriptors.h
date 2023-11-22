@@ -36,6 +36,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
 
@@ -110,6 +111,9 @@ public:
     bool need_materialize() const { return _need_materialize; }
     const std::vector<std::string>& column_paths() const { return _column_paths; };
 
+    const std::string& col_default_value() const { return _col_default_value; }
+    PrimitiveType col_type() const { return _col_type; }
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
@@ -128,6 +132,7 @@ private:
     const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;
+    const PrimitiveType _col_type;
 
     // the idx of the slot in the tuple descriptor (0-based).
     // this is provided by the FE
@@ -143,6 +148,8 @@ private:
     const bool _is_key;
     const bool _need_materialize;
     const std::vector<std::string> _column_paths;
+
+    const std::string _col_default_value;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
@@ -231,6 +238,7 @@ public:
     const std::string table() const { return _table; }
     const std::string access_key() const { return _access_key; }
     const std::string secret_key() const { return _secret_key; }
+    const std::string partition_spec() const { return _partition_spec; }
     const std::string public_access() const { return _public_access; }
 
 private:
@@ -239,6 +247,7 @@ private:
     std::string _table;
     std::string _access_key;
     std::string _secret_key;
+    std::string _partition_spec;
     std::string _public_access;
 };
 

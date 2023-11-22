@@ -82,8 +82,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
         }
 
         return new LogicalJoin<>(
-                apply.isNeedAddSubOutputToProjects() ? JoinType.LEFT_OUTER_JOIN
-                        : JoinType.LEFT_SEMI_JOIN,
+                apply.isNeedAddSubOutputToProjects() ? JoinType.LEFT_OUTER_JOIN : JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.extractConjunction(correlationFilter.get()),
                 JoinHint.NONE,

@@ -59,7 +59,7 @@ statement
 
 identifierOrText
     : errorCapturingIdentifier
-    | STRING
+    | STRING_LITERAL
     ;
 
 userIdentify
@@ -89,7 +89,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
+        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)* RIGHT_PAREN)?
     ;
 
 query
@@ -259,18 +259,18 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias relationHint? lateralView*           #tableName
+    : multipartIdentifier specifiedPartition? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
+      (properties+=property (COMMA properties+=property)*)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-tvfProperty
-    : key=tvfPropertyItem EQ value=tvfPropertyItem
+property
+    : key=propertyItem EQ value=propertyItem
     ;
 
-tvfPropertyItem : identifier | constant ;
+propertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
@@ -294,7 +294,7 @@ expression
     ;
 
 booleanExpression
-    : NOT booleanExpression                                                         #logicalNot
+    : (LOGICALNOT | NOT) booleanExpression                                          #logicalNot
     | EXISTS LEFT_PAREN query RIGHT_PAREN                                           #exist
     | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN                #isnull
     | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
@@ -315,9 +315,9 @@ predicate
 
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
-    | operator=(MINUS | PLUS | TILDE) valueExpression                                        #arithmeticUnary
-    | left=valueExpression operator=(ASTERISK | SLASH | PERCENT) right=valueExpression       #arithmeticBinary
-    | left=valueExpression operator=(PLUS | MINUS | DIV | HAT | PIPE | AMPERSAND)
+    | operator=(SUBTRACT | PLUS | TILDE) valueExpression                                     #arithmeticUnary
+    | left=valueExpression operator=(ASTERISK | SLASH | MOD) right=valueExpression           #arithmeticBinary
+    | left=valueExpression operator=(PLUS | SUBTRACT | DIV | HAT | PIPE | AMPERSAND)
                            right=valueExpression                                             #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     | operator=(BITAND | BITOR | BITXOR) LEFT_PAREN left = valueExpression
@@ -380,7 +380,20 @@ functionIdentifier
 
 functionNameIdentifier
     : identifier
-    | LEFT | RIGHT
+    | ADD
+    | CONNECTION_ID
+    | CURRENT_CATALOG
+    | CURRENT_USER
+    | DATABASE
+    | IF
+    | LEFT
+    | LIKE
+    | PASSWORD
+    | REGEXP
+    | RIGHT
+    | SCHEMA
+    | TRIM
+    | USER
     ;
 
 windowSpec
@@ -422,10 +435,10 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
+    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING                                                                                   #stringLiteral
+    | STRING_LITERAL                                                                           #stringLiteral
     ;
 
 comparisonOperator
@@ -449,7 +462,48 @@ unitIdentifier
     ;
 
 dataType
-    : identifier (LEFT_PAREN (ASTERISK | INTEGER_VALUE (COMMA INTEGER_VALUE)*) RIGHT_PAREN)?     #primitiveDataType
+    : primitiveColType (LEFT_PAREN (ASTERISK | INTEGER_VALUE (COMMA INTEGER_VALUE)*) RIGHT_PAREN)?     #primitiveDataType
+    ;
+
+primitiveColType:
+    | type=TINYINT
+    | type=SMALLINT
+    | (SIGNED | UNSIGNED)? type=(INT | INTEGER)
+    | type=BIGINT
+    | type=LARGEINT
+    | type=BOOLEAN
+    | type=FLOAT
+    | type=DOUBLE
+    | type=DATE
+    | type=DATETIME
+    | type=TIME
+    | type=DATEV2
+    | type=DATETIMEV2
+    | type=DATEV1
+    | type=DATETIMEV1
+    | type=BITMAP
+    | type=QUANTILE_STATE
+    | type=HLL
+    | type=AGG_STATE
+    | type=STRING
+    | type=JSON
+    | type=JSONB
+    | type=TEXT
+    | type=VARCHAR
+    | type=CHAR
+    | type=DECIMAL
+    | type=DECIMALV2
+    | type=DECIMALV3
+    | type=ALL
+    ;
+
+sample
+    : TABLESAMPLE LEFT_PAREN sampleMethod? RIGHT_PAREN (REPEATABLE seed=INTEGER_VALUE)?
+    ;
+
+sampleMethod
+    : percentage=INTEGER_VALUE PERCENT                              #sampleByPercentile
+    | INTEGER_VALUE ROWS                                            #sampleByRows
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
@@ -461,7 +515,7 @@ errorCapturingIdentifier
 
 // extra left-factoring grammar
 errorCapturingIdentifierExtra
-    : (MINUS identifier)+    #errorIdent
+    : (SUBTRACT identifier)+    #errorIdent
     |                        #realIdent
     ;
 
@@ -480,8 +534,8 @@ quotedIdentifier
     ;
 
 number
-    : MINUS? INTEGER_VALUE            #integerLiteral
-    | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
+    : SUBTRACT? INTEGER_VALUE                    #integerLiteral
+    | SUBTRACT? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
 // there are 1 kinds of keywords in Doris.
@@ -491,274 +545,272 @@ number
 // TODO: need to stay consistent with the legacy
 nonReserved
 //--DEFAULT-NON-RESERVED-START
-    : ADD
+    : ADDDATE
     | AFTER
-    | ALL
-    | ALTER
-    | ANALYZE
+    | AGG_STATE
+    | AGGREGATE
+    | ALIAS
     | ANALYZED
-    | AND
-    | ANY
-    | ARCHIVE
     | ARRAY
-    | ASC
     | AT
-    | AUTHORIZATION
-    | AVG
-    | BETWEEN
-    | BOTH
-    | BUCKET
+    | AUTHORS
+    | BACKENDS
+    | BACKUP
+    | BEGIN
+    | BIN
+    | BITAND
+    | BITMAP
+    | BITMAP_UNION
+    | BITOR
+    | BITXOR
+    | BLOB
+    | BOOLEAN
+    | BRIEF
+    | BROKER
     | BUCKETS
-    | BY
-    | CACHE
-    | CASCADE
-    | CASE
-    | CAST
+    | BUILD
+    | BUILTIN
+    | CACHED
     | CATALOG
     | CATALOGS
-    | CHANGE
+    | CHAIN
+    | CHAR
+    | CHARSET
     | CHECK
-    | CLEAR
     | CLUSTER
-    | CLUSTERED
-    | CODEGEN
-    | COLLATE
-    | COLLECTION
-    | COLUMN
+    | CLUSTERS
+    | COLLATION
     | COLUMNS
     | COMMENT
     | COMMIT
+    | COMMITTED
     | COMPACT
-    | COMPACTIONS
-    | COMPUTE
-    | CONCATENATE
-    | CONSTRAINT
-    | COST
-    | CREATE
-    | CUBE
-    | CURRENT
-    | CURRENT_DATE
-    | CURRENT_TIME
+    | COMPLETE
+    | CONFIG
+    | CONNECTION
+    | CONNECTION_ID
+    | CONSISTENT
+    | CONVERT
+    | COPY
+    | COUNT
+    | CREATION
+    | CRON
+    | CURRENT_CATALOG
     | CURRENT_TIMESTAMP
-    | CURRENT_USER
     | DATA
-    | DATABASE
-    | DATABASES
     | DATE
-    | DATEV2
     | DATE_ADD
-    | DATEDIFF
+    | DATE_CEIL
     | DATE_DIFF
+    | DATE_FLOOR
+    | DATE_SUB
+    | DATEADD
+    | DATEDIFF
+    | DATETIME
+    | DATETIMEV2
+    | DATEV2
+    | DATETIMEV1
+    | DATEV1
     | DAY
-    | DBPROPERTIES
-    | DEFINED
-    | DELETE
-    | DELIMITED
-    | DESC
-    | DESCRIBE
-    | DFS
-    | DIRECTORIES
-    | DIRECTORY
-    | DISTINCT
-    | DISTRIBUTE
-    | DIV
-    | DROP
-    | ELSE
+    | DAYS_ADD
+    | DAYS_SUB
+    | DECIMAL
+    | DECIMALV2
+    | DECIMALV3
+    | DEFERRED
+    | DEMAND
+    | DIAGNOSE
+    | DISTINCTPC
+    | DISTINCTPCSA
+    | DO
+    | DYNAMIC
+    | ENABLE
+    | ENCRYPTKEY
+    | ENCRYPTKEYS
     | END
-    | ESCAPE
-    | ESCAPED
-    | EXCHANGE
-    | EXISTS
-    | EXPLAIN
-    | EXPORT
-    | EXTENDED
+    | ENDS
+    | ENGINE
+    | ENGINES
+    | ERRORS
+    | EVENTS
+    | EVERY
+    | EXCLUDE
+    | EXPIRED
     | EXTERNAL
-    | EXTRACT
-    | FALSE
-    | FETCH
-    | FILTER
+    | FAILED_LOGIN_ATTEMPTS
+    | FAST
+    | FEATURE
     | FIELDS
-    | FILEFORMAT
+    | FILE
+    | FILTER
     | FIRST
-    | FOLLOWING
-    | FOR
-    | FOREIGN
     | FORMAT
-    | FORMATTED
-    | FROM
+    | FREE
+    | FRONTENDS
     | FUNCTION
-    | FUNCTIONS
     | GLOBAL
-    | GRANT
     | GRAPH
-    | GROUP
     | GROUPING
-    | HAVING
+    | GROUPS
+    | HASH
+    | HDFS
+    | HELP
+    | HISTOGRAM
+    | HLL_UNION
+    | HOSTNAME
     | HOUR
-    | IF
+    | HUB
+    | IDENTIFIED
     | IGNORE
-    | IMPORT
-    | IN
-    | INDEX
+    | IMMEDIATE
+    | INCREMENTAL
     | INDEXES
-    | INPATH
-    | INPUTFORMAT
-    | INSERT
-    | INTERVAL
-    | INTO
-    | IS
-    | ITEMS
-    | KEYS
+    | INVERTED
+    | IS_NOT_NULL_PRED
+    | IS_NULL_PRED
+    | ISNULL
+    | ISOLATION
+    | JOB
+    | JOBS
+    | JSON
+    | JSONB
     | LABEL
     | LAST
-    | LAZY
-    | LEADING
-    | LIKE
-    | ILIKE
-    | LIMIT
+    | LDAP
+    | LDAP_ADMIN_PASSWORD
+    | LEFT_BRACE
+    | LESS
+    | LEVEL
     | LINES
-    | LIST
-    | LOAD
+    | LINK
     | LOCAL
     | LOCATION
     | LOCK
-    | LOCKS
     | LOGICAL
-    | MACRO
     | MAP
-    | MATCHED
+    | MATERIALIZED
+    | MAX
+    | MEMO
     | MERGE
+    | MIGRATE
+    | MIGRATIONS
+    | MIN
     | MINUTE
+    | MODIFY
     | MONTH
-    | MSCK
-    | NAMESPACE
-    | NAMESPACES
+    | MTMV
+    | NAME
+    | NAMES
+    | NEGATIVE
+    | NEVER
+    | NEXT
+    | NGRAM_BF
     | NO
-    | NOT
-    | NULL
+    | NON_NULLABLE
     | NULLS
     | OF
+    | OFFSET
     | ONLY
+    | OPEN
     | OPTIMIZED
-    | OPTION
-    | OPTIONS
-    | OR
-    | ORDER
-    | OUT
-    | OUTER
-    | OUTPUTFORMAT
-    | OVERLAPS
-    | OVERLAY
-    | OVERWRITE
+    | PARAMETER
     | PARSED
-    | PARTITION
-    | PARTITIONED
-    | PERCENTILE_CONT
-    | PERCENTLIT
+    | PASSWORD
+    | PASSWORD_EXPIRE
+    | PASSWORD_HISTORY
+    | PASSWORD_LOCK_TIME
+    | PASSWORD_REUSE
+    | PATH
+    | PAUSE
+    | PERCENT
+    | PERIOD
     | PERMISSIVE
     | PHYSICAL
-    | PIVOT
-    | PLACING
     | PLAN
+    | PLUGIN
+    | PLUGINS
     | POLICY
-    | POSITION
-    | PRECEDING
-    | PRIMARY
-    | PRINCIPALS
+    | PROC
+    | PROCESSLIST
+    | PROFILE
     | PROPERTIES
-    | PURGE
+    | PROPERTY
+    | QUANTILE_STATE
+    | QUANTILE_UNION
     | QUERY
-    | RANGE
-    | RECORDREADER
-    | RECORDWRITER
+    | QUOTA
+    | RANDOM
     | RECOVER
-    | REDUCE
-    | REFERENCES
+    | RECYCLE
     | REFRESH
-    | RENAME
-    | REPAIR
     | REPEATABLE
     | REPLACE
-    | RESET
-    | RESPECT
-    | RESTRICT
+    | REPLACE_IF_NOT_NULL
+    | REPOSITORIES
+    | REPOSITORY
+    | RESOURCE
+    | RESOURCES
+    | RESTORE
     | RESTRICTIVE
-    | REVOKE
+    | RESUME
+    | RETURNS
     | REWRITTEN
+    | RIGHT_BRACE
     | RLIKE
-    | ROLE
-    | ROLES
     | ROLLBACK
     | ROLLUP
-    | ROWS
+    | ROUTINE
+    | S3
+    | SAMPLE
+    | SCHEDULER
     | SCHEMA
-    | SCHEMAS
     | SECOND
-    | SELECT
-    | SEPARATED
-    | SERDE
-    | SERDEPROPERTIES
-    | SESSION_USER
-    | SET
-    | SETS
-    | SHOW
-    | SKEWED
-    | SOME
-    | SORT
-    | SORTED
+    | SERIALIZABLE
+    | SESSION
+    | SHAPE
+    | SKEW
+    | SNAPSHOT
+    | SONAME
+    | SPLIT
     | START
-    | STATISTICS
+    | STARTS
+    | STATS
+    | STATUS
+    | STOP
     | STORAGE
-    | STORED
-    | STRATIFY
+    | STREAM
+    | STREAMING
+    | STRING
     | STRUCT
-    | SYNC
-    | SYSTEM_TIME
-    | SYSTEM_VERSION
-    | TABLE
+    | SUBDATE
+    | SUM
     | TABLES
-    | TABLESAMPLE
-    | TBLPROPERTIES
+    | TASK
+    | TASKS
     | TEMPORARY
-    | TERMINATED
-    | THEN
+    | TEXT
+    | THAN
     | TIME
     | TIMESTAMP
     | TIMESTAMPADD
     | TIMESTAMPDIFF
-    | TO
-    | TOUCH
-    | TRAILING
     | TRANSACTION
-    | TRANSACTIONS
-    | TRANSFORM
-    | TRIM
-    | TRUE
+    | TRIGGERS
     | TRUNCATE
-    | TRY_CAST
     | TYPE
-    | UNARCHIVE
-    | UNBOUNDED
-    | UNCACHE
-    | UNIQUE
-    | UNKNOWN
+    | TYPES
+    | UNCOMMITTED
     | UNLOCK
-    | UNSET
-    | UPDATE
-    | USE
     | USER
-    | VALUES
+    | VALUE
+    | VARCHAR
+    | VARIABLES
     | VERBOSE
     | VERSION
     | VIEW
-    | VIEWS
+    | WARNINGS
     | WEEK
-    | WHEN
-    | WHERE
-    | WINDOW
-    | WITH
-    | WITHIN
+    | WORK
     | YEAR
-    | ZONE
 //--DEFAULT-NON-RESERVED-END
     ;

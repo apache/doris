@@ -63,15 +63,22 @@
 
 namespace doris::vectorized {
 
+template <typename DateType>
 struct StrToDate {
     static constexpr auto name = "str_to_date";
 
     static bool is_variadic() { return false; }
 
-    static DataTypes get_variadic_argument_types() { return {}; }
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return make_nullable(std::make_shared<DataTypeDateTime>());
+        if constexpr (IsDataTypeDateTimeV2<DateType>) {
+            // max scale
+            return make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+        }
+        return make_nullable(std::make_shared<DateType>());
     }
 
     static StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
@@ -114,6 +121,8 @@ struct StrToDate {
         auto& rdata = specific_char_column->get_chars();
         auto& roffsets = specific_char_column->get_offsets();
 
+        // Because of we cant distinguish by return_type when we find function. so the return_type may NOT be same with real return type
+        // which decided by FE. that's found by which.
         ColumnPtr res = nullptr;
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if (which.is_date_time_v2()) {
@@ -1267,7 +1276,10 @@ public:
     }
 };
 
-using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate>;
+using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate<DataTypeDate>>;
+using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTime>>;
+using FunctionStrToDateV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateV2>>;
+using FunctionStrToDatetimeV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTimeV2>>;
 using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
 using FunctionDateTrunc = FunctionOtherTypesToDateType<DateTrunc<VecDateTimeValue, Int64>>;
 using FunctionDateTruncV2 =
@@ -1275,6 +1287,9 @@ using FunctionDateTruncV2 =
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
+    factory.register_function<FunctionStrToDatetime>();
+    factory.register_function<FunctionStrToDateV2>();
+    factory.register_function<FunctionStrToDatetimeV2>();
     factory.register_function<FunctionMakeDate>();
     factory.register_function<FromDays>();
     factory.register_function<FunctionDateTrunc>();

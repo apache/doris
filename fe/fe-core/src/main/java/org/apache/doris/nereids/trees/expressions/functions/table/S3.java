@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
@@ -29,13 +29,13 @@ import java.util.Map;
 
 /** s3 */
 public class S3 extends TableValuedFunction {
-    public S3(TVFProperties properties) {
+    public S3(Properties properties) {
         super("s3", properties);
     }
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(AnyDataType.INSTANCE, getArgumentsTypes());
+        return FunctionSignature.of(AnyDataType.INSTANCE_WITHOUT_INDEX, getArgumentsTypes());
     }
 
     @Override
@@ -45,7 +45,7 @@ public class S3 extends TableValuedFunction {
             return new S3TableValuedFunction(arguments);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build S3TableValuedFunction by "
-                + this + ": " + t.getMessage(), t);
+                    + this + ": " + t.getMessage(), t);
         }
     }
 

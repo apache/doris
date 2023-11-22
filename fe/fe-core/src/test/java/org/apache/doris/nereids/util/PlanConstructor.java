@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 public class PlanConstructor {
 
@@ -112,7 +113,7 @@ public class PlanConstructor {
             int hashColumn, List<Long> selectedPartitions) {
         return new LogicalOlapScan(RelationId.createGenerator().getNextId(),
                 newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"),
-                selectedPartitions, ImmutableList.of());
+                selectedPartitions, ImmutableList.of(), Optional.empty());
     }
 
     public static RelationId getNextRelationId() {

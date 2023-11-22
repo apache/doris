@@ -102,6 +102,15 @@ public:
 
     RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
 
+    void set_is_root_pipeline() { _is_root_pipeline = true; }
+    bool is_root_pipeline() const { return _is_root_pipeline; }
+    void set_collect_query_statistics_with_every_batch() {
+        _collect_query_statistics_with_every_batch = true;
+    }
+    [[nodiscard]] bool collect_query_statistics_with_every_batch() const {
+        return _collect_query_statistics_with_every_batch;
+    }
+
 private:
     void _init_profile();
 
@@ -145,6 +154,8 @@ private:
      */
     bool _always_can_read = false;
     bool _always_can_write = false;
+    bool _is_root_pipeline = false;
+    bool _collect_query_statistics_with_every_batch = false;
 };
 
 } // namespace doris::pipeline

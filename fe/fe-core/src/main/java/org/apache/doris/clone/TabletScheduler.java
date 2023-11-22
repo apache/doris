@@ -45,6 +45,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.resource.Tag;
@@ -77,6 +78,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
@@ -169,6 +171,10 @@ public class TabletScheduler extends MasterDaemon {
         return stat;
     }
 
+    public Rebalancer getRebalancer() {
+        return rebalancer;
+    }
+
     /*
      * update working slots at the beginning of each round
      */
@@ -248,11 +254,10 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.ALREADY_IN;
         }
 
-        // if this is not a BALANCE task, and not a force add,
+        // if this is not a force add,
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
-        if (tablet.getType() != TabletSchedCtx.Type.BALANCE && !force
-                && (pendingTablets.size() > Config.max_scheduling_tablets
+        if (!force && (pendingTablets.size() > Config.max_scheduling_tablets
                 || runningTablets.size() > Config.max_scheduling_tablets)) {
             return AddResult.LIMIT_EXCEED;
         }
@@ -601,6 +606,15 @@ public class TabletScheduler extends MasterDaemon {
         long succTime = pathSlot.getDiskBalanceLastSuccTime(pathHash);
         if (succTime > lastStatUpdateTime) {
             throw new SchedException(Status.UNRECOVERABLE, "stat info is outdated");
+        }
+    }
+
+    public void updateDestPathHash(TabletSchedCtx tabletCtx) {
+        // find dest replica
+        Optional<Replica> destReplica = tabletCtx.getReplicas()
+                .stream().filter(replica -> replica.getBackendId() == tabletCtx.getDestBackendId()).findAny();
+        if (destReplica.isPresent() && tabletCtx.getDestPathHash() != -1) {
+            destReplica.get().setPathHash(tabletCtx.getDestPathHash());
         }
     }
 
@@ -973,6 +987,7 @@ public class TabletScheduler extends MasterDaemon {
             boolean force, LoadStatisticForTag statistic) throws SchedException {
         Replica chosenReplica = null;
         double maxScore = 0;
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
         for (Replica replica : replicas) {
             BackendLoadStatistic beStatistic = statistic.getBackendLoadStatistic(replica.getBackendId());
             if (beStatistic == null) {
@@ -996,6 +1011,11 @@ public class TabletScheduler extends MasterDaemon {
             if (loadScore > maxScore) {
                 maxScore = loadScore;
                 chosenReplica = replica;
+            }
+
+            if (debugHighBeId > 0 && replica.getBackendId() == debugHighBeId) {
+                chosenReplica = replica;
+                break;
             }
         }
 
@@ -1057,7 +1077,7 @@ public class TabletScheduler extends MasterDaemon {
 
         List<Replica> replicas = tabletCtx.getTablet().getReplicas();
         boolean otherCatchup = replicas.stream().anyMatch(
-                r -> r.getId() != replica.getId()
+                r -> r != replica
                 && (r.getVersion() > replica.getVersion()
                         || (r.getVersion() == replica.getVersion() && r.getLastFailedVersion() < 0)));
         if (!otherCatchup) {
@@ -1132,7 +1152,7 @@ public class TabletScheduler extends MasterDaemon {
         // it will also delete replica from tablet inverted index.
         tabletCtx.deleteReplica(replica);
 
-        if (force) {
+        if (force || FeConstants.runningUnitTest) {
             // send the delete replica task.
             // also, this may not be necessary, but delete it will make things simpler.
             // NOTICE: only delete the replica from meta may not work. sometimes we can depend on tablet report
@@ -1224,12 +1244,14 @@ public class TabletScheduler extends MasterDaemon {
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         Collections.shuffle(alternativeTablets);
         for (TabletSchedCtx tabletCtx : alternativeTablets) {
-            if (addTablet(tabletCtx, false) == AddResult.ADDED) {
+            if (needAddBalanceNum > 0 && addTablet(tabletCtx, false) == AddResult.ADDED) {
                 needAddBalanceNum--;
-                if (needAddBalanceNum <= 0) {
-                    return;
-                }
+            } else {
+                rebalancer.onTabletFailed(tabletCtx);
             }
+        }
+        if (needAddBalanceNum <= 0) {
+            return;
         }
         if (Config.disable_disk_balance) {
             LOG.info("disk balance is disabled. skip selecting tablets for disk balance");
@@ -1306,7 +1328,8 @@ public class TabletScheduler extends MasterDaemon {
 
         // get all available paths which this tablet can fit in.
         // beStatistics is sorted by mix load score in ascend order, so select from first to last.
-        List<BePathLoadStatPair> allFitPaths = Lists.newArrayList();
+        List<BePathLoadStatPair> allFitPathsSameMedium = Lists.newArrayList();
+        List<BePathLoadStatPair> allFitPathsDiffMedium = Lists.newArrayList();
         for (BackendLoadStatistic bes : beStatistics) {
             if (!bes.isAvailable()) {
                 LOG.debug("backend {} is not available, skip. tablet: {}", bes.getBeId(), tabletCtx.getTabletId());
@@ -1337,27 +1360,27 @@ public class TabletScheduler extends MasterDaemon {
 
             List<RootPathLoadStatistic> resultPaths = Lists.newArrayList();
             BalanceStatus st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
-                    resultPaths, tabletCtx.getTabletStatus() != TabletStatus.REPLICA_RELOCATING
-                    /* if REPLICA_RELOCATING, then it is not a supplement task */);
-            if (!st.ok()) {
-                LOG.debug("unable to find path for tablet: {}. {}", tabletCtx, st);
-                // This is to solve, when we decommission some BEs with SSD disks,
-                // if there are no SSD disks on the remaining BEs, it will be impossible to select a
-                // suitable destination path.
-                // In this case, we need to ignore the storage medium property
-                // and try to select the destination path again.
-                // Set `isSupplement` to true will ignore the  storage medium property.
-                st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
-                        resultPaths, true);
-                if (!st.ok()) {
-                    LOG.debug("unable to find path for supplementing tablet: {}. {}", tabletCtx, st);
-                    continue;
+                    resultPaths, false);
+            if (st.ok()) {
+                resultPaths.stream().forEach(path -> allFitPathsSameMedium.add(new BePathLoadStatPair(bes, path)));
+            } else {
+                LOG.debug("backend {} unable to find path for tablet: {}. {}", bes.getBeId(), tabletCtx, st);
+                resultPaths.clear();
+                st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), resultPaths, true);
+                if (st.ok()) {
+                    resultPaths.stream().forEach(path -> allFitPathsDiffMedium.add(new BePathLoadStatPair(bes, path)));
+                } else {
+                    LOG.debug("backend {} unable to find path for supplementing tablet: {}. {}",
+                            bes.getBeId(), tabletCtx, st);
                 }
             }
-
-            resultPaths.stream().forEach(path -> allFitPaths.add(new BePathLoadStatPair(bes, path)));
         }
 
+        // all fit paths has already been sorted by load score in 'allFitPaths' in ascend order.
+        // just get first available path.
+        // we try to find a path with specified media type, if not find, arbitrarily use one.
+        List<BePathLoadStatPair> allFitPaths =
+                !allFitPathsSameMedium.isEmpty() ? allFitPathsSameMedium : allFitPathsDiffMedium;
         if (allFitPaths.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find dest path for new replica");
         }
@@ -1365,14 +1388,11 @@ public class TabletScheduler extends MasterDaemon {
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(allFitPaths);
         Collections.sort(allFitPaths, comparator);
 
-        // all fit paths has already been sorted by load score in 'allFitPaths' in ascend order.
-        // just get first available path.
-        // we try to find a path with specified media type, if not find, arbitrarily use one.
         for (BePathLoadStatPair bePathLoadStat : allFitPaths) {
             RootPathLoadStatistic rootPathLoadStatistic = bePathLoadStat.getPathLoadStatistic();
             if (rootPathLoadStatistic.getStorageMedium() != tabletCtx.getStorageMedium()) {
                 LOG.debug("backend {}'s path {}'s storage medium {} "
-                                + "is not equal to tablet's storage medium {}, skip. tablet: {}",
+                        + "is not equal to tablet's storage medium {}, skip. tablet: {}",
                         rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
                         rootPathLoadStatistic.getStorageMedium(), tabletCtx.getStorageMedium(),
                         tabletCtx.getTabletId());
@@ -1438,6 +1458,13 @@ public class TabletScheduler extends MasterDaemon {
 
 
     private void finalizeTabletCtx(TabletSchedCtx tabletCtx, TabletSchedCtx.State state, Status status, String reason) {
+        if (state == TabletSchedCtx.State.CANCELLED || state == TabletSchedCtx.State.UNEXPECTED) {
+            if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE
+                    && tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE) {
+                rebalancer.onTabletFailed(tabletCtx);
+            }
+        }
+
         // use 2 steps to avoid nested database lock and synchronized.(releaseTabletCtx() may hold db lock)
         // remove the tablet ctx, so that no other process can see it
         removeTabletCtx(tabletCtx, reason);
@@ -1511,6 +1538,16 @@ public class TabletScheduler extends MasterDaemon {
 
                 if (statusPair.second.ordinal() < tabletCtx.getPriority().ordinal()) {
                     statusPair.second = tabletCtx.getPriority();
+                }
+            }
+
+            if (statusPair.first == TabletStatus.NEED_FURTHER_REPAIR) {
+                // replica is just waiting for finishing txns before furtherRepairWatermarkTxnTd,
+                // no need to add it immediately
+                Replica replica = tablet.getReplicaByBackendId(tabletCtx.getDestBackendId());
+                if (replica != null && replica.getVersion() >= partition.getVisibleVersion()
+                        && replica.getLastFailedVersion() < 0) {
+                    return;
                 }
             }
         } finally {
@@ -1603,6 +1640,7 @@ public class TabletScheduler extends MasterDaemon {
             // if we have a success task, then stat must be refreshed before schedule a new task
             updateDiskBalanceLastSuccTime(tabletCtx.getSrcBackendId(), tabletCtx.getSrcPathHash());
             updateDiskBalanceLastSuccTime(tabletCtx.getDestBackendId(), tabletCtx.getDestPathHash());
+            updateDestPathHash(tabletCtx);
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
         } else {
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,

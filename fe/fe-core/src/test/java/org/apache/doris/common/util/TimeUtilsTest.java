@@ -164,12 +164,15 @@ public class TimeUtilsTest {
     public void testTimezone() throws AnalysisException {
         try {
             Assert.assertEquals("CST", TimeUtils.checkTimeZoneValidAndStandardize("CST"));
+            Assert.assertEquals("EST", TimeUtils.checkTimeZoneValidAndStandardize("EST"));
+            Assert.assertEquals("GMT+08:00", TimeUtils.checkTimeZoneValidAndStandardize("GMT+8:00"));
+            Assert.assertEquals("UTC+08:00", TimeUtils.checkTimeZoneValidAndStandardize("UTC+8:00"));
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+08:00"));
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+8:00"));
             Assert.assertEquals("-08:00", TimeUtils.checkTimeZoneValidAndStandardize("-8:00"));
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("8:00"));
         } catch (DdlException ex) {
-            Assert.fail();
+            Assert.assertTrue(ex.getMessage(), false);
         }
         try {
             TimeUtils.checkTimeZoneValidAndStandardize("FOO");
