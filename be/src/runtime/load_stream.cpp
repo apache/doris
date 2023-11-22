@@ -18,6 +18,8 @@
 #include "runtime/load_stream.h"
 
 #include <brpc/stream.h>
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <olap/rowset/rowset_factory.h>
 #include <olap/rowset/rowset_meta.h>
 #include <olap/storage_engine.h>

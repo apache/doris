@@ -17,6 +17,8 @@
 
 #pragma once
 #include <brpc/controller.h>
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <bthread/types.h>
 #include <butil/errno.h>
 #include <fmt/format.h>
