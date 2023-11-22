@@ -501,7 +501,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             long recycleTime = 0;
             try {
                 if (!stmt.isForceDrop()) {
-                    if (Env.getCurrentEnv().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
+                    if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
                         throw new DdlException(
                                 "There are still some transactions in the COMMITTED state waiting to be completed. "
                                         + "The database [" + dbName
@@ -892,7 +892,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!stmt.isForceDrop()) {
-                if (Env.getCurrentEnv().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
+                if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
                     throw new DdlException(
                             "There are still some transactions in the COMMITTED state waiting to be completed. "
                                     + "The table [" + tableName
@@ -1750,7 +1750,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!clause.isForceDrop()) {
                 partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
-                    if (Env.getCurrentEnv().getGlobalTransactionMgr()
+                    if (Env.getCurrentGlobalTransactionMgr()
                             .existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
                         throw new DdlException(
                                 "There are still some transactions in the COMMITTED state waiting to be completed."
@@ -2302,7 +2302,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             DataProperty dataProperty = null;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                        new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                    new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -2313,7 +2313,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo.setTabletType(partitionId, tabletType);
             partitionInfo.setIsMutable(partitionId, isMutable);
         }
-
         // check colocation properties
         try {
             String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
@@ -2416,6 +2415,15 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
 
+        // analyse group commit interval ms
+        int groupCommitIntervalMs = 0;
+        try {
+            groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties);
+            olapTable.setGroupCommitIntervalMs(groupCommitIntervalMs);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
         olapTable.initSchemaColumnUniqueId();
         olapTable.initAutoIncrentGenerator(db.getId());
         olapTable.rebuildFullSchema();
@@ -2473,10 +2481,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
+                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                        new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                    Map<String, String> propertiesCheck = new HashMap<>(properties);
+                    propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
+                    if (propertiesCheck != null && !propertiesCheck.isEmpty()) {
+                        // here, all properties should be checked
+                        throw new DdlException("Unknown properties: " + propertiesCheck);
+                    }
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
-                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                            new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
@@ -2486,10 +2500,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         }
                     }
 
-                    if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
-                        // here, all properties should be checked
-                        throw new DdlException("Unknown properties: " + properties);
-                    }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }

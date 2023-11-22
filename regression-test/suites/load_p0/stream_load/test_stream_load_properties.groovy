@@ -977,4 +977,67 @@ suite("test_stream_load_properties", "p0") {
             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
         }
     }
+    
+    // test read_json_by_line with enable_simdjson_read=false (default)
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    def set_be_param = { paramName, paramValue ->
+        // for eache be node, set paramName=paramValue
+        for (String id in backendId_to_backendIP.keySet()) {
+            def beIp = backendId_to_backendIP.get(id)
+            def bePort = backendId_to_backendHttpPort.get(id)
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assertTrue(out.contains("OK"))
+        }
+    }
+
+    i = 0
+    try {
+        set_be_param.call("enable_simdjson_reader", "false")
+
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'columns', columns[i]
+                set 'read_json_by_line', 'true'
+                if (i <= 3) {
+                    file json_by_line_files[0]
+                } else {
+                    file json_by_line_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            def tableName1 =  "stream_load_" + tableName
+            if (i <= 3) {
+                qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        set_be_param.call("enable_simdjson_reader", "true")
+
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
 }

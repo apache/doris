@@ -75,10 +75,10 @@ suite("test_multi_range_partition") {
         contains "artitions=3/3 (p1,p2,p3)"
     }
 
-    // BUG: p1 missed
+    // fix BUG: p1 missed
     explain{
         sql "select * from pt where sin(k1)<>0"
-        contains "partitions=2/3 (p2,p3)"
+        contains "partitions=3/3 (p1,p2,p3)"
     }
 
     // ============= in predicate ======================
@@ -98,10 +98,10 @@ suite("test_multi_range_partition") {
         contains "partitions=1/3 (p1)"
     }
 
-    // BUG: p1 missed
+    // fix BUG: p1 missed
     explain{
         sql "select * from pt where k1 is not null"
-        contains "partitions=2/3 (p2,p3)"
+        contains "partitions=3/3 (p1,p2,p3)"
     }
 
     //======== the second partition key =========
@@ -126,10 +126,10 @@ suite("test_multi_range_partition") {
         contains "partitions=1/3 (p2)"
     }
 
-    //BUG: p2 missed
+    //fix BUG: p2 missed
     explain {
         sql "select * from pt where k1=7 and k1<>k2"
-        contains "partitions=1/3 (p3)"
+        contains "partitions=2/3 (p2,p3)"
     }
 
     //p3 NOT pruned
@@ -138,10 +138,10 @@ suite("test_multi_range_partition") {
         contains "partitions=2/3 (p2,p3)"
     }
 
-    //BUG: p2 missed
+    //fix BUG: p2 missed
     explain {
         sql "select * from pt where k1=7 and not (k2 is null);"
-        contains "VEMPTYSET"
+        contains "partitions=2/3 (p2,p3)"
     }
     
     //p3 NOT pruned
@@ -150,10 +150,10 @@ suite("test_multi_range_partition") {
         contains "partitions=2/3 (p2,p3)"
     }
 
-    //BUG: p2 missed
+    //fix BUG: p2 missed
     explain {
         sql "select * from pt where k1=7 and k2 not in (1, 2);"
-        contains "partitions=1/3 (p3)"
+        contains "partitions=2/3 (p2,p3)"
     }
 
     explain {
@@ -161,10 +161,10 @@ suite("test_multi_range_partition") {
         contains "partitions=2/3 (p2,p3)"
     }
 
-    //BUG: p2,p3 pruned
+    //fix BUG: p2,p3 pruned
     explain {
         sql "select * from pt where k1=7 and k2 not in (1, 12)"
-        contains "VEMPTYSET"
+        contains "partitions=2/3 (p2,p3)"
     }
 
     explain {
@@ -238,4 +238,38 @@ suite("test_multi_range_partition") {
         contains "partitions=2/3 (p2,p3)"
     }
 
+    
+    // test if a range is not sliced to multiple single point
+    // for example: range [3,7) is sliced to [3,3], [4,4],[5,5],[6,6]
+    sql "set partition_pruning_expand_threshold=1;"
+
+    explain {
+        sql "select * from pt where k1 < 5;"
+        contains "partitions=2/3 (p1,p2)"
+    }
+
+    explain {
+        sql "select * from pt where not k1 < 5;"
+        contains "partitions=2/3 (p2,p3)"
+    }
+
+    explain {
+        sql "select * from pt where k2 < 5;"
+        contains "partitions=3/3 (p1,p2,p3)"
+    }
+
+    explain {
+        sql "select * from pt where not k2 < 5;"
+        contains "partitions=3/3 (p1,p2,p3)"
+    }
+
+    explain {
+        sql "select * from pt where k3 < 5;"
+        contains "partitions=3/3 (p1,p2,p3)"
+    }
+
+    explain {
+        sql "select * from pt where not k3 < 5;"
+        contains "partitions=3/3 (p1,p2,p3)"
+    }
 }
