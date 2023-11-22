@@ -21,7 +21,7 @@
 
 namespace doris {
 
-bool QueryContext::cancel(bool v, std::string msg, Status new_status) {
+bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragment_id) {
     if (_is_cancelled) {
         return false;
     }
@@ -32,6 +32,9 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status) {
     {
         std::lock_guard<std::mutex> plock(pipeline_lock);
         for (auto& ctx : fragment_id_to_pipeline_ctx) {
+            if (fragment_id == ctx.first) {
+                continue;
+            }
             ctx.second->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
         }
     }

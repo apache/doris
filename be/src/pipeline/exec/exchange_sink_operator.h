@@ -80,6 +80,15 @@ public:
               _available_block(0) {}
     ~BroadcastDependency() override = default;
 
+    std::string debug_string(int indentation_level = 0) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "{}{}: id={}, block task = {}, ready={}, _available_block = {}",
+                       std::string(indentation_level * 2, ' '), _name, _node_id,
+                       _blocked_task.size(), _ready, _available_block.load());
+        return fmt::to_string(debug_string_buffer);
+    }
+
     void set_available_block(int available_block) { _available_block = available_block; }
 
     void return_available_block() {

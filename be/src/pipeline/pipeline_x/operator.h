@@ -97,7 +97,7 @@ public:
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
-    [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const;
+    [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
 
     virtual Dependency* dependency() { return nullptr; }
 
@@ -348,7 +348,7 @@ public:
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     virtual Status try_close(RuntimeState* state, Status exec_status) = 0;
 
-    [[nodiscard]] virtual std::string debug_string(int indentation_level) const;
+    [[nodiscard]] virtual std::string debug_string(int indentation_level) const =0;
 
     template <class TARGET>
     TARGET& cast() {

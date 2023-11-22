@@ -72,18 +72,12 @@
 
 namespace doris::pipeline {
 
-std::string PipelineXLocalStateBase::debug_string(int indentation_level) const {
-    return _parent->debug_string(indentation_level);
-}
-
 template <typename DependencyType>
 std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}",
-                   PipelineXLocalStateBase::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, "\nDependency: \n {}",
-                       _dependency->debug_string(indentation_level + 1));
+        fmt::format_to(debug_string_buffer, " Dependency: {}", _dependency->debug_string());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -91,12 +85,9 @@ std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_le
 template <typename DependencyType>
 std::string PipelineXSinkLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}",
-                   PipelineXSinkLocalStateBase::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, "\n{}Dependency: \n {}",
-                       std::string(indentation_level * 2, ' '),
-                       _dependency->debug_string(indentation_level + 1));
+        fmt::format_to(debug_string_buffer, ", Dependency: {}", _dependency->debug_string());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -243,10 +234,6 @@ std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
                    _name, node_id());
     return fmt::to_string(debug_string_buffer);
-}
-
-std::string PipelineXSinkLocalStateBase::debug_string(int indentation_level) const {
-    return _parent->debug_string(indentation_level);
 }
 
 std::string DataSinkOperatorXBase::debug_string(RuntimeState* state, int indentation_level) const {

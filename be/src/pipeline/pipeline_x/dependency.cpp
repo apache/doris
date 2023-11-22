@@ -99,6 +99,15 @@ std::string Dependency::debug_string(int indentation_level) {
     return fmt::to_string(debug_string_buffer);
 }
 
+std::string RuntimeFilterDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "{}{}: id={}, block task = {}, ready={}, _filters = {}, _blocked_by_rf = {}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready, _filters.load(), _blocked_by_rf ? _blocked_by_rf->load() : false);
+    return fmt::to_string(debug_string_buffer);
+}
+
 std::string AndDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}{}: id={}, children=[",

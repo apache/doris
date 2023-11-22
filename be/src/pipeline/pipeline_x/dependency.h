@@ -200,12 +200,14 @@ class RuntimeFilterDependency final : public Dependency {
 public:
     RuntimeFilterDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : Dependency(id, node_id, name, query_ctx) {}
-    Dependency* is_blocked_by(PipelineXTask* task);
+    Dependency* is_blocked_by(PipelineXTask* task) override;
     void add_filters(IRuntimeFilter* runtime_filter);
     void sub_filters();
     void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
         _blocked_by_rf = blocked_by_rf;
     }
+
+    std::string debug_string(int indentation_level = 0) override;
 
 protected:
     std::atomic_int _filters;
