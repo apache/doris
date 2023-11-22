@@ -21,10 +21,6 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/span_context.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <runtime/result_buffer_mgr.h>
 #include <stdlib.h>
@@ -66,6 +62,7 @@
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
+#include "pipeline/exec/olap_table_sink_v2_operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
@@ -97,7 +94,6 @@
 #include "service/backend_options.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
-#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/common/assert_cast.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -166,10 +162,6 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     SCOPED_TIMER(_prepare_timer);
 
     auto* fragment_context = this;
-    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
-    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_id));
-    }
 
     LOG_INFO("PipelineXFragmentContext::prepare")
             .tag("query_id", print_id(_query_id))
@@ -186,7 +178,6 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
                                                  _exec_env);
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-    _runtime_state->set_tracer(std::move(tracer));
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
     if (request.__isset.backend_id) {
@@ -213,6 +204,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
+    _runtime_state->set_num_local_sink(request.num_local_sink);
 
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
@@ -277,9 +269,10 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         break;
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
-        if (state->query_options().enable_memtable_on_sink_node) {
-            return Status::InternalError(
-                    "Unsuported OLAP_TABLE_SINK with enable_memtable_on_sink_node ");
+        if (state->query_options().enable_memtable_on_sink_node &&
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            _sink.reset(new OlapTableSinkV2OperatorX(pool, next_operator_id(), row_desc,
+                                                     output_exprs, false));
         } else {
             _sink.reset(new OlapTableSinkOperatorX(pool, next_operator_id(), row_desc, output_exprs,
                                                    false));
@@ -400,7 +393,6 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         }
         _runtime_states[i]->set_query_ctx(_query_ctx.get());
         _runtime_states[i]->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-        _runtime_states[i]->set_tracer(_runtime_state->get_tracer());
 
         static_cast<void>(_runtime_states[i]->runtime_filter_mgr()->init());
         _runtime_states[i]->set_be_number(local_params.backend_num);
@@ -422,13 +414,16 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_per_fragment_instance_idx(local_params.sender_id);
         _runtime_states[i]->set_num_per_fragment_instances(request.num_senders);
         _runtime_states[i]->resize_op_id_to_local_state(max_operator_id());
+        _runtime_states[i]->set_load_stream_per_node(request.load_stream_per_node);
+        _runtime_states[i]->set_total_load_streams(request.total_load_streams);
+        _runtime_states[i]->set_num_local_sink(request.num_local_sink);
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto task = std::make_unique<PipelineXTask>(
                     _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
                     _runtime_states[i]->runtime_profile(),
-                    _op_id_to_le_state.count(
-                            _pipelines[pip_idx]->operator_xs().front()->operator_id()) > 0
+                    _op_id_to_le_state.contains(
+                            _pipelines[pip_idx]->operator_xs().front()->operator_id())
                             ? _op_id_to_le_state
                                       [_pipelines[pip_idx]->operator_xs().front()->operator_id()]
                             : nullptr,
@@ -597,13 +592,14 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
     _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
     DataSinkOperatorXPtr sink;
-    sink.reset(new LocalExchangeSinkOperatorX(
-            local_exchange_id, _runtime_state->query_parallel_instance_num(), texprs));
+    auto num_instances = _runtime_state->query_parallel_instance_num();
+    sink.reset(new LocalExchangeSinkOperatorX(local_exchange_id, num_instances, texprs));
     RETURN_IF_ERROR(cur_pipe->set_sink(sink));
     RETURN_IF_ERROR(cur_pipe->sink_x()->init());
 
     auto shared_state = LocalExchangeSharedState::create_shared();
-    shared_state->data_queue.resize(_runtime_state->query_parallel_instance_num());
+    shared_state->data_queue.resize(num_instances);
+    shared_state->source_dependencies.resize(num_instances, nullptr);
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
@@ -622,8 +618,14 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case doris::TPlanNodeType::JDBC_SCAN_NODE: {
-        op.reset(new JDBCScanOperatorX(pool, tnode, next_operator_id(), descs));
-        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (config::enable_java_support) {
+            op.reset(new JDBCScanOperatorX(pool, tnode, next_operator_id(), descs));
+            RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        } else {
+            return Status::InternalError(
+                    "Jdbc scan node is disabled, you can change be config enable_java_support "
+                    "to true and restart be.");
+        }
         break;
     }
     case doris::TPlanNodeType::FILE_SCAN_NODE: {
@@ -937,7 +939,7 @@ Status PipelineXFragmentContext::submit() {
     if (!st.ok()) {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
-            std::call_once(_close_once_flag, [this] { _close_action(); });
+            _close_fragment_instance();
         }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
@@ -967,7 +969,11 @@ void PipelineXFragmentContext::close_if_prepare_failed() {
     }
 }
 
-void PipelineXFragmentContext::_close_action() {
+void PipelineXFragmentContext::_close_fragment_instance() {
+    if (_is_fragment_instance_closed) {
+        return;
+    }
+    Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
@@ -1008,5 +1014,38 @@ Status PipelineXFragmentContext::send_report(bool done) {
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2)},
             shared_from_this());
+}
+
+bool PipelineXFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
+    OlapTableSchemaParam schema;
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
+    if (schema.is_partial_update()) {
+        return true;
+    }
+    for (const auto& index_schema : schema.indexes()) {
+        for (const auto& index : index_schema->indexes) {
+            if (index->index_type() == INVERTED) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+std::string PipelineXFragmentContext::debug_string() {
+    fmt::memory_buffer debug_string_buffer;
+    for (size_t j = 0; j < _tasks.size(); j++) {
+        fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
+        for (size_t i = 0; i < _tasks[j].size(); i++) {
+            if (_tasks[j][i]->get_state() == PipelineTaskState::FINISHED) {
+                continue;
+            }
+            fmt::format_to(debug_string_buffer, "Task {}: {}\n", i, _tasks[j][i]->debug_string());
+        }
+    }
+
+    return fmt::to_string(debug_string_buffer);
 }
 } // namespace doris::pipeline

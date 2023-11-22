@@ -23,6 +23,7 @@
 #include "exec/olap_utils.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
@@ -48,7 +49,7 @@ public:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class IntegerPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using CppType = typename PrimitiveTypeTraits<Type>::CppType;
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, vectorized::Arena* arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
@@ -78,7 +79,7 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class DecimalPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using CppType = typename PrimitiveTypeTraits<Type>::CppType;
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, vectorized::Arena* arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
@@ -134,7 +135,7 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 struct CustomPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using CppType = typename PrimitiveTypeTraits<Type>::CppType;
     CustomPredicateCreator(const std::function<CppType(const std::string& condition)>& convert)
             : _convert(convert) {}
 
@@ -182,7 +183,9 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
                 [](const std::string& condition) {
                     decimal12_t value = {0, 0};
                     static_cast<void>(value.from_string(condition));
-                    return value;
+                    // Decimal12t is storage type, we need convert to compute type here to
+                    // do comparisons
+                    return DecimalV2Value(value.integer, value.fraction);
                 });
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {

@@ -25,7 +25,6 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpServer;
@@ -34,6 +33,7 @@ import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.QeService;
+import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
@@ -168,8 +168,6 @@ public class DorisFE {
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
 
-            Telemetry.initOpenTelemetry();
-
             // init and start:
             // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
@@ -196,6 +194,8 @@ public class DorisFE {
                 httpServer.start();
                 Env.getCurrentEnv().setHttpReady(true);
             }
+
+            SimpleScheduler.init();
 
             if (options.enableQeService) {
                 QeService qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
@@ -461,7 +461,7 @@ public class DorisFE {
             releaseFileLockAndCloseFileChannel();
             throw new RuntimeException("Try to lock process failed", e);
         }
-        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the"
+        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the "
                 + "same time");
     }
 

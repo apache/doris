@@ -22,7 +22,6 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <string.h>
 
 #include <algorithm>
@@ -46,7 +45,6 @@
 #include "udf/udf.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
@@ -524,6 +522,9 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_bitmap_filter(cur_expr, context, slot, &pdt),
                                         status);
+                                RETURN_IF_PUSH_DOWN(
+                                        _normalize_bloom_filter(cur_expr, context, slot, &pdt),
+                                        status);
                                 if (_state->enable_function_pushdown()) {
                                     RETURN_IF_PUSH_DOWN(_normalize_function_filters(
                                                                 cur_expr, context, slot, &pdt),
@@ -593,6 +594,20 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
         }
     }
     output_expr = conjunct_expr_root;
+    return Status::OK();
+}
+
+Status VScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
+                                          PushDownType* pdt) {
+    if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
+        DCHECK(expr->children().size() == 1);
+        PushDownType temp_pdt = _should_push_down_bloom_filter();
+        if (temp_pdt != PushDownType::UNACCEPTABLE) {
+            _filter_predicates.bloom_filters.emplace_back(slot->col_name(),
+                                                          expr->get_bloom_filter_func());
+            *pdt = temp_pdt;
+        }
+    }
     return Status::OK();
 }
 
@@ -955,7 +970,7 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
         DCHECK(expr->children().size() == 2);
 
         auto noneq_checker = [](const std::string& fn_name) {
-            return fn_name != "ne" && fn_name != "eq";
+            return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";
         };
         StringRef value;
         int slot_ref_child = -1;

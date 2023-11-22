@@ -63,7 +63,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         if (isTableLevelTask) {
             getTableStats();
         } else {
-            getTableColumnStats();
+            getColumnStats();
         }
     }
 
@@ -76,13 +76,14 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
                 StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(ANALYZE_TABLE_COUNT_TEMPLATE));
         String rowCount = columnResult.get(0).get(0);
         Env.getCurrentEnv().getAnalysisManager()
-            .updateTableStatsStatus(new TableStatsMeta(table.getId(), Long.parseLong(rowCount), info));
+            .updateTableStatsStatus(new TableStatsMeta(Long.parseLong(rowCount), info, table));
+        job.rowCountDone(this);
     }
 
     /**
      * Get column statistics and insert the result to __internal_schema.column_statistics
      */
-    private void getTableColumnStats() throws Exception {
+    private void getColumnStats() throws Exception {
         // An example sql for a column stats:
         // INSERT INTO __internal_schema.column_statistics
         //   SELECT CONCAT(13055, '-', -1, '-', 'r_regionkey') AS id,
@@ -106,10 +107,10 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
         params.put("colName", col.getName());
         params.put("colId", info.colName);
-        params.put("dataSizeFunction", getDataSizeFunction(col));
+        params.put("dataSizeFunction", getDataSizeFunction(col, false));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(sb.toString());
-        runQuery(sql);
+        runQuery(sql, true);
     }
 
     private Map<String, String> buildTableStatsParams(String partId) {

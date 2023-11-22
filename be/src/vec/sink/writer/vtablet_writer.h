@@ -35,6 +35,7 @@
 #include <atomic>
 
 #include "olap/wal_writer.h"
+#include "vwal_writer.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
@@ -65,6 +66,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/countdown_latch.h"
+#include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
@@ -88,8 +90,6 @@ class TExpr;
 class Thread;
 class ThreadPoolToken;
 class TupleDescriptor;
-template <typename T>
-class RefCountClosure;
 
 namespace vectorized {
 
@@ -120,26 +120,21 @@ struct AddBatchCounter {
 
 // It's very error-prone to guarantee the handler capture vars' & this closure's destruct sequence.
 // So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
-// Delete this point is safe, don't worry about RPC callback will run after ReusableClosure deleted.
+// Delete this point is safe, don't worry about RPC callback will run after WriteBlockCallback deleted.
 // "Ping-Pong" between sender and receiver, `try_set_in_flight` when send, `clear_in_flight` after rpc failure or callback,
 // then next send will start, and it will wait for the rpc callback to complete when it is destroyed.
 template <typename T>
-class ReusableClosure final : public google::protobuf::Closure {
-public:
-    ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
-    ~ReusableClosure() override {
-        // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
-        join();
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        cntl.Reset();
-    }
+class WriteBlockCallback final : public ::doris::DummyBrpcCallback<T> {
+    ENABLE_FACTORY_CREATOR(WriteBlockCallback);
 
-    static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
+public:
+    WriteBlockCallback() : cid(INVALID_BTHREAD_ID) {}
+    ~WriteBlockCallback() override = default;
 
     void addFailedHandler(const std::function<void(bool)>& fn) { failed_handler = fn; }
     void addSuccessHandler(const std::function<void(const T&, bool)>& fn) { success_handler = fn; }
 
-    void join() {
+    void join() override {
         // We rely on in_flight to assure one rpc is running,
         // while cid is not reliable due to memory order.
         // in_flight is written before getting callid,
@@ -158,9 +153,8 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        cntl.Reset();
-        cid = cntl.call_id();
+        ::doris::DummyBrpcCallback<T>::cntl_->Reset();
+        cid = ::doris::DummyBrpcCallback<T>::cntl_->call_id();
     }
 
     // if _packet_in_flight == false, set it to true. Return true.
@@ -179,20 +173,18 @@ public:
         _is_last_rpc = true;
     }
 
-    void Run() override {
+    void call() override {
         DCHECK(_packet_in_flight);
-        if (cntl.Failed()) {
-            LOG(WARNING) << "failed to send brpc batch, error=" << berror(cntl.ErrorCode())
-                         << ", error_text=" << cntl.ErrorText();
+        if (::doris::DummyBrpcCallback<T>::cntl_->Failed()) {
+            LOG(WARNING) << "failed to send brpc batch, error="
+                         << berror(::doris::DummyBrpcCallback<T>::cntl_->ErrorCode())
+                         << ", error_text=" << ::doris::DummyBrpcCallback<T>::cntl_->ErrorText();
             failed_handler(_is_last_rpc);
         } else {
-            success_handler(result, _is_last_rpc);
+            success_handler(*(::doris::DummyBrpcCallback<T>::response_), _is_last_rpc);
         }
         clear_in_flight();
     }
-
-    brpc::Controller cntl;
-    T result;
 
 private:
     brpc::CallId cid;
@@ -381,7 +373,7 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     // because we have incremantal open, we should keep one relative closure for one request. it's similarly for adding block.
-    std::vector<RefCountClosure<PTabletWriterOpenResult>*> _open_closures;
+    std::vector<std::shared_ptr<DummyBrpcCallback<PTabletWriterOpenResult>>> _open_callbacks;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
@@ -413,12 +405,12 @@ protected:
 
     // build a _cur_mutable_block and push into _pending_blocks. when not building, this block is empty.
     std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
-    PTabletWriterAddBlockRequest _cur_add_block_request;
+    std::shared_ptr<PTabletWriterAddBlockRequest> _cur_add_block_request;
 
-    using AddBlockReq =
-            std::pair<std::unique_ptr<vectorized::MutableBlock>, PTabletWriterAddBlockRequest>;
+    using AddBlockReq = std::pair<std::unique_ptr<vectorized::MutableBlock>,
+                                  std::shared_ptr<PTabletWriterAddBlockRequest>>;
     std::queue<AddBlockReq> _pending_blocks;
-    ReusableClosure<PTabletWriterAddBlockResult>* _add_block_closure = nullptr;
+    std::shared_ptr<WriteBlockCallback<PTabletWriterAddBlockResult>> _send_block_callback = nullptr;
 
     bool _is_incremental;
 };
@@ -557,7 +549,7 @@ private:
     using ChannelDistributionPayload = std::unordered_map<VNodeChannel*, Payload>;
     using ChannelDistributionPayloadVec = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
 
-    void _init_row_distribution();
+    Status _init_row_distribution();
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);
 
@@ -572,8 +564,6 @@ private:
                                                          const std::shared_ptr<IndexChannel> ich,
                                                          const std::shared_ptr<VNodeChannel> nch);
 
-    std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
-
     void _cancel_all_channel(Status status);
 
     void _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
@@ -583,15 +573,6 @@ private:
     Status _automatic_create_partition();
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
-
-    Status write_wal(OlapTableBlockConvertor* block_convertor, OlapTabletFinder* tablet_finder,
-                     vectorized::Block* block, RuntimeState* state, int64_t num_rows,
-                     int64_t filtered_rows);
-
-    void _group_commit_block(vectorized::Block* input_block, int64_t num_rows, int64_t filter_rows,
-                             RuntimeState* state, vectorized::Block* block,
-                             OlapTableBlockConvertor* block_convertor,
-                             OlapTabletFinder* tablet_finder);
 
     TDataSink _t_sink;
 
@@ -692,14 +673,10 @@ private:
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
     bool _group_commit = false;
-    std::shared_ptr<WalWriter> _wal_writer = nullptr;
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
-
-    int64_t _tb_id;
-    int64_t _db_id;
-    int64_t _wal_id;
+    std::shared_ptr<VWalWriter> _v_wal_writer = nullptr;
 };
 } // namespace doris::vectorized

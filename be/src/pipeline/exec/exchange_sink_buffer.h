@@ -36,6 +36,7 @@
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
+#include "util/ref_count_closure.h"
 
 namespace doris {
 class PTransmitDataParams;
@@ -46,7 +47,7 @@ using InstanceLoId = int64_t;
 namespace pipeline {
 class BroadcastDependency;
 class ExchangeSinkQueueDependency;
-class FinishDependency;
+class Dependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -107,10 +108,12 @@ struct BroadcastTransmitInfo {
     bool eos;
 };
 
-template <typename T>
-class SelfDeleteClosure : public google::protobuf::Closure {
+template <typename Response>
+class ExchangeSendCallback : public ::doris::DummyBrpcCallback<Response> {
+    ENABLE_FACTORY_CREATOR(ExchangeSendCallback);
+
 public:
-    SelfDeleteClosure() = default;
+    ExchangeSendCallback() = default;
 
     void init(InstanceLoId id, bool eos, vectorized::BroadcastPBlockHolder* data) {
         _id = id;
@@ -118,32 +121,35 @@ public:
         _data = data;
     }
 
-    ~SelfDeleteClosure() override = default;
-    SelfDeleteClosure(const SelfDeleteClosure& other) = delete;
-    SelfDeleteClosure& operator=(const SelfDeleteClosure& other) = delete;
+    ~ExchangeSendCallback() override = default;
+    ExchangeSendCallback(const ExchangeSendCallback& other) = delete;
+    ExchangeSendCallback& operator=(const ExchangeSendCallback& other) = delete;
     void addFailedHandler(
             const std::function<void(const InstanceLoId&, const std::string&)>& fail_fn) {
         _fail_fn = fail_fn;
     }
-    void addSuccessHandler(const std::function<void(const InstanceLoId&, const bool&, const T&,
-                                                    const int64_t&)>& suc_fn) {
+    void addSuccessHandler(const std::function<void(const InstanceLoId&, const bool&,
+                                                    const Response&, const int64_t&)>& suc_fn) {
         _suc_fn = suc_fn;
     }
 
-    void Run() noexcept override {
+    void call() noexcept override {
         try {
             if (_data) {
                 _data->unref();
             }
-            if (cntl.Failed()) {
+            if (::doris::DummyBrpcCallback<Response>::cntl_->Failed()) {
                 std::string err = fmt::format(
                         "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
                         "latency = {}",
-                        berror(cntl.ErrorCode()), cntl.ErrorText(), BackendOptions::get_localhost(),
-                        cntl.latency_us());
+                        berror(::doris::DummyBrpcCallback<Response>::cntl_->ErrorCode()),
+                        ::doris::DummyBrpcCallback<Response>::cntl_->ErrorText(),
+                        BackendOptions::get_localhost(),
+                        ::doris::DummyBrpcCallback<Response>::cntl_->latency_us());
                 _fail_fn(_id, err);
             } else {
-                _suc_fn(_id, _eos, result, start_rpc_time);
+                _suc_fn(_id, _eos, *(::doris::DummyBrpcCallback<Response>::response_),
+                        start_rpc_time);
             }
         } catch (const std::exception& exp) {
             LOG(FATAL) << "brpc callback error: " << exp.what();
@@ -151,21 +157,18 @@ public:
             LOG(FATAL) << "brpc callback error.";
         }
     }
-
-    brpc::Controller cntl;
-    T result;
     int64_t start_rpc_time;
 
 private:
     std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
-    std::function<void(const InstanceLoId&, const bool&, const T&, const int64_t&)> _suc_fn;
+    std::function<void(const InstanceLoId&, const bool&, const Response&, const int64_t&)> _suc_fn;
     InstanceLoId _id;
     bool _eos;
     vectorized::BroadcastPBlockHolder* _data;
 };
 
 struct ExchangeRpcContext {
-    SelfDeleteClosure<PTransmitDataResult>* _closure = nullptr;
+    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> _send_callback = nullptr;
     bool is_cancelled = false;
 };
 
@@ -186,19 +189,27 @@ public:
     void update_profile(RuntimeProfile* profile);
 
     void set_dependency(std::shared_ptr<ExchangeSinkQueueDependency> queue_dependency,
-                        std::shared_ptr<FinishDependency> finish_dependency) {
+                        std::shared_ptr<Dependency> finish_dependency) {
         _queue_dependency = queue_dependency;
         _finish_dependency = finish_dependency;
     }
     void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
 
+    void set_should_stop() {
+        _should_stop = true;
+        _set_ready_to_finish(_busy_channels == 0);
+    }
+
 private:
+    void _set_ready_to_finish(bool all_done);
+
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle
     phmap::flat_hash_map<InstanceLoId,
                          std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>>
             _instance_to_package_queue;
+    size_t _queue_capacity;
     // store data in broadcast shuffle
     phmap::flat_hash_map<InstanceLoId, std::queue<BroadcastTransmitInfo<Parent>,
                                                   std::list<BroadcastTransmitInfo<Parent>>>>
@@ -207,7 +218,7 @@ private:
     // must init zero
     // TODO: make all flat_hash_map to a STRUT
     phmap::flat_hash_map<InstanceLoId, PackageSeq> _instance_to_seq;
-    phmap::flat_hash_map<InstanceLoId, std::unique_ptr<PTransmitDataParams>> _instance_to_request;
+    phmap::flat_hash_map<InstanceLoId, std::shared_ptr<PTransmitDataParams>> _instance_to_request;
     // One channel is corresponding to a downstream instance.
     phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_idle;
     // Number of busy channels;
@@ -237,10 +248,10 @@ private:
 
     std::atomic<int> _total_queue_size = 0;
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
-    int _queue_capacity = 0;
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
-    std::shared_ptr<FinishDependency> _finish_dependency = nullptr;
+    std::shared_ptr<Dependency> _finish_dependency = nullptr;
     QueryStatistics* _statistics = nullptr;
+    std::atomic<bool> _should_stop {false};
 };
 
 } // namespace pipeline

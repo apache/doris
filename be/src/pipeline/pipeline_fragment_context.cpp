@@ -21,10 +21,6 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/span_context.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
@@ -99,7 +95,6 @@
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
-#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exec/join/vhash_join_node.h"
@@ -131,7 +126,8 @@ PipelineFragmentContext::PipelineFragmentContext(
           _call_back(call_back),
           _is_report_on_cancel(true),
           _report_status_cb(report_status_cb),
-          _group_commit(group_commit) {
+          _group_commit(group_commit),
+          _create_time(MonotonicNanos()) {
     if (_query_ctx->get_task_group()) {
         _task_group_entity = _query_ctx->get_task_group()->task_entity();
     }
@@ -211,10 +207,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     SCOPED_TIMER(_prepare_timer);
 
     auto* fragment_context = this;
-    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
-    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_id));
-    }
 
     LOG_INFO("Preparing instance {}, backend_num {}",
              PrintInstanceStandardInfo(_query_id, local_params.fragment_instance_id),
@@ -229,7 +221,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-    _runtime_state->set_tracer(std::move(tracer));
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -320,6 +311,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
+    _runtime_state->set_num_local_sink(request.num_local_sink);
 
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
@@ -721,7 +713,7 @@ Status PipelineFragmentContext::submit() {
     if (!st.ok()) {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
-            std::call_once(_close_once_flag, [this] { _close_action(); });
+            _close_fragment_instance();
         }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
@@ -859,7 +851,13 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     return _root_pipeline->set_sink(sink_);
 }
 
-void PipelineFragmentContext::_close_action() {
+// If all pipeline tasks binded to the fragment instance are finished, then we could
+// close the fragment instance.
+void PipelineFragmentContext::_close_fragment_instance() {
+    if (_is_fragment_instance_closed) {
+        return;
+    }
+    Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
@@ -870,7 +868,7 @@ void PipelineFragmentContext::close_a_pipeline() {
     std::lock_guard<std::mutex> l(_task_mutex);
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
-        std::call_once(_close_once_flag, [this] { _close_action(); });
+        _close_fragment_instance();
     }
 }
 

@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <memory>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
@@ -89,7 +90,9 @@ void generate_block(PBlock& pblock, int row_index) {
 
 TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
     std::string file_name = _s_test_data_path + "/abcd123.txt";
-    auto wal_writer = WalWriter(file_name);
+    std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes =
+            std::make_shared<std::atomic_size_t>(0);
+    auto wal_writer = WalWriter(file_name, _all_wal_disk_bytes);
     static_cast<void>(wal_writer.init());
     size_t file_len = 0;
     int64_t file_size = -1;

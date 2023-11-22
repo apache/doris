@@ -120,13 +120,14 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
     /** use processor to process computeSignature */
     static boolean processComplexType(DataType signatureType, DataType realType,
             BiFunction<DataType, DataType, Boolean> processor) {
-
         if (signatureType instanceof ArrayType && realType instanceof ArrayType) {
-            return processor.apply(((ArrayType) signatureType).getItemType(),
-                    ((ArrayType) realType).getItemType());
+            return processComplexType(((ArrayType) signatureType).getItemType(),
+                    ((ArrayType) realType).getItemType(), processor);
         } else if (signatureType instanceof MapType && realType instanceof MapType) {
-            return processor.apply(((MapType) signatureType).getKeyType(), ((MapType) realType).getKeyType())
-                    && processor.apply(((MapType) signatureType).getValueType(), ((MapType) realType).getValueType());
+            return processComplexType(((MapType) signatureType).getKeyType(),
+                    ((MapType) realType).getKeyType(), processor)
+                    && processComplexType(((MapType) signatureType).getValueType(),
+                    ((MapType) realType).getValueType(), processor);
         } else if (signatureType instanceof StructType && realType instanceof StructType) {
             // TODO: do not support struct type now
             // throw new AnalysisException("do not support struct type now");

@@ -619,7 +619,23 @@ inline Status get_converter(tparquet::Type::type parquet_physical_type, Primitiv
                                                              DecimalScaleParams::NO_SCALE>>();    \
                 }                                                                                 \
             }                                                                                     \
-        } else if (tparquet::Type::INT32 == parquet_physical_type) {                              \
+        } else if (tparquet::Type::BYTE_ARRAY == parquet_physical_type) {                         \
+            convert_params->init_decimal_converter<PRIMARY_TYPE>(dst_data_type);                  \
+            using ValueCopyType = DECIMAL_TYPE::NativeType;                                       \
+            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
+                *converter = std::make_unique<StringToDecimal<DECIMAL_TYPE, ValueCopyType,        \
+                                                              DecimalScaleParams::SCALE_UP>>();   \
+            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
+                *converter = std::make_unique<StringToDecimal<DECIMAL_TYPE, ValueCopyType,        \
+                                                              DecimalScaleParams::SCALE_DOWN>>(); \
+            } else {                                                                              \
+                *converter = std::make_unique<StringToDecimal<DECIMAL_TYPE, ValueCopyType,        \
+                                                              DecimalScaleParams::NO_SCALE>>();   \
+            }                                                                                     \
+                                                                                                  \
+        }                                                                                         \
+                                                                                                  \
+        else if (tparquet::Type::INT32 == parquet_physical_type) {                                \
             if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
                 *converter = std::make_unique<NumberToDecimal<Int32, PRIMARY_TYPE, int64_t,       \
                                                               DecimalScaleParams::SCALE_UP>>();   \
