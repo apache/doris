@@ -441,8 +441,6 @@ void PrefetchBuffer::prefetch_buffer() {
         _buffer_status = BufferStatus::PENDING;
         _prefetched.notify_all();
     }
-    _len = 0;
-    Status s;
 
     int read_range_index = search_read_range(_offset);
     size_t buf_size;
@@ -453,11 +451,14 @@ void PrefetchBuffer::prefetch_buffer() {
         buf_size = merge_small_ranges(_offset, read_range_index);
     }
 
+    _len = 0;
+    Status s;
+
     {
         SCOPED_RAW_TIMER(&_statis.read_time);
         s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
     }
-    if (UNLIKELY(buf_size != _len)) {
+    if (UNLIKELY(s.ok() && buf_size != _len)) {
         // This indicates that the data size returned by S3 object storage is smaller than what we requested,
         // which seems to be a violation of the S3 protocol since our request range was valid.
         // We currently consider this situation a bug and will treat this task as a failure.

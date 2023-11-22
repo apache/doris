@@ -164,9 +164,7 @@ public:
     }
 
     ~MergeRangeFileReader() override {
-        if (_read_slice != nullptr) {
-            delete[] _read_slice;
-        }
+        delete[] _read_slice;
         for (char* box : _boxes) {
             delete[] box;
         }
@@ -281,7 +279,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
               _reader(reader),
               _io_ctx(io_ctx),
               _buf(new char[buffer_size]),
-              _sync_profile(sync_profile) {}
+              _sync_profile(std::move(sync_profile)) {}
 
     PrefetchBuffer(PrefetchBuffer&& other)
             : _offset(other._offset),
@@ -383,8 +381,8 @@ public:
 
     void set_random_access_ranges(const std::vector<PrefetchRange>* random_access_ranges) {
         _random_access_ranges = random_access_ranges;
-        for (int i = 0; i < _pre_buffers.size(); i++) {
-            _pre_buffers[i]->set_random_access_ranges(random_access_ranges);
+        for (auto& _pre_buffer : _pre_buffers) {
+            _pre_buffer->set_random_access_ranges(random_access_ranges);
         }
     }
 
