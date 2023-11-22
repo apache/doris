@@ -168,7 +168,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                     olapScan.getManuallySpecifiedPartitions(), olapScan.getSelectedTabletIds(),
                     olapScan.getHints(), olapScan.getTableSample());
         }
-        // updateLeadingRelationIdMap(newOlapScan.getRelationId(), newOlapScan.getTable().getName(), newOlapScan);
         newOlapScan.getOutput();
         context.putRelation(olapScan.getRelationId(), newOlapScan);
         updateReplaceMapWithOutput(olapScan, newOlapScan, context.exprIdReplaceMap);
@@ -195,7 +194,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalSchemaScan newSchemaScan = new LogicalSchemaScan(StatementScopeIdGenerator.newRelationId(),
                 schemaScan.getTable(), schemaScan.getQualifier());
-        // updateLeadingRelationIdMap(newSchemaScan.getRelationId(), newSchemaScan.getTable().getName(), newSchemaScan);
         updateReplaceMapWithOutput(schemaScan, newSchemaScan, context.exprIdReplaceMap);
         context.putRelation(schemaScan.getRelationId(), newSchemaScan);
         return newSchemaScan;
@@ -208,7 +206,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalFileScan newFileScan = new LogicalFileScan(StatementScopeIdGenerator.newRelationId(),
                 fileScan.getTable(), fileScan.getQualifier(), fileScan.getTableSample());
-        // updateLeadingRelationIdMap(newFileScan.getRelationId(), fileScan.getTable().getName(), newFileScan);
         updateReplaceMapWithOutput(fileScan, newFileScan, context.exprIdReplaceMap);
         context.putRelation(fileScan.getRelationId(), newFileScan);
         Set<Expression> conjuncts = fileScan.getConjuncts().stream()
@@ -236,7 +233,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalJdbcScan newJdbcScan = new LogicalJdbcScan(StatementScopeIdGenerator.newRelationId(),
                 jdbcScan.getTable(), jdbcScan.getQualifier());
-        // updateLeadingRelationIdMap(newJdbcScan.getRelationId(), jdbcScan.getTable().getName(), newJdbcScan);
         updateReplaceMapWithOutput(jdbcScan, newJdbcScan, context.exprIdReplaceMap);
         context.putRelation(jdbcScan.getRelationId(), newJdbcScan);
         return newJdbcScan;
@@ -250,7 +246,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         LogicalEsScan newEsScan = new LogicalEsScan(StatementScopeIdGenerator.newRelationId(),
                 esScan.getTable(), esScan.getQualifier());
         updateReplaceMapWithOutput(esScan, newEsScan, context.exprIdReplaceMap);
-        // updateLeadingRelationIdMap(newEsScan.getRelationId(), esScan.getTable().getName(), newEsScan);
         context.putRelation(esScan.getRelationId(), newEsScan);
         return newEsScan;
     }
@@ -450,7 +445,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 StatementScopeIdGenerator.newRelationId(),
                 cteConsumer.getCteId(), cteConsumer.getName(),
                 consumerToProducerOutputMap, producerToConsumerOutputMap);
-        // updateLeadingRelationIdMap(newCTEConsumer.getRelationId(), cteConsumer.getName(), newCTEConsumer);
         context.putRelation(cteConsumer.getRelationId(), newCTEConsumer);
         return newCTEConsumer;
     }

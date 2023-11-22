@@ -42,16 +42,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 
 /**
- * eliminate group by constant, like:
- * select 1, 'str', count(*) from t group by t.id, 1, 'str', 3, 2;
- * transform to:
- * select 1, 'str', count(*) from t group by t.id.
- * we are ensured before:
- * 1. aggregation node output contains all the expressions of group by expressions.
- * 2. others are aggregation functions.
- * so we can do the rule by:
- * 1. eliminate all the literal expression that are not integerLiteral of group by expressions.
- * 2. check whether the left literal expressions are in range and replace them to slots.
+ * eliminate logical select hint and set then to cascade context
  */
 public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
     @Override
