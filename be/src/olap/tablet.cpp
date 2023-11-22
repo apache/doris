@@ -1644,7 +1644,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.version_miss", {
-        auto tablet_id = dp->param<int>("tablet_id", -1);
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto miss = dp->param<bool>("version_miss", true);
             LOG_WARNING("Tablet.build_tablet_report_info.version_miss")
@@ -1693,7 +1693,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.used", {
-        auto tablet_id = dp->param<int>("tablet_id", -1);
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto used = dp->param<bool>("used", true);
             LOG_WARNING("Tablet.build_tablet_report_info.used")

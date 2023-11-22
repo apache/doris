@@ -39,11 +39,11 @@ suite('test_report_version_missing', "nonConcurrent") {
     sql """INSERT INTO ${tableName} VALUES ${values.join(",")}"""
 
     def result = sql_return_maparray """show tablets from ${tableName}"""
-    assertTrue(result != null)
+    assertNotNull(result)
     def tabletId = null
     for (def res : result) {
         tabletId = res.TabletId
-        break;
+        break
     }
     try {
         GetDebugPoint().enableDebugPointForAllBEs("Tablet.build_tablet_report_info.version_miss", [tablet_id:"${tabletId}",version_miss:true])
@@ -52,10 +52,10 @@ suite('test_report_version_missing', "nonConcurrent") {
         for (int i = 0; i < 3; ++i) {
             result = sql_return_maparray """show tablets from ${tableName}"""
             logger.info("show tablets from ${result}, has after ${i} * 60 s")
-            assertTrue(result != null)
+            assertNotNull(result)
             // LstFailedVersion > 0, version missing
             for (def res : result) {
-                if (res.TabletId == tabletId && res.LstFailedVersion.toInteger() > 0) {
+                if (res.TabletId.toLong() == tabletId.toLong() && res.LstFailedVersion.toLong() > 0) {
                     succ = true
                     break
                 }

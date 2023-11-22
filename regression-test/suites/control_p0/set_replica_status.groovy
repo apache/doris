@@ -36,16 +36,21 @@ suite("test_set_replica_status", "p0") {
     }
     sql """INSERT INTO ${tableName} VALUES ${values.join(",")}"""
 
-    def result = sql """show tablets from ${tableName}"""
-    assertTrue(result != null)
-    def tabletId = result[0][0]
-    def backendId = result[0][2]
+    def result = sql_return_maparray """show tablets from ${tableName}"""
+    assertNotNull(result)
+    def tabletId = null
+    def backendId = null
+    for (def res : result) {
+        tabletId = res.TabletId
+        backendId = res.BackendId
+        break
+    }
     sql """ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "${tabletId}", "backend_id" = "${backendId}", "status" = "bad");"""
     result = sql_return_maparray """ADMIN SHOW REPLICA STATUS FROM ${tableName}"""
     for (def res : result) {
         if (res.TabletId == tabletId) {
             logger.info("admin show replica status ${res}")
-            assertTrue("true".equalsIgnoreCase(res.IsBad)) 
+            assertTrue(res.IsBad.toBoolean())
         }
     }
     sql """ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "${tabletId}", "backend_id" = "${backendId}", "status" = "ok");"""
@@ -53,7 +58,7 @@ suite("test_set_replica_status", "p0") {
     for (def res : result) {
         if (res.TabletId == tabletId) {
             logger.info("admin show replica status ${res}")
-            assertTrue("false".equalsIgnoreCase(res.IsBad)) 
+            assertFalse(res.IsBad.toBoolean())
         }
     }
     sql """ADMIN SET REPLICA VERSION PROPERTIES("tablet_id" = "${tabletId}", "backend_id" = "${backendId}", "last_failed_version" = "10");"""
@@ -61,7 +66,7 @@ suite("test_set_replica_status", "p0") {
     for (def res : result) {
         if (res.TabletId == tabletId) {
             logger.info("admin show replica version ${res}")
-            assertFalse(res.LastFailedVersion == 10)
+            assertEquals(10L, res.LastFailedVersion.toLong())
         }
     }
     sql """ADMIN CLEAN TRASH"""
