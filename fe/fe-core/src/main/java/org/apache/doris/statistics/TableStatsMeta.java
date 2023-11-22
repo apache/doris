@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -64,11 +66,11 @@ public class TableStatsMeta implements Writable {
 
     // It's necessary to store these fields separately from AnalysisInfo, since the lifecycle between AnalysisInfo
     // and TableStats is quite different.
-    public TableStatsMeta(long tblId, long rowCount, AnalysisInfo analyzedJob) {
-        this.tblId = tblId;
+    public TableStatsMeta(long rowCount, AnalysisInfo analyzedJob, TableIf table) {
+        this.tblId = table.getId();
         this.idxId = -1;
         this.rowCount = rowCount;
-        updateByJob(analyzedJob);
+        update(analyzedJob, table);
     }
 
     @Override
@@ -112,8 +114,8 @@ public class TableStatsMeta implements Writable {
         colNameToColStatsMeta.values().forEach(ColStatsMeta::clear);
     }
 
-    public void updateByJob(AnalysisInfo analyzedJob) {
-        updatedTime = System.currentTimeMillis();
+    public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
+        updatedTime = analyzedJob.tblUpdateTime;
         String colNameStr = analyzedJob.colName;
         // colName field AnalyzeJob's format likes: "[col1, col2]", we need to remove brackets here
         // TODO: Refactor this later
@@ -133,5 +135,10 @@ public class TableStatsMeta implements Writable {
             }
         }
         jobType = analyzedJob.jobType;
+        if (tableIf != null && analyzedJob.colToPartitions.keySet()
+                .containsAll(tableIf.getBaseSchema().stream().map(Column::getName).collect(
+                        Collectors.toSet()))) {
+            updatedRows.set(0);
+        }
     }
 }
