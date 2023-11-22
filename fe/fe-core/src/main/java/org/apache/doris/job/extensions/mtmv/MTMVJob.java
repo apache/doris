@@ -61,10 +61,10 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
                     .addColumn(new Column("JobId", ScalarType.createVarchar(20)))
                     .addColumn(new Column("TaskId", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Status", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("CreateTimeMs", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("StartTimeMs", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("FinishTimeMs", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Duration", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("CreateTime", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("StartTime", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("FinishTime", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("DurationMs", ScalarType.createVarchar(20)))
                     .addColumn(new Column("ExecuteSql", ScalarType.createVarchar(20)))
                     .build();
 
