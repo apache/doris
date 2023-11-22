@@ -1145,12 +1145,10 @@ DECLARE_Int16(bitmap_serialize_version);
 DECLARE_String(group_commit_replay_wal_dir);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
-DECLARE_Int32(group_commit_sync_wal_batch);
 DECLARE_Bool(wait_internal_group_commit_finish);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
-DECLARE_mInt32(group_commit_interval_ms);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1164,8 +1162,8 @@ DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 DECLARE_mBool(exit_on_exception);
 
 // cgroup
-DECLARE_String(doris_cgroup_cpu_path);
-DECLARE_Bool(enable_cgroup_cpu_soft_limit);
+DECLARE_mString(doris_cgroup_cpu_path);
+DECLARE_mBool(enable_cgroup_cpu_soft_limit);
 
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);

@@ -748,6 +748,12 @@ public class TransactionState implements Writable {
         return this.errMsg;
     }
 
+    // reduce memory
+    public void pruneAfterVisible() {
+        publishVersionTasks.clear();
+        tableIdToTotalNumDeltaRows.clear();
+    }
+
     public void setSchemaForPartialUpdate(OlapTable olapTable) {
         // the caller should hold the read lock of the table
         isPartialUpdate = true;
