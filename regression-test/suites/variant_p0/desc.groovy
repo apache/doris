@@ -196,7 +196,7 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         qt_sql_9_2 """desc ${table_name}"""
         qt_sql_9_2 """select cast(v:中文 as string) from ${table_name} order by k"""
     } finally {
-        // reset flags
+        // reset flags of ratio_of_defaults_as_sparse_column
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
     }
 }

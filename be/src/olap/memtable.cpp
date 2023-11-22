@@ -99,6 +99,7 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
     // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     _num_columns = _tablet_schema->num_columns();
+    _partial_update_info = partial_update_info;
     if (partial_update_info != nullptr) {
         _is_partial_update = partial_update_info->is_partial_update;
         if (_is_partial_update) {
@@ -552,9 +553,9 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
     }
 
     std::vector<int> variant_column_pos;
-    if (_tablet_schema->is_partial_update()) {
+    if (_is_partial_update) {
         // check columns that used to do partial updates should not include variant
-        for (int i : _tablet_schema->get_update_cids()) {
+        for (int i : _partial_update_info->update_cids) {
             if (_tablet_schema->columns()[i].is_variant_type()) {
                 return Status::InvalidArgument("Not implement partial updates for variant");
             }

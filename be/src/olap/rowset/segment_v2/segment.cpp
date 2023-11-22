@@ -401,7 +401,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     }
 
     // init by column path
-    for (uint32_t ordinal = 0; ordinal < footer.columns().size(); ++ordinal) {
+    for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
         auto& column = _tablet_schema->column(ordinal);
         auto iter = column_path_to_footer_ordinal.find(column.path_info());
         if (iter == column_path_to_footer_ordinal.end()) {
@@ -415,7 +415,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         _sub_column_tree.add(
                 iter->first,
                 SubcolumnReader {std::move(reader),
-                                 get_data_type_from_column_meta(_footer.columns(iter->second))});
+                                 get_data_type_from_column_meta(footer.columns(iter->second))});
     }
     return Status::OK();
 }

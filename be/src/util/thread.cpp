@@ -180,11 +180,7 @@ void ThreadMgr::set_idle_sched(int64_t tid) {
     }
 }
 
-<<<<<<< HEAD
-void ThreadMgr::set_low_priority(int64_t tid) {
-=======
 void ThreadMgr::set_thread_nice_value(int64_t tid) {
->>>>>>> upstream-apache/branch-2.0
     if (tid == getpid()) {
         return;
     }
@@ -198,12 +194,7 @@ void ThreadMgr::set_thread_nice_value(int64_t tid) {
     // applications that require it (e.g., some audio applications).
 
     // Choose 5 as lower priority value, default is 0
-<<<<<<< HEAD
-    constexpr static int s_low_priority_nice_value = 5;
-    int err = setpriority(PRIO_PROCESS, 0, s_low_priority_nice_value);
-=======
     int err = setpriority(PRIO_PROCESS, 0, config::scan_thread_nice_value);
->>>>>>> upstream-apache/branch-2.0
     if (err < 0 && errno != EPERM) {
         LOG(ERROR) << "set_thread_low_priority";
     }
@@ -340,13 +331,8 @@ void Thread::set_idle_sched() {
     ThreadMgr::set_idle_sched(current_thread_id());
 }
 
-<<<<<<< HEAD
-void Thread::set_low_priority() {
-    ThreadMgr::set_low_priority(current_thread_id());
-=======
 void Thread::set_thread_nice_value() {
     ThreadMgr::set_thread_nice_value(current_thread_id());
->>>>>>> upstream-apache/branch-2.0
 }
 #endif
 

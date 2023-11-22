@@ -614,6 +614,7 @@ public class SelectStmt extends QueryStmt {
                 }
                 colLabels.add("col_" + colLabels.size());
                 subColLabels.add(expr.toSubColumnLabel());
+            }
         }
         // analyze valueList if exists
         if (needToSql) {

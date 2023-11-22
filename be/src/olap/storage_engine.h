@@ -503,8 +503,6 @@ private:
     // next index for create tablet
     std::map<TStorageMedium::type, int> _store_next_index;
 
-    // next index for create tablet
-    std::map<TStorageMedium::type, int> _store_next_index;
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 

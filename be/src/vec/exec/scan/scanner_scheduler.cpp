@@ -241,14 +241,20 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                     if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
                         auto work_func = [this, scanner = *iter, ctx] {
-                            this->_scanner_scan(this, ctx, scanner);
+                            std::stringstream ss;
+                            ss << "ss0" << scanner->runtime_state()->query_type()
+                               << scanner->runtime_state()->query_id().lo%(int64_t)100000;
+                            this->_scanner_scan(this, ctx, scanner, ss.str());
                         };
                         taskgroup::ScanTask scan_task = {work_func, ctx, nice};
                         ret = _task_group_local_scan_queue->push_back(scan_task);
                     } else {
                         PriorityThreadPool::Task task;
                         task.work_function = [this, scanner = *iter, ctx] {
-                            this->_scanner_scan(this, ctx, scanner);
+                            std::stringstream ss;
+                            ss << "ss1" << scanner->runtime_state()->query_type()
+                               << scanner->runtime_state()->query_id().lo%(int64_t)100000;
+                            this->_scanner_scan(this, ctx, scanner, ss.str());
                         };
                         task.priority = nice;
                         ret = _local_scan_thread_pool->offer(task);
@@ -257,7 +263,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                     PriorityThreadPool::Task task;
                     task.work_function = [this, scanner = *iter, ctx] {
                         std::stringstream ss;
-                        ss << "ss1" << scanner->runtime_state()->query_type()
+                        ss << "ss2" << scanner->runtime_state()->query_type()
                            << scanner->runtime_state()->query_id().lo%(int64_t)100000;
                         this->_scanner_scan(this, ctx, scanner, ss.str());
                     };
@@ -323,12 +329,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
 #else
     if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr) {
         Thread::set_self_name(thread_name);
-    }
-#endif
-#ifndef __APPLE__
-    if (config::enable_scan_thread_low_thread_priority &&
-        scanner->get_name() != VFileScanner::NAME) {
-        Thread::set_low_priority();
     }
 #endif
 

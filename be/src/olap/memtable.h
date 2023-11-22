@@ -305,6 +305,7 @@ private:
     std::shared_ptr<MowContext> _mow_context;
     size_t _num_columns;
     int32_t _seq_col_idx_in_block = -1;
+    PartialUpdateInfo* _partial_update_info = nullptr;
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
