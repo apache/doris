@@ -953,8 +953,8 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
         _convert_block_to_null(block);
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
-            assert_cast<ColumnNullable*>(
-                    (*std::move(block.safe_get_by_position(i).column)).mutate().get())
+            auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
+            assert_cast<ColumnNullable*>(column->assume_mutable().get())
                     ->get_null_map_column()
                     .get_data()
                     .data()[0] = 1;

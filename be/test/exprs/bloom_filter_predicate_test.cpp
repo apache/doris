@@ -53,9 +53,6 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_int_test) {
     // test not exist val
     int not_exist_val = 0x3355ff;
     EXPECT_FALSE(func->find((const void*)&not_exist_val));
-    // TEST null value
-    func->insert(nullptr);
-    func->find(nullptr);
 }
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {

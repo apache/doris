@@ -22,8 +22,6 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <span>
-
 #include "common/compiler_util.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
@@ -260,7 +258,8 @@ public:
     template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join, bool need_judge_null>
     auto find_batch(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                     int probe_idx, uint32_t build_idx, int probe_rows,
-                    uint32_t* __restrict probe_idxs, bool& probe_visited, uint32_t* __restrict build_idxs,
+                    uint32_t* __restrict probe_idxs, bool& probe_visited,
+                    uint32_t* __restrict build_idxs,
                     doris::vectorized::ColumnFilterHelper* mark_column) {
         if constexpr (is_mark_join) {
             return _find_batch_mark<JoinOpType>(keys, bucket_nums, probe_idx, probe_rows,
@@ -277,7 +276,8 @@ public:
                       JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                       JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN) {
             return _find_batch_inner_outer_join<JoinOpType>(keys, bucket_nums, probe_idx, build_idx,
-                                                            probe_rows, probe_idxs, probe_visited, build_idxs);
+                                                            probe_rows, probe_idxs, probe_visited,
+                                                            build_idxs);
         }
         if constexpr (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
                       JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
@@ -392,29 +392,6 @@ private:
         return std::tuple {probe_idx, 0U, matched_cnt};
     }
 
-    auto _find_batch_left_semi_anti_conjunct(const Key* __restrict keys,
-                                             const uint32_t* __restrict bucket_nums, int probe_idx,
-                                             int probe_rows, uint32_t* __restrict probe_idxs,
-                                             uint32_t* __restrict build_idxs) {
-        auto matched_cnt = 0;
-        const auto batch_size = max_batch_size;
-
-        while (probe_idx < probe_rows && matched_cnt < batch_size) {
-            auto build_idx = first[bucket_nums[probe_idx]];
-
-            while (build_idx) {
-                if (keys[probe_idx] == build_keys[build_idx]) {
-                    probe_idxs[matched_cnt] = probe_idx;
-                    build_idxs[matched_cnt] = build_idx;
-                    matched_cnt++;
-                }
-                build_idx = next[build_idx];
-            }
-            probe_idx++;
-        }
-        return std::tuple {probe_idx, 0U, matched_cnt};
-    }
-
     template <int JoinOpType>
     auto _find_batch_conjunct(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                               int probe_idx, uint32_t build_idx, int probe_rows,
@@ -442,7 +419,9 @@ private:
             }
 
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
-                          JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
+                          JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
+                          JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
+                          JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
                 // may over batch_size when emplace 0 into build_idxs
                 if (!build_idx) {
                     probe_idxs[matched_cnt] = probe_idx;
@@ -471,8 +450,7 @@ private:
     auto _find_batch_inner_outer_join(const Key* __restrict keys,
                                       const uint32_t* __restrict bucket_nums, int probe_idx,
                                       uint32_t build_idx, int probe_rows,
-                                      uint32_t* __restrict probe_idxs,
-                                      bool& probe_visited,
+                                      uint32_t* __restrict probe_idxs, bool& probe_visited,
                                       uint32_t* __restrict build_idxs) {
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
