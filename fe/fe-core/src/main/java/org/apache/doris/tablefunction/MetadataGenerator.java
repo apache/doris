@@ -149,6 +149,7 @@ public class MetadataGenerator {
                     }
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.operation()));
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.manifestListLocation()));
+                    trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(snapshot.summary())));
 
                     dataBatch.add(trow);
                 }
