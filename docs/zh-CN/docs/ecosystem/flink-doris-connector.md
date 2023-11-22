@@ -422,7 +422,7 @@ WITH (
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
-## 使用FlinkCDC接入多表或整库示例
+## 使用FlinkCDC接入多表或整库(支持MySQL,Oracle,PostgreSQL,SQLServer)
 ### 语法
 ```shell
 <FLINK_HOME>bin/flink run \
@@ -461,7 +461,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 >注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-${version}.jar，flink-sql-connector-oracle-cdc-${version}.jar
 
-### MySQL同步示例
+### MySQL多表同步示例
 ```shell
 <FLINK_HOME>bin/flink run \
     -Dexecution.checkpointing.interval=10s \
@@ -484,7 +484,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
     --table-conf replication_num=1 
 ```
 
-### Oracle同步示例
+### Oracle多表同步示例
 
 ```shell
 <FLINK_HOME>bin/flink run \
@@ -509,7 +509,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
      --table-conf replication_num=1
 ```
 
-### PostgreSQL同步示例
+### PostgreSQL多表同步示例
 
 ```shell
 <FLINK_HOME>/bin/flink run \
@@ -536,7 +536,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
      --table-conf replication_num=1
 ```
 
-### SQLServer同步示例
+### SQLServer多表同步示例
 
 ```shell
 <FLINK_HOME>/bin/flink run \

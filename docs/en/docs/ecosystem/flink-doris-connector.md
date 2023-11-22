@@ -417,7 +417,7 @@ WITH (
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
-## Use FlinkCDC to access multi-table or whole database example
+## Use FlinkCDC to access multiple tables or the entire database (Supports MySQL, Oracle, PostgreSQL, SQLServer)
 
 ### grammar
 
