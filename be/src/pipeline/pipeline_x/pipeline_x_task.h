@@ -107,7 +107,6 @@ public:
         std::vector<DependencySPtr> {}.swap(_downstream_dependency);
         DependencyMap {}.swap(_upstream_dependency);
 
-        _source_dependency.clear();
         _local_exchange_state = nullptr;
     }
 
