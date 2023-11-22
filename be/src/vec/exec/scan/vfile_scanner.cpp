@@ -31,10 +31,6 @@
 #include <tuple>
 #include <utility>
 
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/format/wal/wal_reader.h"
-
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -53,6 +49,7 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -66,6 +63,7 @@
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exec/format/wal/wal_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -166,6 +164,8 @@ Status VFileScanner::prepare(
                 ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
         _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
         _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileNumber", TUnit::UNIT);
+        _has_fully_rf_file_counter =
+                ADD_COUNTER(_parent->_scanner_profile, "HasFullyRfFileNumber", TUnit::UNIT);
     } else {
         _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
         _open_reader_timer =
@@ -182,6 +182,8 @@ Status VFileScanner::prepare(
         _empty_file_counter =
                 ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
         _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
+        _has_fully_rf_file_counter =
+                ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
     }
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
@@ -208,6 +210,10 @@ Status VFileScanner::prepare(
             RETURN_IF_ERROR(conjunct->prepare(_state, *_src_row_desc));
             RETURN_IF_ERROR(conjunct->open(_state));
         }
+
+        _dest_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
+                                               std::vector<TupleId>({_output_tuple_desc->id()}),
+                                               std::vector<bool>({false})));
     }
 
     _default_val_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -218,7 +224,9 @@ Status VFileScanner::prepare(
 }
 
 Status VFileScanner::_process_conjuncts_for_dict_filter() {
-    for (auto& conjunct : _conjuncts) {
+    _slot_id_to_filter_conjuncts.clear();
+    _not_single_slot_filter_conjuncts.clear();
+    for (auto& conjunct : _push_down_conjuncts) {
         auto impl = conjunct->root()->get_impl();
         // If impl is not null, which means this a conjuncts from runtime filter.
         auto cur_expr = impl ? impl : conjunct->root();
@@ -242,6 +250,22 @@ Status VFileScanner::_process_conjuncts_for_dict_filter() {
         } else {
             _not_single_slot_filter_conjuncts.emplace_back(conjunct);
         }
+    }
+    return Status::OK();
+}
+
+Status VFileScanner::_process_late_arrival_conjuncts() {
+    if (_push_down_conjuncts.size() < _conjuncts.size()) {
+        _push_down_conjuncts.clear();
+        _push_down_conjuncts.resize(_conjuncts.size());
+        for (size_t i = 0; i != _conjuncts.size(); ++i) {
+            RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
+        }
+        RETURN_IF_ERROR(_process_conjuncts_for_dict_filter());
+        _discard_conjuncts();
+    }
+    if (_applied_rf_num == _total_rf_num) {
+        COUNTER_UPDATE(_has_fully_rf_file_counter, 1);
     }
     return Status::OK();
 }
@@ -304,10 +328,6 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             // Some of column in block may not be filled (column not exist in file)
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
-        }
-        if (_params->format_type == TFileFormatType::FORMAT_WAL) {
-            block->swap(*_src_block_ptr);
-            break;
         }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
@@ -442,14 +462,29 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
 }
 
 Status VFileScanner::_fill_columns_from_path(size_t rows) {
-    for (auto& kv : *_partition_columns) {
+    DataTypeSerDe::FormatOptions _text_formatOptions;
+    for (auto& kv : _partition_col_descs) {
         auto doris_column = _src_block_ptr->get_by_name(kv.first).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
-        if (!_text_converter->write_vec_column(slot_desc, col_ptr, const_cast<char*>(value.c_str()),
-                                               value.size(), true, false, rows)) {
+        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
+        Slice slice(value.data(), value.size());
+        vector<Slice> slices(rows);
+        for (int i = 0; i < rows; i++) {
+            slices[i] = {value.data(), value.size()};
+        }
+        int num_deserialized = 0;
+        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
+                                                             _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
+        }
+        if (num_deserialized != rows) {
+            return Status::InternalError(
+                    "Failed to fill partition column: {}={} ."
+                    "Number of rows expected to be written : {}, number of rows actually written : "
+                    "{}",
+                    slot_desc->col_name(), value, num_deserialized, rows);
         }
     }
     return Status::OK();
@@ -461,7 +496,7 @@ Status VFileScanner::_fill_missing_columns(size_t rows) {
     }
 
     SCOPED_TIMER(_fill_missing_columns_timer);
-    for (auto& kv : *_missing_columns) {
+    for (auto& kv : _missing_col_descs) {
         if (kv.second == nullptr) {
             // no default column, fill with null
             auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
@@ -507,7 +542,7 @@ Status VFileScanner::_pre_filter_src_block() {
         auto old_rows = _src_block_ptr->rows();
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctxs, _src_block_ptr,
                                                                origin_column_num));
-        _counter.num_rows_unselected += old_rows - _src_block.rows();
+        _counter.num_rows_unselected += old_rows - _src_block_ptr->rows();
     }
     return Status::OK();
 }
@@ -519,17 +554,24 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
 
     SCOPED_TIMER(_convert_to_output_block_timer);
     // The block is passed from scanner context's free blocks,
-    // which is initialized by src columns.
-    // But for load job, the block should be filled with dest columns.
-    // So need to clear it first.
-    block->clear();
+    // which is initialized by output columns
+    // so no need to clear it
+    // block->clear();
 
     int ctx_idx = 0;
-    size_t rows = _src_block.rows();
+    size_t rows = _src_block_ptr->rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
 
-    for (auto slot_desc : _output_tuple_desc->slots()) {
+    // After convert, the column_ptr should be copied into output block.
+    // Can not use block->insert() because it may cause use_count() non-zero bug
+    MutableBlock mutable_output_block =
+            VectorizedUtils::build_mutable_mem_reuse_block(block, *_dest_row_desc);
+    auto& mutable_output_columns = mutable_output_block.mutable_columns();
+
+    // for (auto slot_desc : _output_tuple_desc->slots()) {
+    for (int i = 0; i < mutable_output_columns.size(); ++i) {
+        auto slot_desc = _output_tuple_desc->slots()[i];
         if (!slot_desc->is_materialized()) {
             continue;
         }
@@ -539,8 +581,8 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         auto& ctx = _dest_vexpr_ctx[dest_index];
         int result_column_id = -1;
         // PT1 => dest primitive type
-        RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-        column_ptr = _src_block.get_by_position(result_column_id).column;
+        RETURN_IF_ERROR(ctx->execute(_src_block_ptr, &result_column_id));
+        column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
         DCHECK(column_ptr != nullptr);
@@ -553,16 +595,16 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
                     if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
-                        !_src_block.get_by_position(_dest_slot_to_src_slot_index[dest_index])
+                        !_src_block_ptr->get_by_position(_dest_slot_to_src_slot_index[dest_index])
                                  .column->is_null_at(i)) {
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
-                                    return _src_block.dump_one_line(i, _num_of_columns_from_file);
+                                    return _src_block_ptr->dump_one_line(i,
+                                                                         _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
-                                    auto raw_value =
-                                            _src_block.get_by_position(ctx_idx).column->get_data_at(
-                                                    i);
+                                    auto raw_value = _src_block_ptr->get_by_position(ctx_idx)
+                                                             .column->get_data_at(i);
                                     std::string raw_string = raw_value.to_string();
                                     fmt::memory_buffer error_msg;
                                     fmt::format_to(error_msg,
@@ -577,7 +619,8 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                     } else if (!slot_desc->is_nullable()) {
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
-                                    return _src_block.dump_one_line(i, _num_of_columns_from_file);
+                                    return _src_block_ptr->dump_one_line(i,
+                                                                         _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
                                     fmt::memory_buffer error_msg;
@@ -598,14 +641,12 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         } else if (slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
-        block->insert(dest_index, vectorized::ColumnWithTypeAndName(std::move(column_ptr),
-                                                                    slot_desc->get_data_type_ptr(),
-                                                                    slot_desc->col_name()));
+        mutable_output_columns[i]->insert_range_from(*column_ptr, 0, rows);
         ctx_idx++;
     }
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
-    _src_block.clear();
+    _src_block_ptr->clear();
 
     size_t dest_size = block->columns();
     // do filter
@@ -741,12 +782,8 @@ Status VFileScanner::_get_next_reader() {
                 SCOPED_TIMER(_open_reader_timer);
                 RETURN_IF_ERROR(parquet_reader->open());
             }
-            if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
-                _push_down_conjuncts.resize(_conjuncts.size());
-                for (size_t i = 0; i != _conjuncts.size(); ++i) {
-                    RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
-                }
-                _discard_conjuncts();
+            if (push_down_predicates) {
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
@@ -777,12 +814,8 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
-            if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
-                _push_down_conjuncts.resize(_conjuncts.size());
-                for (size_t i = 0; i != _conjuncts.size(); ++i) {
-                    RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
-                }
-                _discard_conjuncts();
+            if (push_down_predicates) {
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "transactional_hive") {
@@ -893,9 +926,8 @@ Status VFileScanner::_get_next_reader() {
 }
 
 Status VFileScanner::_generate_fill_columns() {
-    _partition_columns.reset(
-            new std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>());
-    _missing_columns.reset(new std::unordered_map<std::string, VExprContextSPtr>());
+    _partition_col_descs.clear();
+    _missing_col_descs.clear();
 
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
@@ -910,10 +942,10 @@ Status VFileScanner::_generate_fill_columns() {
                 const char* data = column_from_path.c_str();
                 size_t size = column_from_path.size();
                 if (size == 4 && memcmp(data, "null", 4) == 0) {
-                    data = TextConverter::NULL_STR;
+                    data = const_cast<char*>("\\N");
                 }
-                _partition_columns->emplace(slot_desc->col_name(),
-                                            std::make_tuple(data, slot_desc));
+                _partition_col_descs.emplace(slot_desc->col_name(),
+                                             std::make_tuple(data, slot_desc));
             }
         }
     }
@@ -932,16 +964,11 @@ Status VFileScanner::_generate_fill_columns() {
                 return Status::InternalError("failed to find default value expr for slot: {}",
                                              slot_desc->col_name());
             }
-            _missing_columns->emplace(slot_desc->col_name(), it->second);
+            _missing_col_descs.emplace(slot_desc->col_name(), it->second);
         }
     }
 
-    RETURN_IF_ERROR(_cur_reader->set_fill_columns(*_partition_columns, *_missing_columns));
-    if (_cur_reader->fill_all_columns()) {
-        _partition_columns.reset(nullptr);
-        _missing_columns.reset(nullptr);
-    }
-    return Status::OK();
+    return _cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs);
 }
 
 Status VFileScanner::_init_expr_ctxes() {
@@ -976,9 +1003,8 @@ Status VFileScanner::_init_expr_ctxes() {
         auto slot_id = slot_info.slot_id;
         auto it = full_src_slot_map.find(slot_id);
         if (it == std::end(full_src_slot_map)) {
-            std::stringstream ss;
-            ss << "Unknown source slot descriptor, slot_id=" << slot_id;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    fmt::format("Unknown source slot descriptor, slot_id={}", slot_id));
         }
         if (slot_info.is_file_slot) {
             _file_slot_descs.emplace_back(it->second);
@@ -1055,10 +1081,6 @@ Status VFileScanner::_init_expr_ctxes() {
                 }
             }
         }
-    }
-    // TODO: It should can move to scan node to process.
-    if (!_conjuncts.empty()) {
-        static_cast<void>(_process_conjuncts_for_dict_filter());
     }
     return Status::OK();
 }

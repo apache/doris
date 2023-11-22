@@ -29,7 +29,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "util/quantile_state.h"
@@ -195,8 +194,8 @@ public:
                 block.get_by_position(arguments.back()).column);
 
         if (!percent_arg) {
-            LOG(FATAL) << fmt::format(
-                    "Second argument to {} must be a constant string describing type", get_name());
+            return Status::InternalError(
+                    "Second argument to {} must be a constant float describing type", get_name());
         }
         float percent_arg_value = percent_arg->get_value<Float32>();
         if (percent_arg_value < 0 || percent_arg_value > 1) {

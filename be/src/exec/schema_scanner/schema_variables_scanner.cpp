@@ -98,7 +98,7 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
             datas[idx] = strs + idx;
             ++idx;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 0, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
     // value
     {
@@ -109,7 +109,7 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
             datas[idx] = strs + idx;
             ++idx;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 1, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     return Status::OK();
 }

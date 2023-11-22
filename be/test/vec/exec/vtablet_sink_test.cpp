@@ -378,6 +378,7 @@ public:
 
     void TearDown() override {
         static_cast<void>(io::global_local_filesystem()->delete_directory(wal_dir));
+        SAFE_STOP(_env->_wal_manager);
         SAFE_DELETE(_env->_internal_client_cache);
         SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_master_info);
@@ -959,6 +960,10 @@ TEST_F(VOlapTableSinkTest, group_commit) {
     auto wal_reader = WalReader(wal_path);
     st = wal_reader.init();
     ASSERT_TRUE(st.ok());
+    uint32_t version;
+    std::string col_ids;
+    st = wal_reader.read_header(version, col_ids);
+    ASSERT_TRUE(st.ok());
     st = wal_reader.read_block(pblock);
     ASSERT_TRUE(st.ok());
     vectorized::Block wal_block;
@@ -1085,6 +1090,10 @@ TEST_F(VOlapTableSinkTest, group_commit_with_filter_row) {
     doris::PBlock pblock;
     auto wal_reader = WalReader(wal_path);
     st = wal_reader.init();
+    ASSERT_TRUE(st.ok());
+    uint32_t version;
+    std::string col_ids;
+    st = wal_reader.read_header(version, col_ids);
     ASSERT_TRUE(st.ok());
     st = wal_reader.read_block(pblock);
     ASSERT_TRUE(st.ok());

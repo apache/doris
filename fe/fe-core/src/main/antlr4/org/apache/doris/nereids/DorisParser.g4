@@ -50,7 +50,8 @@ statement
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         propertyClause?
         (AS query)?                                                    #createTable
-    | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
+    | explain? INSERT (INTO | OVERWRITE TABLE)
+        (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -82,6 +83,19 @@ statement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
+    | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
+        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
+        (REFRESH refreshMethod? refreshTrigger?)?
+        (KEY keys=identifierList)?
+        (COMMENT STRING_LITERAL)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
+        propertyClause?
+        AS query                                                        #createMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier              #refreshMTMV
+    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
+       | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
+       | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
+    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
     ;
 
 dataDesc
@@ -109,6 +123,26 @@ dataDesc
     ;
 
 // -----------------Command accessories-----------------
+buildMode
+    : BUILD (IMMEDIATE | DEFERRED)
+    ;
+
+refreshTrigger
+    : ON MANUAL
+    | ON SCHEDULE refreshSchedule
+    ;
+
+refreshSchedule
+    : EVERY INTEGER_VALUE mvRefreshUnit (STARTS STRING_LITERAL)?
+    ;
+
+mvRefreshUnit
+    : SECOND | MINUTE | HOUR | DAY | WEEK
+    ;
+
+refreshMethod
+    : COMPLETE
+    ;
 
 identifierOrText
     : errorCapturingIdentifier
@@ -123,7 +157,7 @@ userIdentify
 
 explain
     : (EXPLAIN planType? | DESC | DESCRIBE)
-          level=(VERBOSE | GRAPH | PLAN)?
+          level=(VERBOSE | TREE | GRAPH | PLAN)?
     ;
 
 planType
@@ -412,7 +446,14 @@ multipartIdentifier
     ;
     
 // ----------------Create Table Fields----------
-    
+simpleColumnDefs
+    : cols+=simpleColumnDef (COMMA cols+=simpleColumnDef)*
+    ;
+
+simpleColumnDef
+    : colName=identifier (COMMENT comment=STRING_LITERAL)?
+    ;
+
 columnDefs
     : cols+=columnDef (COMMA cols+=columnDef)*
     ;
@@ -521,7 +562,7 @@ booleanExpression
     ;
 
 rowConstructor
-    : LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN
+    : LEFT_PAREN namedExpression (COMMA namedExpression)* RIGHT_PAREN
     ;
 
 predicate
@@ -682,12 +723,12 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
+    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING_LITERAL                                                                           #stringLiteral
-    | LEFT_BRACKET items+=constant (COMMA items+=constant)* RIGHT_BRACKET                      #arrayLiteral
-    | LEFT_BRACE items+=constant COLON items+=constant
+    | LEFT_BRACKET (items+=constant)? (COMMA items+=constant)* RIGHT_BRACKET                   #arrayLiteral
+    | LEFT_BRACE (items+=constant COLON items+=constant)?
        (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
     | LEFT_BRACE items+=constant (COMMA items+=constant)* RIGHT_BRACE                          #structLiteral
     ;
@@ -723,7 +764,7 @@ dataType
 primitiveColType:
     | type=TINYINT
     | type=SMALLINT
-    | (SIGNED | UNSIGNED)? type=INT
+    | (SIGNED | UNSIGNED)? type=(INT | INTEGER)
     | type=BIGINT
     | type=LARGEINT
     | type=BOOLEAN
@@ -734,6 +775,8 @@ primitiveColType:
     | type=TIME
     | type=DATEV2
     | type=DATETIMEV2
+    | type=DATEV1
+    | type=DATETIMEV1
     | type=BITMAP
     | type=QUANTILE_STATE
     | type=HLL
@@ -745,7 +788,10 @@ primitiveColType:
     | type=VARCHAR
     | type=CHAR
     | type=DECIMAL
+    | type=DECIMALV2
     | type=DECIMALV3
+    | type=IPV4
+    | type=IPV6
     | type=ALL
     ;
 
@@ -873,10 +919,13 @@ nonReserved
     | DATETIME
     | DATETIMEV2
     | DATEV2
+    | DATETIMEV1
+    | DATEV1
     | DAY
     | DAYS_ADD
     | DAYS_SUB
     | DECIMAL
+    | DECIMALV2
     | DECIMALV3
     | DEFERRED
     | DEMAND
@@ -884,6 +933,7 @@ nonReserved
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
+    | DORIS_INTERNAL_TABLE_ID
     | DYNAMIC
     | ENABLE
     | ENCRYPTKEY
@@ -948,6 +998,7 @@ nonReserved
     | LOCATION
     | LOCK
     | LOGICAL
+    | MANUAL
     | MAP
     | MATERIALIZED
     | MAX
@@ -1023,6 +1074,7 @@ nonReserved
     | ROUTINE
     | S3
     | SAMPLE
+    | SCHEDULE
     | SCHEDULER
     | SCHEMA
     | SECOND
@@ -1056,6 +1108,7 @@ nonReserved
     | TIMESTAMPADD
     | TIMESTAMPDIFF
     | TRANSACTION
+    | TREE
     | TRIGGERS
     | TRUNCATE
     | TYPE

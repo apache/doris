@@ -23,6 +23,7 @@
 #include <gtest/gtest-test-part.h>
 
 #include "gtest/gtest_pred_impl.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"

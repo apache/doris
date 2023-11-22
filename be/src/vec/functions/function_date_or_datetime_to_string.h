@@ -41,6 +41,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
+#include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {

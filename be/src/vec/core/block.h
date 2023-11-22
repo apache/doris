@@ -401,6 +401,10 @@ public:
 
     void clear_same_bit() { row_same_bit.clear(); }
 
+    // return string contains use_count() of each columns
+    // for debug purpose.
+    std::string print_use_count();
+
 private:
     void erase_impl(size_t position);
 };

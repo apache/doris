@@ -92,6 +92,18 @@ public class MovesCacheMap {
         return null;
     }
 
+    public void invalidateTablet(TabletSchedCtx tabletCtx) {
+        Map<TStorageMedium, MovesCache> mediumMoves = cacheMap.get(tabletCtx.getTag());
+        if (mediumMoves != null) {
+            MovesCache cache = mediumMoves.get(tabletCtx.getStorageMedium());
+            if (cache != null) {
+                cache.get().invalidate(tabletCtx.getTabletId());
+            } else {
+                mediumMoves.values().forEach(it -> it.get().invalidate(tabletCtx.getTabletId()));
+            }
+        }
+    }
+
     // For given tablet ctx, find it in cacheMap
     public Pair<PartitionRebalancer.TabletMove, Long> getTabletMove(TabletSchedCtx tabletCtx) {
         for (Map<TStorageMedium, MovesCache> mediumMap : cacheMap.values()) {

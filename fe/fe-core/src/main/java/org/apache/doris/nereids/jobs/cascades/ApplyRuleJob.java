@@ -61,7 +61,7 @@ public class ApplyRuleJob extends Job {
     }
 
     @Override
-    public void execute() throws AnalysisException {
+    public final void execute() throws AnalysisException {
         if (groupExpression.hasApplied(rule)
                 || groupExpression.isUnused()) {
             return;
@@ -73,6 +73,9 @@ public class ApplyRuleJob extends Job {
         for (Plan plan : groupExpressionMatching) {
             List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
+                if (newPlan == plan) {
+                    continue;
+                }
                 CopyInResult result = context.getCascadesContext()
                         .getMemo()
                         .copyIn(newPlan, groupExpression.getOwnerGroup(), false);

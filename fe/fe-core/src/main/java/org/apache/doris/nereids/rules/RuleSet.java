@@ -180,6 +180,14 @@ public class RuleSet {
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .build();
 
+    // left-zig-zag tree is used when column stats are not available.
+    public static final List<Rule> LEFT_ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
+            .add(JoinCommute.LEFT_ZIG_ZAG)
+            .add(InnerJoinLAsscom.LEFT_ZIG_ZAG)
+            .add(InnerJoinLAsscomProject.LEFT_ZIG_ZAG)
+            .addAll(OTHER_REORDER_RULES)
+            .build();
+
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.ZIG_ZAG)
             .add(InnerJoinLAsscom.INSTANCE)
@@ -188,8 +196,6 @@ public class RuleSet {
 
     public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.BUSHY)
-            .add(InnerJoinLAsscom.INSTANCE)
-            .add(InnerJoinLAsscomProject.INSTANCE)
             .add(InnerJoinLeftAssociate.INSTANCE)
             .add(InnerJoinLeftAssociateProject.INSTANCE)
             .add(InnerJoinRightAssociate.INSTANCE)
@@ -220,6 +226,10 @@ public class RuleSet {
 
     public List<Rule> getZigZagTreeJoinReorder() {
         return ZIG_ZAG_TREE_JOIN_REORDER_RULES;
+    }
+
+    public List<Rule> getLeftZigZagTreeJoinReorder() {
+        return LEFT_ZIG_ZAG_TREE_JOIN_REORDER;
     }
 
     public List<Rule> getBushyTreeJoinReorder() {

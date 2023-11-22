@@ -140,7 +140,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
     std::vector<void*> datas(tables_num);
 
     // catalog
-    { static_cast<void>(fill_dest_column_for_range(block, 0, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, null_datas)); }
     // schema
     {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
@@ -148,7 +148,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < tables_num; ++i) {
             datas[i] = &str;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 1, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // name
     {
@@ -159,7 +159,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(src->c_str(), src->size());
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 2, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // definition
     {
@@ -170,7 +170,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(src->c_str(), src->length());
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 3, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // check_option
     {
@@ -179,7 +179,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < tables_num; ++i) {
             datas[i] = &str;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 4, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // is_updatable
     {
@@ -189,7 +189,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < tables_num; ++i) {
             datas[i] = &str;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 5, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
     }
     // definer
     {
@@ -199,7 +199,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < tables_num; ++i) {
             datas[i] = &str;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 6, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
     }
     // security_type
     {
@@ -209,7 +209,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < tables_num; ++i) {
             datas[i] = &str;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 7, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
     }
     // character_set_client
     {
@@ -219,10 +219,10 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < tables_num; ++i) {
             datas[i] = &str;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 8, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
     }
     // collation_connection
-    { static_cast<void>(fill_dest_column_for_range(block, 9, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, null_datas)); }
     return Status::OK();
 }
 

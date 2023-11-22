@@ -48,7 +48,7 @@ public class Numbers extends TableValuedFunction {
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(BigIntType.INSTANCE, (List) getArgumentsTypes());
+        return FunctionSignature.of(BigIntType.INSTANCE, getArgumentsTypes());
     }
 
     @Override

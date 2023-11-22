@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.plans.JoinHint;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Common interface for logical/physical join.
@@ -33,6 +35,11 @@ public interface Join {
     JoinType getJoinType();
 
     List<Expression> getHashJoinConjuncts();
+
+    default List<EqualTo> getEqualToConjuncts() {
+        return getHashJoinConjuncts().stream().filter(EqualTo.class::isInstance).map(EqualTo.class::cast)
+                .collect(Collectors.toList());
+    }
 
     List<Expression> getOtherJoinConjuncts();
 

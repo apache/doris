@@ -23,7 +23,6 @@ import org.apache.doris.thrift.TUnit;
 public class Counter {
     private volatile long value;
     private volatile int type;
-    private volatile boolean remove = false;
     private volatile long level;
 
     public long getValue() {
@@ -70,6 +69,20 @@ public class Counter {
         this.value += other.value;
     }
 
+    public void minValue(Counter other) {
+        if (other == null) {
+            return;
+        }
+        this.value = Math.min(this.value, other.value);
+    }
+
+    public void maxValue(Counter other) {
+        if (other == null) {
+            return;
+        }
+        this.value = Math.max(this.value, other.value);
+    }
+
     public void divValue(long div) {
         if (div <= 0) {
             return;
@@ -82,15 +95,12 @@ public class Counter {
         return ttype == TUnit.TIME_MS || ttype == TUnit.TIME_NS || ttype == TUnit.TIME_S;
     }
 
-    public void setCanRemove() {
-        this.remove = true;
-    }
-
-    public boolean isRemove() {
-        return this.remove;
-    }
-
     public long getLevel() {
         return this.level;
     }
+
+    public String print() {
+        return RuntimeProfile.printCounter(value, getType());
+    }
+
 }

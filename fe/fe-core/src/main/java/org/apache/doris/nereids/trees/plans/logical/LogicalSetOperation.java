@@ -37,6 +37,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -245,7 +246,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
                 boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable();
                 DataType commonType = getAssignmentCompatibleType(
                         leftFields.get(i).getDataType(), rightFields.get(i).getDataType());
-                StructField commonField = leftFields.get(i).withDataTypeAndNulalble(commonType, nullable);
+                StructField commonField = leftFields.get(i).withDataTypeAndNullable(commonType, nullable);
                 commonFields.add(commonField);
             }
             return new StructType(commonFields.build());
@@ -253,6 +254,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         return DataType.fromCatalogType(Type.getAssignmentCompatibleType(
                 left.toCatalogDataType(),
                 right.toCatalogDataType(),
-                false));
+                false,
+                SessionVariable.getEnableDecimal256()));
     }
 }

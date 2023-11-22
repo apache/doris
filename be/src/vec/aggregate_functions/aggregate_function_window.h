@@ -245,6 +245,7 @@ public:
 template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
 struct LeadLagData {
 public:
+    static constexpr bool result_nullable = result_is_nullable;
     void reset() {
         _data_value.reset();
         _default_value.reset();
@@ -389,13 +390,19 @@ template <typename Data>
 class WindowFunctionData final
         : public IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>> {
 public:
-    WindowFunctionData(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types),
-              _argument_type(argument_types[0]) {}
+    WindowFunctionData(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types_),
+              _argument_type(argument_types_[0]) {}
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override { return _argument_type; }
+    DataTypePtr get_return_type() const override {
+        if constexpr (Data::result_nullable) {
+            return make_nullable(_argument_type);
+        } else {
+            return _argument_type;
+        }
+    }
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,

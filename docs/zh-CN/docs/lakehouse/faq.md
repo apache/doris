@@ -84,6 +84,7 @@ under the License.
 
    将 `-Djava.security.krb5.conf=/your-path` 配置项添加到Broker Load启动脚本的 `start_broker.sh` 的 `JAVA_OPTS`里。
 
+8. 当在Catalog里使用Kerberos配置时，不能同时使用`hadoop.username`属性。
 
 ## JDBC Catalog
 
@@ -253,16 +254,7 @@ under the License.
         `dfs.client.hedged.read.threadpool.size` 表示用于 Hedged Read 的线程数，这些线程由一个 HDFS Client 共享。通常情况下，针对一个 HDFS 集群，BE 节点会共享一个 HDFS Client。
 
         `dfs.client.hedged.read.threshold.millis` 是读取阈值，单位毫秒。当一个读请求超过这个阈值未返回时，会触发 Hedged Read。
-
-    - 在 be.conf 中配置参数
-
-        ```
-        enable_hdfs_hedged_read = true
-        hdfs_hedged_read_thread_num = 128
-        hdfs_hedged_read_threshold_time = 500
-        ```
-
-        这种方式会在BE节点全局开启 Hedged Read（默认不开启）。并忽略在创建 Catalog 时设置的 Hedged Read 属性。
+   
 
     开启后，可以在 Query Profile 中看到相关参数：
 
@@ -272,5 +264,10 @@ under the License.
      
     注意，这里的值是单个 HDFS Client 的累计值，而不是单个查询的数值。同一个 HDFS Client 会被多个查询复用。
 
+## DLF Catalog 
 
+1. 使用DLF Catalog时，BE读在取JindoFS数据出现`Invalid address`，需要在`/ets/hosts`中添加日志中出现的域名到IP的映射。
 
+2. 读取数据无权限时，使用`hadoop.username`属性指定有权限的用户。
+
+3. DLF Catalog中的元数据和DLF保持一致。当使用DLF管理元数据时，Hive新导入的分区，可能未被DLF同步，导致出现DLF和Hive元数据不一致的情况，对此，需要先保证Hive元数据被DLF完全同步。

@@ -171,7 +171,7 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("sslCertificatePath")
                 .desc("the sslCertificate path")
-                .build() 
+                .build()
 
         imageOpt = Option.builder("image")
                 .argName("image")

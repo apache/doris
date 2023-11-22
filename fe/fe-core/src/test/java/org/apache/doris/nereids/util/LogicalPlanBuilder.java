@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 
@@ -179,13 +180,19 @@ public class LogicalPlanBuilder {
 
     public LogicalPlanBuilder aggGroupUsingIndex(List<Integer> groupByKeysIndex,
             List<NamedExpression> outputExprsList) {
+        return aggGroupUsingIndexAndSourceRepeat(groupByKeysIndex, outputExprsList, Optional.empty());
+    }
+
+    public LogicalPlanBuilder aggGroupUsingIndexAndSourceRepeat(List<Integer> groupByKeysIndex,
+                                                                List<NamedExpression> outputExprsList,
+                                                                Optional<LogicalRepeat<?>> sourceRepeat) {
         Builder<Expression> groupByBuilder = ImmutableList.builder();
         for (Integer index : groupByKeysIndex) {
             groupByBuilder.add(this.plan.getOutput().get(index));
         }
         List<Expression> groupByKeys = groupByBuilder.build();
 
-        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, sourceRepeat, this.plan);
         return from(agg);
     }
 

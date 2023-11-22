@@ -69,6 +69,7 @@ public:
     }
     void TearDown() override {
         static_cast<void>(io::global_local_filesystem()->delete_directory(wal_dir));
+        SAFE_STOP(_env->_wal_manager);
         SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_internal_client_cache);
         SAFE_DELETE(_env->_master_info);
@@ -77,7 +78,9 @@ public:
     void prepare() { static_cast<void>(io::global_local_filesystem()->create_directory(wal_dir)); }
 
     void createWal(const std::string& wal_path) {
-        auto wal_writer = WalWriter(wal_path);
+        std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes =
+                std::make_shared<std::atomic_size_t>(0);
+        auto wal_writer = WalWriter(wal_path, _all_wal_disk_bytes);
         static_cast<void>(wal_writer.init());
         static_cast<void>(wal_writer.finalize());
     }

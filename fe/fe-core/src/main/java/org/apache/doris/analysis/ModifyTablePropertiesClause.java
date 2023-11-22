@@ -46,6 +46,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private boolean isBeingSynced = false;
 
+    private short minLoadReplicaNum = -1;
+
     public void setIsBeingSynced(boolean isBeingSynced) {
         this.isBeingSynced = isBeingSynced;
     }
@@ -117,6 +119,9 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {
             throw new AnalysisException("Alter tablet type not supported");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM)) {
+            // do nothing, will be alter in Alter.processAlterOlapTable
+            this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
             this.needTableStable = false;
             String storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
@@ -218,6 +223,21 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                 throw new AnalysisException(
                     "Property "
                     + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
+            long groupCommitIntervalMs;
+            String groupCommitIntervalMsStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            try {
+                groupCommitIntervalMs = Long.parseLong(groupCommitIntervalMsStr);
+                if (groupCommitIntervalMs < 0) {
+                    throw new AnalysisException("group_commit_interval_ms can not be less than 0:"
+                                                                                        + groupCommitIntervalMsStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid group_commit_interval_ms format: "
+                                                                                        + groupCommitIntervalMsStr);
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;

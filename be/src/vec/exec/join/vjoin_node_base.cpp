@@ -20,8 +20,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/tracer.h>
 #include <stddef.h>
 
 #include <sstream>
@@ -31,7 +29,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -146,11 +143,9 @@ void VJoinNodeBase::_construct_mutable_join_block() {
             _join_block.insert({type_ptr->create_column(), type_ptr, slot_desc->col_name()});
         }
     }
-    if (_is_mark_join) {
-        _join_block.replace_by_position(
-                _join_block.columns() - 1,
-                remove_nullable(_join_block.get_by_position(_join_block.columns() - 1).column));
-    }
+
+    DCHECK(!_is_mark_join ||
+           _join_block.get_by_position(_join_block.columns() - 1).column->is_nullable());
 }
 
 Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block,

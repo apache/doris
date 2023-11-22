@@ -51,9 +51,17 @@ public:
     Status close(RuntimeState* state) override;
 };
 
+class NestedLoopJoinProbeDependency final : public Dependency {
+public:
+    using SharedState = NestedLoopJoinSharedState;
+    NestedLoopJoinProbeDependency(int id, int node_id)
+            : Dependency(id, node_id, "NestedLoopJoinProbeDependency") {}
+    ~NestedLoopJoinProbeDependency() override = default;
+};
+
 class NestedLoopJoinProbeOperatorX;
 class NestedLoopJoinProbeLocalState final
-        : public JoinProbeLocalState<NestedLoopJoinDependency, NestedLoopJoinProbeLocalState> {
+        : public JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState> {
 public:
     using Parent = NestedLoopJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalState);
@@ -205,12 +213,11 @@ private:
 class NestedLoopJoinProbeOperatorX final
         : public JoinProbeOperatorX<NestedLoopJoinProbeLocalState> {
 public:
-    NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block,
                 SourceState source_state) const override;

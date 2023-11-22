@@ -44,10 +44,10 @@ Status JoinBuildSinkLocalState<DependencyType, Derived>::init(RuntimeState* stat
 }
 
 template <typename LocalStateType>
-JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
+JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
                                                                const TPlanNode& tnode,
                                                                const DescriptorTbl& descs)
-        : DataSinkOperatorX<LocalStateType>(tnode.node_id),
+        : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id),
           _join_op(tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
@@ -115,8 +115,9 @@ void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
 }
 
 template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<HashJoinBuildSinkDependency, HashJoinBuildSinkLocalState>;
 template class JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<NestedLoopJoinDependency, NestedLoopJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+                                       NestedLoopJoinBuildSinkLocalState>;
 
 } // namespace doris::pipeline

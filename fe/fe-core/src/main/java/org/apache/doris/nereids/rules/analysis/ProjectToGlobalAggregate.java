@@ -19,10 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;
@@ -49,7 +46,7 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
            logicalProject().then(project -> {
                boolean needGlobalAggregate = project.getProjects()
                        .stream()
-                       .anyMatch(p -> p.accept(ContainsAggregateChecker.INSTANCE, null));
+                       .anyMatch(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
 
                if (needGlobalAggregate) {
                    return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
@@ -58,33 +55,5 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
                }
            })
         );
-    }
-
-    private static class ContainsAggregateChecker extends DefaultExpressionVisitor<Boolean, Void> {
-
-        private static final ContainsAggregateChecker INSTANCE = new ContainsAggregateChecker();
-
-        @Override
-        public Boolean visit(Expression expr, Void context) {
-            boolean needAggregate = false;
-            for (Expression child : expr.children()) {
-                needAggregate = needAggregate || child.accept(this, context);
-            }
-            return needAggregate;
-        }
-
-        @Override
-        public Boolean visitWindow(WindowExpression windowExpression, Void context) {
-            boolean needAggregate = false;
-            for (Expression child : windowExpression.getExpressionsInWindowSpec()) {
-                needAggregate = needAggregate || child.accept(this, context);
-            }
-            return needAggregate;
-        }
-
-        @Override
-        public Boolean visitAggregateFunction(AggregateFunction aggregateFunction, Void context) {
-            return true;
-        }
     }
 }

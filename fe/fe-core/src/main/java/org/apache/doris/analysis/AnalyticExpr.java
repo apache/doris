@@ -29,6 +29,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Joiner;
@@ -42,6 +44,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Representation of an analytic function call with OVER clause.
@@ -142,6 +145,14 @@ public class AnalyticExpr extends Expr {
 
     public AnalyticWindow getWindow() {
         return window;
+    }
+
+    @Override
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getFnCall().getExprName(), DEFAULT_EXPR_NAME));
+        }
+        return this.exprName.get();
     }
 
     @Override
@@ -355,7 +366,8 @@ public class AnalyticExpr extends Expr {
         Expr rangeExpr = boundary.getExpr();
 
         if (!Type.isImplicitlyCastable(
-                    rangeExpr.getType(), orderByElements.get(0).getExpr().getType(), false)) {
+                    rangeExpr.getType(), orderByElements.get(0).getExpr().getType(), false,
+                    SessionVariable.getEnableDecimal256())) {
             throw new AnalysisException(
                 "The value expression of a PRECEDING/FOLLOWING clause of a RANGE window must "
                 + "be implicitly convertible to the ORDER BY expression's type: "
@@ -561,6 +573,15 @@ public class AnalyticExpr extends Expr {
         standardize(analyzer);
 
         setChildren();
+
+        String functionName = fn.functionName();
+        if (functionName.equalsIgnoreCase("sum") || functionName.equalsIgnoreCase("max")
+                || functionName.equalsIgnoreCase("min") || functionName.equalsIgnoreCase("avg")) {
+            // sum, max, min and avg in window function should be always nullable
+            Function function = fnCall.fn.clone();
+            function.setNullableMode(Function.NullableMode.ALWAYS_NULLABLE);
+            fnCall.setFn(function);
+        }
     }
 
     /**

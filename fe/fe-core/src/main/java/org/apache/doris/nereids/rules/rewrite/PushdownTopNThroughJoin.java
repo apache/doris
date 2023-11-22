@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -57,13 +56,23 @@ public class PushdownTopNThroughJoin implements RewriteRuleFactory {
                         .toRule(RuleType.PUSH_TOP_N_THROUGH_JOIN),
 
                 // topN -> project -> join
-                logicalTopN(logicalProject(logicalJoin()).when(LogicalProject::isAllSlots))
-                        // TODO: complex project
+                logicalTopN(logicalProject(logicalJoin()))
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
                                 .allMatch(Slot.class::isInstance))
                         .then(topN -> {
                             LogicalProject<LogicalJoin<Plan, Plan>> project = topN.child();
                             LogicalJoin<Plan, Plan> join = project.child();
+
+                            // If orderby exprs aren't all in the output of the project, we can't push down.
+                            // topN(order by: slot(a+1))
+                            // - project(a+1, b)
+                            // TODO: in the future, we also can push down it.
+                            Set<Slot> outputSet = project.child().getOutputSet();
+                            if (!topN.getOrderKeys().stream().map(OrderKey::getExpr)
+                                    .flatMap(e -> e.getInputSlots().stream())
+                                    .allMatch(outputSet::contains)) {
+                                return null;
+                            }
 
                             Plan newJoin = pushLimitThroughJoin(topN, join);
                             if (newJoin == null || join.children().equals(newJoin.children())) {
@@ -75,28 +84,33 @@ public class PushdownTopNThroughJoin implements RewriteRuleFactory {
     }
 
     private Plan pushLimitThroughJoin(LogicalTopN<? extends Plan> topN, LogicalJoin<Plan, Plan> join) {
+        List<Slot> orderbySlots = topN.getOrderKeys().stream().map(OrderKey::getExpr)
+                .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN:
-                Set<Slot> rightOutputSet = join.right().getOutputSet();
-                if (topN.getOrderKeys().stream().map(OrderKey::getExpr)
-                        .anyMatch(e -> Utils.isIntersecting(rightOutputSet, e.getInputSlots()))) {
-                    return null;
-                }
-                return join.withChildren(topN.withChildren(join.left()), join.right());
-            case RIGHT_OUTER_JOIN:
-                Set<Slot> leftOutputSet = join.left().getOutputSet();
-                if (topN.getOrderKeys().stream().map(OrderKey::getExpr)
-                        .anyMatch(e -> Utils.isIntersecting(leftOutputSet, e.getInputSlots()))) {
-                    return null;
-                }
-                return join.withChildren(join.left(), topN.withChildren(join.right()));
-            case CROSS_JOIN:
-                List<Slot> orderbySlots = topN.getOrderKeys().stream().map(OrderKey::getExpr)
-                        .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
                 if (join.left().getOutputSet().containsAll(orderbySlots)) {
-                    return join.withChildren(topN.withChildren(join.left()), join.right());
+                    return join.withChildren(
+                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left()),
+                            join.right());
+                }
+                return null;
+            case RIGHT_OUTER_JOIN:
+                if (join.right().getOutputSet().containsAll(orderbySlots)) {
+                    return join.withChildren(
+                            join.left(),
+                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.right()));
+                }
+                return null;
+            case CROSS_JOIN:
+
+                if (join.left().getOutputSet().containsAll(orderbySlots)) {
+                    return join.withChildren(
+                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left()),
+                            join.right());
                 } else if (join.right().getOutputSet().containsAll(orderbySlots)) {
-                    return join.withChildren(join.left(), topN.withChildren(join.right()));
+                    return join.withChildren(
+                            join.left(),
+                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.right()));
                 } else {
                     return null;
                 }

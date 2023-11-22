@@ -18,6 +18,7 @@
 package org.apache.doris.maxcompute;
 
 import com.aliyun.odps.Odps;
+import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.TableSchema;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.tunnel.TableTunnel;
@@ -35,8 +36,8 @@ public class MaxComputeTableScan {
     private final TableTunnel tunnel;
     private final String project;
     private final String table;
-    private volatile TableTunnel.DownloadSession tableSession;
     private volatile long readRows = 0;
+    private long totalRows = 0;
 
     public MaxComputeTableScan(String region, String project, String table,
                                String accessKey, String secretKey, boolean enablePublicAccess) {
@@ -59,13 +60,24 @@ public class MaxComputeTableScan {
         return odps.tables().get(table).getSchema();
     }
 
-    public synchronized TableTunnel.DownloadSession getSession() throws IOException {
-        if (tableSession == null) {
-            try {
-                tableSession = tunnel.createDownloadSession(project, table);
-            } catch (TunnelException e) {
-                throw new IOException(e);
-            }
+    public TableTunnel.DownloadSession openDownLoadSession() throws IOException {
+        TableTunnel.DownloadSession tableSession;
+        try {
+            tableSession = tunnel.getDownloadSession(project, table, null);
+            totalRows = tableSession.getRecordCount();
+        } catch (TunnelException e) {
+            throw new IOException(e);
+        }
+        return tableSession;
+    }
+
+    public TableTunnel.DownloadSession openDownLoadSession(PartitionSpec partitionSpec) throws IOException {
+        TableTunnel.DownloadSession tableSession;
+        try {
+            tableSession = tunnel.getDownloadSession(project, table, partitionSpec, null);
+            totalRows = tableSession.getRecordCount();
+        } catch (TunnelException e) {
+            throw new IOException(e);
         }
         return tableSession;
     }
@@ -76,6 +88,6 @@ public class MaxComputeTableScan {
     }
 
     public boolean endOfScan() {
-        return readRows >= tableSession.getRecordCount();
+        return readRows >= totalRows;
     }
 }

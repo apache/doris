@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
 #include "serde/data_type_array_serde.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -58,17 +59,19 @@ public:
     DataTypeArray(const DataTypePtr& nested_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Array; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        TypeDescriptor desc(TYPE_ARRAY);
+        desc.add_sub_type(nested->get_type_as_type_descriptor());
+        return desc;
+    }
 
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_ARRAY; }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::ARRAY;
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_ARRAY;
     }
 
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
     const char* get_family_name() const override { return "Array"; }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     MutableColumnPtr create_column() const override;
 
@@ -107,8 +110,9 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeArraySerDe>(nested->get_serde());
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeArraySerDe>(nested->get_serde(nesting_level + 1),
+                                                    nesting_level);
     };
 };
 

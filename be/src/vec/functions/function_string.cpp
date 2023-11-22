@@ -967,7 +967,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringElt>();
     factory.register_function<FunctionStringConcatWs>();
     factory.register_function<FunctionStringAppendTrailingCharIfAbsent>();
-    factory.register_function<FunctionStringRepeat<false>>();
+    factory.register_function<FunctionStringRepeat>();
     factory.register_function<FunctionStringLPad>();
     factory.register_function<FunctionStringRPad>();
     factory.register_function<FunctionToBase64>();
@@ -1001,10 +1001,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
     factory.register_alias(FunctionStringDigestOneArg<SM3Sum>::name, "sm3");
     factory.register_alias(FunctionStringDigestSHA1::name, "sha");
-
-    /// @TEMPORARY: for be_exec_version=2
-    factory.register_alternative_function<FunctionStringEltOld>();
-    factory.register_alternative_function<FunctionStringRepeat<true>>();
 }
 
 } // namespace doris::vectorized

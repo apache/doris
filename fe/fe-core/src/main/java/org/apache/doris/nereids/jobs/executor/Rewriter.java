@@ -56,11 +56,13 @@ import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
+import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubquery;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.ExtractAndNormalizeWindowExpression;
@@ -79,11 +81,14 @@ import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
+import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
@@ -91,6 +96,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
+import org.apache.doris.nereids.rules.rewrite.PushdownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
@@ -120,6 +126,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
+                            new EliminateSortUnderSubquery(),
                             new EliminateGroupByConstant(),
                             // MergeProjects depends on this rule
                             new LogicalSubQueryAliasToLogicalProject(),
@@ -146,10 +153,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                     bottomUp(new PullUpProjectUnderApply()),
                     topDown(new PushdownFilterThroughProject()),
-                    costBased(
-                            custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
-                                    AggScalarSubQueryToWindowFunction::new)
-                    ),
+                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
+                            AggScalarSubQueryToWindowFunction::new),
                     bottomUp(
                             new EliminateUselessPlanUnderApply(),
                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -171,6 +176,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateLimit(),
                             new EliminateFilter(),
                             new EliminateAggregate(),
+                            new EliminateJoinCondition(),
                             new EliminateAssertNumRows()
                     )
             ),
@@ -271,23 +277,29 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // ),
 
             topic("Limit optimization",
+                    // TODO: the logical plan should not contains any phase information,
+                    //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
+                    //       generate one PhysicalLimit if current distribution is gather or two
+                    //       PhysicalLimits with gather exchange
+                    topDown(new LimitSortToTopN()),
+                    topDown(new SplitLimit()),
                     topDown(
-                            // TODO: the logical plan should not contains any phase information,
-                            //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
-                            //       generate one PhysicalLimit if current distribution is gather or two
-                            //       PhysicalLimits with gather exchange
-                            new LimitSortToTopN(),
-                            new SplitLimit(),
                             new PushdownLimit(),
                             new PushdownTopNThroughJoin(),
-                            new PushdownTopNThroughWindow(),
-                            new CreatePartitionTopNFromWindow()
+                            new PushdownLimitDistinctThroughJoin(),
+                            new PushdownTopNThroughWindow()
+                    ),
+                    topDown(new CreatePartitionTopNFromWindow()),
+                    topDown(
+                            new PullUpProjectUnderTopN(),
+                            new PullUpProjectUnderLimit()
                     )
             ),
             // TODO: these rules should be implementation rules, and generate alternative physical plans.
             topic("Table/Physical optimization",
                     topDown(
                             new PruneOlapScanPartition(),
+                            new PruneEmptyPartition(),
                             new PruneFileScanPartition(),
                             new PushConjunctsIntoJdbcScan(),
                             new PushConjunctsIntoEsScan()
@@ -309,16 +321,16 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("topn optimize",
                     topDown(new DeferMaterializeTopNResult())
             ),
+            topic("eliminate",
+                    // SORT_PRUNING should be applied after mergeLimit
+                    custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
+                    bottomUp(new EliminateEmptyRelation())
+            ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
                     custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                     custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
-                    topDown(
-                            new PushdownFilterThroughProject(),
-                            new MergeProjects()
-                    ),
-                    // SORT_PRUNING should be applied after mergeLimit
-                    custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
+                    topDown(new PushdownFilterThroughProject(), new MergeProjects()),
                     custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
@@ -332,10 +344,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new CollectFilterAboveConsumer(),
                             new CollectProjectAboveConsumer()
                     )
-            ),
-
-            topic("eliminate empty relation",
-                bottomUp(new EliminateEmptyRelation())
             )
     );
 

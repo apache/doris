@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 #include "common/status.h"
@@ -84,6 +85,8 @@ public:
     Status finish(IndexedColumnMetaPB* meta);
 
     uint64_t disk_size() const { return _disk_size; }
+
+    uint32_t data_page_num() const { return _num_data_pages + 1; }
 
 private:
     Status _finish_current_data_page(size_t& num_val);

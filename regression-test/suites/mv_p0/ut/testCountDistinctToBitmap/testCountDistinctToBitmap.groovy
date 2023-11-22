@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testCountDistinctToBitmap") {
-
+    sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS user_tags; """
 
     sql """ create table user_tags (

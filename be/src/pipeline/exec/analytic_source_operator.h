@@ -46,8 +46,16 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
+class AnalyticSourceDependency final : public Dependency {
+public:
+    using SharedState = AnalyticSharedState;
+    AnalyticSourceDependency(int id, int node_id)
+            : Dependency(id, node_id, "AnalyticSourceDependency") {}
+    ~AnalyticSourceDependency() override = default;
+};
+
 class AnalyticSourceOperatorX;
-class AnalyticLocalState final : public PipelineXLocalState<AnalyticDependency> {
+class AnalyticLocalState final : public PipelineXLocalState<AnalyticSourceDependency> {
 public:
     ENABLE_FACTORY_CREATOR(AnalyticLocalState);
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
@@ -58,8 +66,6 @@ public:
     Status init_result_columns();
 
     Status output_current_block(vectorized::Block* block);
-
-    void release_mem();
 
     bool init_next_partition(vectorized::BlockRowPos found_partition_end);
 
@@ -73,6 +79,22 @@ private:
     void _insert_result_info(int64_t current_block_rows);
 
     void _update_order_by_range();
+    bool _refresh_need_more_input() {
+        auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
+        if (need_more_input) {
+            _dependency->block();
+            _shared_state->sink_dep->set_ready();
+        } else {
+            _shared_state->sink_dep->block();
+            _dependency->set_ready();
+        }
+        return need_more_input;
+    }
+    vectorized::BlockRowPos _get_partition_by_end();
+    vectorized::BlockRowPos _compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
+                                                     vectorized::BlockRowPos end,
+                                                     bool need_check_first = false);
+    bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
     Status _reset_agg_status();
     Status _create_agg_status();
@@ -90,6 +112,8 @@ private:
     vectorized::AggregateDataPtr _fn_place_ptr;
     size_t _agg_functions_size;
     bool _agg_functions_created;
+    bool _current_window_empty = false;
+
     vectorized::BlockRowPos _order_by_start;
     vectorized::BlockRowPos _order_by_end;
     vectorized::BlockRowPos _partition_by_start;
@@ -116,8 +140,8 @@ private:
 
 class AnalyticSourceOperatorX final : public OperatorX<AnalyticLocalState> {
 public:
-    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    Dependency* wait_for_dependency(RuntimeState* state) override;
+    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                            const DescriptorTbl& descs);
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

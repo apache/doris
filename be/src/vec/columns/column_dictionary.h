@@ -105,8 +105,6 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    void protect() override {}
-
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported in ColumnDictionary";
@@ -114,14 +112,11 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "ColumnDictionary get_data_type not implemeted";
-    }
-
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
-    [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
-        LOG(FATAL) << "clone_resized not supported in ColumnDictionary";
+    MutableColumnPtr clone_resized(size_t size) const override {
+        DCHECK(size == 0);
+        return this->create();
     }
 
     void insert(const Field& x) override {
@@ -150,12 +145,6 @@ public:
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported in ColumnDictionary";
     }
-
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not supported in ColumnDictionary";
-    }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
 

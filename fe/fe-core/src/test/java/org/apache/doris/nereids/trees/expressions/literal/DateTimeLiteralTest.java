@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.function.Consumer;
@@ -131,6 +132,7 @@ class DateTimeLiteralTest {
     }
 
     @Test
+    @Disabled("Test results can change over time")
     void testZoneOrOffsetRight() {
         java.util.function.BiConsumer<DateTimeV2Literal, Long> assertHour = (dateTimeV2Literal, expectHour) -> {
             Assertions.assertEquals(dateTimeV2Literal.hour, expectHour);

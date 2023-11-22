@@ -27,7 +27,6 @@
 #include <algorithm>
 #include <boost/algorithm/string/join.hpp>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -171,7 +170,7 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
         return;
     }
     LOG(INFO) << "Going to remove path. path=" << path;
-    Status status = io::global_local_filesystem()->delete_directory(path);
+    Status status = io::global_local_filesystem()->delete_directory_or_file(path);
     if (status.ok()) {
         LOG(INFO) << "Remove path success. path=" << path;
     } else {

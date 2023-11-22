@@ -35,7 +35,6 @@
 #include "vec/core/decimal_comparison.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/functions_logical.h"
@@ -62,10 +61,10 @@ struct NumComparisonImpl {
     static void NO_INLINE vector_vector(const PaddedPODArray<A>& a, const PaddedPODArray<B>& b,
                                         PaddedPODArray<UInt8>& c) {
         size_t size = a.size();
-        const A* a_pos = a.data();
-        const B* b_pos = b.data();
-        UInt8* c_pos = c.data();
-        const A* a_end = a_pos + size;
+        const A* __restrict a_pos = a.data();
+        const B* __restrict b_pos = b.data();
+        UInt8* __restrict c_pos = c.data();
+        const A* __restrict a_end = a_pos + size;
 
         while (a_pos < a_end) {
             *c_pos = Op::apply(*a_pos, *b_pos);
@@ -78,9 +77,9 @@ struct NumComparisonImpl {
     static void NO_INLINE vector_constant(const PaddedPODArray<A>& a, B b,
                                           PaddedPODArray<UInt8>& c) {
         size_t size = a.size();
-        const A* a_pos = a.data();
-        UInt8* c_pos = c.data();
-        const A* a_end = a_pos + size;
+        const A* __restrict a_pos = a.data();
+        UInt8* __restrict c_pos = c.data();
+        const A* __restrict a_end = a_pos + size;
 
         while (a_pos < a_end) {
             *c_pos = Op::apply(*a_pos, b);

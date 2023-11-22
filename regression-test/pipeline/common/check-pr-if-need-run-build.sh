@@ -137,6 +137,7 @@ need_run_regression_p0() {
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'regression-test'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
+            [[ "${af}" == 'docker'* ]] ||
             [[ "${af}" == 'ui'* ]] ||
             [[ "${af}" == 'webroot'* ]] ||
             [[ "${af}" == 'build.sh' ]] ||

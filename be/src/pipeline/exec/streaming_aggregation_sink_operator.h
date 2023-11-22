@@ -75,10 +75,10 @@ private:
 class StreamingAggSinkOperatorX;
 
 class StreamingAggSinkLocalState final
-        : public AggSinkLocalState<AggDependency, StreamingAggSinkLocalState> {
+        : public AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState> {
 public:
     using Parent = StreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<AggDependency, StreamingAggSinkLocalState>;
+    using Base = AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~StreamingAggSinkLocalState() override = default;
@@ -93,10 +93,16 @@ private:
     Status _pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                         doris::vectorized::Block* out_block);
     bool _should_expand_preagg_hash_tables();
-
-    vectorized::Block _preagg_block = vectorized::Block();
-
-    vectorized::PODArray<vectorized::AggregateDataPtr> _places;
+    void _make_nullable_output_key(vectorized::Block* block) {
+        if (block->rows() != 0) {
+            auto& shared_state = *Base ::_shared_state;
+            for (auto cid : shared_state.make_nullable_keys) {
+                block->get_by_position(cid).column =
+                        make_nullable(block->get_by_position(cid).column);
+                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
+            }
+        }
+    }
 
     RuntimeProfile::Counter* _queue_byte_size_counter;
     RuntimeProfile::Counter* _queue_size_counter;
@@ -108,16 +114,12 @@ private:
 
 class StreamingAggSinkOperatorX final : public AggSinkOperatorX<StreamingAggSinkLocalState> {
 public:
-    StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    StreamingAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+                              const DescriptorTbl& descs);
     ~StreamingAggSinkOperatorX() override = default;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._dependency->write_blocked_by();
-    }
 };
 
 } // namespace pipeline

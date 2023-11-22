@@ -32,7 +32,6 @@
 #include <limits>
 
 #include "agent/be_exec_version_manager.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -179,6 +178,9 @@ void Block::insert(size_t position, ColumnWithTypeAndName&& elem) {
 
 void Block::clear_names() {
     index_by_name.clear();
+    for (auto& entry : data) {
+        entry.name.clear();
+    }
 }
 
 void Block::insert(const ColumnWithTypeAndName& elem) {
@@ -672,6 +674,14 @@ void Block::clear() {
     data.clear();
     index_by_name.clear();
     row_same_bit.clear();
+}
+
+std::string Block::print_use_count() {
+    std::stringstream ss;
+    for (auto& d : data) {
+        ss << ", [" << d.name << ", " << d.column->use_count() << "]";
+    }
+    return ss.str();
 }
 
 void Block::clear_column_data(int column_size) noexcept {

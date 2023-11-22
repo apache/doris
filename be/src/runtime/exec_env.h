@@ -33,6 +33,7 @@
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
+#include "olap/tablet_fwd.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
@@ -44,7 +45,8 @@ class DeltaWriterV2Pool;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
-}
+class BlockedTaskScheduler;
+} // namespace pipeline
 namespace taskgroup {
 class TaskGroupManager;
 }
@@ -128,6 +130,9 @@ public:
         return &s_exec_env;
     }
 
+    // Requires ExenEnv ready
+    static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id);
+
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
@@ -162,6 +167,7 @@ public:
     ThreadPool* buffered_reader_prefetch_thread_pool() {
         return _buffered_reader_prefetch_thread_pool.get();
     }
+    ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
 
@@ -263,7 +269,9 @@ public:
         return _inverted_index_query_cache;
     }
 
-    CgroupCpuCtl* get_cgroup_cpu_ctl() { return _cgroup_cpu_ctl.get(); }
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
+        return _global_block_scheduler;
+    }
 
 private:
     ExecEnv();
@@ -309,6 +317,8 @@ private:
     std::unique_ptr<ThreadPool> _download_cache_thread_pool;
     // Threadpool used to prefetch remote file for buffered reader
     std::unique_ptr<ThreadPool> _buffered_reader_prefetch_thread_pool;
+    // Threadpool used to upload local file to s3
+    std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
     // A token used to submit download cache task serially
     std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
     // Pool used by fragment manager to send profile or status to FE coordinator
@@ -368,7 +378,12 @@ private:
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
 
-    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
+    // used for query with group cpu hard limit
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;
+    // used for query without workload group
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
+    // used for query with workload group cpu soft limit
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
 };
 
 template <>

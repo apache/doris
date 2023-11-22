@@ -84,8 +84,7 @@ public class AlterTest {
     public static void beforeClass() throws Exception {
         FeConstants.runningUnitTest = true;
         FeConstants.default_scheduler_interval_millisecond = 100;
-        FeConstants.tablet_checker_interval_ms = 100;
-        FeConstants.tablet_checker_interval_ms = 100;
+        Config.tablet_checker_interval_ms = 100;
         Config.dynamic_partition_check_interval_seconds = 1;
         Config.disable_storage_medium_check = true;
         Config.enable_storage_policy = true;
@@ -219,6 +218,14 @@ public class AlterTest {
         createRemoteStoragePolicy(
                 "CREATE STORAGE POLICY testPolicyAnotherResource\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3_1\",\n"
                         + "  \"cooldown_ttl\" = \"1\"\n" + ");");
+
+        createTable("CREATE TABLE test.tbl_remote1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
+                + ")\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01') ('storage_policy' = 'testPolicy'),\n"
+                + "    PARTITION p3 values less than('2020-04-01'),\n"
+                + "    PARTITION p4 values less than('2020-05-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES" + "(" + "    'replication_num' = '1',\n" + "    'in_memory' = 'false',\n"
+                + "    'storage_medium' = 'SSD',\n" + "    'storage_cooldown_time' = '2100-05-09 00:00:00'\n" + ");");
 
         createTable("CREATE TABLE test.tbl_remote\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
                 + ")\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
@@ -702,6 +709,35 @@ public class AlterTest {
             Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
         }
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
+
+    }
+
+    @Test
+    public void testAlterRemoteStorageTableDataPropertiesPolicy() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tblRemote = (OlapTable) db.getTableOrMetaException("tbl_remote1");
+        Partition p1 = tblRemote.getPartition("p1");
+        Partition p2 = tblRemote.getPartition("p2");
+        Assert.assertEquals(tblRemote.getPartitionInfo().getStoragePolicy(p2.getId()), "testPolicy");
+        Partition p3 = tblRemote.getPartition("p3");
+        Partition p4 = tblRemote.getPartition("p4");
+
+        DateLiteral dateLiteral = new DateLiteral("2100-05-09 00:00:00", Type.DATETIME);
+        long cooldownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+        DataProperty oldDataPropertyWithPolicy = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "testPolicy");
+        List<Partition> partitionList = Lists.newArrayList(p1, p3, p4);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(tblRemote.getPartitionInfo().getStoragePolicy(partition.getId()), "");
+        }
+        Assert.assertEquals(oldDataPropertyWithPolicy, tblRemote.getPartitionInfo().getDataProperty(p2.getId()));
+
+        // alter recover to old state
+        String stmt = "alter table test.tbl_remote1 modify partition (p1, p3, p4) set ("
+                + "'storage_policy' = 'testPolicy')";
+        alterTable(stmt, false);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(tblRemote.getPartitionInfo().getStoragePolicy(partition.getId()), "testPolicy");
+        }
 
     }
 

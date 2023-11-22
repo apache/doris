@@ -115,7 +115,15 @@ Node resource division refers to setting tags for BE nodes in a Doris cluster, a
      │                                                    │
      └────────────────────────────────────────────────────┘
     ```
-    
+
+   For the convenience of setting the data distribution strategy for tables, a unified data distribution strategy can be set at the database level, but the priority of setting tables is higher than that of the database
+
+   ```sql
+   CREATE DATABASE db_name PROPERTIES (
+   "replication_allocation" = "tag.location.group_a:1, tag.location.group_b:1"
+   )
+   ```
+ 
 3. Use different resource groups for data query
 
     After the execution of the first two steps is completed, we can limit a user's query by setting the user's resource usage permissions, and can only use the nodes in the specified resource group to execute.
@@ -130,6 +138,8 @@ Node resource division refers to setting tags for BE nodes in a Doris cluster, a
     
     After the setting is complete, when user1 initiates a query on the UserTable table, it will only access the data copy on the nodes in the `group_a` resource group, and the query will only use the node computing resources in the `group_a` resource group. The query of user3 can use copies and computing resources in any resource group.
     
+    > Note: By default, the user's `resource_tags.location` attribute is empty. In versions prior to 2.0.2 (inclusive), by default, users are not restricted by tags and can use any resource group. After version 2.0.3, users can only use the `default` resource group by default.
+
     In this way, we have achieved physical resource isolation for different user queries by dividing nodes and restricting user resource usage. Furthermore, we can create different users for different business departments and restrict each user from using different resource groups. In order to avoid the use of resource interference between different business parts. For example, there is a business table in the cluster that needs to be shared by all 9 business departments, but it is hoped that resource preemption between different departments can be avoided as much as possible. Then we can create 3 copies of this table and store them in 3 resource groups. Next, we create 9 users for 9 business departments, and limit the use of one resource group for every 3 users. In this way, the degree of competition for resources is reduced from 9 to 3.
     
     On the other hand, for the isolation of online and offline tasks. We can use resource groups to achieve this. For example, we can divide nodes into two resource groups, Online and Offline. The table data is still stored in 3 copies, of which 2 copies are stored in the Online resource group, and 1 copy is stored in the Offline resource group. The Online resource group is mainly used for online data services with high concurrency and low latency. Some large queries or offline ETL operations can be executed using nodes in the Offline resource group. So as to realize the ability to provide online and offline services simultaneously in a unified cluster.
@@ -187,7 +197,7 @@ Through memory and CPU resource limits. We can divide user queries into more fin
 
 ## Best practices and forward compatibility
 
-Tag division and CPU limitation are new features in version 0.15. In order to ensure a smooth upgrade from the old version, Doris has made the following forward compatibility:
+### Tag division and CPU limitation are new features in version 0.15. In order to ensure a smooth upgrade from the old version, Doris has made the following forward compatibility:
 
 1. Each BE node will have a default Tag: `"tag.location": "default"`.
 2. The BE node added through the `alter system add backend` statement will also set Tag: `"tag.location": "default"` by default.
@@ -232,3 +242,30 @@ Here we give an example of the steps to start using the resource division functi
     
 
 Through the above 4 steps, we can smoothly use the resource division function after the original cluster is upgraded.
+
+### How to conveniently set replica distribution strategies when there are many tables
+
+   For example, there is a db1 with four tables under it, and the replica distribution strategy required for table1 is `group_a:1,group_b:2`, the replica distribution strategy required for tables 2, 3, and 4 is `group_c:1,group_b:2`
+
+   Then you can use the following statement to create db1:
+   
+   ```sql
+   CREATE DATABASE db1 PROPERTIES (
+   "replication_allocation" = "tag.location.group_a:1, tag.location.group_b:2"
+   )
+   ```
+
+   Create table1 using the following statement:
+   
+   ```sql
+   CREATE TABLE table1
+   (k1 int, k2 int)
+   distributed by hash(k1) buckets 1
+   properties(
+   "replication_allocation"="tag.location.group_c:1, tag.location.group_b:2"
+   )
+   ```
+
+   The table creation statements for table2, table3, and table4 do not need to specify `replication_allocation` again.
+
+   Note: Changing the replica distribution policy of the database will not affect existing tables.
