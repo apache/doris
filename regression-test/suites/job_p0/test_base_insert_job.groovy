@@ -65,18 +65,33 @@ suite("test_base_insert_job") {
             "replication_allocation" = "tag.location.default: 1"
         );
         """
+
+    sql """drop table if exists `one_time_test_base_insert_job`"""
+    sql """
+        CREATE TABLE IF NOT EXISTS `one_time_test_base_insert_job`
+        (
+            `timestamp` DATE NOT NULL COMMENT "['0000-01-01', '9999-12-31']",
+            `type` TINYINT NOT NULL COMMENT "[-128, 127]",
+            `user_id` BIGINT COMMENT "[-9223372036854775808, 9223372036854775807]"
+        )
+            DUPLICATE KEY(`timestamp`, `type`)
+        DISTRIBUTED BY HASH(`type`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
     def currentMs=System.currentTimeMillis()+1000;
     def   dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(currentMs), ZoneId.systemDefault());
     
     def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     def startTime= dateTime.format(formatter);
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+          CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into one_time_test_base_insert_job (timestamp, type, user_id) values ('2023-03-18','1','12213');
      """
     // Magnify the waiting time. In extreme cases, it may be on the edge of time  window and the execution may just be missed.
     Thread.sleep(5000)
 
-    def datas = sql """select * from ${tableName}"""
+    def datas = sql """select * from one_time_test_base_insert_job"""
     println datas
     assert datas.size() == 1
     try{
