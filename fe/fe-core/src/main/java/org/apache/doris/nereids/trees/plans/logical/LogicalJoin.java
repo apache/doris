@@ -411,9 +411,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         }
 
         boolean isLeftUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.first);
+                .getFunctionalDependencies().isUniqueAndNotNull(keys.first);
         boolean isRightUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.first);
+                .getFunctionalDependencies().isUniqueAndNotNull(keys.first);
         Builder fdBuilder = new Builder();
         if (joinType.isInnerJoin()) {
             // inner join propagate uniforms slots

@@ -22,13 +22,14 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Record functional dependencies, aka func deps, including
- * 1. unique slot: it means the column that has ndv = row count
- * 2. uniform slotL it means the column that has ndv = 1
+ * 1. unique slot: it means the column that has ndv = row count, can be null
+ * 2. uniform slotL it means the column that has ndv = 1, can be null
  */
 public class FunctionalDependencies {
     public static final FunctionalDependencies EMPTY_FUNC_DEPS
@@ -50,10 +51,7 @@ public class FunctionalDependencies {
     }
 
     public boolean isUnique(Set<Slot> slotSet) {
-        if (slotSet.isEmpty()) {
-            return false;
-        }
-        return uniqueSet.containsAnySub(slotSet);
+        return !slotSet.isEmpty() && uniqueSet.containsAnySub(slotSet);
     }
 
     public boolean isUniform(Slot slot) {
@@ -61,7 +59,24 @@ public class FunctionalDependencies {
     }
 
     public boolean isUniform(ImmutableSet<Slot> slotSet) {
-        return uniformSet.contains(slotSet) || slotSet.stream().allMatch(uniformSet::contains);
+        return !slotSet.isEmpty()
+                && (uniformSet.contains(slotSet) || slotSet.stream().allMatch(uniformSet::contains));
+    }
+
+    public boolean isUniqueAndNotNull(Slot slot) {
+        return !slot.nullable() && isUnique(slot);
+    }
+
+    public boolean isUniqueAndNotNull(Set<Slot> slotSet) {
+        return slotSet.stream().noneMatch(Slot::nullable) && isUnique(slotSet);
+    }
+
+    public boolean isUniformAndNotNull(Slot slot) {
+        return !slot.nullable() && isUniform(slot);
+    }
+
+    public boolean isUniformAndNotNull(ImmutableSet<Slot> slotSet) {
+        return slotSet.stream().noneMatch(Slot::nullable) && isUniform(slotSet);
     }
 
     @Override
@@ -121,6 +136,10 @@ public class FunctionalDependencies {
             uniqueSet.removeNotContain(outputSlots);
         }
 
+        public void replace(Map<Slot, Slot> replaceMap) {
+            uniformSet.replace(replaceMap);
+            uniqueSet.replace(replaceMap);
+        }
     }
 
     static class NestedSet {
@@ -165,21 +184,14 @@ public class FunctionalDependencies {
             slotSets = slotSets.stream()
                     .filter(slotSet::containsAll)
                     .collect(Collectors.toSet());
-
         }
 
         public void add(Slot slot) {
-            if (slot.nullable()) {
-                return;
-            }
             slots.add(slot);
         }
 
         public void add(ImmutableSet<Slot> slotSet) {
             if (slotSet.isEmpty()) {
-                return;
-            }
-            if (slotSet.stream().anyMatch(Slot::nullable)) {
                 return;
             }
             if (slotSet.size() == 1) {
@@ -201,6 +213,15 @@ public class FunctionalDependencies {
         @Override
         public String toString() {
             return "{" + slots + slotSets + "}";
+        }
+
+        public void replace(Map<Slot, Slot> replaceMap) {
+            slots = slots.stream()
+                    .map(replaceMap::get)
+                    .collect(Collectors.toSet());
+            slotSets = slotSets.stream()
+                    .map(set -> set.stream().map(replaceMap::get).collect(ImmutableSet.toImmutableSet()))
+                    .collect(Collectors.toSet());
         }
 
         public NestedSet toImmutable() {

@@ -215,7 +215,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         ImmutableSet<Slot> keys = partitionKeys.stream()
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
-        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(keys)
+        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniformAndNotNull(keys)
                 && getPartitionLimit() == 1) {
             Builder builder = new Builder();
             outputSupplier.get().forEach(builder::addUniformSlot);

@@ -250,12 +250,12 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 .collect(ImmutableSet.toImmutableSet());
 
         // if partition by keys are unique, output is uniform
-        if (child(0).getLogicalProperties().getFunctionalDependencies().isUnique(slotSet)) {
+        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniqueAndNotNull(slotSet)) {
             builder.addUniformSlot(namedExpression.toSlot());
         }
 
         // if partition by keys are uniform, output is unique
-        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniform(slotSet)) {
+        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniformAndNotNull(slotSet)) {
             builder.addUniqueSlot(namedExpression.toSlot());
         }
     }

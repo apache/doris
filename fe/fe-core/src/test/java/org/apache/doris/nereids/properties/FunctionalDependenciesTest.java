@@ -59,18 +59,18 @@ class FunctionalDependenciesTest extends TestWithFeService {
         Builder fdBuilder = new Builder();
         fdBuilder.addUniformSlot(slot1);
         FunctionalDependencies fd = fdBuilder.build();
-        Assertions.assertTrue(fd.isUniform(slot1));
-        Assertions.assertFalse(fd.isUniform(slot2));
+        Assertions.assertTrue(fd.isUniformAndNotNull(slot1));
+        Assertions.assertFalse(fd.isUniformAndNotNull(slot2));
         fdBuilder.addUniformSlot(ImmutableSet.of(slot2));
         fd = fdBuilder.build();
-        Assertions.assertTrue(fd.isUniform(slot2));
+        Assertions.assertTrue(fd.isUniformAndNotNull(slot2));
         ImmutableSet<Slot> slotSet = ImmutableSet.of(slot1, slot2, slot3);
         fdBuilder.addUniformSlot(slotSet);
         fd = fdBuilder.build();
-        Assertions.assertTrue(fd.isUniform(slotSet));
-        Assertions.assertFalse(fd.isUniform(ImmutableSet.of(slot1, slot2, slot3, slot4)));
-        Assertions.assertTrue(fd.isUniform(ImmutableSet.of(slot1, slot2)));
-        Assertions.assertFalse(fd.isUniform(ImmutableSet.of(slot3, slot2)));
+        Assertions.assertTrue(fd.isUniformAndNotNull(slotSet));
+        Assertions.assertFalse(fd.isUniformAndNotNull(ImmutableSet.of(slot1, slot2, slot3, slot4)));
+        Assertions.assertTrue(fd.isUniformAndNotNull(ImmutableSet.of(slot1, slot2)));
+        Assertions.assertFalse(fd.isUniformAndNotNull(ImmutableSet.of(slot3, slot2)));
     }
 
     @Test
@@ -78,17 +78,17 @@ class FunctionalDependenciesTest extends TestWithFeService {
         Builder fdBuilder = new Builder();
         fdBuilder.addUniqueSlot(slot1);
         FunctionalDependencies fd = fdBuilder.build();
-        Assertions.assertTrue(fd.isUnique(slot1));
-        Assertions.assertFalse(fd.isUnique(slot2));
+        Assertions.assertTrue(fd.isUniqueAndNotNull(slot1));
+        Assertions.assertFalse(fd.isUniqueAndNotNull(slot2));
         fdBuilder.addUniqueSlot(slot2);
         fd = fdBuilder.build();
-        Assertions.assertTrue(fd.isUnique(slot2));
+        Assertions.assertTrue(fd.isUniqueAndNotNull(slot2));
         ImmutableSet<Slot> slotSet = ImmutableSet.of(slot1, slot2, slot3);
         fdBuilder.addUniqueSlot(slotSet);
         fd = fdBuilder.build();
-        Assertions.assertTrue(fd.isUnique(slotSet));
-        Assertions.assertTrue(fd.isUnique(ImmutableSet.of(slot1, slot2, slot3, slot4)));
-        Assertions.assertFalse(fd.isUnique(ImmutableSet.of(slot3, slot4)));
+        Assertions.assertTrue(fd.isUniqueAndNotNull(slotSet));
+        Assertions.assertTrue(fd.isUniqueAndNotNull(ImmutableSet.of(slot1, slot2, slot3, slot4)));
+        Assertions.assertFalse(fd.isUniqueAndNotNull(ImmutableSet.of(slot3, slot4)));
     }
 
     @Test
@@ -100,8 +100,8 @@ class FunctionalDependenciesTest extends TestWithFeService {
 
         fdBuilder1.addFunctionalDependencies(fdBuilder2.build());
         FunctionalDependencies fd = fdBuilder1.build();
-        Assertions.assertTrue(fd.isUniform(slot1));
-        Assertions.assertTrue(fd.isUniform(slot2));
+        Assertions.assertTrue(fd.isUniformAndNotNull(slot1));
+        Assertions.assertTrue(fd.isUniformAndNotNull(slot2));
     }
 
     @Test
@@ -111,13 +111,13 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
-                .isUnique(plan.getOutput().get(0)));
+                .isUniqueAndNotNull(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
                 .analyze("select id from uni")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
-                .isUnique(plan.getOutput().get(0)));
+                .isUniqueAndNotNull(plan.getOutput().get(0)));
     }
 
     @Test
@@ -127,7 +127,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
-                .isUniform(plan.getOutput().get(0)));
+                .isUniformAndNotNull(plan.getOutput().get(0)));
     }
 
     @Test
@@ -153,7 +153,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id from agg left semi join uni "
@@ -162,7 +162,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select agg.id from agg left anti join uni "
@@ -171,7 +171,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select uni.id from agg right outer join uni "
@@ -180,7 +180,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select uni.id, agg.id from agg inner join uni "
@@ -189,9 +189,9 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(1)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(1)));
     }
 
     @Test
@@ -202,7 +202,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(1)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(1)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select count(1), max(id), id from agg group by id")
@@ -210,11 +210,11 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(1)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(1)));
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(2)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(2)));
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select count(1), id from agg where id = 1 group by id")
@@ -222,9 +222,9 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(1)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(1)));
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select count(name) from agg")
@@ -232,7 +232,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
     }
 
     @Test
@@ -243,7 +243,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select rank() over(partition by name) from agg where name = '1'")
@@ -251,7 +251,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUnique(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select rank() over(partition by name) from agg where name = '1' limit 1")
@@ -261,7 +261,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
         System.out.println(ptopn.getLogicalProperties().getFunctionalDependencies());
         System.out.println(ptopn.getOutput());
         Assertions.assertTrue(ptopn.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(ImmutableSet.copyOf(ptopn.getOutputSet())));
+                .getFunctionalDependencies().isUniformAndNotNull(ImmutableSet.copyOf(ptopn.getOutputSet())));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select rank() over(partition by name) from agg limit 1")
@@ -290,7 +290,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select name from agg order by id limit 1")
@@ -298,6 +298,28 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
+    }
+
+    @Test
+    void testSubQuery() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select id from (select * from agg) t")
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
+    }
+
+    @Test
+    void testCTE() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("with t as (select * from agg) select id from t")
+                .rewrite()
+                .getPlan();
+        System.out.println(plan.treeString());
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
     }
 }

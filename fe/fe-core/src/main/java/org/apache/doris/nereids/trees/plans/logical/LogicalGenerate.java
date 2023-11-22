@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
-import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
@@ -36,12 +36,12 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * plan for table generator, the statement like: SELECT * FROM tbl LATERAL VIEW EXPLODE(c1) g as (gc1);
  */
-public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Generate,
-        BlockFuncDepsPropagation {
+public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Generate {
 
     private final List<Function> generators;
     private final List<Slot> generatorOutput;
@@ -140,5 +140,15 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     @Override
     public int hashCode() {
         return Objects.hash(generators, generatorOutput);
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        outputSupplier.get()
+                .stream()
+                .filter(child(0).getLogicalProperties().getFunctionalDependencies()::isUniform)
+                .forEach(builder::addUniformSlot);
+        return builder.build();
     }
 }

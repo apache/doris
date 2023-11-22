@@ -310,7 +310,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         }
 
         if (ExpressionUtils.isInjectiveAgg(agg)
-                && child().getLogicalProperties().getFunctionalDependencies().isUnique(agg.getInputSlots())) {
+                && child().getLogicalProperties().getFunctionalDependencies().isUniqueAndNotNull(agg.getInputSlots())) {
             fdBuilder.addUniqueSlot(namedExpression.toSlot());
         }
     }
@@ -339,12 +339,12 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
-        if (child().getLogicalProperties().getFunctionalDependencies().isUniform(groupByKeys)) {
+        if (child().getLogicalProperties().getFunctionalDependencies().isUniformAndNotNull(groupByKeys)) {
             fdBuilder.addUniformSlot(child().getLogicalProperties().getFunctionalDependencies());
         }
 
         // when group by all unique slot, the result depends on its agg function
-        if (child().getLogicalProperties().getFunctionalDependencies().isUnique(groupByKeys)) {
+        if (child().getLogicalProperties().getFunctionalDependencies().isUniqueAndNotNull(groupByKeys)) {
             for (NamedExpression namedExpression : getOutputExpressions()) {
                 updateFuncDepsByAggFunc(namedExpression, fdBuilder);
             }
