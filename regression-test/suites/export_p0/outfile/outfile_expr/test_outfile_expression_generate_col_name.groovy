@@ -33,7 +33,7 @@ suite("test_outfile_expression_generate_col_name", "p0") {
     String bucket = getS3BucketName();
 
     def export_table_name = "outfile_expr_export_test"
-    def outFilePath = "${bucket}/outfile/expression_generate_col_name/exp_"
+    def outFilePath = "${bucket}/outfile/expr_generate_col_name/exp_"
 
     def create_table = {
         sql """ DROP TABLE IF EXISTS ${export_table_name} """
