@@ -3409,8 +3409,8 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
             src.segment_id = seg_id;
             DeleteBitmap subset_map(tablet_id());
             input_delete_bitmap.subset_ignore({rowset->rowset_id(), seg_id, start_version},
-                                       {rowset->rowset_id(), seg_id, end_version},
-                                       &subset_map);
+                                              {rowset->rowset_id(), seg_id, end_version},
+                                              &subset_map);
             // traverse all versions and convert rowid
             for (auto iter = subset_map.delete_bitmap.begin();
                  iter != subset_map.delete_bitmap.end(); ++iter) {
