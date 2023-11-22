@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
 
@@ -496,13 +497,19 @@ public class DateTimeExtractAndTransform {
         return new IntegerLiteral(getTimestamp(date.toJavaDateType()));
     }
 
+    /**
+     * date transformation function: unix_timestamp
+     */
     @ExecFunction(name = "unix_timestamp", argTypes = { "DATETIMEV2" }, returnType = "DECIMALV3")
     public static Expression unixTimestamp(DateTimeV2Literal date) {
         if (date.getMicroSecond() == 0) {
-            return new DecimalV3Literal(new BigDecimal(getTimestamp(date.toJavaDateType()).toString()));
+            return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(10, 0),
+                    new BigDecimal(getTimestamp(date.toJavaDateType()).toString()));
         }
+        int scale = date.getDataType().getScale();
         String val = getTimestamp(date.toJavaDateType()).toString() + "." + date.getMicrosecondString();
-        return new DecimalV3Literal(new BigDecimal(val));
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(10 + scale, scale),
+                new BigDecimal(val));
     }
 
     /**

@@ -800,13 +800,14 @@ struct UnixTimeStampDatetimeImplOld : public UnixTimeStampDateImplOld<DateType> 
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 };
 
+// This impl doesn't use default impl to deal null value.
 struct UnixTimeStampStrImpl {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
-        return make_nullable(std::make_shared<DataTypeInt32>());
+        return make_nullable(std::make_shared<DataTypeDecimal<Decimal64>>(16, 6));
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
@@ -815,12 +816,8 @@ struct UnixTimeStampStrImpl {
         const ColumnPtr col_source = block.get_by_position(arguments[0]).column;
         const ColumnPtr col_format = block.get_by_position(arguments[1]).column;
 
-        auto col_result = ColumnVector<Int32>::create();
-        auto null_map = ColumnVector<UInt8>::create();
-
-        col_result->resize(input_rows_count);
-        null_map->resize(input_rows_count);
-
+        auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 0);
+        auto null_map = ColumnVector<UInt8>::create(input_rows_count);
         auto& col_result_data = col_result->get_data();
         auto& null_map_data = null_map->get_data();
 
@@ -833,18 +830,25 @@ struct UnixTimeStampStrImpl {
             StringRef source = col_source->get_data_at(i);
             StringRef fmt = col_format->get_data_at(i);
 
-            VecDateTimeValue ts_value;
+            DateV2Value<DateTimeV2ValueType> ts_value;
             if (!ts_value.from_date_format_str(fmt.data, fmt.size, source.data, source.size)) {
                 null_map_data[i] = true;
                 continue;
             }
 
-            int64_t timestamp {};
+            std::pair<int64_t, int64_t> timestamp {};
             if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                 null_map_data[i] = true;
             } else {
                 null_map_data[i] = false;
-                col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+
+                auto& [sec, ms] = timestamp;
+                sec = UnixTimeStampImpl::trim_timestamp(sec);
+                auto ms_str = std::to_string(ms).substr(0, 6);
+                if (ms_str.empty()) {
+                    ms_str = "0";
+                }
+                col_result_data[i] = Decimal64::from_int_frac(sec, std::stoll(ms_str), 6).value;
             }
         }
 
