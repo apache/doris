@@ -59,6 +59,46 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
 )
 
+list(APPEND UT_FILES
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/MemoryInputStream.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/MemoryOutputStream.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestAttributes.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestBlockBuffer.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestBufferedOutputStream.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestBloomFilter.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestByteRle.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestByteRLEEncoder.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestColumnPrinter.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestColumnReader.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestColumnStatistics.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestCompression.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestDecompression.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestDecimal.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestDictionaryEncoding.cc
+    #${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestDriver.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestInt128.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestMurmur3.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestPredicateLeaf.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestPredicatePushdown.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestReader.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestRleDecoder.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestRleEncoder.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestRLEV2Util.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestSargsApplier.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestSearchArgument.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestStripeIndexStatistics.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestTimestampStatistics.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestTimezone.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestType.cc
+    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestWriter.cc
+)
+
+include_directories(
+  ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/src
+  ${CMAKE_BINARY_DIR}/src/apache-orc/c++/src
+  ${CMAKE_BINARY_DIR}/src/apache-orc/c++/include
+)
+
 add_executable(doris_be_test ${UT_FILES})
 
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
@@ -67,9 +107,11 @@ set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-contro
 if (OS_MACOSX AND ARCH_ARM)
     find_program(DSYMUTIL NAMES dsymutil)
     message(STATUS "dsymutil found: ${DSYMUTIL}")
+    find_program(LLVM_STRIP NAMES llvm-strip)
+    message(STATUS "llvm-strip found: ${LLVM_STRIP}")
     add_custom_command(TARGET doris_be_test POST_BUILD
         COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
-        COMMAND ${CMAKE_STRIP} -S $<TARGET_FILE:doris_be_test>
+        COMMAND ${LLVM_STRIP} --strip-all $<TARGET_FILE:doris_be_test>
     )
 endif()
 

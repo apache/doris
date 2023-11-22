@@ -46,10 +46,6 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         super(extCatalog, id, name, InitDatabaseLog.Type.HMS);
     }
 
-    public HMSExternalDatabase(ExternalCatalog extCatalog, long id, String name, InitDatabaseLog.Type type) {
-        super(extCatalog, id, name, type);
-    }
-
     @Override
     protected HMSExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new HMSExternalTable(tblId, tableName, name, (HMSExternalCatalog) extCatalog);

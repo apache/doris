@@ -45,14 +45,31 @@ if (${MAKE_TEST} STREQUAL "OFF")
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
     install(TARGETS doris_be DESTINATION ${OUTPUT_DIR}/lib/)
 
-    if ("${STRIP_DEBUG_INFO}" STREQUAL "ON")
-        add_custom_command(TARGET doris_be POST_BUILD
-            COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:doris_be> $<TARGET_FILE:doris_be>.dbg
-            COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:doris_be>
-            COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:doris_be>.dbg $<TARGET_FILE:doris_be>
-            )
+    if (OS_MACOSX AND ARCH_ARM AND "${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
+        set(SHOULD_STRIP_DEBUG_INFO "ON")
+    endif()
 
-        install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
-        install(FILES $<TARGET_FILE:doris_be>.dbg DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
+    if ("${STRIP_DEBUG_INFO}" STREQUAL "ON" OR "${SHOULD_STRIP_DEBUG_INFO}" STREQUAL "ON")
+        if (OS_MACOSX)
+            find_program(DSYMUTIL NAMES dsymutil)
+            message(STATUS "dsymutil found: ${DSYMUTIL}")
+            find_program(LLVM_STRIP NAMES llvm-strip)
+            message(STATUS "llvm-strip found: ${LLVM_STRIP}")
+            add_custom_command(TARGET doris_be POST_BUILD
+                COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be>
+                COMMAND ${LLVM_STRIP} --strip-all $<TARGET_FILE:doris_be>
+                COMMAND mkdir -p ${OUTPUT_DIR}/lib
+                COMMAND cp -rf doris_be.dSYM ${OUTPUT_DIR}/lib/
+            )
+        else()
+            add_custom_command(TARGET doris_be POST_BUILD
+                COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:doris_be> $<TARGET_FILE:doris_be>.dbg
+                COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:doris_be>
+                COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:doris_be>.dbg $<TARGET_FILE:doris_be>
+                )
+
+            install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
+            install(FILES $<TARGET_FILE:doris_be>.dbg DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
+        endif()
     endif()
 endif()

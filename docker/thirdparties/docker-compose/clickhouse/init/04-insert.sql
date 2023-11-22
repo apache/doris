@@ -54,4 +54,4 @@ INSERT INTO doris_test.final_test Values (1, 'second');
 
 INSERT INTO doris_test.ts values (1,1694438743);
 
-
+INSERT INTO doris_test.dt_with_tz values(1, '2022-01-02 00:00:00','2022-01-02 00:00:00.000000');
