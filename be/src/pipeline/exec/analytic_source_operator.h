@@ -49,8 +49,8 @@ public:
 class AnalyticSourceDependency final : public Dependency {
 public:
     using SharedState = AnalyticSharedState;
-    AnalyticSourceDependency(int id, int node_id)
-            : Dependency(id, node_id, "AnalyticSourceDependency") {}
+    AnalyticSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AnalyticSourceDependency", query_ctx) {}
     ~AnalyticSourceDependency() override = default;
 };
 

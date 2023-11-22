@@ -28,7 +28,7 @@
 
 namespace doris::pipeline {
 
-void Dependency::add_block_task(PipelineXTask* task) {
+void Dependency::_add_block_task(PipelineXTask* task) {
     DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
             << "Duplicate task: " << task->debug_string();
     _blocked_task.push_back(task);
@@ -54,16 +54,19 @@ void Dependency::set_ready() {
 }
 
 Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
-    if (config::enable_fuzzy_mode && !_ready && _should_log(_watcher.elapsed_time())) {
-        LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                     << _node_id << " block tasks: " << _blocked_task.size()
-                     << "task: " << (task ? task->fragment_context()->debug_string() : "");
+    std::unique_lock<std::mutex> lc(_task_lock);
+    auto ready = _ready.load() || _is_cancelled();
+    if (!ready && !push_to_blocking_queue() && task) {
+        _add_block_task(task);
     }
+    return ready ? nullptr : this;
+}
 
+Dependency* FinishDependency::is_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && !push_to_blocking_queue() && task) {
-        add_block_task(task);
+        _add_block_task(task);
     }
     return ready ? nullptr : this;
 }
@@ -73,9 +76,9 @@ Dependency* RuntimeFilterDependency::is_blocked_by(PipelineXTask* task) {
         return nullptr;
     }
     std::unique_lock<std::mutex> lc(_task_lock);
-    if (*_blocked_by_rf) {
+    if (*_blocked_by_rf && !_is_cancelled()) {
         if (LIKELY(task)) {
-            add_block_task(task);
+            _add_block_task(task);
         }
         return this;
     }
@@ -87,6 +90,15 @@ std::string Dependency::debug_string(int indentation_level) {
     fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
                    _ready);
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string RuntimeFilterDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "{}{}: id={}, block task = {}, ready={}, _filters = {}, _blocked_by_rf = {}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready, _filters.load(), _blocked_by_rf ? _blocked_by_rf->load() : false);
     return fmt::to_string(debug_string_buffer);
 }
 
