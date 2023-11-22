@@ -804,7 +804,10 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeInt64>());
+        if (arguments[0].type->is_nullable()) {
+            return make_nullable(std::make_shared<DataTypeInt64>());
+        }
+        return std::make_shared<DataTypeInt64>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
