@@ -121,7 +121,6 @@ suite("single_table_without_aggregate") {
     def query3_0 = "select O_ORDERKEY, abs(O_TOTALPRICE), date_add(O_ORDERDATE, INTERVAL 2 DAY) " +
             "from orders " +
             "where O_ORDERKEY = 1 and abs(O_TOTALPRICE) > 39"
-    // should support but not
     check_rewrite(mv3_0, query3_0, "mv3_0")
     order_qt_query3_0 "${query3_0}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv3_0 ON orders"""
@@ -169,36 +168,105 @@ suite("single_table_without_aggregate") {
             "from " +
             "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
             "from orders) sub_query"
-    // should support but not, need to fix sub query
+    // should support but not, need to fix sub query with alias
 //    check_rewrite(mv5_0, query5_0, "mv5_0")
     order_qt_query5_0 "${query5_0}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv5_0 ON orders"""
 
+    // select + from + order by limit + sub query
+    def mv5_1 = "select O_ORDERKEY + 10, abs(O_TOTALPRICE), O_ORDERDATE as d " +
+            "from orders sub_query"
+    def query5_1 = "select d from " +
+            "(select O_ORDERKEY + 10, abs(O_TOTALPRICE) + 50, O_ORDERDATE as d " +
+            "from orders " +
+            "order by O_ORDERKEY + 10) sub_query"
+    // should support but not, need to fix sub query with alias
+//    check_rewrite(mv5_1, query5_1, "mv5_1")
+    order_qt_query5_1 "${query5_1}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv5_1 ON orders"""
+    
+
     // select + from + filter + sub query
-    def mv5_1 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
+    def mv5_2 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
             "from orders sub_query "
-    def query5_1 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
+    def query5_2 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
             "from " +
             "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
             "from orders) sub_query " +
             "where sub_query.abs_price > 10"
     // should support but not, need to fix sub query
-//    check_rewrite(mv5_1, query5_1, "mv5_1")
-    order_qt_query5_1 "${query5_1}"
-    sql """DROP MATERIALIZED VIEW IF EXISTS mv5_1 ON orders"""
+//    check_rewrite(mv5_2, query5_2, "mv5_2")
+    order_qt_query5_2 "${query5_2}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv5_2 ON orders"""
 
 
     // select + from + filter + order by + limit + sub query
-    def mv5_2 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
+    def mv5_3 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
             "from orders "
-    def query5_2 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
+    def query5_3 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
             "from " +
             "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
             "from orders) sub_query " +
             "where sub_query.abs_price > 10 " +
             "order by sub_query.O_ORDERKEY limit 10"
     // should support but not, need to fix sub query
-//    check_rewrite(mv5_2, query5_2, "mv5_2")
-    order_qt_query5_2 "${query5_2}"
-    sql """DROP MATERIALIZED VIEW IF EXISTS mv5_2 ON orders"""
+//    check_rewrite(mv5_3, query5_3, "mv5_3")
+    order_qt_query5_3 "${query5_3}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv5_3 ON orders"""
+
+
+    // view = select + from
+    def view6_0_name = "view6_0"
+    sql """drop view if exists ${view6_0_name}"""
+    sql """
+         create view ${view6_0_name} as ${query1_0}
+    """
+    def query6_0 = "SELECT __arithmetic_expr_0, count(*) from " +
+            "${view6_0_name} " +
+            "group by __arithmetic_expr_0"
+    // should support but not
+//    check_rewrite(mv1_0, query6_0, "mv6_0")
+    // order_qt_query6_0 "${query6_0}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv6_0 ON orders"""
+
+    // view = select + from + order by + limit
+    def view6_1_name = "view6_1"
+    sql """drop view if exists ${view6_1_name}"""
+    sql """
+         create view ${view6_1_name} as ${query2_1}
+    """
+    def query6_1 = "select d, count(*) from " +
+            "${view6_1_name} " +
+            "group by d"
+    check_rewrite(mv2_1, query6_1, "mv6_1")
+    order_qt_query6_1 "${query6_1}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv6_1 ON orders"""
+
+    // view = select + from + filter
+    def view6_2_name = "view6_2"
+    sql """drop view if exists ${view6_2_name}"""
+    sql """
+         create view ${view6_2_name} as ${query3_0}
+    """
+    def query6_2 = "select O_ORDERKEY, count(*) from " +
+            "${view6_2_name} " +
+            "group by O_ORDERKEY"
+    // should support but not
+//    check_rewrite(mv3_0, query6_2, "mv6_2")
+    order_qt_query6_2 "${query6_2}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv6_2 ON orders"""
+
+
+    // view = select + from + filter + order by + limit
+    def view6_3_name = "view6_3"
+    sql """drop view if exists ${view6_3_name}"""
+    sql """
+         create view ${view6_3_name} as ${query4_1}
+    """
+    def query6_3 = "select O_ORDERKEY, count(*) from " +
+            "${view6_3_name} " +
+            "group by O_ORDERKEY"
+    check_rewrite(mv4_1, query6_3, "mv6_3")
+    order_qt_query6_3 "${query6_3}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv6_3 ON orders"""
 }
