@@ -645,6 +645,10 @@ Status VerticalSegmentWriter::write_batch() {
         }
         return Status::OK();
     }
+
+    auto mem_tracker = std::make_shared<MemTracker>(
+            fmt::format("Tablet={}:Segment={}", _tablet->tablet_id(), _segment_id));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_tablet_schema->store_row_column() &&
@@ -659,13 +663,21 @@ Status VerticalSegmentWriter::write_batch() {
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
+        LOG(INFO) << "before flush column cid=" << cid << ": "
+                  << MemTracker::log_usage(mem_tracker->make_snapshot());
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
+        LOG(INFO) << "after col_writer->create cid=" << cid << ": "
+                  << MemTracker::log_usage(mem_tracker->make_snapshot());
         for (auto& data : _batched_blocks) {
             _olap_data_convertor->set_source_content_with_specifid_columns(
                     data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid});
+            LOG(INFO) << "after convertor->set cid=" << cid << ": "
+                    << MemTracker::log_usage(mem_tracker->make_snapshot());
 
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(cid);
+            LOG(INFO) << "after convertor->convert cid=" << cid << ": "
+                    << MemTracker::log_usage(mem_tracker->make_snapshot());
             if (!status.ok()) {
                 return status;
             }
@@ -677,7 +689,11 @@ Status VerticalSegmentWriter::write_batch() {
             }
             RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                          data.num_rows));
+            LOG(INFO) << "after col_writer->append cid=" << cid << ": "
+                    << MemTracker::log_usage(mem_tracker->make_snapshot());
             _olap_data_convertor->clear_source_content();
+            LOG(INFO) << "after convertor->clear cid=" << cid << ": "
+                    << MemTracker::log_usage(mem_tracker->make_snapshot());
         }
         if (_data_dir != nullptr &&
             _data_dir->reach_capacity_limit(_column_writers[cid]->estimate_buffer_size())) {
@@ -685,7 +701,11 @@ Status VerticalSegmentWriter::write_batch() {
                                                             _data_dir->path_hash());
         }
         RETURN_IF_ERROR(_column_writers[cid]->finish());
+        LOG(INFO) << "after col_writer->finish cid=" << cid << ": "
+                  << MemTracker::log_usage(mem_tracker->make_snapshot());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
+        LOG(INFO) << "after col_writer->write_data cid=" << cid << ": "
+                  << MemTracker::log_usage(mem_tracker->make_snapshot());
     }
 
     for (auto& data : _batched_blocks) {
