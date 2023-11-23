@@ -249,4 +249,75 @@ suite("test_from_millisecond_microsecond") {
         microsecond_timestamp(from_microsecond(t))
         from millimicro order by id;
     """ 
+
+    // null datetime
+    sql """ DROP TABLE IF EXISTS millimicro """
+    sql """
+        CREATE TABLE IF NOT EXISTS millimicro (
+              `id` INT(11) NULL COMMENT ""   ,
+              `t` Datetime(6) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+    );
+    """
+
+    sql """
+        insert into millimicro values(1,'2023-01-01 00:00:00');
+    """
+    sql """
+        insert into millimicro values(2,'2023-01-01 00:00:00.123');
+    """
+    sql """
+        insert into millimicro values(3,'2023-01-01 00:00:00.123456');
+    """
+
+    qt_select_null_datetime """
+        select 
+        id,
+        SECOND_TIMESTAMP(t),
+        MILLISECOND_TIMESTAMP(t),
+        MICROSECOND_TIMESTAMP(t)
+        from millimicro
+        order by id;
+    """ 
+
+
+    // not null datetime
+    sql """ DROP TABLE IF EXISTS millimicro """
+    sql """
+        CREATE TABLE IF NOT EXISTS millimicro (
+              `id` INT(11) NULL COMMENT ""   ,
+              `t` Datetime(6)  COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+    );
+    """
+
+    sql """
+        insert into millimicro values(1,'2023-01-01 00:00:00');
+    """
+    sql """
+        insert into millimicro values(2,'2023-01-01 00:00:00.123');
+    """
+    sql """
+        insert into millimicro values(3,'2023-01-01 00:00:00.123456');
+    """
+
+    qt_select_not_null_datetime """
+        select 
+        id,
+        SECOND_TIMESTAMP(t),
+        MILLISECOND_TIMESTAMP(t),
+        MICROSECOND_TIMESTAMP(t)
+        from millimicro
+        order by id;
+    """ 
 }
