@@ -69,11 +69,6 @@ public:
         return Status::OK();
     }
 
-    // reset all consumers
-    virtual Status reset_consumers(std::shared_ptr<StreamLoadContext> ctx) {
-        return Status::OK();
-    }
-
 protected:
     UniqueId _grp_id;
     std::vector<std::shared_ptr<DataConsumer>> _consumers;
@@ -100,8 +95,6 @@ public:
     // assign topic partitions to all consumers equally
     Status assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx);
 
-    Status reset_consumers(std::shared_ptr<StreamLoadContext> ctx) override { return Status::OK();}
-
 private:
     // start a single consumer
     void actual_consume(std::shared_ptr<DataConsumer> consumer,
@@ -124,8 +117,6 @@ public:
     // assign topic partitions to all consumers equally
     Status assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx);
 
-    Status reset_consumers(std::shared_ptr<StreamLoadContext> ctx) override;
-
 private:
     // start a single consumer
     void actual_consume(const std::shared_ptr<DataConsumer>& consumer, BlockingQueue<pulsar::Message*>* queue,
@@ -136,6 +127,9 @@ private:
     const char* filter_invalid_prefix_of_json(const char* data, std::size_t size);
 
     size_t len_of_actual_data(const char* data);
+
+    // acknowledge pulsar message
+    void acknowledge_cumulative(std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     // blocking queue to receive msgs from all consumers

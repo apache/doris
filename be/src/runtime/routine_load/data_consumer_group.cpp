@@ -241,15 +241,6 @@ PulsarDataConsumerGroup::~PulsarDataConsumerGroup() {
     DCHECK(_queue.get_size() == 0);
 }
 
-Status PulsarDataConsumerGroup::reset_consumers(std::shared_ptr<StreamLoadContext> ctx) {
-    LOG(INFO) << "reset all consumers of group: " << _consumers << ". size : " << _consumers.size();
-    // cancel all consumers
-    for (auto& consumer : _consumers) {
-        static_cast<void>(consumer->reset());
-    }
-    return Status::OK();
-}
-
 Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx) {
     Status result_st = Status::OK();
     // start all consumers
@@ -336,6 +327,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 ctx->pulsar_info->ack_offset = std::move(ack_offset);
                 ctx->receive_bytes = ctx->max_batch_size - left_bytes;
                 get_backlog_nums(ctx);
+                acknowledge_cumulative(ctx);
                 return Status::OK();
             }
         }
@@ -406,6 +398,22 @@ void PulsarDataConsumerGroup::get_backlog_nums(std::shared_ptr<StreamLoadContext
                     ->partition_backlog[std::static_pointer_cast<PulsarDataConsumer>(consumer)->get_partition()] =
                     backlog_num;
         }
+    }
+}
+
+void PulsarDataConsumerGroup::acknowledge_cumulative(std::shared_ptr<StreamLoadContext> ctx) {
+    for (auto& kv : ctx->pulsar_info->ack_offset) {
+        LOG(INFO) << "start do ack of kv :" << kv;
+        for (auto& consumer : _consumers) {
+            // do ack
+            st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->acknowledge_cumulative(kv.second);
+            if (!st.ok()) {
+                // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << "consumer id : " << consumer->id() << "can not ack" << st;
+            }
+        }
+        LOG(INFO) << "finish do ack of kv :" << kv;
     }
 }
 
