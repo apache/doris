@@ -54,6 +54,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -64,6 +65,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -83,6 +85,9 @@ public abstract class ScanNode extends PlanNode {
     protected Analyzer analyzer;
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
+
+    // create a mapping between output slot's id and project expr
+    Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -603,6 +608,7 @@ public abstract class ScanNode extends PlanNode {
                         }
                         newRhs.add(new SlotRef(slotDesc));
                         allOutputSlotIds.add(slotDesc.getId());
+                        outputSlotToProjectExpr.put(slotDesc.getId(), rhsExpr);
                     } else {
                         newRhs.add(rhs.get(i));
                     }
@@ -611,6 +617,45 @@ public abstract class ScanNode extends PlanNode {
                 }
             }
             outputSmap.updateRhsExprs(newRhs);
+        }
+    }
+
+    @Override
+    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
+        if (outputTupleDesc != null && requiredSlotIdSet != null) {
+            Preconditions.checkNotNull(outputSmap);
+            ArrayList<SlotId> materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
+            Preconditions.checkState(projectList != null && projectList.size() <= materializedSlotIds.size(),
+                    "projectList's size should be less than materializedSlotIds's size");
+            boolean hasNewSlot = false;
+            if (projectList.size() < materializedSlotIds.size()) {
+                // need recreate projectList based on materializedSlotIds
+                hasNewSlot = true;
+            }
+
+            // find new project expr from outputSmap based on requiredSlotIdSet
+            ArrayList<SlotId> allSlots = outputTupleDesc.getAllSlotIds();
+            for (SlotId slotId : requiredSlotIdSet) {
+                if (!materializedSlotIds.contains(slotId) && allSlots.contains(slotId)) {
+                    SlotDescriptor slot = outputTupleDesc.getSlot(slotId.asInt());
+                    for (Expr expr : outputSmap.getRhs()) {
+                        if (expr instanceof SlotRef && ((SlotRef) expr).getSlotId() == slotId) {
+                            slot.setIsMaterialized(true);
+                            outputSlotToProjectExpr.put(slotId, expr.getSrcSlotRef());
+                            hasNewSlot = true;
+                        }
+                    }
+                }
+            }
+
+            if (hasNewSlot) {
+                // recreate the project list
+                projectList.clear();
+                materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
+                for (SlotId slotId : materializedSlotIds) {
+                    projectList.add(outputSlotToProjectExpr.get(slotId));
+                }
+            }
         }
     }
 
