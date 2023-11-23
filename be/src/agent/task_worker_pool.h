@@ -221,6 +221,9 @@ protected:
     // random sleep 1~second seconds
     void _random_sleep(int second);
 
+    // Wait for task arrival or worker stopping. If stop worker return false
+    bool _get_task(TAgentTaskRequest* task);
+
 protected:
     std::string _name;
 
