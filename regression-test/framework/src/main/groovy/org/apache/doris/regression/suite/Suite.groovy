@@ -769,6 +769,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void waitingMTMVTaskFinished(String jobName) {
+        Thread.sleep(2000);
         String showTasks = "SHOW MTMV JOB TASKS FOR ${jobName}"
         List<List<String>> showTaskMetaResult = sql_meta(showTasks)
         println showTaskMetaResult
