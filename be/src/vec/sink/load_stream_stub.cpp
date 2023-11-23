@@ -38,7 +38,7 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
         Status st = Status::create(response.status());
 
         std::stringstream ss;
-        ss << "on_received_messages, load_id = " << _load_id << ", backend_id = " << _dst_id;
+        ss << "on_received_messages, load_id=" << _load_id << ", backend_id=" << _dst_id;
         if (response.success_tablet_ids_size() > 0) {
             ss << ", success tablet ids:";
             for (auto tablet_id : response.success_tablet_ids()) {
@@ -93,7 +93,7 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
 }
 
 void LoadStreamStub::LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
-    LOG(INFO) << "on_closed, load_id = " << _load_id << ", stream_id = " << id;
+    LOG(INFO) << "on_closed, load_id=" << _load_id << ", stream_id=" << id;
     std::lock_guard<bthread::Mutex> lock(_mutex);
     _is_closed.store(true);
     _close_cv.notify_all();
@@ -169,7 +169,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         return Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
                                      cntl.ErrorText());
     }
-    LOG(INFO) << "open load stream " << _stream_id << " load_id = " << print_id(_load_id)
+    LOG(INFO) << "open load stream " << _stream_id << " load_id=" << print_id(_load_id)
               << " for backend " << _dst_id << " (" << host_port << ")";
     _is_init.store(true);
     return Status::OK();
@@ -330,12 +330,12 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
             const timespec time = butil::seconds_from_now(60);
             int wait_ret = brpc::StreamWait(_stream_id, &time);
             if (wait_ret != 0) {
-                return Status::InternalError("StreamWait failed, err = ", wait_ret);
+                return Status::InternalError("StreamWait failed, err=", wait_ret);
             }
             break;
         }
         default:
-            return Status::InternalError("StreamWrite failed, err = {}", ret);
+            return Status::InternalError("StreamWrite failed, err={}", ret);
         }
     }
 }
