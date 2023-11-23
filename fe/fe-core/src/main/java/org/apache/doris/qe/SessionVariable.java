@@ -1366,14 +1366,14 @@ public class SessionVariable implements Serializable, Writable {
     public int tableStatsHealthThreshold = 60;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
-            description = {"是否开启基于结构信息的透明改写",
-                    "Whether to enable materialized rewriting based on struct info"})
+            description = {"是否开启基于结构信息的物化视图透明改写",
+                    "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = false;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
-                    "whether to use a materialized view that contains the foreign table"
-                            + "for rewriting based on struct info"})
+                    "whether to use a materialized view that contains the foreign table "
+                            + "when using rewriting based on struct info"})
     public boolean materializedViewRewriteEnableContainForeignTable = false;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";

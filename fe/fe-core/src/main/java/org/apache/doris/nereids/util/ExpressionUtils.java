@@ -199,13 +199,16 @@ public class ExpressionUtils {
                 .orElse(BooleanLiteral.of(type == And.class));
     }
 
-    // Replace the slot in expression with the lineage identifier from specified
-    // baseTable sets or target table types
-    // example as following:
-    // select a + 10 as a1, d from (
-    //     select b - 5 as a, d from table
-    // );
-    // after shuttle a1 and d is [b - 5 + 10, d]
+    /**
+     * Replace the slot in expression with the lineage identifier from specified
+     * baseTable sets or target table types.
+     * <p>
+     * For example as following:
+     * select a + 10 as a1, d from (
+     * select b - 5 as a, d from table
+     * );
+     * after shuttle a1, d in select will be b - 5 + 10, d
+     */
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expression,
             Plan plan,
             Set<TableType> targetTypes,
@@ -213,8 +216,10 @@ public class ExpressionUtils {
         return ImmutableList.of();
     }
 
-    // Replace the slot in expressions according to the slotMapping
-    // if any slot cannot be mapped then return null
+    /**
+     * Replace the slot in expressions according to the slotMapping
+     * if any slot cannot be mapped then return null
+     */
     public static List<? extends Expression> permute(List<? extends Expression> expressions, SlotMapping slotMapping) {
         return ImmutableList.of();
     }

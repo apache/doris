@@ -113,7 +113,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CTEId> currentTree;
     private final Optional<CascadesContext> parent;
 
-    private List<MaterializationContext> materializationContexts;
+    private final List<MaterializationContext> materializationContexts;
 
     /**
      * Constructor of OptimizerContext.

@@ -55,7 +55,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
     // Only support project, filter, join, logical relation node and
     // join condition should be slot reference equals currently
     @Override
-    protected boolean isPatternSupport(StructInfo structInfo) {
+    protected boolean checkPattern(StructInfo structInfo) {
         // TODO Should get struct info from hyper graph and check
         return false;
     }

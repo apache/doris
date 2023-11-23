@@ -81,9 +81,9 @@ public class ExpressionVisitors {
         public Void visitComparisonPredicate(ComparisonPredicate comparisonPredicate, Void context) {
             // TODO Smallest implement, complete later
             if (comparisonPredicate instanceof EqualTo) {
-                Expression argument0 = comparisonPredicate.getArgument(0);
-                Expression argument1 = comparisonPredicate.getArgument(1);
-                if (argument0.isSlot() && argument1.isSlot()) {
+                Expression leftArgument = comparisonPredicate.getArgument(0);
+                Expression rightArgument = comparisonPredicate.getArgument(1);
+                if (leftArgument.isSlot() && rightArgument.isSlot()) {
                     equalPredicates.add(comparisonPredicate);
                 } else {
                     rangePredicates.add(comparisonPredicate);

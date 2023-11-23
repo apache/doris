@@ -41,6 +41,10 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractMaterializedViewRule {
 
+    /**
+     * The abstract template method for query rewrite, it contains the main logic and different query
+     * pattern should override the sub logic.
+     */
     protected List<Plan> rewrite(Plan queryPlan, CascadesContext cascadesContext) {
         List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
         List<Plan> rewriteResults = new ArrayList<>();
@@ -49,14 +53,14 @@ public abstract class AbstractMaterializedViewRule {
         }
         StructInfo queryStructInfo = extractStructInfo(queryPlan, cascadesContext);
         // Check query queryPlan
-        if (!isPatternSupport(queryStructInfo)) {
+        if (!checkPattern(queryStructInfo)) {
             return rewriteResults;
         }
 
         for (MaterializationContext materializationContext : materializationContexts) {
             Plan mvPlan = materializationContext.getMvPlan();
             StructInfo viewStructInfo = extractStructInfo(mvPlan, cascadesContext);
-            if (!isPatternSupport(viewStructInfo)) {
+            if (!checkPattern(viewStructInfo)) {
                 continue;
             }
             if (!StructInfo.isGraphLogicalEquals(queryStructInfo.getHyperGraph(), viewStructInfo.getHyperGraph())) {
@@ -71,7 +75,7 @@ public abstract class AbstractMaterializedViewRule {
             for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
                 SplitPredicate compensatePredicates = predicatesCompensate(queryStructInfo, viewStructInfo,
                         queryToViewTableMapping);
-                // can not compensate, bail out
+                // Can not compensate, bail out
                 if (compensatePredicates == null || compensatePredicates.isEmpty()) {
                     continue;
                 }
@@ -80,7 +84,7 @@ public abstract class AbstractMaterializedViewRule {
                 if (compensatePredicates.isAlwaysTrue()) {
                     rewritedPlan = mvScan;
                 } else {
-                    // try to rewrite compensate predicates by using mv scan
+                    // Try to rewrite compensate predicates by using mv scan
                     List<NamedExpression> rewriteCompensatePredicates = rewriteExpression(
                             compensatePredicates.toList(),
                             queryStructInfo,
@@ -92,7 +96,7 @@ public abstract class AbstractMaterializedViewRule {
                     }
                     rewritedPlan = new LogicalFilter<>(Sets.newHashSet(rewriteCompensatePredicates), mvScan);
                 }
-                // rewrite query by view
+                // Rewrite query by view
                 rewritedPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo,
                         queryToViewTableMapping, rewritedPlan);
                 if (rewritedPlan == null) {
@@ -104,7 +108,7 @@ public abstract class AbstractMaterializedViewRule {
         return rewriteResults;
     }
 
-    // Rewrite query by view, for aggregate or join rewriting should be different inherit class implementation
+    /**Rewrite query by view, for aggregate or join rewriting should be different inherit class implementation*/
     protected Plan rewriteQueryByView(MatchMode matchMode,
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
@@ -113,7 +117,7 @@ public abstract class AbstractMaterializedViewRule {
         return tempRewritedPlan;
     }
 
-    // Use target targetScanNode output expression to represent the source expression
+    /**Use target output expression to represent the source expression*/
     protected List<NamedExpression> rewriteExpression(List<? extends Expression> sourceExpressions,
             StructInfo sourceStructInfo,
             StructInfo targetStructInfo,
@@ -146,9 +150,10 @@ public abstract class AbstractMaterializedViewRule {
     }
 
     /**
-     * Compensate mv predicates by query predicates, compensate predicate is query based.
-     * Such as a > 5 in mv, and a > 10 in query, the compensatory predicate is a > 10
-     * and a = b in mv, and a = b and c = d in query, the compensatory predicate is c = d
+     * Compensate mv predicates by query predicates, compensate predicate result is query based.
+     * Such as a > 5 in mv, and a > 10 in query, the compensatory predicate is a > 10.
+     * For another example as following:
+     * predicate a = b in mv, and a = b and c = d in query, the compensatory predicate is c = d
      */
     protected SplitPredicate predicatesCompensate(
             StructInfo queryStructInfo,
@@ -166,6 +171,10 @@ public abstract class AbstractMaterializedViewRule {
         return SplitPredicate.empty();
     }
 
+    /**
+     * Decide the match mode
+     * @see MatchMode
+     */
     private MatchMode decideMatchMode(List<CatalogRelation> queryRelations, List<CatalogRelation> viewRelations) {
         List<TableIf> queryTableRefs = queryRelations
                 .stream()
@@ -190,6 +199,9 @@ public abstract class AbstractMaterializedViewRule {
         return MatchMode.NOT_MATCH;
     }
 
+    /**
+     * Extract struct info from plan, support to get struct info from logical plan or plan in group.
+     */
     protected StructInfo extractStructInfo(Plan plan, CascadesContext cascadesContext) {
 
         if (plan.getGroupExpression().isPresent()
@@ -207,7 +219,10 @@ public abstract class AbstractMaterializedViewRule {
         }
     }
 
-    protected boolean isPatternSupport(StructInfo structInfo) {
+    /**
+     * Check the pattern of query or materializedView is supported or not.
+     */
+    protected boolean checkPattern(StructInfo structInfo) {
         if (structInfo.getRelations().isEmpty()) {
             return false;
         }

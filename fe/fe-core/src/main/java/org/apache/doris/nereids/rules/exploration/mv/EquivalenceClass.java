@@ -39,37 +39,37 @@ public class EquivalenceClass {
     /**
      * EquivalenceClass
      */
-    public void addEquivalenceClass(SlotReference slot0, SlotReference slot1) {
+    public void addEquivalenceClass(SlotReference leftSlot, SlotReference rightSlot) {
 
-        Set<SlotReference> slot0Sets = equivalenceSlotMap.get(slot0);
-        Set<SlotReference> slot1Sets = equivalenceSlotMap.get(slot1);
-        if (slot0Sets != null && slot1Sets != null) {
+        Set<SlotReference> leftSlotSet = equivalenceSlotMap.get(leftSlot);
+        Set<SlotReference> rightSlotSet = equivalenceSlotMap.get(rightSlot);
+        if (leftSlotSet != null && rightSlotSet != null) {
             // Both present, we need to merge
-            if (slot0Sets.size() < slot1Sets.size()) {
+            if (leftSlotSet.size() < rightSlotSet.size()) {
                 // We swap them to merge
-                Set<SlotReference> tmp = slot1Sets;
-                slot1Sets = slot0Sets;
-                slot0Sets = tmp;
+                Set<SlotReference> tmp = rightSlotSet;
+                rightSlotSet = leftSlotSet;
+                leftSlotSet = tmp;
             }
-            for (SlotReference newRef : slot1Sets) {
-                slot0Sets.add(newRef);
-                equivalenceSlotMap.put(newRef, slot0Sets);
+            for (SlotReference newRef : rightSlotSet) {
+                leftSlotSet.add(newRef);
+                equivalenceSlotMap.put(newRef, leftSlotSet);
             }
-        } else if (slot0Sets != null) {
-            // slot0Sets present, we need to merge into it
-            slot0Sets.add(slot1);
-            equivalenceSlotMap.put(slot1, slot0Sets);
-        } else if (slot1Sets != null) {
-            // slot1Sets present, we need to merge into it
-            slot1Sets.add(slot0);
-            equivalenceSlotMap.put(slot0, slot1Sets);
+        } else if (leftSlotSet != null) {
+            // leftSlotSet present, we need to merge into it
+            leftSlotSet.add(rightSlot);
+            equivalenceSlotMap.put(rightSlot, leftSlotSet);
+        } else if (rightSlotSet != null) {
+            // rightSlotSet present, we need to merge into it
+            rightSlotSet.add(leftSlot);
+            equivalenceSlotMap.put(leftSlot, rightSlotSet);
         } else {
             // None are present, add to same equivalence class
             Set<SlotReference> equivalenceClass = new LinkedHashSet<>();
-            equivalenceClass.add(slot0);
-            equivalenceClass.add(slot1);
-            equivalenceSlotMap.put(slot0, equivalenceClass);
-            equivalenceSlotMap.put(slot1, equivalenceClass);
+            equivalenceClass.add(leftSlot);
+            equivalenceClass.add(rightSlot);
+            equivalenceSlotMap.put(leftSlot, equivalenceClass);
+            equivalenceSlotMap.put(rightSlot, equivalenceClass);
         }
     }
 
