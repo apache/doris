@@ -15,19 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/function_convert_tz.h"
+#include "runtime/query_context.h"
 
-#include "vec/data_types/data_type_date.h"
-#include "vec/functions/simple_function_factory.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "pipeline/pipeline_fragment_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
-void register_function_convert_tz(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionConvertTZ<DataTypeDate>>();
-    factory.register_function<FunctionConvertTZ<DataTypeDateTime>>();
-    factory.register_function<FunctionConvertTZ<DataTypeDateV2>>();
-    factory.register_function<FunctionConvertTZ<DataTypeDateTimeV2>>();
+bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragment_id) {
+    if (_is_cancelled) {
+        return false;
+    }
+    set_exec_status(new_status);
+    _is_cancelled.store(v);
+
+    set_ready_to_execute(true);
+    {
+        std::lock_guard<std::mutex> plock(pipeline_lock);
+        for (auto& ctx : fragment_id_to_pipeline_ctx) {
+            if (fragment_id == ctx.first) {
+                continue;
+            }
+            ctx.second->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, msg);
+        }
+    }
+    return true;
 }
-
-} // namespace doris::vectorized
+} // namespace doris
