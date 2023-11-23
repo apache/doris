@@ -1561,19 +1561,4 @@ void AggregationNode::_release_mem() {
     std::vector<AggregateDataPtr> tmp_values;
     _values.swap(tmp_values);
 }
-
-Status AggSpillContext::prepare_for_reading() {
-    if (readers_prepared) {
-        return Status::OK();
-    }
-    readers_prepared = true;
-
-    readers.resize(stream_ids.size());
-    auto* manager = ExecEnv::GetInstance()->block_spill_mgr();
-    for (size_t i = 0; i != stream_ids.size(); ++i) {
-        RETURN_IF_ERROR(manager->get_reader(stream_ids[i], readers[i], runtime_profile, true));
-    }
-    return Status::OK();
-}
-
 } // namespace doris::vectorized

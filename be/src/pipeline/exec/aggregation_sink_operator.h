@@ -290,8 +290,23 @@ protected:
 
         return Status::OK();
     }
-    Status _create_agg_status(vectorized::AggregateDataPtr data);
+
     Status _reset_hash_table();
+
+    Status _create_agg_status(vectorized::AggregateDataPtr data) {
+        for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+            try {
+                _aggregate_evaluators[i]->create(data + _offsets_of_aggregate_states[i]);
+            } catch (...) {
+                for (int j = 0; j < i; ++j) {
+                    _aggregate_evaluators[j]->destroy(data + _offsets_of_aggregate_states[j]);
+                }
+                throw;
+            }
+        }
+        return Status::OK();
+    }
+
     // We should call this function only at 1st phase.
     // 1st phase: is_merge=true, only have one SlotRef.
     // 2nd phase: is_merge=false, maybe have multiple exprs.
@@ -324,6 +339,17 @@ protected:
 
     vectorized::AggregatedDataVariants* _agg_data;
     vectorized::Arena* _agg_arena_pool;
+
+    std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
+    size_t _align_aggregate_states = 1;
+    /// The offset to the n-th aggregate function in a row of aggregate functions.
+    vectorized::Sizes _offsets_of_aggregate_states;
+    /// The total size of the row from the aggregate functions.
+    size_t _total_size_of_aggregate_states = 0;
+
+    vectorized::VExprContextSPtrs _probe_expr_ctxs;
+
+    vectorized::AggregateDataContainer* _aggregate_data_container;
 
     using vectorized_execute = std::function<Status(vectorized::Block* block)>;
     using vectorized_update_memusage = std::function<void()>;

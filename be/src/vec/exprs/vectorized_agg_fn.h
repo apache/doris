@@ -68,8 +68,9 @@ public:
     void close(RuntimeState* state);
 
     // create/destroy AGG Data
-    void create(AggregateDataPtr place);
-    void destroy(AggregateDataPtr place);
+    void create(AggregateDataPtr place) { _function->create(place); }
+
+    void destroy(AggregateDataPtr place) { _function->destroy(place); }
 
     // agg_function
     Status execute_single_add(Block* block, AggregateDataPtr place, Arena* arena = nullptr);

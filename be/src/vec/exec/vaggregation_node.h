@@ -36,6 +36,8 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
+#include "runtime/block_spill_manager.h"
+#include "runtime/exec_env.h"
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -358,7 +360,19 @@ struct AggSpillContext {
 
     size_t read_cursor {};
 
-    Status prepare_for_reading();
+    Status prepare_for_reading() {
+        if (readers_prepared) {
+            return Status::OK();
+        }
+        readers_prepared = true;
+
+        readers.resize(stream_ids.size());
+        auto* manager = ExecEnv::GetInstance()->block_spill_mgr();
+        for (size_t i = 0; i != stream_ids.size(); ++i) {
+            RETURN_IF_ERROR(manager->get_reader(stream_ids[i], readers[i], runtime_profile, true));
+        }
+        return Status::OK();
+    }
 
     ~AggSpillContext() {
         for (auto& reader : readers) {

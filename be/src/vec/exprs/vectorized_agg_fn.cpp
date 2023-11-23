@@ -223,14 +223,6 @@ Status AggFnEvaluator::open(RuntimeState* state) {
 
 void AggFnEvaluator::close(RuntimeState* state) {}
 
-void AggFnEvaluator::create(AggregateDataPtr place) {
-    _function->create(place);
-}
-
-void AggFnEvaluator::destroy(AggregateDataPtr place) {
-    _function->destroy(place);
-}
-
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
