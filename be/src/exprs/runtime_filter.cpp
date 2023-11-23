@@ -42,6 +42,7 @@
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "gutil/strings/substitute.h"
+#include "olap/predicate_creator.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
@@ -1311,6 +1312,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
             return Status::InternalError("not found a node id:{}", node_id);
         }
         _probe_expr = iter->second;
+        _slot_id = _get_slot_id(_probe_expr);
     }
 
     if (_state) {
@@ -1791,6 +1793,68 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
     _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
     _profile->add_info_string("UpdateTime",
                               std::to_string(MonotonicMillis() - start_apply) + " ms");
+    return Status::OK();
+}
+
+int IRuntimeFilter::slot_id() const {
+    return _slot_id;
+}
+
+int IRuntimeFilter::_get_slot_id(const TExpr& expr) {
+    for (size_t i = 0; i != expr.nodes.size(); ++i) {
+        if (expr.nodes[i].node_type == TExprNodeType::SLOT_REF) {
+            return expr.nodes[i].slot_ref.slot_id;
+        } else if (expr.nodes[i].node_type != TExprNodeType::CAST_EXPR) {
+            return -1;
+        }
+    }
+    return -1;
+}
+
+RuntimeFilterType IRuntimeFilter::get_real_type() const {
+    return _wrapper->get_real_type();
+}
+
+Status IRuntimeFilter::create_column_predicates(const doris::TabletColumn& column,
+                                                const int column_index,
+                                                std::vector<ColumnPredicate*>& column_predicates,
+                                                vectorized::Arena* arena) const {
+    if (_is_ignored) {
+        return Status::OK();
+    }
+    _wrapper->set_filter_id(_filter_id);
+
+    switch (_wrapper->get_real_type()) {
+    case RuntimeFilterType::MINMAX_FILTER: {
+        // TODO: support min/max
+        break;
+    }
+    case RuntimeFilterType::IN_FILTER: {
+        if (_wrapper->_context.hybrid_set->size() > config::max_pushdown_conditions_per_column) {
+            break;
+        }
+        column_predicates.emplace_back(
+                create_column_predicate(column_index, _wrapper->_context.hybrid_set, column.type(),
+                                        _wrapper->_be_exec_version, &column));
+        break;
+    }
+    case RuntimeFilterType::BLOOM_FILTER: {
+        column_predicates.emplace_back(
+                create_column_predicate(column_index, _wrapper->_context.bloom_filter_func,
+                                        column.type(), _wrapper->_be_exec_version, &column));
+        break;
+    }
+    case RuntimeFilterType::BITMAP_FILTER: {
+        column_predicates.emplace_back(
+                create_column_predicate(column_index, _wrapper->_context.bitmap_filter_func,
+                                        column.type(), _wrapper->_be_exec_version, &column));
+        break;
+    }
+    default:
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "unknown filter type {} to create column predicate",
+                static_cast<int>(_wrapper->get_real_type()));
+    }
     return Status::OK();
 }
 

@@ -160,6 +160,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
 
+    _read_options.late_arrival_predicates = _read_context->late_arrival_predicates;
+
     if (_read_context->predicates_except_leafnode_of_andnode != nullptr) {
         _read_options.column_predicates_except_leafnode_of_andnode.insert(
                 _read_options.column_predicates_except_leafnode_of_andnode.end(),

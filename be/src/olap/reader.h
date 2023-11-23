@@ -53,6 +53,7 @@ class ColumnPredicate;
 class DeleteBitmap;
 class HybridSetBase;
 class RuntimeProfile;
+class IRuntimeFilter;
 
 namespace vectorized {
 class VCollectIterator;
@@ -223,6 +224,9 @@ public:
             const std::vector<RowsetSharedPtr>& input_rowsets,
             TabletReader::ReaderParams* reader_params, vectorized::Block* block);
 
+    Status push_late_arrival_runtime_filter(const IRuntimeFilter* filter,
+                                            const SlotDescriptor* slot_descriptor);
+
 protected:
     friend class vectorized::VCollectIterator;
     friend class DeleteHandler;
@@ -275,6 +279,7 @@ protected:
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
     std::vector<ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _late_arrival_predicates;
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;

@@ -167,10 +167,31 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     // But it is ok because it will be updated at next time.
     if (_parent) {
         RETURN_IF_ERROR(_parent->clone_conjunct_ctxs(_conjuncts));
+        RETURN_IF_ERROR(_push_late_arrival_runtime_filters());
     } else {
+        // TODO: support `_push_late_arrival_runtime_filters` for pipelineX
         RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
     }
     _applied_rf_num = arrived_rf_num;
+    return Status::OK();
+}
+
+Status VScanner::_push_late_arrival_runtime_filters() {
+    std::set<int32_t> pushed_id;
+    for (auto& runtime_filter : _parent->_late_arrival_runtime_filters) {
+        auto filter_id = runtime_filter->filter_id();
+        if (_pushed_runtime_filters_id.contains(filter_id)) {
+            continue;
+        }
+
+        RETURN_IF_ERROR(_push_late_arrival_runtime_filter(runtime_filter));
+
+        pushed_id.insert(filter_id);
+    }
+
+    if (!pushed_id.empty()) {
+        _pushed_runtime_filters_id.insert(pushed_id.cbegin(), pushed_id.cend());
+    }
     return Status::OK();
 }
 

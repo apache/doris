@@ -28,7 +28,7 @@ public:
     RuntimeFilterConsumer(const int32_t filter_id,
                           const std::vector<TRuntimeFilterDesc>& runtime_filters,
                           const RowDescriptor& row_descriptor, VExprContextSPtrs& conjuncts);
-    ~RuntimeFilterConsumer() = default;
+    virtual ~RuntimeFilterConsumer() = default;
 
     Status init(RuntimeState* state);
 
@@ -47,6 +47,11 @@ protected:
     Status _acquire_runtime_filter();
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(const VExprSPtrs& vexprs);
+
+    virtual Status _append_late_arrival_runtime_filter(const IRuntimeFilter* filter, bool& pushed) {
+        pushed = false;
+        return Status::OK();
+    }
 
     void _init_profile(RuntimeProfile* profile);
 

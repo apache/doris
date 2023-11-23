@@ -340,7 +340,15 @@ public:
         return use_batch && (is_int_or_bool(type) || is_float_or_double(type));
     }
 
-    int filter_id() const { return _filter_id; }
+    [[nodiscard]] int filter_id() const { return _filter_id; }
+
+    [[nodiscard]] int slot_id() const;
+
+    Status create_column_predicates(const doris::TabletColumn& column, const int column_index,
+                                    std::vector<ColumnPredicate*>& column_predicates,
+                                    vectorized::Arena* arena) const;
+
+    [[nodiscard]] RuntimeFilterType get_real_type() const;
 
     static std::string to_string(RuntimeFilterType type) {
         switch (type) {
@@ -403,6 +411,8 @@ protected:
 
     void _set_push_down() { _is_push_down = true; }
 
+    int _get_slot_id(const TExpr& expr);
+
     std::string _format_status() {
         return fmt::format(
                 "[IsPushDown = {}, RuntimeFilterState = {}, IsIgnored = {}, HasRemoteTarget = {}, "
@@ -458,6 +468,7 @@ protected:
     bool _always_true;
 
     TExpr _probe_expr;
+    int _slot_id = -1;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;

@@ -597,6 +597,45 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
     return Status::OK();
 }
 
+Status VScanNode::_append_late_arrival_runtime_filter(const doris::IRuntimeFilter* filter,
+                                                      bool& pushed) {
+    const auto slot_id = filter->slot_id();
+    pushed = false;
+
+    /// probe expr is not slot, cannot be pushed down
+    if (slot_id == -1) {
+        return Status::OK();
+    }
+
+    if (_slot_id_to_value_range.find(slot_id) == _slot_id_to_value_range.end()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>("unknown slot id {} on runtime filter: {}",
+                                                        slot_id, filter->filter_id());
+    }
+
+    const auto column_name = _slot_id_to_value_range[slot_id].first->col_name();
+    const auto is_key_column = _is_key_column(column_name);
+
+    if (!is_key_column && !_storage_no_merge()) {
+        return Status::OK();
+    }
+
+    const auto filter_type = filter->get_real_type();
+    switch (filter_type) {
+    case RuntimeFilterType::BLOOM_FILTER:
+    case RuntimeFilterType::BITMAP_FILTER: {
+        if (!is_key_column) {
+            return Status::OK();
+        }
+    }
+    default:
+        break;
+    }
+
+    pushed = true;
+    _late_arrival_runtime_filters.emplace_back(filter);
+    return Status::OK();
+}
+
 Status VScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                           PushDownType* pdt) {
     if (TExprNodeType::BLOOM_PRED == expr->node_type()) {

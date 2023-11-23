@@ -231,10 +231,14 @@ private:
                                                    uint16_t* sel_rowid_idx, uint16_t select_size) {
         SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
+            DCHECK_LT(cid, _schema_block_id_map.size());
             int block_cid = _schema_block_id_map[cid];
-            RETURN_IF_ERROR(block->copy_column_data_to_block(_current_return_columns[cid].get(),
-                                                             sel_rowid_idx, select_size, block_cid,
-                                                             _opts.block_row_max));
+            if (LIKELY(block_cid < block->columns())) {
+                RETURN_IF_ERROR(block->copy_column_data_to_block(_current_return_columns[cid].get(),
+                                                                 sel_rowid_idx, select_size,
+                                                                 block_cid, _opts.block_row_max));
+                DCHECK_EQ(block->get_by_position(block_cid).column->size(), select_size);
+            }
         }
         return Status::OK();
     }
@@ -328,6 +332,9 @@ private:
         return 0;
     }
 
+    Status _process_late_arrival_predicates(const std::vector<ColumnPredicate*>& predicates);
+    Status _handle_late_arrival_predicates();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -387,6 +394,7 @@ private:
     bool _estimate_row_size;
     // Read up to 100 rows at a time while waiting for the estimated row size.
     int _wait_times_estimate_row_size;
+    size_t _handled_late_predicates_count = 0;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes

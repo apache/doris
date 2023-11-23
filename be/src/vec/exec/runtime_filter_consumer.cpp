@@ -162,10 +162,18 @@ Status RuntimeFilterConsumer::try_append_late_arrival_runtime_filter(int* arrive
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
+            bool pushed = false;
+            RETURN_IF_ERROR(_append_late_arrival_runtime_filter(
+                    _runtime_filter_ctxs[i].runtime_filter, pushed));
+            _runtime_filter_ctxs[i].apply_mark = true;
+            ++current_arrived_rf_num;
+
+            if (pushed) {
+                continue;
+            }
+
             RETURN_IF_ERROR(_runtime_filter_ctxs[i].runtime_filter->get_push_expr_ctxs(
                     _probe_ctxs, exprs, true));
-            ++current_arrived_rf_num;
-            _runtime_filter_ctxs[i].apply_mark = true;
         }
     }
     // 2. Append unapplied runtime filters to _conjuncts
