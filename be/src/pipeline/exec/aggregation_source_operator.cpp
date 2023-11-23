@@ -89,8 +89,6 @@ Status AggLocalState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
     return Status::OK();
 }
 
-
-
 Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
                                                             vectorized::Block* block,
                                                             SourceState& source_state) {
