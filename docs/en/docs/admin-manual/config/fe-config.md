@@ -1728,6 +1728,12 @@ Default: false
 
 If true, will compress fe.audit.log by gzip
 
+#### `nereids_trace_log_dir`
+
+Default: DorisFE.DORIS_HOME_DIR + "/log/nereids_trace"
+
+Used to specify the directory of the nereids trace log
+
 ### Storage
 
 #### `min_replication_num_per_tablet`
