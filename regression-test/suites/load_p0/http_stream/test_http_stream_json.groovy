@@ -235,7 +235,7 @@ suite("test_http_stream_json", "p0") {
 
         qt_sql_num_as_string "select * from ${tableName5} order by k1"
     } finally {
-        try_sql "DROP TABLE IF EXISTS ${tableName4}"
+        try_sql "DROP TABLE IF EXISTS ${tableName5}"
     }
 }
 
