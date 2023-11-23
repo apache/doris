@@ -1006,6 +1006,48 @@ suite("test_routine_load","p0") {
         }
     }
 
+    // invalid format
+    i = 0
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+                def name = "routine_load_" + tableName
+                try {
+                    sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]})
+                    PROPERTIES
+                    (
+                        "format" = "test",
+                        "max_batch_interval" = "5",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${jsonTopic[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                    sql "sync"
+                }catch (Exception e) {
+                    log.info("create routine load failed: ${e.getMessage()}")
+                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = Format type is invalid. format=`test`")
+                }
+                i++
+            }
+
+        } finally {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
+        }
+    }
+
     i = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
