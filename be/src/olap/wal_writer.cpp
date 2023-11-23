@@ -60,6 +60,9 @@ Status WalWriter::finalize() {
 Status WalWriter::append_blocks(const PBlockArray& blocks) {
     {
         if (_is_first_append_blocks) {
+            LOG(INFO) << "First time to append blocks to wal file " << _file_name
+                      << ". Currently, all wal disk space usage is "
+                      << _all_wal_disk_bytes->load(std::memory_order_relaxed);
             _is_first_append_blocks = false;
             std::unique_lock l(_mutex);
             while (_all_wal_disk_bytes->load(std::memory_order_relaxed) >
@@ -78,6 +81,8 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
     for (const auto& block : blocks) {
         total_size += LENGTH_SIZE + block->ByteSizeLong() + CHECKSUM_SIZE;
     }
+    LOG(WARNING) << "Wal writer append blocks size is" << total_size << ", total size is"
+                 << _all_wal_disk_bytes->load();
     size_t offset = 0;
     for (const auto& block : blocks) {
         uint8_t len_buf[sizeof(uint64_t)];
