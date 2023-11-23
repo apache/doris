@@ -1460,15 +1460,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
                                                 olapTable.getTimeSeriesCompactionTimeThresholdSeconds().toString());
             }
-<<<<<<< HEAD
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA,
                         olapTable.isDynamicSchema().toString());
-=======
+            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
                                                 olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold().toString());
->>>>>>> cf333b4247 (add config time_series_compaction_empty_rowset_threshold)
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
@@ -1566,12 +1564,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                     olapTable.getTimeSeriesCompactionFileCountThreshold(),
                     olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-<<<<<<< HEAD
-                    olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
-=======
                     olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                    olapTable.storeRowColumn(),
->>>>>>> cf333b4247 (add config time_series_compaction_empty_rowset_threshold)
+                    olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
                     binlogConfig, dataProperty.isStorageMediumSpecified());
 
             // check again
@@ -1822,12 +1816,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             boolean enableSingleReplicaCompaction, boolean skipWriteIndexOnLoad,
             String compactionPolicy, Long timeSeriesCompactionGoalSizeMbytes,
             Long timeSeriesCompactionFileCountThreshold, Long timeSeriesCompactionTimeThresholdSeconds,
-<<<<<<< HEAD
-            boolean storeRowColumn, boolean isDynamicSchema, BinlogConfig binlogConfig,
-=======
             Long timeSeriesCompactionEmptyRowsetsThreshold,
-            boolean storeRowColumn, BinlogConfig binlogConfig,
->>>>>>> cf333b4247 (add config time_series_compaction_empty_rowset_threshold)
+            boolean storeRowColumn, boolean isDynamicSchema, BinlogConfig binlogConfig,
             boolean isStorageMediumSpecified) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
@@ -1893,12 +1883,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             disableAutoCompaction, enableSingleReplicaCompaction, skipWriteIndexOnLoad,
                             compactionPolicy, timeSeriesCompactionGoalSizeMbytes,
                             timeSeriesCompactionFileCountThreshold, timeSeriesCompactionTimeThresholdSeconds,
-<<<<<<< HEAD
-                            storeRowColumn, isDynamicSchema, binlogConfig);
-=======
                             timeSeriesCompactionEmptyRowsetsThreshold,
-                            storeRowColumn, binlogConfig);
->>>>>>> cf333b4247 (add config time_series_compaction_empty_rowset_threshold)
+                            storeRowColumn, isDynamicSchema, binlogConfig);
 
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
@@ -2476,12 +2462,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                         olapTable.getTimeSeriesCompactionFileCountThreshold(),
                         olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-<<<<<<< HEAD
-                        storeRowColumn, isDynamicSchema, binlogConfigForTask,
-=======
                         olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                        storeRowColumn, binlogConfigForTask,
->>>>>>> cf333b4247 (add config time_series_compaction_empty_rowset_threshold)
+                        storeRowColumn, isDynamicSchema, binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
@@ -2554,12 +2536,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
                             olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-<<<<<<< HEAD
-                            storeRowColumn, isDynamicSchema, binlogConfigForTask,
-=======
                             olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                            storeRowColumn, binlogConfigForTask,
->>>>>>> cf333b4247 (add config time_series_compaction_empty_rowset_threshold)
+                            storeRowColumn, isDynamicSchema, binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
