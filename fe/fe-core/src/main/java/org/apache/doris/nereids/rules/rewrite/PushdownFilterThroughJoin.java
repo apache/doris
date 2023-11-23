@@ -37,7 +37,42 @@ import java.util.Set;
 
 /**
  * Push the predicate in the LogicalFilter to the join children.
+ *
+ * Limitation:
+ *    1 only equalTo predicate can push info innerjoin join condition
+ *    2 only can COULD_PUSH_THROUGH_LEFT join type push to left and same to other side
+ *    3 TODO(jakevin): following graph is wrong, we should add a new rule to extract
+ *      a.k2 > 2 and b.k2 > 5, and pushdown.
+ *
+ * For example:
+ * select a.k1, b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5
+ *     where a.k1 > 1 and b.k1 > 2 and a.k2 > b.k2
+ *
+ * Input:
+ *                 project
+ *                   |
+ *                filter (a.k1 > 1 and b.k1 > 2 and a.k2 > b.k2)
+ *                   |
+ *                join (a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5)
+ *                 /   \
+ *              scan  scan
+ * Output:
+ *                      project
+ *                        |
+ *                filter(a.k2 > b.k2)
+ *                        |
+ *           join (otherConditions: a.k1 = b.k1)
+ *                /                \
+ * filter(a.k1 > 1 and a.k2 > 2)   filter(b.k1 > 2 and b.k2 > 5)
+ *             |                                    |
+ *            scan                                scan
+ *
+ * Algorithm:
+ *     1 get all filters (todo: get all filters below current node)
+ *     2 divide filters into join condition(equalTo && inner join) and other condition
+ *     3 judge whether slots of condition are all from the same side and can be pushed, if so, pushing down
  */
+
 public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
     public static final PushdownFilterThroughJoin INSTANCE = new PushdownFilterThroughJoin();
 
@@ -62,33 +97,6 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
             JoinType.INNER_JOIN
     );
 
-    /*
-     * For example:
-     * select a.k1, b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5
-     *     where a.k1 > 1 and b.k1 > 2 and a.k2 > b.k2
-     *
-     * TODO(jakevin): following graph is wrong, we should add a new rule to extract
-     *   a.k2 > 2 and b.k2 > 5, and pushdown.
-     *
-     * Logical plan tree:
-     *                 project
-     *                   |
-     *                filter (a.k1 > 1 and b.k1 > 2 and a.k2 > b.k2)
-     *                   |
-     *                join (a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5)
-     *                 /   \
-     *              scan  scan
-     * transformed:
-     *                      project
-     *                        |
-     *                filter(a.k2 > b.k2)
-     *                        |
-     *           join (otherConditions: a.k1 = b.k1)
-     *                /                \
-     * filter(a.k1 > 1 and a.k2 > 2)   filter(b.k1 > 2 and b.k2 > 5)
-     *             |                                    |
-     *            scan                                scan
-     */
     @Override
     public Rule build() {
         return logicalFilter(logicalJoin()).then(filter -> {

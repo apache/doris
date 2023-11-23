@@ -42,23 +42,36 @@ import java.util.Set;
 
 /**
  * push down expression which is not slot reference
+ *
+ * Limitation:
+ *    TODO: when t1.a + t2.a = t1.b is not in hashJoinConjuncts. The rule will not handle it.
+ *
+ * For example:
+ * select * from t1 join t2 on t1.a + 1 = t2.b + 2
+ *
+ * Input:
+ *       join(t1.a + 1 = t2.b + 2)
+ *             /       \
+ *            /         \
+ *           /           \
+ *          /             \
+ *  olapScan(t1)     olapScan(t2)
+ *
+ * Output:
+ *            join(c = d)
+ *             /        \
+ *            /          \
+ *           /            \
+ *          /              \
+ *  project(t1.a + 1 as c)  project(t2.b + 2 as d)
+ *        |                          |
+ *  olapScan(t1)                olapScan(t2)
+ *
+ * Algorithm:
+ *     1 apply rule condition is join condition equalTo and have complex expression (not slot reference directly)
+ *     2 create child project plan directly upper join children and replace outputs to current join
  */
 public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
-    /*
-     * rewrite example:
-     *       join(t1.a + 1 = t2.b + 2)                            join(c = d)
-     *             /       \                                         /    \
-     *            /         \                                       /      \
-     *           /           \             ====>                   /        \
-     *          /             \                                   /          \
-     *  olapScan(t1)     olapScan(t2)            project(t1.a + 1 as c)  project(t2.b + 2 as d)
-     *                                                        |                   |
-     *                                                        |                   |
-     *                                                        |                   |
-     *                                                        |                   |
-     *                                                     olapScan(t1)        olapScan(t2)
-     *TODO: now t1.a + t2.a = t1.b is not in hashJoinConjuncts. The rule will not handle it.
-     */
     @Override
     public Rule build() {
         return logicalJoin()
