@@ -142,12 +142,13 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
 
+        auto& sort_description = _sorter->get_sort_description();
+        auto col = input_block->get_by_position(sort_description[0].column_number);
         // update runtime predicate
-        if (_use_topn_opt) {
+        if (_use_topn_opt && !col.name.empty()) {
             Field new_top = _sorter->get_top_value();
             if (!new_top.is_null() && (old_top.is_null() || new_top != old_top)) {
-                auto& sort_description = _sorter->get_sort_description();
-                auto col = input_block->get_by_position(sort_description[0].column_number);
+
                 bool is_reverse = sort_description[0].direction < 0;
                 auto query_ctx = state->get_query_ctx();
                 RETURN_IF_ERROR(
