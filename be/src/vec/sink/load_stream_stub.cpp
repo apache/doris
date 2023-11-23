@@ -23,6 +23,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -37,11 +38,14 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
         Status st = Status::create(response.status());
 
         std::stringstream ss;
-        ss << "received response from backend " << _dst_id;
+        ss << "on_received_messages, load_id=" << _load_id << ", backend_id=" << _dst_id;
         if (response.success_tablet_ids_size() > 0) {
             ss << ", success tablet ids:";
             for (auto tablet_id : response.success_tablet_ids()) {
                 ss << " " << tablet_id;
+            }
+            if (response.success_tablet_ids_size() == 0) {
+                ss << " none";
             }
             std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
             for (auto tablet_id : response.success_tablet_ids()) {
@@ -52,6 +56,9 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
             ss << ", failed tablet ids:";
             for (auto tablet_id : response.failed_tablet_ids()) {
                 ss << " " << tablet_id;
+            }
+            if (response.failed_tablet_ids_size() == 0) {
+                ss << " none";
             }
             std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
             for (auto tablet_id : response.failed_tablet_ids()) {
@@ -86,6 +93,7 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
 }
 
 void LoadStreamStub::LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
+    LOG(INFO) << "on_closed, load_id=" << _load_id << ", stream_id=" << id;
     std::lock_guard<bthread::Mutex> lock(_mutex);
     _is_closed.store(true);
     _close_cv.notify_all();
@@ -123,6 +131,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     }
     _dst_id = node_info.id;
     _handler.set_dst_id(_dst_id);
+    _handler.set_load_id(_load_id);
     std::string host_port = get_host_port(node_info.host, node_info.brpc_port);
     brpc::StreamOptions opt;
     opt.max_buf_size = 20 << 20; // 20MB
@@ -160,8 +169,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         return Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
                                      cntl.ErrorText());
     }
-    LOG(INFO) << "Opened stream " << _stream_id << " for backend " << _dst_id << " (" << host_port
-              << ")";
+    LOG(INFO) << "open load stream " << _stream_id << " load_id=" << print_id(_load_id)
+              << " for backend " << _dst_id << " (" << host_port << ")";
     _is_init.store(true);
     return Status::OK();
 }
@@ -227,11 +236,14 @@ Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
     header.set_src_id(_src_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
     std::ostringstream oss;
-    oss << "fetching tablet schema from stream " << _stream_id << ", load id: " << _load_id
-        << ", tablet id:";
+    oss << "fetching tablet schema from stream " << _stream_id
+        << ", load id: " << print_id(_load_id) << ", tablet id:";
     for (const auto& tablet : tablets) {
         *header.add_tablets() = tablet;
         oss << " " << tablet.tablet_id();
+    }
+    if (tablets.size() == 0) {
+        oss << " none";
     }
     LOG(INFO) << oss.str();
     return _encode_and_send(header);
@@ -318,12 +330,12 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
             const timespec time = butil::seconds_from_now(60);
             int wait_ret = brpc::StreamWait(_stream_id, &time);
             if (wait_ret != 0) {
-                return Status::InternalError("StreamWait failed, err = ", wait_ret);
+                return Status::InternalError("StreamWait failed, err=", wait_ret);
             }
             break;
         }
         default:
-            return Status::InternalError("StreamWrite failed, err = {}", ret);
+            return Status::InternalError("StreamWrite failed, err={}", ret);
         }
     }
 }

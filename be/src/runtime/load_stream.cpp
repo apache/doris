@@ -306,8 +306,8 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
                         }
                     }
                     LOG(INFO) << "close load " << *this
-                              << ", failed_tablet_num=" << failed_tablet_ids->size()
-                              << ", success_tablet_num=" << success_tablet_ids->size();
+                              << ", success_tablet_num=" << success_tablet_ids->size()
+                              << ", failed_tablet_num=" << failed_tablet_ids->size();
                     std::unique_lock<bthread::Mutex> lock(mutex);
                     cond.notify_one();
                 });
@@ -324,7 +324,7 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
 void LoadStream::_report_result(StreamId stream, const Status& st,
                                 const std::vector<int64_t>& success_tablet_ids,
                                 const std::vector<int64_t>& failed_tablet_ids) {
-    LOG(INFO) << "report result, success tablet num " << success_tablet_ids.size()
+    LOG(INFO) << "report result " << *this << ", success tablet num " << success_tablet_ids.size()
               << ", failed tablet num " << failed_tablet_ids.size();
     butil::IOBuf buf;
     PWriteStreamSinkResponse response;
@@ -456,9 +456,8 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
     if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
-        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid load id {}, expected {}",
-                                                               UniqueId(hdr.load_id()).to_string(),
-                                                               UniqueId(_load_id).to_string());
+        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "invalid load id {}, expected {}", print_id(hdr.load_id()), print_id(_load_id));
         _report_failure(id, st, hdr);
         return;
     }
