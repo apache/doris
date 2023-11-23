@@ -83,7 +83,7 @@ struct ProcessHashTableProbe {
 
     Parent* _parent;
     const int _batch_size;
-    std::shared_ptr<Block> _build_block;
+    const std::shared_ptr<Block>& _build_block;
     std::unique_ptr<Arena> _arena;
     std::vector<StringRef> _probe_keys;
 

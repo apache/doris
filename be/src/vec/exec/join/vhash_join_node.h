@@ -279,7 +279,7 @@ public:
     bool have_other_join_conjunct() const { return _have_other_join_conjunct; }
     bool is_right_semi_anti() const { return _is_right_semi_anti; }
     bool is_outer_join() const { return _is_outer_join; }
-    std::shared_ptr<Block> build_block() const { return _build_block; }
+    const std::shared_ptr<vectorized::Block>& build_block() const { return _build_block; }
     std::vector<bool>* left_output_slot_flags() { return &_left_output_slot_flags; }
     std::vector<bool>* right_output_slot_flags() { return &_right_output_slot_flags; }
     bool* has_null_in_build_side() { return &_has_null_in_build_side; }
