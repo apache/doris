@@ -69,11 +69,32 @@ private:
     bool _need_read_for_const_expr;
 };
 
+class UnionSourceDependency final : public Dependency {
+public:
+    using SharedState = UnionSharedState;
+    UnionSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "UnionSourceDependency", query_ctx) {}
+    ~UnionSourceDependency() override = default;
+
+    [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
+        if (((UnionSharedState*)_shared_state.get())->child_count() == 0) {
+            return nullptr;
+        }
+        if (((UnionSharedState*)_shared_state.get())->data_queue.is_all_finish() ||
+            ((UnionSharedState*)_shared_state.get())->data_queue.remaining_has_data()) {
+            return nullptr;
+        }
+        return this;
+    }
+    bool push_to_blocking_queue() const override { return true; }
+    void block() override {}
+};
+
 class UnionSourceOperatorX;
-class UnionSourceLocalState final : public PipelineXLocalState<UnionDependency> {
+class UnionSourceLocalState final : public PipelineXLocalState<UnionSourceDependency> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSourceLocalState);
-    using Base = PipelineXLocalState<UnionDependency>;
+    using Base = PipelineXLocalState<UnionSourceDependency>;
     using Parent = UnionSourceOperatorX;
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 

@@ -59,7 +59,9 @@ conment_to_context=(
 get_commit_id_of_build() {
     # 获取某个build的commit id
     if [[ -z "$1" ]]; then return 1; fi
-    build_id="$1"
+    local build_id="$1"
+    local commit_id
+    local ret
     set -x
     if ret=$(
         curl -s -X GET \
@@ -79,14 +81,15 @@ get_commit_id_of_build() {
 
 get_running_build_of_pr() {
     # "获取pr在某条流水线上正在跑的build"
-    PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
+    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
+    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
     if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
         echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
     fi
 
-    PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
+    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
     local running_builds_list
+    local ret
     set -x
     if ret=$(
         curl -s -X GET \
@@ -107,14 +110,15 @@ get_running_build_of_pr() {
 
 get_queue_build_of_pr() {
     # "获取pr在某条流水线上排队的build"
-    PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
+    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
+    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
     if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
         echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
     fi
 
-    PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
+    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
     local queue_builds_list
+    local ret
     set -x
     if ret=$(
         curl -s -X GET \
@@ -134,13 +138,13 @@ get_queue_build_of_pr() {
 # get_queue_build_of_pr "$1" "$2"
 
 cancel_running_build() {
-    PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
+    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
+    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
     if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
         echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
     fi
 
-    PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
+    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
     local build_ids
     if ! build_ids=$(get_running_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then return 1; fi
     for id in ${build_ids}; do
@@ -162,13 +166,13 @@ cancel_running_build() {
 # cancel_running_build "$1" "$2"
 
 cancel_queue_build() {
-    PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
+    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
+    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
     if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
         echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
     fi
 
-    PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
+    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
     local build_ids
     if ! build_ids=$(get_queue_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then return 1; fi
     for id in ${build_ids}; do
@@ -199,11 +203,11 @@ skip_build() {
         echo "Usage: skip_teamcity_pipeline COMMIT_ID_FROM_TRIGGER COMMENT_TRIGGER_TYPE"
         return 1
     fi
-    COMMIT_ID_FROM_TRIGGER="$1"
-    COMMENT_TRIGGER_TYPE="$2"
+    local COMMIT_ID_FROM_TRIGGER="$1"
+    local COMMENT_TRIGGER_TYPE="$2"
 
     local state="${TC_BUILD_STATE:-success}" # 可选值 success failure pending
-    payload="{\"state\":\"${state}\",\"target_url\":\"\",\"description\":\"Skip teamCity build\",\"context\":\"${conment_to_context[${COMMENT_TRIGGER_TYPE}]}\"}"
+    local payload="{\"state\":\"${state}\",\"target_url\":\"\",\"description\":\"Skip teamCity build\",\"context\":\"${conment_to_context[${COMMENT_TRIGGER_TYPE}]}\"}"
     set -x
     if curl -L \
         -X POST \
@@ -223,16 +227,15 @@ skip_build() {
 
 trigger_build() {
     # 新触发一个build
-    PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$2}"
-    COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$3}"
-    COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$4}"
+    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
+    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$2}"
+    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$3}"
+    local COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$4}"
     if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMIT_ID_FROM_TRIGGER}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
         echo "Usage: add_build PULL_REQUEST_NUM COMMIT_ID_FROM_TRIGGER COMMENT_TRIGGER_TYPE [COMMENT_REPEAT_TIMES]"
         return 1
     fi
-    local PIPELINE
-    PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
+    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
     set -x
     if curl -s -X POST \
         -u OneMoreChance:OneMoreChance \
@@ -250,20 +253,19 @@ trigger_build() {
 
 trigger_or_skip_build() {
     # 根据相关文件是否修改，来触发or跳过跑流水线
-    FILE_CHANGED="$1"
-    PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$2}"
-    COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$3}"
-    COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$4}"
-    COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$5}"
-    if [[ -z "${FILE_CHANGED}" ||
-        -z "${PULL_REQUEST_NUM}" ||
+    local FILE_CHANGED="$1" # 默认为"true"
+    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$2}"
+    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$3}"
+    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$4}"
+    local COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$5}"
+    if [[ -z "${PULL_REQUEST_NUM}" ||
         -z "${COMMIT_ID_FROM_TRIGGER}" ||
         -z "${COMMENT_TRIGGER_TYPE}" ]]; then
         echo "Usage: add_build FILE_CHANGED PULL_REQUEST_NUM COMMIT_ID_FROM_TRIGGER COMMENT_TRIGGER_TYPE [COMMENT_REPEAT_TIMES]"
         return 1
     fi
 
-    if [[ "${FILE_CHANGED}" == "true" ]]; then
+    if [[ "${FILE_CHANGED:-"true"}" == "true" ]]; then
         cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         trigger_build "${PULL_REQUEST_NUM}" "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}" "${COMMENT_REPEAT_TIMES}"

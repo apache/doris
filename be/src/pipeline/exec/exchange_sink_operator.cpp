@@ -174,16 +174,16 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     register_channels(_sink_buffer.get());
 
-    _exchange_sink_dependency =
-            AndDependency::create_shared(_parent->operator_id(), _parent->node_id());
-    _queue_dependency =
-            ExchangeSinkQueueDependency::create_shared(_parent->operator_id(), _parent->node_id());
+    _exchange_sink_dependency = AndDependency::create_shared(
+            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
+    _queue_dependency = ExchangeSinkQueueDependency::create_shared(
+            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     _exchange_sink_dependency->add_child(_queue_dependency);
     if ((p._part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
-        _broadcast_dependency =
-                BroadcastDependency::create_shared(_parent->operator_id(), _parent->node_id());
+        _broadcast_dependency = BroadcastDependency::create_shared(
+                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
         _broadcast_dependency->set_available_block(config::num_broadcast_buffer);
         _broadcast_pb_blocks.reserve(config::num_broadcast_buffer);
         for (size_t i = 0; i < config::num_broadcast_buffer; i++) {
@@ -198,8 +198,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         size_t dep_id = 0;
         _local_channels_dependency.resize(local_size);
         _wait_channel_timer.resize(local_size);
-        auto deps_for_channels =
-                AndDependency::create_shared(_parent->operator_id(), _parent->node_id());
+        auto deps_for_channels = AndDependency::create_shared(
+                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
         for (auto channel : channels) {
             if (channel->is_local()) {
                 _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
@@ -230,7 +230,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     }
 
-    _finish_dependency->should_finish_after_check();
+    _finish_dependency->block();
 
     return Status::OK();
 }
@@ -524,14 +524,13 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
-    COUNTER_UPDATE(_wait_queue_timer, _queue_dependency->write_watcher_elapse_time());
+    COUNTER_UPDATE(_wait_queue_timer, _queue_dependency->watcher_elapse_time());
     if (_broadcast_dependency) {
-        COUNTER_UPDATE(_wait_broadcast_buffer_timer,
-                       _broadcast_dependency->write_watcher_elapse_time());
+        COUNTER_UPDATE(_wait_broadcast_buffer_timer, _broadcast_dependency->watcher_elapse_time());
     }
     for (size_t i = 0; i < _local_channels_dependency.size(); i++) {
         COUNTER_UPDATE(_wait_channel_timer[i],
-                       _local_channels_dependency[i]->write_watcher_elapse_time());
+                       _local_channels_dependency[i]->watcher_elapse_time());
     }
     _sink_buffer->update_profile(profile());
     _sink_buffer->close();

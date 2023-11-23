@@ -64,32 +64,49 @@ private:
     int _mult_cast_id = -1;
 };
 
-class ExchangeSinkQueueDependency final : public WriteDependency {
+class ExchangeSinkQueueDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
-    ExchangeSinkQueueDependency(int id, int node_id)
-            : WriteDependency(id, node_id, "ResultQueueDependency") {}
+    ExchangeSinkQueueDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ResultQueueDependency", true, query_ctx) {}
     ~ExchangeSinkQueueDependency() override = default;
 };
 
-class BroadcastDependency final : public WriteDependency {
+class BroadcastDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastDependency);
-    BroadcastDependency(int id, int node_id)
-            : WriteDependency(id, node_id, "BroadcastDependency"), _available_block(0) {}
+    BroadcastDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "BroadcastDependency", true, query_ctx),
+              _available_block(0) {}
     ~BroadcastDependency() override = default;
+
+    std::string debug_string(int indentation_level = 0) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "{}{}: id={}, block task = {}, ready={}, _available_block = {}",
+                       std::string(indentation_level * 2, ' '), _name, _node_id,
+                       _blocked_task.size(), _ready, _available_block.load());
+        return fmt::to_string(debug_string_buffer);
+    }
 
     void set_available_block(int available_block) { _available_block = available_block; }
 
     void return_available_block() {
         if (_available_block.fetch_add(1) == 0) {
-            WriteDependency::set_ready_for_write();
+            std::lock_guard<std::mutex> lock(_lock);
+            if (_available_block == 0) {
+                return;
+            }
+            Dependency::set_ready();
         }
     }
 
     void take_available_block() {
         if (_available_block.fetch_sub(1) == 1) {
-            WriteDependency::block_writing();
+            std::lock_guard<std::mutex> lock(_lock);
+            if (_available_block == 0) {
+                Dependency::block();
+            }
         }
     }
 
@@ -97,6 +114,7 @@ public:
 
 private:
     std::atomic<int> _available_block;
+    std::mutex _lock;
 };
 
 /**
@@ -117,11 +135,11 @@ private:
  *                         | ExchangeSource1 |                                                        | ExchangeSource2 |
  *                         +-----------------+                                                        +------------------+
  */
-class LocalExchangeChannelDependency final : public WriteDependency {
+class LocalExchangeChannelDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
-    LocalExchangeChannelDependency(int id, int node_id)
-            : WriteDependency(id, node_id, "LocalExchangeChannelDependency") {}
+    LocalExchangeChannelDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "LocalExchangeChannelDependency", true, query_ctx) {}
     ~LocalExchangeChannelDependency() override = default;
     // TODO(gabriel): blocked by memory
 };
@@ -139,7 +157,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    WriteDependency* dependency() override { return _exchange_sink_dependency.get(); }
+    Dependency* dependency() override { return _exchange_sink_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
     Status get_next_available_buffer(vectorized::BroadcastPBlockHolder** holder);
