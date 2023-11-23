@@ -128,6 +128,8 @@ private:
 
     size_t len_of_actual_data(const char* data);
 
+    Status reset_consumers(std::shared_ptr<StreamLoadContext> ctx);
+
 private:
     // blocking queue to receive msgs from all consumers
     BlockingQueue<pulsar::Message*> _queue;

@@ -451,6 +451,9 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     DCHECK(consumer_grp.get()->get_consumer_rows() == ctx.get()->number_total_rows);
     consumer_grp.get()->set_consumer_rows(0);
 
+    // reset all consume
+    HANDLE_ERROR(consumer_grp->reset_consumers(ctx), "consume reset failed");
+
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     // return the consumer back to pool
