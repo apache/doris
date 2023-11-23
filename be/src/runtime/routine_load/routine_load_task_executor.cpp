@@ -507,6 +507,9 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
                 break;
             }
 
+            std::string topics = std::static_pointer_cast<PulsarDataConsumer>(consumer)->get_partition();
+            LOG(INFO) << "pulsar consumer topic / partition :" << topics;
+
             // assign partition for consumer
             st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->assign_partition(kv.first, ctx);
             if (!st.ok()) {
