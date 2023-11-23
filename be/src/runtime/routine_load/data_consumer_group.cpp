@@ -405,6 +405,7 @@ void PulsarDataConsumerGroup::acknowledge_cumulative(std::shared_ptr<StreamLoadC
     for (auto& kv : ctx->pulsar_info->ack_offset) {
         LOG(INFO) << "start do ack of kv :" << kv;
         for (auto& consumer : _consumers) {
+            Status st;
             // do ack
             st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->acknowledge_cumulative(kv.second);
             if (!st.ok()) {
