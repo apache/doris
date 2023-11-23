@@ -602,11 +602,12 @@ struct UnixTimeStampDateImpl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        const ColumnPtr& col_source = block.get_by_position(arguments[0]).column;
-        DCHECK(!col_source->is_nullable());
+        const ColumnPtr& col = block.get_by_position(arguments[0]).column;
+        DCHECK(!col->is_nullable());
 
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
+            const auto* col_source = assert_cast<const ColumnDate*>(col.get());
             auto col_result = ColumnVector<Int32>::create();
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
@@ -620,6 +621,7 @@ struct UnixTimeStampDateImpl {
             }
             block.replace_by_position(result, std::move(col_result));
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+            const auto* col_source = assert_cast<const ColumnDateV2*>(col.get());
             auto col_result = ColumnVector<Int32>::create();
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
@@ -636,6 +638,7 @@ struct UnixTimeStampDateImpl {
             }
             block.replace_by_position(result, std::move(col_result));
         } else { // DatetimeV2
+            const auto* col_source = assert_cast<const ColumnDateTimeV2*>(col.get());
             UInt32 scale = block.get_by_position(arguments[0]).type->get_scale();
             auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, scale);
             auto& col_result_data = col_result->get_data();
@@ -813,20 +816,24 @@ struct UnixTimeStampStrImpl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        const ColumnPtr col_source = block.get_by_position(arguments[0]).column;
-        const ColumnPtr col_format = block.get_by_position(arguments[1]).column;
+        ColumnPtr col_left = nullptr, col_right = nullptr;
+        bool source_const = false, format_const = false;
+        std::tie(col_left, source_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        std::tie(col_right, format_const) =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
 
         auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 0);
         auto null_map = ColumnVector<UInt8>::create(input_rows_count);
         auto& col_result_data = col_result->get_data();
         auto& null_map_data = null_map->get_data();
 
-        for (int i = 0; i < input_rows_count; i++) {
-            if (col_source->is_null_at(i) || col_format->is_null_at(i)) {
-                null_map_data[i] = true;
-                continue;
-            }
+        check_set_nullable(col_left, null_map, source_const);
+        check_set_nullable(col_right, null_map, format_const);
 
+        const auto* col_source = assert_cast<const ColumnString*>(col_left.get());
+        const auto* col_format = assert_cast<const ColumnString*>(col_right.get());
+        for (int i = 0; i < input_rows_count; i++) {
             StringRef source = col_source->get_data_at(i);
             StringRef fmt = col_format->get_data_at(i);
 
@@ -935,10 +942,7 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override {
-        if constexpr (std::is_same_v<Impl, UnixTimeStampStrImpl>) {
-            return false;
-        }
-        return true;
+        return !static_cast<bool>(std::is_same_v<Impl, UnixTimeStampStrImpl>);
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
