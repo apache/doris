@@ -213,7 +213,7 @@ suite("test_http_stream_json", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName5} (k1,k2,k3) select k1,k2,k3 as code from http_stream(
+                    insert into ${db}.${tableName5} (k1,k2,k3) select k1,k2,k3 from http_stream(
                         "format"="json",
                         "strip_outer_array" = "true",
                         "num_as_string" = "true"
@@ -233,7 +233,7 @@ suite("test_http_stream_json", "p0") {
             }
         }
 
-        qt_sql5 "select * from ${tableName5} order by k1"
+        qt_sql_num_as_string "select * from ${tableName5} order by k1"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName4}"
     }
