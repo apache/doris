@@ -99,11 +99,6 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         tablet->set_last_cumu_compaction_success_time(now);
     }
 
-    // If their are many empty rowsets, maybe should be compacted
-    if (!consecutive_empty_rowsets.empty()) {
-        return score;
-    }
-
     return 0;
 }
 
@@ -278,14 +273,6 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             (tablet->tablet_meta()->time_series_compaction_time_threshold_seconds() * 1000)) {
             return transient_size;
         }
-    }
-
-    // If their are many empty rowsets, maybe should be compacted
-    if (!consecutive_empty_rowsets.empty()) {
-        input_rowsets->clear();
-        input_rowsets->insert(input_rowsets->end(), consecutive_empty_rowsets.begin(),
-                              consecutive_empty_rowsets.end());
-        return transient_size;
     }
 
     input_rowsets->clear();
