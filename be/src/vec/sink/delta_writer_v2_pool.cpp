@@ -41,7 +41,7 @@ DeltaWriterV2* DeltaWriterV2Map::get_or_create(
 Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
     int num_use = --_use_cnt;
     if (num_use > 0) {
-        LOG(INFO) << "not closing DeltaWriterV2Map, load_id=" << _load_id << " , use_cnt=" << num_use;
+        LOG(INFO) << "keeping DeltaWriterV2Map, load_id=" << _load_id << " , use_cnt=" << num_use;
         return Status::OK();
     }
     if (_pool != nullptr) {
