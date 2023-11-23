@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -115,7 +116,14 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                         ? ((NamedExpression) expr)
                         : new Alias(expr));
             } else {
-                selectItems.add(new UnboundSlot(tableName, column.getName()));
+                if (column.hasOnUpdateDefaultValue()) {
+                    Expression defualtValueExpression =
+                            new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
+                                    .toSqlWithoutTbl());
+                    selectItems.add(new Alias(defualtValueExpression, column.getName()));
+                } else {
+                    selectItems.add(new UnboundSlot(tableName, column.getName()));
+                }
             }
         }
 

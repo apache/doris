@@ -379,30 +379,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         HashSet<String> partialUpdateCols = new HashSet<>();
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
         if (isPartialUpdate) {
-            OlapTable olapTable = olapTableSink.getTargetTable();
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new AnalysisException("Partial update is only allowed in"
-                        + "unique table with merge-on-write enabled.");
-            }
-            for (Column col : olapTable.getFullSchema()) {
-                boolean exists = false;
-                for (Column insertCol : olapTableSink.getCols()) {
-                    if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
-                        exists = true;
-                        break;
-                    }
-                }
-                if (col.isKey() && !exists) {
-                    throw new AnalysisException("Partial update should include all key columns, missing: "
-                            + col.getName());
-                }
-            }
             for (Column col : olapTableSink.getCols()) {
                 partialUpdateCols.add(col.getName());
-            }
-            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
-                        && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
-                partialUpdateCols.add(Column.SEQUENCE_COL);
             }
         }
         TupleDescriptor olapTuple = context.generateTupleDesc();

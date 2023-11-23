@@ -51,6 +51,7 @@ public class ColumnDefinition {
     private AggregateType aggType;
     private boolean isNullable;
     private Optional<DefaultValue> defaultValue;
+    private Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
     private final String comment;
     private final boolean isVisible;
     private boolean aggTypeImplicit = false;
@@ -58,6 +59,11 @@ public class ColumnDefinition {
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment) {
         this(name, type, isKey, aggType, isNullable, defaultValue, comment, true);
+    }
+
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
+            Optional<DefaultValue> defaultValue, Optional<DefaultValue> onUpdateDefaultValue, String comment) {
+        this(name, type, isKey, aggType, isNullable, defaultValue, onUpdateDefaultValue, comment, true);
     }
 
     /**
@@ -71,6 +77,23 @@ public class ColumnDefinition {
         this.aggType = aggType;
         this.isNullable = isNullable;
         this.defaultValue = defaultValue;
+        this.comment = comment;
+        this.isVisible = isVisible;
+    }
+
+    /**
+     * constructor
+     */
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
+            Optional<DefaultValue> defaultValue, Optional<DefaultValue> onUpdateDefaultValue, String comment,
+                    boolean isVisible) {
+        this.name = name;
+        this.type = type;
+        this.isKey = isKey;
+        this.aggType = aggType;
+        this.isNullable = isNullable;
+        this.defaultValue = defaultValue;
+        this.onUpdateDefaultValue = onUpdateDefaultValue;
         this.comment = comment;
         this.isVisible = isVisible;
     }
@@ -198,6 +221,34 @@ public class ColumnDefinition {
                 throw new AnalysisException(e.getMessage(), e);
             }
         }
+        if (onUpdateDefaultValue.isPresent()
+                && onUpdateDefaultValue.get().getValue() != null
+                && type.toCatalogDataType().isScalarType()) {
+            try {
+                ColumnDef.validateDefaultValue(type.toCatalogDataType(),
+                        onUpdateDefaultValue.get().getValue(), onUpdateDefaultValue.get().getDefaultValueExprDef());
+            } catch (Exception e) {
+                throw new AnalysisException("meet error when validating the on update value of column["
+                        + name + "], reason: " + e.getMessage());
+            }
+            if (onUpdateDefaultValue.get().isCurrentTimeStamp()) {
+                if (!defaultValue.isPresent() || !defaultValue.get().isCurrentTimeStamp()) {
+                    throw new AnalysisException("You must set the default value of the column["
+                            + name + "] to CURRENT_TIMESTAMP when using 'ON UPDATE CURRENT_TIMESTAMP'.");
+                }
+            } else if (onUpdateDefaultValue.get().isCurrentTimeStampWithPrecision()) {
+                if (!defaultValue.isPresent() || !defaultValue.get().isCurrentTimeStampWithPrecision()) {
+                    throw new AnalysisException("You must set the default value of the column["
+                            + name + "] to CURRENT_TIMESTAMP when using 'ON UPDATE CURRENT_TIMESTAMP'.");
+                }
+                long precision1 = onUpdateDefaultValue.get().getCurrentTimeStampPrecision();
+                long precision2 = defaultValue.get().getCurrentTimeStampPrecision();
+                if (precision1 != precision2) {
+                    throw new AnalysisException("The precision of the default value of column["
+                            + name + "] should be the same with the precision in 'ON UPDATE CURRENT_TIMESTAMP'.");
+                }
+            }
+        }
     }
 
     /**
@@ -231,7 +282,8 @@ public class ColumnDefinition {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
                 false, defaultValue.map(DefaultValue::getRawValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
-                defaultValue.map(DefaultValue::getValue).orElse(null));
+                defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
+                onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null));
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }

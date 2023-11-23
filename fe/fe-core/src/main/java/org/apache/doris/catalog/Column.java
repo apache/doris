@@ -130,6 +130,12 @@ public class Column implements Writable, GsonPostProcessable {
 
     private boolean isCompoundKey = false;
 
+    @SerializedName(value = "hasOnUpdateDefaultValue")
+    private boolean hasOnUpdateDefaultValue = false;
+
+    @SerializedName(value = "onUpdateDefaultValueExprDef")
+    private DefaultValueExprDef onUpdateDefaultValueExprDef;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -170,24 +176,33 @@ public class Column implements Writable, GsonPostProcessable {
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment) {
         this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, true, null,
-                COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue);
+                COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue, false, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String comment, boolean visible, int colUniqueId) {
-        this(name, type, isKey, aggregateType, isAllowNull, false, null, comment, visible, null, colUniqueId, null);
+        this(name, type, isKey, aggregateType, isAllowNull, false, null, comment, visible, null, colUniqueId, null,
+                false, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
             int colUniqueId, String realDefaultValue) {
         this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, visible, defaultValueExprDef,
-                colUniqueId, realDefaultValue);
+                colUniqueId, realDefaultValue, false, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             boolean isAutoInc, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue) {
+        this(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue, comment, visible,
+                defaultValueExprDef, colUniqueId, realDefaultValue, false, null);
+    }
+
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+            boolean isAutoInc, String defaultValue, String comment, boolean visible,
+            DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
+            boolean hasOnUpdateDefaultValue, DefaultValueExprDef onUpdateDefaultValueExprDef) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -212,6 +227,8 @@ public class Column implements Writable, GsonPostProcessable {
         this.children = new ArrayList<>();
         createChildrenColumn(this.type, this);
         this.uniqueId = colUniqueId;
+        this.hasOnUpdateDefaultValue = hasOnUpdateDefaultValue;
+        this.onUpdateDefaultValueExprDef = onUpdateDefaultValueExprDef;
 
         if (type.isAggStateType()) {
             AggStateType aggState = (AggStateType) type;
@@ -244,6 +261,8 @@ public class Column implements Writable, GsonPostProcessable {
         this.uniqueId = column.getUniqueId();
         this.defineExpr = column.getDefineExpr();
         this.defineName = column.getDefineName();
+        this.hasOnUpdateDefaultValue = column.hasOnUpdateDefaultValue;
+        this.onUpdateDefaultValueExprDef = column.onUpdateDefaultValueExprDef;
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -487,6 +506,14 @@ public class Column implements Writable, GsonPostProcessable {
         } else {
             return type.getOlapColumnIndexSize();
         }
+    }
+
+    public boolean hasOnUpdateDefaultValue() {
+        return hasOnUpdateDefaultValue;
+    }
+
+    public Expr getOnUpdateDefaultValueExpr() {
+        return onUpdateDefaultValueExprDef.getExpr(type);
     }
 
     public TColumn toThrift() {
@@ -765,6 +792,9 @@ public class Column implements Writable, GsonPostProcessable {
             } else {
                 sb.append(" DEFAULT \"").append(defaultValue).append("\"");
             }
+        }
+        if (hasOnUpdateDefaultValue) {
+            sb.append(" ON UPDATE ").append(defaultValue).append("");
         }
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT '").append(getComment(true)).append("'");
