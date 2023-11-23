@@ -20,17 +20,17 @@
 
 #include "vec/core/block.h"
 
-#include <assert.h>
-#include <bits/ranges_base.h>
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <snappy.h>
 #include <sys/types.h>
 
 #include <algorithm>
+#include <cassert>
 #include <iomanip>
 #include <iterator>
 #include <limits>
+#include <ranges>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -55,11 +55,9 @@
 
 class SipHash;
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 enum CompressionTypePB : int;
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
 
 namespace doris::vectorized {
 
@@ -67,13 +65,13 @@ Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {
     initialize_index_by_name();
 }
 
-Block::Block(const ColumnsWithTypeAndName& data_) : data {data_} {
+Block::Block(ColumnsWithTypeAndName data_) : data {std::move(data_)} {
     initialize_index_by_name();
 }
 
 Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
              bool ignore_trivial_slot) {
-    for (const auto slot_desc : slots) {
+    for (auto* const slot_desc : slots) {
         if (ignore_trivial_slot && !slot_desc->need_materialize()) {
             continue;
         }
@@ -207,8 +205,8 @@ void Block::insert_unique(ColumnWithTypeAndName&& elem) {
 }
 
 void Block::erase(const std::set<size_t>& positions) {
-    for (auto it = positions.rbegin(); it != positions.rend(); ++it) {
-        erase(*it);
+    for (unsigned long position : std::ranges::reverse_view(positions)) {
+        erase(position);
     }
 }
 
@@ -240,10 +238,12 @@ void Block::erase_impl(size_t position) {
     data.erase(data.begin() + position);
 
     for (auto it = index_by_name.begin(); it != index_by_name.end();) {
-        if (it->second == position)
+        if (it->second == position) {
             index_by_name.erase(it++);
-        else {
-            if (it->second > position) --it->second;
+        } else {
+            if (it->second > position) {
+                --it->second;
+            }
             ++it;
         }
     }
@@ -333,7 +333,9 @@ size_t Block::get_position_by_name(const std::string& name) const {
 void Block::check_number_of_rows(bool allow_null_columns) const {
     ssize_t rows = -1;
     for (const auto& elem : data) {
-        if (!elem.column && allow_null_columns) continue;
+        if (!elem.column && allow_null_columns) {
+            continue;
+        }
 
         if (!elem.column) {
             LOG(FATAL) << fmt::format(
@@ -725,11 +727,11 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
                                   const IColumn::Filter& filter) {
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     if (count == 0) {
-        for (auto& col : columns_to_filter) {
+        for (const auto& col : columns_to_filter) {
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
         }
     } else {
-        for (auto& col : columns_to_filter) {
+        for (const auto& col : columns_to_filter) {
             auto& column = block->get_by_position(col).column;
             if (column->size() != count) {
                 if (column->is_exclusive()) {
@@ -782,7 +784,7 @@ void Block::append_to_block_by_selector(MutableBlock* dst,
 Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
                            int filter_column_id, int column_to_keep) {
     const auto& filter_column = block->get_by_position(filter_column_id).column;
-    if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         const auto& nested_column = nullable_column->get_nested_column_ptr();
 
         MutableColumnPtr mutable_holder =
@@ -790,8 +792,8 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
                         ? nested_column->assume_mutable()
                         : nested_column->clone_resized(nested_column->size());
 
-        ColumnUInt8* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());
-        auto* __restrict null_map = nullable_column->get_null_map_data().data();
+        auto* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());
+        const auto* __restrict null_map = nullable_column->get_null_map_data().data();
         IColumn::Filter& filter = concrete_column->get_data();
         auto* __restrict filter_data = filter.data();
 
@@ -800,10 +802,10 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
             filter_data[i] &= !null_map[i];
         }
         RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
-    } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+    } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
-            for (auto& col : columns_to_filter) {
+            for (const auto& col : columns_to_filter) {
                 std::move(*block->get_by_position(col).column).assume_mutable()->clear();
             }
         }
@@ -899,8 +901,8 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
 MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size,
                            bool ignore_trivial_slot) {
-    for (auto tuple_desc : tuple_descs) {
-        for (auto slot_desc : tuple_desc->slots()) {
+    for (auto* const tuple_desc : tuple_descs) {
+        for (auto* const slot_desc : tuple_desc->slots()) {
             if (ignore_trivial_slot && !slot_desc->need_materialize()) {
                 continue;
             }
@@ -941,7 +943,7 @@ void MutableBlock::swap(MutableBlock&& another) noexcept {
 }
 
 void MutableBlock::add_row(const Block* block, int row) {
-    auto& block_data = block->get_columns_with_type_and_name();
+    const auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
         _columns[i]->insert_from(*block_data[i].column.get(), row);
     }
@@ -949,22 +951,22 @@ void MutableBlock::add_row(const Block* block, int row) {
 
 void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
     DCHECK_LE(columns(), block->columns());
-    auto& block_data = block->get_columns_with_type_and_name();
+    const auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
         DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
         auto& dst = _columns[i];
-        auto& src = *block_data[i].column.get();
+        const auto& src = *block_data[i].column.get();
         dst->insert_indices_from(src, row_begin, row_end);
     }
 }
 
 void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
     DCHECK_LE(columns(), block->columns());
-    auto& block_data = block->get_columns_with_type_and_name();
+    const auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
         DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
         auto& dst = _columns[i];
-        auto& src = *block_data[i].column.get();
+        const auto& src = *block_data[i].column.get();
         dst->insert_range_from(src, row_begin, length);
     }
 }
@@ -999,10 +1001,12 @@ void MutableBlock::erase(const String& name) {
     _names.erase(_names.begin() + position);
 
     for (auto it = index_by_name.begin(); it != index_by_name.end();) {
-        if (it->second == position)
+        if (it->second == position) {
             index_by_name.erase(it++);
-        else {
-            if (it->second > position) --it->second;
+        } else {
+            if (it->second > position) {
+                --it->second;
+            }
             ++it;
         }
     }
