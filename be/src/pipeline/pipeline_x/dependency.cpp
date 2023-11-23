@@ -49,7 +49,7 @@ void Dependency::set_ready() {
         local_block_task.swap(_blocked_task);
     }
     for (auto* task : local_block_task) {
-        task->try_wake_up(this);
+        task->wake_up();
     }
 }
 
@@ -225,7 +225,7 @@ void RuntimeFilterDependency::sub_filters() {
             local_block_task.swap(_blocked_task);
         }
         for (auto* task : local_block_task) {
-            task->try_wake_up(this);
+            task->wake_up();
         }
     }
 }
