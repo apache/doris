@@ -125,7 +125,7 @@ public class MTMVService {
         }
     }
 
-    public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
+    public void refreshComplete(MTMV mtmv, MTMVRelation cache, MTMVTask task) {
         Objects.requireNonNull(mtmv);
         Objects.requireNonNull(task);
         LOG.info("refreshComplete: " + mtmv.getName());

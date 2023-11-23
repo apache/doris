@@ -83,10 +83,10 @@ public interface MTMVHookService {
      * triggered when mtmv task finish
      *
      * @param mtmv
-     * @param cache
+     * @param relation
      * @param task
      */
-    void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task);
+    void refreshComplete(MTMV mtmv, MTMVRelation relation, MTMVTask task);
 
     /**
      * Triggered when baseTable is dropped

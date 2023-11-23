@@ -893,9 +893,9 @@ public class Alter {
                     mtmv.alterMvProperties(alterMTMV.getMvProperties());
                     break;
                 case ADD_TASK:
-                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getCache());
+                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation());
                     Env.getCurrentEnv().getMtmvService()
-                            .refreshComplete(mtmv, alterMTMV.getCache(), alterMTMV.getTask());
+                            .refreshComplete(mtmv, alterMTMV.getRelation(), alterMTMV.getTask());
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());

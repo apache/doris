@@ -21,7 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVAlterOpType;
-import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -50,8 +50,8 @@ public class AlterMTMV implements Writable {
     private Map<String, String> mvProperties;
     @SerializedName("t")
     private MTMVTask task;
-    @SerializedName("c")
-    private MTMVCache cache;
+    @SerializedName("r")
+    private MTMVRelation relation;
 
     public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, MTMVAlterOpType opType) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
@@ -117,12 +117,12 @@ public class AlterMTMV implements Writable {
         this.task = task;
     }
 
-    public MTMVCache getCache() {
-        return cache;
+    public MTMVRelation getRelation() {
+        return relation;
     }
 
-    public void setCache(MTMVCache cache) {
-        this.cache = cache;
+    public void setRelation(MTMVRelation relation) {
+        this.relation = relation;
     }
 
     @Override
@@ -134,7 +134,7 @@ public class AlterMTMV implements Writable {
                 + ", needRebuildJob=" + needRebuildJob
                 + ", mvProperties=" + mvProperties
                 + ", task=" + task
-                + ", cache=" + cache
+                + ", relation=" + relation
                 + '}';
     }
 

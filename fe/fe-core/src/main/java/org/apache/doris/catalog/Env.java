@@ -177,7 +177,7 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
-import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -5799,10 +5799,10 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVCache cache) {
+    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation) {
         AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ADD_TASK);
         alter.setTask(task);
-        alter.setCache(cache);
+        alter.setRelation(relation);
         this.alter.processAlterMTMV(alter, false);
     }
 }

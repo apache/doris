@@ -21,7 +21,7 @@ import com.google.gson.annotations.SerializedName;
 
 import java.util.Set;
 
-public class MTMVCache {
+public class MTMVRelation {
     // if mtmv query sql is `select * from view1`;
     // and `view1` query sql is `select * from table1 join table2`
     // then baseTables will include: `table1` and `table2`
@@ -31,7 +31,7 @@ public class MTMVCache {
     @SerializedName("bv")
     private Set<BaseTableInfo> baseViews;
 
-    public MTMVCache(Set<BaseTableInfo> baseTables, Set<BaseTableInfo> baseViews) {
+    public MTMVRelation(Set<BaseTableInfo> baseTables, Set<BaseTableInfo> baseViews) {
         this.baseTables = baseTables;
         this.baseViews = baseViews;
     }
@@ -46,7 +46,7 @@ public class MTMVCache {
 
     @Override
     public String toString() {
-        return "MTMVCache{"
+        return "MTMVRelation{"
                 + "baseTables=" + baseTables
                 + ", baseViews=" + baseViews
                 + '}';

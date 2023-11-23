@@ -23,7 +23,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.EnvInfo;
-import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
@@ -59,8 +59,8 @@ public class MTMV extends OlapTable {
     private MTMVJobInfo jobInfo;
     @SerializedName("mp")
     private Map<String, String> mvProperties;
-    @SerializedName("mc")
-    private MTMVCache cache;
+    @SerializedName("r")
+    private MTMVRelation relation;
 
     // For deserialization
     public MTMV() {
@@ -112,8 +112,8 @@ public class MTMV extends OlapTable {
         return jobInfo;
     }
 
-    public MTMVCache getCache() {
-        return cache;
+    public MTMVRelation getRelation() {
+        return relation;
     }
 
     public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
@@ -129,14 +129,14 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public void addTaskResult(MTMVTask task, MTMVCache cache) {
+    public void addTaskResult(MTMVTask task, MTMVRelation relation) {
         try {
             writeMvLock();
             if (task.getStatus() == TaskStatus.SUCCESS) {
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
-                this.cache = cache;
+                this.relation = relation;
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
@@ -195,7 +195,7 @@ public class MTMV extends OlapTable {
         envInfo = materializedView.envInfo;
         jobInfo = materializedView.jobInfo;
         mvProperties = materializedView.mvProperties;
-        cache = materializedView.cache;
+        relation = materializedView.relation;
     }
 
 }

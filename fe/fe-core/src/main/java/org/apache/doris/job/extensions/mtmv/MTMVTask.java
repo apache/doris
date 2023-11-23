@@ -29,7 +29,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVCacheManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -58,7 +58,7 @@ public class MTMVTask extends AbstractTask {
     private String sql;
 
     private MTMV mtmv;
-    private MTMVCache cache;
+    private MTMVRelation relation;
 
     public MTMVTask(long dbId, long mtmvId) {
         this.dbId = dbId;
@@ -70,9 +70,9 @@ public class MTMVTask extends AbstractTask {
         try {
             ConnectContext ctx = createContext();
             TUniqueId queryId = generateQueryId();
-            // Every time a task is run, the cache is regenerated because baseTables and baseViews may change,
+            // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
-            cache = MTMVCacheManager.generateMTMVCache(mtmv, ctx);
+            relation = MTMVCacheManager.generateMTMVRelation(mtmv, ctx);
             StmtExecutor executor = new StmtExecutor(ctx, sql);
             executor.execute(queryId);
         } catch (Throwable e) {
@@ -162,8 +162,8 @@ public class MTMVTask extends AbstractTask {
 
     private void after() {
         Env.getCurrentEnv()
-                .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, cache);
+                .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation);
         mtmv = null;
-        cache = null;
+        relation = null;
     }
 }

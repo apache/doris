@@ -178,7 +178,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
+    public void refreshComplete(MTMV mtmv, MTMVRelation relation, MTMVTask task) {
 
     }
 

@@ -75,8 +75,8 @@ public class MTMVCacheManager implements MTMVHookService {
         if (!ctx.getSessionVariable().isEnableMvRewrite()) {
             return false;
         }
-        MTMVCache mtmvCache = mtmv.getCache();
-        if (mtmvCache == null) {
+        MTMVRelation mtmvRelation = mtmv.getRelation();
+        if (mtmvRelation == null) {
             return false;
         }
         // chaek mv is normal
@@ -85,7 +85,7 @@ public class MTMVCacheManager implements MTMVHookService {
             return false;
         }
         // check external table
-        boolean containsExternalTable = containsExternalTable(mtmvCache.getBaseTables());
+        boolean containsExternalTable = containsExternalTable(mtmvRelation.getBaseTables());
         if (containsExternalTable) {
             return ctx.getSessionVariable().isEnableExternalMvRewrite();
         }
@@ -98,7 +98,7 @@ public class MTMVCacheManager implements MTMVHookService {
         // compare with base table
         Long mtmvLastTime = getTableLastVisibleVersionTime(mtmv);
         Long maxAvailableTime = mtmvLastTime + gracePeriod;
-        for (BaseTableInfo baseTableInfo : mtmvCache.getBaseTables()) {
+        for (BaseTableInfo baseTableInfo : mtmvRelation.getBaseTables()) {
             long tableLastVisibleVersionTime = getTableLastVisibleVersionTime(baseTableInfo);
             if (tableLastVisibleVersionTime > maxAvailableTime) {
                 return false;
@@ -135,9 +135,9 @@ public class MTMVCacheManager implements MTMVHookService {
         return false;
     }
 
-    public static MTMVCache generateMTMVCache(MTMV mtmv, ConnectContext ctx) {
+    public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
         Plan plan = getPlanBySql(mtmv.getQuerySql(), ctx);
-        return new MTMVCache(getBaseTables(plan), getBaseViews(plan));
+        return new MTMVRelation(getBaseTables(plan), getBaseViews(plan));
     }
 
     private static Set<BaseTableInfo> getBaseTables(Plan plan) {
@@ -186,18 +186,18 @@ public class MTMVCacheManager implements MTMVHookService {
         return tableMTMVs.get(baseTableInfo);
     }
 
-    private void refreshMTMVCache(MTMVCache cache, BaseTableInfo mtmvInfo) {
-        LOG.info("refreshMTMVCache,cache: {}, mtmvInfo: {}", cache, mtmvInfo);
+    private void refreshMTMVCache(MTMVRelation relation, BaseTableInfo mtmvInfo) {
+        LOG.info("refreshMTMVCache,relation: {}, mtmvInfo: {}", relation, mtmvInfo);
         removeMTMV(mtmvInfo);
-        addMTMV(cache, mtmvInfo);
+        addMTMV(relation, mtmvInfo);
     }
 
-    private void addMTMV(MTMVCache cache, BaseTableInfo mtmvInfo) {
-        if (cache == null) {
+    private void addMTMV(MTMVRelation relation, BaseTableInfo mtmvInfo) {
+        if (relation == null) {
             return;
         }
-        addMTMVTables(cache.getBaseTables(), mtmvInfo);
-        addMTMVTables(cache.getBaseViews(), mtmvInfo);
+        addMTMVTables(relation.getBaseTables(), mtmvInfo);
+        addMTMVTables(relation.getBaseViews(), mtmvInfo);
     }
 
     private void addMTMVTables(Set<BaseTableInfo> baseTables, BaseTableInfo mtmvInfo) {
@@ -226,13 +226,13 @@ public class MTMVCacheManager implements MTMVHookService {
     }
 
     /**
-     * modify `tableMTMVs` by MTMVCache
+     * modify `tableMTMVs` by MTMVRelation
      * @param mtmv
      * @param dbId
      */
     @Override
     public void registerMTMV(MTMV mtmv, Long dbId) {
-        refreshMTMVCache(mtmv.getCache(), new BaseTableInfo(mtmv.getId(), dbId));
+        refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv.getId(), dbId));
     }
 
     /**
@@ -255,16 +255,16 @@ public class MTMVCacheManager implements MTMVHookService {
     }
 
     /**
-     * modify `tableMTMVs` by MTMVCache
+     * modify `tableMTMVs` by MTMVRelation
      * @param mtmv
-     * @param cache
+     * @param relation
      * @param task
      */
     @Override
-    public void refreshComplete(MTMV mtmv, MTMVCache cache, MTMVTask task) {
+    public void refreshComplete(MTMV mtmv, MTMVRelation relation, MTMVTask task) {
         if (task.getStatus() == TaskStatus.SUCCESS) {
-            Objects.requireNonNull(cache);
-            refreshMTMVCache(cache, new BaseTableInfo(mtmv));
+            Objects.requireNonNull(relation);
+            refreshMTMVCache(relation, new BaseTableInfo(mtmv));
         }
     }
 
