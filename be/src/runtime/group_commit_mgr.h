@@ -23,7 +23,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "util/lock.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
 #include "vec/core/future_block.h"
@@ -63,14 +62,14 @@ public:
     int64_t schema_version;
     bool need_commit = false;
     bool wait_internal_group_commit_finish = false;
-    doris::Mutex mutex;
-    doris::ConditionVariable internal_group_commit_finish_cv;
+    std::mutex mutex;
+    std::condition_variable internal_group_commit_finish_cv;
 
 private:
     std::chrono::steady_clock::time_point _start_time;
 
-    doris::ConditionVariable _put_cond;
-    doris::ConditionVariable _get_cond;
+    std::condition_variable _put_cond;
+    std::condition_variable _get_cond;
     // the set of load ids of all blocks in this queue
     std::set<UniqueId> _load_ids;
     std::list<std::shared_ptr<vectorized::FutureBlock>> _block_queue;
@@ -113,8 +112,8 @@ private:
     ThreadPool* _thread_pool;
     int64_t _db_id;
     int64_t _table_id;
-    doris::Mutex _lock;
-    doris::ConditionVariable _cv;
+    std::mutex _lock;
+    std::condition_variable _cv;
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _need_plan_fragment = false;
@@ -139,7 +138,7 @@ public:
 private:
     ExecEnv* _exec_env;
 
-    doris::Mutex _lock;
+    std::mutex _lock;
     // TODO remove table when unused
     std::unordered_map<int64_t, std::shared_ptr<GroupCommitTable>> _table_map;
     std::unique_ptr<doris::ThreadPool> _thread_pool;

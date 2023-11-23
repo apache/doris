@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <condition_variable>
+#include <mutex>
+
 #include "block.h"
-#include "util/lock.h"
 
 namespace doris {
 
@@ -41,8 +43,8 @@ public:
     int64_t get_total_rows() { return std::get<2>(*(_result)); }
     int64_t get_loaded_rows() { return std::get<3>(*(_result)); }
 
-    std::shared_ptr<doris::Mutex> lock = std::make_shared<doris::Mutex>();
-    std::shared_ptr<doris::ConditionVariable> cv = std::make_shared<doris::ConditionVariable>();
+    std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+    std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
 
 private:
     int64_t _schema_version;

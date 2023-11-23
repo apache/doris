@@ -259,7 +259,7 @@ Status PipelineTask::execute(bool* eos) {
     auto handle_group_commit = [&]() {
         if (UNLIKELY(_fragment_context->is_group_commit() && !status.ok() && _block != nullptr)) {
             auto* future_block = dynamic_cast<vectorized::FutureBlock*>(_block.get());
-            std::unique_lock<doris::Mutex> l(*(future_block->lock));
+            std::unique_lock<std::mutex> l(*(future_block->lock));
             if (!future_block->is_handled()) {
                 future_block->set_result(status, 0, 0);
                 future_block->cv->notify_all();

@@ -1342,6 +1342,16 @@ load 最大超时时间，适用于除 stream load 之外的所有类型的加�
 
 默认 stream load 预提交超时时间
 
+#### `stream_load_default_memtable_on_sink_node`
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+当 HTTP header 没有设置 `memtable_on_sink_node` 的时候，stream load 是否默认打开前移
+
 #### `insert_load_default_timeout_second`
 
 默认值：3600（1小时）

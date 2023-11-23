@@ -30,7 +30,6 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "concurrentqueue.h"
-#include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/vscanner.h"
@@ -199,15 +198,15 @@ protected:
     // _transfer_lock is used to protect the critical section
     // where the ScanNode and ScannerScheduler interact.
     // Including access to variables such as blocks_queue, _process_status, _is_finished, etc.
-    doris::Mutex _transfer_lock;
+    std::mutex _transfer_lock;
     // The blocks got from scanners will be added to the "blocks_queue".
     // And the upper scan node will be as a consumer to fetch blocks from this queue.
     // Should be protected by "_transfer_lock"
     std::list<vectorized::BlockUPtr> _blocks_queue;
     // Wait in get_block_from_queue(), by ScanNode.
-    doris::ConditionVariable _blocks_queue_added_cv;
+    std::condition_variable _blocks_queue_added_cv;
     // Wait in clear_and_join(), by ScanNode.
-    doris::ConditionVariable _ctx_finish_cv;
+    std::condition_variable _ctx_finish_cv;
 
     // The following 3 variables control the process of the scanner scheduling.
     // Use _transfer_lock to protect them.
@@ -266,7 +265,7 @@ protected:
     // The scanner scheduler will pop scanners from this list, run scanner,
     // and then if the scanner is not finished, will be pushed back to this list.
     // Not need to protect by lock, because only one scheduler thread will access to it.
-    doris::Mutex _scanners_lock;
+    std::mutex _scanners_lock;
     std::list<VScannerSPtr> _scanners;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
