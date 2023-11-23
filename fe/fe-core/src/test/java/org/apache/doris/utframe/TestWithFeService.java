@@ -498,7 +498,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected int findValidPort() {
+    public static int findValidPort() {
         int port = 0;
         while (true) {
             try (ServerSocket socket = new ServerSocket(0)) {
