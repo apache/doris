@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.Queriable;
@@ -308,54 +309,91 @@ public class ConnectProcessor {
             }
         }
 
-        boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
-        for (int i = 0; i < stmts.size(); ++i) {
-            String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : originStmt;
-
-            ctx.getState().reset();
-            if (i > 0) {
-                ctx.resetReturnRows();
-            }
-
-            StatementBase parsedStmt = stmts.get(i);
-            if (parsedStmt instanceof SelectStmt && nereidsParseException != null
-                    && ctx.getSessionVariable().isEnableNereidsPlanner()
-                    && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                Exception exception = new Exception(
-                        String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
-                        parsedStmt.toSql()), nereidsParseException);
-                // audit it and break
-                handleQueryException(exception, auditStmt, null, null);
+        // query queue
+        SessionVariable globalSessionVariable = VariableMgr.getDefaultSessionVariable();
+        boolean containsQuery = false;
+        for (StatementBase statementBase : stmts) {
+            if (statementBase instanceof QueryStmt || statementBase instanceof CreateTableAsSelectStmt) {
+                containsQuery = true;
                 break;
             }
-
-            parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
-            parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            executor = new StmtExecutor(ctx, parsedStmt);
-            ctx.setExecutor(executor);
-
+        }
+        boolean needQueryQueue = globalSessionVariable.maxConcurrency > 0 && containsQuery;
+        QueryQueue queryQueue = null;
+        QueueOfferToken queueOfferToken = null;
+        if (needQueryQueue) {
+            queryQueue = Env.getCurrentEnv().getQueryQueue();
             try {
-                executor.execute();
-                if (i != stmts.size() - 1) {
-                    ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                    if (ctx.getState().getStateType() != MysqlStateType.ERR) {
-                        finalizeCommand();
-                    }
+                queueOfferToken = queryQueue.offer();
+            } catch (InterruptedException e) {
+                LOG.warn("exception when query queue, ", e);
+            }
+            if (!queueOfferToken.isOfferSuccess()) {
+                handleQueryException(
+                        new RuntimeException("query queue failed " + queueOfferToken.getOfferResultDetail())
+                            ,originStmt, null, null);
+                return;
+            }
+        }
+
+        boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
+        try {
+            for (int i = 0; i < stmts.size(); ++i) {
+                String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : originStmt;
+
+                ctx.getState().reset();
+                if (i > 0) {
+                    ctx.resetReturnRows();
                 }
-                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
-                // execute failed, skip remaining stmts
-                if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+
+                StatementBase parsedStmt = stmts.get(i);
+                if (parsedStmt instanceof SelectStmt && nereidsParseException != null
+                        && ctx.getSessionVariable().isEnableNereidsPlanner()
+                        && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+                    Exception exception = new Exception(
+                            String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
+                                    parsedStmt.toSql()), nereidsParseException);
+                    // audit it and break
+                    handleQueryException(exception, auditStmt, null, null);
                     break;
                 }
-            } catch (Throwable throwable) {
-                handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
-                        executor.getQueryStatisticsForAuditLog());
-                // execute failed, skip remaining stmts
-                break;
-            } finally {
-                executor.addProfileToSpan();
-            }
 
+                parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+                parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+                executor = new StmtExecutor(ctx, parsedStmt);
+                ctx.setExecutor(executor);
+
+                try {
+                    executor.execute();
+                    if (i != stmts.size() - 1) {
+                        ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+                        if (ctx.getState().getStateType() != MysqlStateType.ERR) {
+                            finalizeCommand();
+                        }
+                    }
+                    auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+                    // execute failed, skip remaining stmts
+                    if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                        break;
+                    }
+                } catch (Throwable throwable) {
+                    handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
+                            executor.getQueryStatisticsForAuditLog());
+                    // execute failed, skip remaining stmts
+                    break;
+                } finally {
+                    executor.addProfileToSpan();
+                }
+
+            }
+        } finally {
+            if (queueOfferToken != null && queueOfferToken.isOfferSuccess()) {
+                try {
+                    queryQueue.poll();
+                } catch (InterruptedException e) {
+                    LOG.warn("exception happens when query queue");
+                }
+            }
         }
 
     }

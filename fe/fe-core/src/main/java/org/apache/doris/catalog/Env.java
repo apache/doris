@@ -207,6 +207,7 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
+import org.apache.doris.qe.QueryQueue;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
@@ -443,6 +444,8 @@ public class Env {
 
     private AnalysisManager analysisManager;
 
+    private QueryQueue queryQueue;
+
     private ExternalMetaCacheMgr extMetaCacheMgr;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
@@ -648,6 +651,7 @@ public class Env {
         if (!isCheckpointCatalog) {
             this.analysisManager = new AnalysisManager();
         }
+        this.queryQueue = new QueryQueue();
     }
 
     public static void destroyCheckpoint() {
@@ -880,6 +884,9 @@ public class Env {
         }
         // 7. start mtmv jobManager
         mtmvJobManager.start();
+
+        // 8 init query queue
+        queryQueue.start();
     }
 
     // wait until FE is ready.
@@ -3466,6 +3473,10 @@ public class Env {
 
     public ConsistencyChecker getConsistencyChecker() {
         return this.consistencyChecker;
+    }
+
+    public QueryQueue getQueryQueue() {
+        return queryQueue;
     }
 
     public Alter getAlterInstance() {

@@ -268,11 +268,26 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
 
+    public static final String MAX_CONCURRENCY = "max_concurrency";
+
+    public static final String MAX_QUEUE_SIZE = "max_queue_size";
+
+    public static final String QUEUE_TIMEOUT = "queue_timeout";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
+
+    @VariableMgr.VarAttr(name = MAX_CONCURRENCY)
+    public int maxConcurrency = -1;
+
+    @VariableMgr.VarAttr(name = MAX_QUEUE_SIZE)
+    public int maxQueueSize = 0;
+
+    @VariableMgr.VarAttr(name = QUEUE_TIMEOUT)
+    public int queueTimeout = 0;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
     public boolean roundPreciseDecimalV2Value = false;
