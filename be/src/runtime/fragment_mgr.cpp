@@ -560,6 +560,12 @@ void FragmentMgr::remove_pipeline_context(
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
     for (const auto& ins_id : ins_ids) {
+        {
+            std::lock_guard<std::mutex> plock(q_context->pipeline_lock);
+            if (q_context->fragment_id_to_pipeline_ctx.contains(f_context->get_fragment_id())) {
+                q_context->fragment_id_to_pipeline_ctx.erase(f_context->get_fragment_id());
+            }
+        }
         LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
                  print_id(ins_id), all_done);
         _pipeline_map.erase(ins_id);
@@ -789,9 +795,9 @@ std::string FragmentMgr::dump_pipeline_tasks() {
         fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
                        _pipeline_map.size());
         for (auto& it : _pipeline_map) {
-            fmt::format_to(debug_string_buffer, "No.{} (elapse time = {}, InstanceId = {}) : {}\n",
-                           i, t - it.second->create_time(), print_id(it.first),
-                           it.second->debug_string());
+            fmt::format_to(
+                    debug_string_buffer, "No.{} (elapse time = {}ns, InstanceId = {}) : {}\n", i,
+                    t - it.second->create_time(), print_id(it.first), it.second->debug_string());
             i++;
         }
     }
@@ -865,6 +871,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             }
 
             _cv.notify_all();
+        }
+        {
+            std::lock_guard<std::mutex> lock(query_ctx->pipeline_lock);
+            query_ctx->fragment_id_to_pipeline_ctx.insert({params.fragment_id, context});
         }
 
         RETURN_IF_ERROR(context->submit());

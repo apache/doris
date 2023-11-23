@@ -327,7 +327,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         auto handle_group_commit = [&]() {
             if (UNLIKELY(_group_commit && !st.ok() && block != nullptr)) {
                 auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
-                std::unique_lock<doris::Mutex> l(*(future_block->lock));
+                std::unique_lock<std::mutex> l(*(future_block->lock));
                 if (!future_block->is_handled()) {
                     future_block->set_result(st, 0, 0);
                     future_block->cv->notify_all();

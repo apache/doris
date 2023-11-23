@@ -48,7 +48,8 @@ public:
 class SortSinkDependency final : public Dependency {
 public:
     using SharedState = SortSharedState;
-    SortSinkDependency(int id, int node_id) : Dependency(id, node_id, "SortSinkDependency", true) {}
+    SortSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SortSinkDependency", true, query_ctx) {}
     ~SortSinkDependency() override = default;
 };
 

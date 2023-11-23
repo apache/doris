@@ -84,7 +84,9 @@ public:
 
     bool sink_can_write() override { return _write_blocked_dependency() == nullptr; }
 
-    Status finalize() override;
+    void finalize() override;
+
+    bool is_finished() const { return _finished.load(); }
 
     std::string debug_string() override;
 
@@ -103,13 +105,6 @@ public:
         }
     }
 
-    void release_dependency() override {
-        std::vector<DependencySPtr> {}.swap(_downstream_dependency);
-        DependencyMap {}.swap(_upstream_dependency);
-
-        _local_exchange_state = nullptr;
-    }
-
     std::vector<DependencySPtr>& get_upstream_dependency(int id) {
         if (_upstream_dependency.find(id) == _upstream_dependency.end()) {
             _upstream_dependency.insert({id, {DependencySPtr {}}});
@@ -119,7 +114,7 @@ public:
 
     bool is_pipelineX() const override { return true; }
 
-    void try_wake_up(Dependency* wake_up_dep);
+    void wake_up();
 
     DataSinkOperatorXPtr sink() const { return _sink; }
 
@@ -141,6 +136,13 @@ public:
             return;
         }
         _use_blocking_queue = false;
+    }
+    void clear_blocking_state() {
+        if (!is_final_state(get_state()) && get_state() != PipelineTaskState::PENDING_FINISH &&
+            _blocked_dep) {
+            _blocked_dep->set_ready();
+            _blocked_dep = nullptr;
+        }
     }
 
 private:
@@ -179,7 +181,6 @@ private:
     }
 
     Status _extract_dependencies();
-    void _make_run();
     void set_close_pipeline_time() override {}
     void _init_profile() override;
     void _fresh_profile_counter() override;
@@ -205,6 +206,8 @@ private:
     Dependency* _blocked_dep {nullptr};
 
     std::atomic<bool> _use_blocking_queue {true};
+    std::atomic<bool> _finished {false};
+    std::mutex _release_lock;
 };
 
 } // namespace doris::pipeline

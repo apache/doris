@@ -58,7 +58,7 @@ public class JoinCostEvaluationTest {
     public void setUp() {
         new Expectations() {
             {
-                node.getTupleIds();
+                node.getOutputTupleIds();
                 result = Lists.newArrayList();
                 node.getTblRefIds();
                 result = Lists.newArrayList();
@@ -114,7 +114,7 @@ public class JoinCostEvaluationTest {
         double nodeArrayLen = 6144;
         new Expectations() {
             {
-                node.getTupleIds();
+                node.getOutputTupleIds();
                 result = new ArrayList<>(Collections.nCopies(rhsNodeTupleIdNum, 0));
             }
         };
