@@ -125,8 +125,7 @@ public class ShowPartitionsStmt extends ShowStmt {
         }
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
-        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP, TableType.MATERIALIZED_VIEW,
-                    TableType.HMS_EXTERNAL_TABLE);
+        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP, TableType.HMS_EXTERNAL_TABLE);
 
         if (table instanceof HMSExternalTable) {
             if (((HMSExternalTable) table).isView()) {
