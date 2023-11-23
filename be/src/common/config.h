@@ -1130,6 +1130,8 @@ DECLARE_mBool(enable_flatten_nested_for_variant);
 DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
+// rowid conversion correctness check when compaction for mow table
+DECLARE_mBool(enable_rowid_conversion_correctness_check);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
