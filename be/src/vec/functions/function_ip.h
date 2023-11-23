@@ -314,7 +314,7 @@ public:
                 const char* value = str_ref.data;
                 size_t value_size = str_ref.size;
 
-                if (value_size > IPV6_BINARY_LENGTH) {
+                if (value_size > IPV6_BINARY_LENGTH || value == nullptr || value_size == 0) {
                     is_empty = true;
                 } else {
                     memcpy(ipv6_addresses[i].data, value, value_size);
@@ -323,10 +323,14 @@ public:
             }
 
             const unsigned char* src = ipv6_addresses[i].data;
-            is_empty = is_empty ||
-                       (col_string && std::all_of(src, src + IPV6_BINARY_LENGTH,
-                                                  [](unsigned char c) { return c == '\0'; }));
+            bool is_zero_address = std::all_of(src, src + IPV6_BINARY_LENGTH,
+                                               [](unsigned char c) { return c == 0; });
 
+            if (col_string && !is_empty) {
+                is_empty =
+                        !is_zero_address && std::all_of(src, src + IPV6_BINARY_LENGTH,
+                                                        [](unsigned char c) { return c == '\0'; });
+            }
             if (is_empty) {
                 offsets_res[i] = pos - begin;
                 null_map->get_data()[i] = 1;
@@ -335,7 +339,6 @@ public:
                 offsets_res[i] = pos - begin;
             }
         }
-
         vec_res.resize(pos - begin);
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(col_res), std::move(null_map)));

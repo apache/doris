@@ -43,4 +43,6 @@ suite("ip_functions") {
     qt_ip21 "SELECT inet6_ntoa(unhex('0A0005091'));"
     qt_ip22 "SELECT inet6_ntoa(unhex('2A0206B8000000000000000000000011'));"
     qt_ip23 "SELECT inet6_ntoa(unhex(NULL));"
+    qt_ip24 "SELECT inet6_ntoa(unhex('00000000000000000000000000000000'));"
+    qt_ip25 "SELECT inet6_ntoa(unhex('0000000000000000000000000000'));"
 }

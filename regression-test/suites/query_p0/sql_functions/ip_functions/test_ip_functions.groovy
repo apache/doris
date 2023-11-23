@@ -38,4 +38,6 @@ suite("test_ip_functions") {
     qt_sql "SELECT inet6_ntoa(unhex('0A0005091'));"
     qt_sql "SELECT inet6_ntoa(unhex('2A0206B8000000000000000000000011'));"
     qt_sql "SELECT inet6_ntoa(unhex(NULL));"
+    qt_sql "SELECT inet6_ntoa(unhex('00000000000000000000000000000000'));"
+    qt_sql "SELECT inet6_ntoa(unhex('0000000000000000000000000000'));"
 }
