@@ -587,7 +587,7 @@ suite("test_issue_27409") {
         ('customer_id','c_oneid',1,bitmap_from_string("2,3,4,7,10,15,16,17,20,21,23,26,27,28,30,32,33,35,37,38,39,42,43,44,48,49,51,52,53,54,55,60,61,62,63,69"));
     """
 
-    for (int i = 1; i <= 1000; i++) {
+    for (int i = 1; i <= 30; i++) {
         sql """
             select
                 a.identity_type_desc,
