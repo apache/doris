@@ -245,7 +245,7 @@ Status PulsarDataConsumerGroup::reset_consumers(std::shared_ptr<StreamLoadContex
     LOG(INFO) << "reset all consumers of group: " << _consumers << ". size : " << _consumers.size();
     // cancel all consumers
     for (auto& consumer : _consumers) {
-        static_cast<void>(consumer->reset(ctx));
+        static_cast<void>(consumer->reset());
     }
     return Status::OK();
 }

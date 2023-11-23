@@ -117,6 +117,8 @@ public:
     // assign topic partitions to all consumers equally
     Status assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx);
 
+    Status reset_consumers(std::shared_ptr<StreamLoadContext> ctx);
+
 private:
     // start a single consumer
     void actual_consume(const std::shared_ptr<DataConsumer>& consumer, BlockingQueue<pulsar::Message*>* queue,
@@ -127,8 +129,6 @@ private:
     const char* filter_invalid_prefix_of_json(const char* data, std::size_t size);
 
     size_t len_of_actual_data(const char* data);
-
-    Status reset_consumers(std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     // blocking queue to receive msgs from all consumers
