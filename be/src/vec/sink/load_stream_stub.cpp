@@ -105,11 +105,7 @@ LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
           _tablet_schema_for_index(stub._tablet_schema_for_index),
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
 
-LoadStreamStub::~LoadStreamStub() {
-    if (_is_init.load() && !_handler.is_closed()) {
-        brpc::StreamClose(_stream_id);
-    }
-}
+LoadStreamStub::~LoadStreamStub() = default;
 
 // open_load_stream
 Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
