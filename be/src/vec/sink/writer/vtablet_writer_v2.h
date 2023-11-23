@@ -123,7 +123,7 @@ private:
 
     Status _open_streams(int64_t src_id);
 
-    Status _open_streams_to_backend(int64_t dst_id, ::doris::stream_load::LoadStreams& streams);
+    Status _open_streams_to_backend(int64_t dst_id, LoadStreams& streams);
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
 
