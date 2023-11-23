@@ -62,6 +62,8 @@ public:
 
     void insert_data(const char*, size_t) override { ++s; }
 
+    void clear() override {};
+
     StringRef serialize_value_into_arena(size_t /*n*/, Arena& arena,
                                          char const*& begin) const override {
         return {arena.alloc_continue(0, begin), 0};

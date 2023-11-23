@@ -105,7 +105,6 @@ private:
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
 
     std::unique_ptr<Block> _get_block_from_queue();
-    void _return_block_to_queue(std::unique_ptr<Block>);
 
     static constexpr auto QUEUE_SIZE = 3;
     std::mutex _m;

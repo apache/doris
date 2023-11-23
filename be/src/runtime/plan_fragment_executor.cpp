@@ -350,11 +350,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 
             if (!eos || block->rows() > 0) {
                 st = _sink->send(runtime_state(), block.get());
-                //TODO: Asynchronisation need refactor this
-                if (st.is<NEED_SEND_AGAIN>()) { // created partition, do it again.
-                    st = _sink->send(runtime_state(), block.get());
-                    DCHECK(!st.is<NEED_SEND_AGAIN>());
-                }
                 handle_group_commit();
                 if (st.is<END_OF_FILE>()) {
                     break;

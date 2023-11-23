@@ -375,7 +375,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         }
                     }
                     cur_block.clear_column_data();
-                    local_state._serializer.get_block()->set_muatable_columns(
+                    local_state._serializer.get_block()->set_mutable_columns(
                             cur_block.mutate_columns());
                 }
             }

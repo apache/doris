@@ -22,9 +22,9 @@
 
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <list>
 #include <memory>
@@ -462,7 +462,7 @@ public:
 
     MutableColumns& mutable_columns() { return _columns; }
 
-    void set_muatable_columns(MutableColumns&& columns) { _columns = std::move(columns); }
+    void set_mutable_columns(MutableColumns&& columns) { _columns = std::move(columns); }
 
     DataTypes& data_types() { return _data_types; }
 
@@ -583,8 +583,8 @@ public:
         return Status::OK();
     }
 
+    // move to columns' data to a Block. this will invalidate
     Block to_block(int start_column = 0);
-
     Block to_block(int start_column, int end_column);
 
     void swap(MutableBlock& other) noexcept;
@@ -594,6 +594,7 @@ public:
     void add_row(const Block* block, int row);
     void add_rows(const Block* block, const int* row_begin, const int* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
+    void add_rows(const Block* block, std::vector<int64_t> rows);
 
     /// remove the column with the specified name
     void erase(const String& name);
@@ -606,7 +607,10 @@ public:
         _names.clear();
     }
 
+    // columns resist. columns' inner data removed.
     void clear_column_data() noexcept;
+    // reset columns by types and names.
+    void reset_column_data() noexcept;
 
     size_t allocated_bytes() const;
 

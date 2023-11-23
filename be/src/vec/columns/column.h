@@ -609,7 +609,7 @@ public:
     virtual bool is_exclusive() const { return use_count() == 1; }
 
     /// Clear data of column, just like vector clear
-    virtual void clear() {}
+    virtual void clear() = 0;
 
     /** Memory layout properties.
       *

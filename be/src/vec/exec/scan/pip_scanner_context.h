@@ -259,7 +259,7 @@ private:
                     _dependency->set_ready();
                 }
                 _colocate_blocks[loc] = get_free_block();
-                _colocate_mutable_blocks[loc]->set_muatable_columns(
+                _colocate_mutable_blocks[loc]->set_mutable_columns(
                         _colocate_blocks[loc]->mutate_columns());
             }
         }

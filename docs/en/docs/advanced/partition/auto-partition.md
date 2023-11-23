@@ -38,19 +38,19 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 
 1. AUTO RANGE PARTITION:
 
-  ```SQL
+  ```sql
   AUTO PARTITION BY RANGE FUNC_CALL_EXPR
   (
   )
   ```
   where
-  ```SQL
+  ```sql
   FUNC_CALL_EXPR ::= date_trunc ( <partition_column>, '<interval>' )
   ```
 
 2. AUTO LIST PARTITION:
 
-  ```SQL
+  ```sql
   AUTO PARTITION BY LIST(`partition_col`)
   (
   )
@@ -60,7 +60,7 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 
 1. AUTO RANGE PARTITION
 
-  ```SQL
+  ```sql
   CREATE TABLE `${tblDate}` (
       `TIME_STAMP` datev2 NOT NULL COMMENT 'Date of collection'
   ) ENGINE=OLAP
@@ -76,7 +76,7 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 
 2. AUTO LIST PARTITION
 
-  ```SQL
+  ```sql
   CREATE TABLE `${tblName1}` (
       `str` varchar not null
   ) ENGINE=OLAP
@@ -144,7 +144,7 @@ PROPERTIES (
 
 The table stores a large amount of business history data, partitioned based on the date the transaction occurred. As you can see when building the table, we need to manually create the partitions in advance. If the data range of the partitioned columns changes, for example, 2022 is added to the above table, we need to create a partition by [ALTER-TABLE-PARTITION](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION.md) to make changes to the table partition. After using AUTO PARTITION, the table DDL can be changed to:
 
-```SQL
+```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
     `TRADE_DATE`              datev2 NULL,
@@ -162,13 +162,13 @@ PROPERTIES (
 ```
 
 At this point the new table does not have a default partition:
-```SQL
+```sql
 mysql> show partitions from `DAILY_TRADE_VALUE`;
 Empty set (0.12 sec)
 ```
 
 After inserting the data and then viewing it again, we could found that the table has been created with corresponding partitions:
-```SQL
+```sql
 mysql> insert into `DAILY_TRADE_VALUE` values ('2012-12-13', 1), ('2008-02-03', 2), ('2014-11-11', 3);
 Query OK, 3 rows affected (0.88 sec)
 {'label':'insert_754e2a3926a345ea_854793fb2638f0ec', 'status':'VISIBLE', 'txnId':'20014'}
@@ -188,3 +188,4 @@ mysql> show partitions from `DAILY_TRADE_VALUE`;
 
 - If a partition is created during the insertion or importation of data and the process eventually fails, the created partition is not automatically deleted.
 - Tables that use AUTO PARTITION only have their partitions created automatically instead of manually. The original use of the table and the partitions it creates is the same as for non-AUTO PARTITION tables or partitions.
+- When importing data to a table with AUTO PARTITION enabled, the polling interval for data sent by the Coordinator is different from that of a normal table. For details, see `olap_table_sink_send_interval_auto_partition_factor` in [BE Configuration](../../admin-manual/config/be-config.md).
