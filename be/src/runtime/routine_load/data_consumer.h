@@ -62,6 +62,8 @@ public:
     // process is already finished, call cancel() will
     // return ERROR
     virtual Status cancel(std::shared_ptr<StreamLoadContext> ctx) = 0;
+    // unsubscribe the consuming process.
+    virtual Status unsubscribe(std::shared_ptr<StreamLoadContext> ctx) = 0;
     // reset the data consumer before being reused
     virtual Status reset() = 0;
     // return true the if the consumer match the need
@@ -136,6 +138,7 @@ public:
     // TODO(cmy): currently do not implement single consumer start method, using group_consume
     Status consume(std::shared_ptr<StreamLoadContext> ctx) override { return Status::OK(); }
     Status cancel(std::shared_ptr<StreamLoadContext> ctx) override;
+    Status unsubscribe(std::shared_ptr<StreamLoadContext> ctx) override { return Status::OK(); }
     // reassign partition topics
     virtual Status reset() override;
     bool match(std::shared_ptr<StreamLoadContext> ctx) override;
@@ -191,6 +194,7 @@ public:
     // TODO(cmy): currently do not implement single consumer start method, using group_consume
     Status consume(std::shared_ptr<StreamLoadContext> ctx) override { return Status::OK(); }
     Status cancel(std::shared_ptr<StreamLoadContext> ctx) override;
+    Status unsubscribe(std::shared_ptr<StreamLoadContext> ctx) override;
     // reassign partition topics
     Status reset() override;
     bool match(std::shared_ptr<StreamLoadContext> ctx) override;
@@ -207,8 +211,6 @@ public:
     Status get_partition_backlog(int64_t* backlog);
 
     const std::string& get_partition();
-
-    Status unsubscribe(std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     std::string _service_url;
