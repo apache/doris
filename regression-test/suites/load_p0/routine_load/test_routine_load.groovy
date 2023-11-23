@@ -27,11 +27,6 @@ suite("test_routine_load","p0") {
                   "mow_tbl_array",
                  ]
 
-    def mowTabls = [
-        "mow_tbl_basic",
-        "mow_tbl_array"
-    ]
-
     def multiTables = [
                   "dup_tbl_basic_multi_table",
                  ]
