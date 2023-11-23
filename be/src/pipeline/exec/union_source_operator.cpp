@@ -115,8 +115,8 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         DCHECK(deps.size() == 1);
         DCHECK(deps.front() == nullptr);
         //child_count == 0 , we need to creat a  UnionDependency
-        deps.front() =
-                std::make_shared<UnionSourceDependency>(_parent->operator_id(), _parent->node_id());
+        deps.front() = std::make_shared<UnionSourceDependency>(
+                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
         ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
