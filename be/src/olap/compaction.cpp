@@ -694,7 +694,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             }
         }
 
-        RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+        if (config::enable_rowid_conversion_correctness_check) {
+            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+        }
         location_map.clear();
 
         {
@@ -755,7 +757,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 }
             }
 
-            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+            if (config::enable_rowid_conversion_correctness_check) {
+                RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+            }
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
             RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
