@@ -69,7 +69,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HiveTable;
-import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.JdbcTable;
@@ -135,8 +134,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
-import org.apache.doris.external.iceberg.IcebergCatalogMgr;
-import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -211,8 +208,6 @@ public class InternalCatalog implements CatalogIf<Database> {
     // Add transient to fix gson issue.
     @Getter
     private transient EsRepository esRepository = new EsRepository();
-    @Getter
-    private IcebergTableCreationRecordMgr icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
 
     public InternalCatalog() {
         // create internal databases
@@ -419,7 +414,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Database db = new Database(id, fullDbName);
         db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         // check and analyze database properties before create database
-        db.setDbProperties(new DatabaseProperty(properties).checkAndBuildProperties());
+        db.setDbProperties(new DatabaseProperty(properties));
 
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
@@ -440,11 +435,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             unlock();
         }
         LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
-
-        // create tables in iceberg database
-        if (db.getDbProperties().getIcebergProperty().isExist()) {
-            icebergTableCreationRecordMgr.registerDb(db);
-        }
     }
 
     /**
@@ -556,10 +546,6 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime) {
-        // drop Iceberg database table creation records
-        if (db.getDbProperties().getIcebergProperty().isExist()) {
-            icebergTableCreationRecordMgr.deregisterDb(db);
-        }
         for (Table table : db.getTables()) {
             unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
         }
@@ -942,9 +928,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             // drop all temp partitions of this table, so that there is no temp partitions in recycle bin,
             // which make things easier.
             ((OlapTable) table).dropAllTempPartitions();
-        } else if (table.getType() == TableType.ICEBERG) {
-            // drop Iceberg database table creation record
-            icebergTableCreationRecordMgr.deregisterTable(db, (IcebergTable) table);
         } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
         }
@@ -1121,9 +1104,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             return;
         } else if (engineName.equalsIgnoreCase("hive")) {
             createHiveTable(db, stmt);
-            return;
-        } else if (engineName.equalsIgnoreCase("iceberg")) {
-            IcebergCatalogMgr.createIcebergTable(db, stmt);
             return;
         } else if (engineName.equalsIgnoreCase("jdbc")) {
             createJdbcTable(db, stmt);
