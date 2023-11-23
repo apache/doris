@@ -253,7 +253,7 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTable olapTable = (OlapTable) table;
             tblName.setDb(olapTable.getDatabase().getFullName());
             tblName.setTbl(olapTable.getName());
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS || olapTable.getTableProperty().storeRowColumn()) {
                 List<Column> columns = Lists.newArrayList(olapTable.getBaseSchema(true));
                 targetColumnNames = columns.stream().map(c -> c.getName()).collect(Collectors.toList());
             }
