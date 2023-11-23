@@ -65,8 +65,8 @@ Status DataConsumerPool::get_consumer(std::shared_ptr<StreamLoadContext> ctx,
         consumer = std::make_shared<KafkaDataConsumer>(ctx);
         break;
     case TLoadSourceType::PULSAR:
-            consumer = std::make_shared<PulsarDataConsumer>(ctx);
-            break;
+        consumer = std::make_shared<PulsarDataConsumer>(ctx);
+        break;
     default:
         return Status::InternalError("PAUSE: unknown routine load task type: {}", ctx->load_type);
     }

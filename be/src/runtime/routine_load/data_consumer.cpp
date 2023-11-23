@@ -634,6 +634,8 @@ Status PulsarDataConsumer::cancel(std::shared_ptr<StreamLoadContext> ctx) {
 
     _cancelled = true;
     LOG(INFO) << "pulsar consumer cancelled. " << _id;
+    _p_consumer.close();
+    LOG(INFO) << "pulsar consumer closed. " << _p_consumer;
     return Status::OK();
 }
 
