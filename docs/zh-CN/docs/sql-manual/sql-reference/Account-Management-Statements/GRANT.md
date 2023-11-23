@@ -53,7 +53,7 @@ GRANT role_list TO user_identity
 
 privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris 支持如下权限：
 
-    NODE_PRIV：集群节点操作权限，包括节点上下线等操作，只有 root 用户有该权限，不可赋予其他用户。
+    NODE_PRIV：集群节点操作权限，包括节点上下线等操作。同时拥有 Grant_priv 和 Node_priv 的用户，可以将该权限赋予其他用户。
     ADMIN_PRIV：除 NODE_PRIV 以外的所有权限。
     GRANT_PRIV: 操作权限的权限。包括创建删除用户、角色，授权和撤权，设置密码等。
     SELECT_PRIV：对指定的库或表的读取权限
@@ -62,6 +62,7 @@ privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris �
     CREATE_PRIV：对指定的库或表的创建权限
     DROP_PRIV：对指定的库或表的删除权限
     USAGE_PRIV: 对指定资源的使用权限<version since="dev" type="inline" >和workload group权限</version>
+    SHOW_VIEW_PRIV: 查看`view`创建语句的权限(从2.0.3版本开始，`SELECT_PRIV`和`LOAD_PRIV`权限不能`SHOW CREATE TABLE view_name`，拥有`CREATE_PRIV`，`ALTER_PRIV`，`DROP_PRIV`，`SHOW_VIEW_PRIV`权限项中的任何一个，有权`SHOW CREATE TABLE view_name`)
     
     旧版权限中的 ALL 和 READ_WRITE 会被转换成：SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV；
     READ_ONLY 会被转换为 SELECT_PRIV。
@@ -162,6 +163,12 @@ role_list 是需要赋予的角色列表，以逗号分隔，指定的角色必�
 
     ```sql
     GRANT USAGE_PRIV ON WORKLOAD GROUP 'g1' TO ROLE 'my_role';
+    ````
+
+11. 允许jack查看db1下view1的创建语句
+
+    ```sql
+    GRANT SHOW_VIEW_PRIV ON db1.view1 TO 'jack'@'%';
     ````
 
 ### Keywords

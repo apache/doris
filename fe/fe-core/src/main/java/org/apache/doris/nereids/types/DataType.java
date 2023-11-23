@@ -114,15 +114,14 @@ public abstract class DataType implements AbstractDataType {
     public static DataType convertPrimitiveFromStrings(List<String> types, boolean tryConvert) {
         String type = types.get(0).toLowerCase().trim();
         switch (type) {
-            case "bool":
             case "boolean":
                 return BooleanType.INSTANCE;
             case "tinyint":
                 return TinyIntType.INSTANCE;
             case "smallint":
                 return SmallIntType.INSTANCE;
-            case "integer":
             case "int":
+            case "integer":
                 return IntegerType.INSTANCE;
             case "bigint":
                 return BigIntType.INSTANCE;
@@ -180,7 +179,11 @@ public abstract class DataType implements AbstractDataType {
                     case 1:
                         return VarcharType.SYSTEM_DEFAULT;
                     case 2:
-                        return VarcharType.createVarcharType(Integer.parseInt(types.get(1)));
+                        if (types.get(1).equals("*")) {
+                            return VarcharType.SYSTEM_DEFAULT;
+                        } else {
+                            return VarcharType.createVarcharType(Integer.parseInt(types.get(1)));
+                        }
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
@@ -190,7 +193,11 @@ public abstract class DataType implements AbstractDataType {
                     case 1:
                         return CharType.SYSTEM_DEFAULT;
                     case 2:
-                        return CharType.createCharType(Integer.parseInt(types.get(1)));
+                        if (types.get(1).equals("*")) {
+                            return CharType.SYSTEM_DEFAULT;
+                        } else {
+                            return CharType.createCharType(Integer.parseInt(types.get(1)));
+                        }
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
@@ -231,6 +238,7 @@ public abstract class DataType implements AbstractDataType {
             case "quantile_state":
                 return QuantileStateType.INSTANCE;
             case "json":
+            case "jsonb":
                 return JsonType.INSTANCE;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);

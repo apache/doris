@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -147,7 +146,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
-public class Coordinator {
+public class Coordinator implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
 
     private static final String localIP = FrontendOptions.getLocalHostAddress();
@@ -242,6 +241,8 @@ public class Coordinator {
 
     private boolean enablePipelineEngine = false;
 
+    private boolean fasterFloatConvert = false;
+
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -253,7 +254,6 @@ public class Coordinator {
     // Runtime filter ID to the builder instance number
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
 
-    private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
 
     private StatsErrorEstimator statsErrorEstimator;
@@ -286,38 +286,16 @@ public class Coordinator {
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-
-        if (this.scanNodes.size() == 1 && this.scanNodes.get(0) instanceof OlapScanNode) {
-            OlapScanNode olapScanNode = (OlapScanNode) (this.scanNodes.get(0));
-            isPointQuery = olapScanNode.isPointQuery();
-            if (isPointQuery) {
-                PlanFragment fragment = fragments.get(0);
-                LOG.debug("execPointGet fragment {}", fragment);
-                OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
-                Preconditions.checkNotNull(planRoot);
-                pointExec = new PointQueryExec(planRoot.getPointQueryEqualPredicates(),
-                                                planRoot.getDescTable(), fragment.getOutputExprs());
-            }
-        }
-        PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
-        if (prepareStmt != null) {
-            // Used cached or better performance
-            this.descTable = prepareStmt.getDescTable();
-            if (pointExec != null) {
-                pointExec.setCacheID(prepareStmt.getID());
-                pointExec.setSerializedDescTable(prepareStmt.getSerializedDescTable());
-                pointExec.setSerializedOutputExpr(prepareStmt.getSerializedOutputExprs());
-                pointExec.setBinaryProtocol(prepareStmt.isBinaryProtocol());
-            }
-        } else {
-            this.descTable = planner.getDescTable().toThrift();
-        }
+        this.descTable = planner.getDescTable().toThrift();
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
                 && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+
+        this.fasterFloatConvert = context.getSessionVariable().fasterFloatConvert();
+
         initQueryOptions(context);
 
         setFromUserProperty(context);
@@ -373,7 +351,9 @@ public class Coordinator {
             this.queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long memLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
+        long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
+                Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
@@ -490,6 +470,7 @@ public class Coordinator {
         return result;
     }
 
+    @Override
     public int getInstanceTotalNum() {
         return instanceTotalNum;
     }
@@ -554,6 +535,7 @@ public class Coordinator {
     // 'Request' must contain at least a coordinator plan fragment (ie, can't
     // be for a query like 'SELECT 1').
     // A call to Exec() must precede all other member function calls.
+    @Override
     public void exec() throws Exception {
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
@@ -610,17 +592,10 @@ public class Coordinator {
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
         executionProfile.markInstances(instanceIds);
-        if (!isPointQuery) {
-            if (enablePipelineEngine) {
-                sendPipelineCtx();
-            } else {
-                sendFragment();
-            }
+        if (enablePipelineEngine) {
+            sendPipelineCtx();
         } else {
-            OlapScanNode planRoot = (OlapScanNode) fragments.get(0).getPlanRoot();
-            Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
-            pointExec.setCandidateBackends(planRoot.getScanBackendIds());
-            pointExec.setTabletId(planRoot.getScanTabletIds().get(0));
+            sendFragment();
         }
     }
 
@@ -667,8 +642,9 @@ public class Coordinator {
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
-            // For example: select * from numbers("10","w") will generate ExchangeNode and TableValuedFunctionScanNode,
-            // we should ensure TableValuedFunctionScanNode does not send data until ExchangeNode is ready to receive.
+            // For example: select * from numbers("number"="10") will generate ExchangeNode and
+            // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does
+            // not send data until ExchangeNode is ready to receive.
             boolean twoPhaseExecution = fragments.size() >= 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
@@ -789,8 +765,9 @@ public class Coordinator {
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
-            // For example: select * from numbers("10","w") will generate ExchangeNode and TableValuedFunctionScanNode,
-            // we should ensure TableValuedFunctionScanNode does not send data until ExchangeNode is ready to receive.
+            // For example: select * from numbers("number"="10") will generate ExchangeNode and
+            // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does not
+            // send data until ExchangeNode is ready to receive.
             boolean twoPhaseExecution = fragments.size() >= 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
@@ -1148,6 +1125,7 @@ public class Coordinator {
         }
     }
 
+    @Override
     public RowBatch getNext() throws Exception {
         if (receiver == null) {
             throw new UserException("There is no receiver.");
@@ -1155,12 +1133,7 @@ public class Coordinator {
 
         RowBatch resultBatch;
         Status status = new Status();
-
-        if (!isPointQuery) {
-            resultBatch = receiver.getNext(status);
-        } else {
-            resultBatch = pointExec.getNext(status);
-        }
+        resultBatch = receiver.getNext(status);
         if (!status.ok()) {
             LOG.warn("get next fail, need cancel. query id: {}", DebugUtil.printId(queryId));
         }
@@ -1222,6 +1195,7 @@ public class Coordinator {
         cancel(Types.PPlanFragmentCancelReason.USER_CANCEL);
     }
 
+    @Override
     public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
         lock();
         try {
@@ -1750,21 +1724,24 @@ public class Coordinator {
                         }).findFirst();
 
                         // disable shared scan optimization if one of conditions below is met:
-                        // 1. Use non-pipeline engine
-                        // 2. Number of scan ranges is larger than instances
-                        // 3. This fragment has a colocated scan node
-                        // 4. This fragment has a FileScanNode
-                        // 5. Disable shared scan optimization by session variable
-                        if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
-                                || (node.isPresent() && node.get().getShouldColoScan())
+                        // 1. Use non-pipeline or pipelineX engine
+                        // 2. This fragment has a colocated scan node
+                        // 3. This fragment has a FileScanNode
+                        // 4. Disable shared scan optimization by session variable
+                        if (!enablePipelineEngine || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
-                                || (node.isPresent() && node.get().isKeySearch())
-                                || Config.disable_shared_scan) {
+                                || (node.isPresent() && node.get().shouldDisableSharedScan())) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num
                                 expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
                             }
+                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // mem resource
+                            if (node.isPresent() && node.get().haveLimitAndConjunts()) {
+                                expectedInstanceNum = 1;
+                            }
+
                             perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
                                     expectedInstanceNum);
                             sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), false);
@@ -1772,6 +1749,12 @@ public class Coordinator {
                             int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                     leftMostNode.getNumInstances());
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
+                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // mem resource
+                            if (node.isPresent() && node.get().haveLimitAndConjunts()) {
+                                expectedInstanceNum = 1;
+                            }
+
                             perInstanceScanRanges = Collections.nCopies(expectedInstanceNum, perNodeScanRanges);
                             sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), true);
                         }
@@ -1992,13 +1975,6 @@ public class Coordinator {
     // Populates scan_range_assignment_.
     // <fragment, <server, nodeId>>
     private void computeScanRangeAssignment() throws Exception {
-        if (isPointQuery) {
-            // Fast path for evaluate Backend for point query
-            List<TScanRangeLocations> locations = ((OlapScanNode) scanNodes.get(0)).lazyEvaluateRangeLocations();
-            Preconditions.checkNotNull(locations);
-            return;
-        }
-
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable();
         Collections.shuffle(scanNodes);
@@ -2156,6 +2132,11 @@ public class Coordinator {
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+        // Type of locations is List, it could have elements that have same "location"
+        // and we do have this situation for some scan node.
+        // The duplicate "location" will NOT be filtered by FragmentScanRangeAssignment,
+        // since FragmentScanRangeAssignment use List<TScanRangeParams> as its value type,
+        // duplicate "locations" will be converted to list.
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,

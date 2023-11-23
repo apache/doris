@@ -99,10 +99,10 @@ suite("advance_mv") {
     createMV("CREATE materialized VIEW mv2 AS SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")
 
     explain {
-        sql("SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) from FROM ${tbName2} GROUP BY tmp;")
+        sql("SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")
         contains "(mv2)"
     }
-    order_qt_select_star "SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) from FROM ${tbName2} GROUP BY tmp;"
+    order_qt_select_star "SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;"
 
     sql "CREATE materialized VIEW mv3 AS SELECT abs(k1)+k2+1 tmp, abs(k2+2)+k3+3 FROM ${tbName2};"
     int max_try_secs2 = 60

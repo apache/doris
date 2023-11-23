@@ -19,8 +19,6 @@ package org.apache.doris.common;
 
 import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 
-import java.util.concurrent.TimeUnit;
-
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -723,6 +721,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"是否启用group间的均衡",
+            "is allow colocate balance between all groups"})
+    public static boolean disable_colocate_balance_between_groups = false;
+
     /**
      * The default user resource publishing timeout.
      */
@@ -931,6 +933,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long tablet_repair_delay_factor_second = 60;
+
+    /**
+     * clone a tablet, further repair timeout.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_further_repair_timeout_second = 20 * 60;
+
+    /**
+     * clone a tablet, further repair max times.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int tablet_further_repair_max_times = 5;
 
     /**
      * the default slot number per path for hdd in tablet scheduler
@@ -1148,6 +1162,15 @@ public class Config extends ConfigBase {
     public static int decommission_tablet_check_threshold = 5000;
 
     /**
+     * Decommission a tablet need to wait all the previous txns finished.
+     * If wait timeout, decommission will fail.
+     * Need to increase this wait time if the txn take a long time.
+     *
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int decommission_tablet_wait_time_seconds = 3600;
+
+    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
@@ -1295,6 +1318,10 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_bdbje_debug_mode = false;
+
+    @ConfField(mutable = false, masterOnly = true, description = {"是否开启debug point模式，测试使用",
+            "is enable debug points, use in test."})
+    public static boolean enable_debug_points = false;
 
     /**
      * This config is used to try skip broker when access bos or other cloud storage via broker
@@ -1554,7 +1581,7 @@ public class Config extends ConfigBase {
     public static boolean enable_pipeline_load = false;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
-    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
 
     @ConfField(mutable = true)
@@ -1713,7 +1740,7 @@ public class Config extends ConfigBase {
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
-    public static int statistics_simultaneously_running_task_num = 10;
+    public static int statistics_simultaneously_running_task_num = 3;
 
     /**
      * if table has too many replicas, Fe occur oom when schema change.
@@ -1964,12 +1991,6 @@ public class Config extends ConfigBase {
     public static boolean enable_round_robin_create_tablet = false;
 
     /**
-     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
-     */
-    @ConfField
-    public static boolean enable_stats = true;
-
-    /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
      * we may delete the DecimalV2 and DateV1 types in the future.
      * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
@@ -2020,7 +2041,7 @@ public class Config extends ConfigBase {
      * FE OOM.
      */
     @ConfField
-    public static long stats_cache_size = 10_0000;
+    public static long stats_cache_size = 50_0000;
 
     /**
      * This configuration is used to enable the statistics of query information, which will record
@@ -2042,9 +2063,6 @@ public class Config extends ConfigBase {
             "是否启用binlog特性",
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
-
-    @ConfField
-    public static int analyze_task_timeout_in_hours = 12;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
@@ -2100,9 +2118,6 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean forbid_running_alter_job = false;
 
-    @ConfField
-    public static int table_stats_health_threshold = 80;
-
     @ConfField(description = {
             "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
             "temporary config filed, will make all olap tables enable light schema change"
@@ -2128,37 +2143,76 @@ public class Config extends ConfigBase {
                     + "but it will increase the memory overhead."})
     public static int virtual_node_number = 2048;
 
-    @ConfField(description = {"控制对大表的自动ANALYZE的最小时间间隔，"
-            + "在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次",
-            "This controls the minimum time interval for automatic ANALYZE on large tables. Within this interval,"
-                    + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
-    public static long huge_table_auto_analyze_interval_in_millis = TimeUnit.HOURS.toMillis(12);
-
-    @ConfField(description = {"定义大表的大小下界，在开启enable_auto_sample的情况下，"
-            + "大小超过该值的表将会自动通过采样收集统计信息", "This defines the lower size bound for large tables. "
-            + "When enable_auto_sample is enabled, tables larger than this value will automatically collect "
-            + "statistics through sampling"})
-    public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
-
-    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样比例",
-            "This defines the number of sample percent for large tables when automatic sampling for"
-                    + "large tables is enabled"})
-    public static int huge_table_default_sample_rows = 4194304;
-
-    @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
-            + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
-            + "collects statistics through sampling for tables larger than 'huge_table_lower_bound_size_in_bytes'"})
-    public static boolean enable_auto_sample = false;
-
     @ConfField(description = {
             "控制统计信息的自动触发作业执行记录的持久化行数",
             "Determine the persist number of automatic triggered analyze job execution status"
     })
-    public static long auto_analyze_job_record_count = 20000;
+    public static long analyze_record_limit = 20000;
 
     @ConfField(description = {
             "Auto Buckets中最小的buckets数目",
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
+
+    @ConfField
+    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField
+    public static final int period_analyze_simultaneously_running_task_num = 1;
+
+
+    @ConfField(mutable = true, description = {
+            "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"
+            + "请修改这个字段，为 doris 内置的 mysql database 更换一个名字",
+            "To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. "
+            + "If this database conflicts with a user's own database, please modify this field to replace "
+            + "the name of the Doris built-in MySQL database with a different name."})
+    public static String mysqldb_replace_name = "mysql";
+
+    @ConfField(description = {
+        "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
+        "Set the specific domain name that allows cross-domain access. "
+            + "By default, any domain name is allowed cross-domain access"
+    })
+    public static String access_control_allowed_origin_domain = "*";
+
+    @ConfField(description = {
+            "开启java_udf, 默认为true。如果该配置为false，则禁止创建和使用java_udf。在一些场景下关闭该配置可防止命令注入攻击。",
+            "Used to enable java_udf, default is true. if this configuration is false, creation and use of java_udf is "
+                    + "disabled. in some scenarios it may be necessary to disable this configuration to prevent "
+                    + "command injection attacks."
+    })
+    public static boolean enable_java_udf = true;
+
+    @ConfField(description = {
+            "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
+                    + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
+                    + "该参数主要用于降级操作中，老版本可以兼容新版本的 Image 文件。",
+            "Whether to ignore unknown modules in Image file. "
+                    + "If true, metadata modules not in PersistMetaModules.MODULE_NAMES "
+                    + "will be ignored and skipped. Default is false, if Image file contains unknown modules, "
+                    + "Doris will throw exception. "
+                    + "This parameter is mainly used in downgrade operation, "
+                    + "old version can be compatible with new version Image file."
+    })
+    public static boolean ignore_unknown_metadata_module = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "从主节点同步image文件的超时时间，用户可根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
+                    + "单位为秒，默认值300",
+            "The timeout for FE Follower/Observer synchronizing an image file from the FE Master, can be adjusted by "
+                    + "the user on the size of image file in the ${meta_dir}/image and the network environment between "
+                    + "nodes. The default values is 300."
+    })
+    public static int sync_image_timeout_second = 300;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_topic_info_interval_ms = 30000; // 30s
+
+    @ConfField(description = {
+            "限制fe节点thrift server可以接收的最大包大小,默认20M,设置为-1表示不限制",
+            "the max package size fe thrift server can receive,avoid accepting error"
+            + "or too large package causing OOM,default 20000000(20M),set -1 for unlimited. "})
+    public static int fe_thrift_max_pkg_bytes = 20000000;
 }

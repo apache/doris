@@ -237,7 +237,7 @@ canal是属于阿里巴巴otter项目下的一个子项目，主要用途是基�
    ```text
    ## canal instance serverId
    canal.instance.mysql.slaveId = 1234
-   ## mysql adress
+   ## mysql address
    canal.instance.master.address = 127.0.0.1:3306 
    ## mysql username/password
    canal.instance.dbUsername = canal

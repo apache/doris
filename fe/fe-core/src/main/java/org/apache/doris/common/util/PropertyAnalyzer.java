@@ -899,6 +899,19 @@ public class PropertyAnalyzer {
         return tagMap;
     }
 
+    public static boolean hasBinlogConfig(Map<String, String> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+
+        for (String key : properties.keySet()) {
+            if (key.startsWith(PROPERTIES_BINLOG_PREFIX)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static Map<String, String> analyzeBinlogConfig(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return null;

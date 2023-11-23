@@ -51,6 +51,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "gutil/atomicops.h"
 #include "gutil/dynamic_annotations.h"
@@ -96,7 +97,7 @@ public:
 #ifndef __APPLE__
     static void set_idle_sched(int64_t tid);
 
-    static void set_low_priority(int64_t tid);
+    static void set_thread_nice_value(int64_t tid);
 #endif
 
     // not the system TID, since pthread_t is less prone to being recycled.
@@ -179,7 +180,7 @@ void ThreadMgr::set_idle_sched(int64_t tid) {
     }
 }
 
-void ThreadMgr::set_low_priority(int64_t tid) {
+void ThreadMgr::set_thread_nice_value(int64_t tid) {
     if (tid == getpid()) {
         return;
     }
@@ -193,8 +194,7 @@ void ThreadMgr::set_low_priority(int64_t tid) {
     // applications that require it (e.g., some audio applications).
 
     // Choose 5 as lower priority value, default is 0
-    constexpr static int s_low_priority_nice_value = 5;
-    int err = setpriority(PRIO_PROCESS, 0, s_low_priority_nice_value);
+    int err = setpriority(PRIO_PROCESS, 0, config::scan_thread_nice_value);
     if (err < 0 && errno != EPERM) {
         LOG(ERROR) << "set_thread_low_priority";
     }
@@ -331,8 +331,8 @@ void Thread::set_idle_sched() {
     ThreadMgr::set_idle_sched(current_thread_id());
 }
 
-void Thread::set_low_priority() {
-    ThreadMgr::set_low_priority(current_thread_id());
+void Thread::set_thread_nice_value() {
+    ThreadMgr::set_thread_nice_value(current_thread_id());
 }
 #endif
 

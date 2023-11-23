@@ -16,13 +16,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------hashJoin[INNER_JOIN](call_center.cc_call_center_sk = catalog_sales.cs_call_center_sk)
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
---------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_sales]
-----------------------------------PhysicalDistribute
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
 ------------------------------------PhysicalProject
---------------------------------------filter((((date_dim.d_year = 1999) OR ((date_dim.d_year = 1998) AND (date_dim.d_moy = 12))) OR ((date_dim.d_year = 2000) AND (date_dim.d_moy = 1))))
-----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalOlapScan[catalog_sales]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------filter((((date_dim.d_year = 1999) OR ((date_dim.d_year = 1998) AND (date_dim.d_moy = 12))) OR ((date_dim.d_year = 2000) AND (date_dim.d_moy = 1))))
+------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item]
@@ -35,15 +36,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute
 ----------PhysicalTopN
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN](v1.i_category = v1_lag.i_category)(v1.i_brand = v1_lag.i_brand)(v1.cc_name = v1_lag.cc_name)(v1.rn = expr_(rn + 1))
-----------------hashJoin[INNER_JOIN](v1.i_category = v1_lead.i_category)(v1.i_brand = v1_lead.i_brand)(v1.cc_name = v1_lead.cc_name)(v1.rn = expr_(rn - 1))
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------filter((v2.d_year = 1999)(if((avg_monthly_sales > 0.0000), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1)(v2.avg_monthly_sales > 0.0000))
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------hashJoin[INNER_JOIN](v1.i_category = v1_lead.i_category)(v1.i_brand = v1_lead.i_brand)(v1.cc_name = v1_lead.cc_name)(v1.rn = expr_(rn - 1))
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalCteConsumer ( cteId=CTEId#0 )
@@ -55,6 +48,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((CASE WHEN (avg_monthly_sales > 0.0000) THEN (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)) ELSE NULL END > 0.1)(v2.d_year = 1999)(v2.avg_monthly_sales > 0.0000))
+--------------------------filter((v2.d_year = 1999)(if((avg_monthly_sales > 0.0000), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1)(v2.avg_monthly_sales > 0.0000))
 ----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

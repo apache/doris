@@ -87,7 +87,6 @@ public:
     Block() = default;
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName& data_);
-    Block(const PBlock& pblock);
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
@@ -311,6 +310,8 @@ public:
                      size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
+    Status deserialize(const PBlock& pblock);
+
     std::unique_ptr<Block> create_same_struct_block(size_t size) const;
 
     /** Compares (*this) n-th row and rhs m-th row.
@@ -396,6 +397,10 @@ public:
     }
 
     void clear_same_bit() { row_same_bit.clear(); }
+
+    // return string contains use_count() of each columns
+    // for debug purpose.
+    std::string print_use_count();
 
 private:
     void erase_impl(size_t position);

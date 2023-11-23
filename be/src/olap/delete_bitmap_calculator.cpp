@@ -195,7 +195,8 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bi
             break;
         }
         RETURN_IF_ERROR(st);
-        delete_bitmap->add({_rowset_id, loc.segment_id, 0}, loc.row_id);
+        delete_bitmap->add({_rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                           loc.row_id);
     }
     return Status::OK();
 }

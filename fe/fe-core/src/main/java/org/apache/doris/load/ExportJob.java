@@ -230,7 +230,8 @@ public class ExportJob implements Writable {
         this.parallelNum = stmt.getParallelNum();
         this.exportPath = path;
         this.sessionVariables = stmt.getSessionVariables();
-        this.timeoutSecond = sessionVariables.getQueryTimeoutS();
+        this.timeoutSecond = stmt.getTimeout();
+        this.sessionVariables.setQueryTimeoutS(this.timeoutSecond);
 
         this.qualifiedUser = stmt.getQualifiedUser();
         this.userIdentity = stmt.getUserIdentity();

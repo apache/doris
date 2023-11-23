@@ -44,7 +44,10 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -438,6 +441,11 @@ public class TypeCoercionUtils {
         if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
             boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
         }
+        if (boundFunction instanceof JsonInsert
+                || boundFunction instanceof JsonReplace
+                || boundFunction instanceof JsonSet) {
+            boundFunction = TypeCoercionUtils.fillJsonValueModifyTypeArgument(boundFunction);
+        }
 
         // type coercion
         return implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
@@ -447,6 +455,9 @@ public class TypeCoercionUtils {
      * process divide
      */
     public static Expression processDivide(Divide divide, Expression left, Expression right) {
+        // check
+        divide.checkLegalityBeforeTypeCoercion();
+
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
 
@@ -488,6 +499,9 @@ public class TypeCoercionUtils {
      * process divide
      */
     public static Expression processIntegralDivide(IntegralDivide divide, Expression left, Expression right) {
+        // check
+        divide.checkLegalityBeforeTypeCoercion();
+
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
         left = castIfNotSameType(left, t1);
@@ -517,6 +531,9 @@ public class TypeCoercionUtils {
      */
     public static Expression processBinaryArithmetic(BinaryArithmetic binaryArithmetic,
             Expression left, Expression right) {
+        // check
+        binaryArithmetic.checkLegalityBeforeTypeCoercion();
+
         // characterLiteralTypeCoercion
         // we do this because string is cast to double by default
         // but if string literal could be cast to small type, we could use smaller type than double.
@@ -621,6 +638,9 @@ public class TypeCoercionUtils {
      */
     public static Expression processTimestampArithmetic(TimestampArithmetic timestampArithmetic,
             Expression left, Expression right) {
+        // check
+        timestampArithmetic.checkLegalityBeforeTypeCoercion();
+
         // left
         DataType leftType = left.getDataType();
 
@@ -667,6 +687,9 @@ public class TypeCoercionUtils {
      */
     public static Expression processComparisonPredicate(ComparisonPredicate comparisonPredicate,
             Expression left, Expression right) {
+        // check
+        comparisonPredicate.checkLegalityBeforeTypeCoercion();
+
         // same type
         if (left.getDataType().equals(right.getDataType())) {
             return comparisonPredicate.withChildren(left, right);
@@ -691,6 +714,9 @@ public class TypeCoercionUtils {
      * process in predicate type coercion.
      */
     public static Expression processInPredicate(InPredicate inPredicate) {
+        // check
+        inPredicate.checkLegalityBeforeTypeCoercion();
+
         if (inPredicate.getOptions().stream().map(Expression::getDataType)
                 .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
             return inPredicate;
@@ -715,6 +741,9 @@ public class TypeCoercionUtils {
      * process case when type coercion.
      */
     public static Expression processCaseWhen(CaseWhen caseWhen) {
+        // check
+        caseWhen.checkLegalityBeforeTypeCoercion();
+
         // type coercion
         List<DataType> dataTypesForCoercion = caseWhen.dataTypesForCoercion();
         if (dataTypesForCoercion.size() <= 1) {
@@ -759,6 +788,9 @@ public class TypeCoercionUtils {
      * process compound predicate type coercion.
      */
     public static Expression processCompoundPredicate(CompoundPredicate compoundPredicate) {
+        // check
+        compoundPredicate.checkLegalityBeforeTypeCoercion();
+
         compoundPredicate.children().forEach(e -> {
                     if (!e.getDataType().isBooleanType() && !e.getDataType().isNullType()
                             && !(e instanceof SubqueryExpr)) {
@@ -1199,6 +1231,38 @@ public class TypeCoercionUtils {
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage());
         }
+    }
+
+    /**
+     * add json type info as the last argument of the function.
+     * used for json_insert, json_replace, json_set.
+     *
+     * @param function function need to add json type info
+     * @return function already processed
+     */
+    public static BoundFunction fillJsonValueModifyTypeArgument(BoundFunction function) {
+        List<Expression> arguments = function.getArguments();
+        List<Expression> newArguments = Lists.newArrayList();
+        StringBuilder jsonTypeStr = new StringBuilder();
+        for (int i = 0; i < arguments.size(); i++) {
+            Expression argument = arguments.get(i);
+            Type type = argument.getDataType().toCatalogDataType();
+            int jsonType = FunctionCallExpr.computeJsonDataType(type);
+            jsonTypeStr.append(jsonType);
+
+            if (i > 0 && (i & 1) == 0 && type.isNull()) {
+                newArguments.add(new StringLiteral("NULL"));
+            } else {
+                newArguments.add(argument);
+            }
+        }
+        if (arguments.isEmpty()) {
+            newArguments.add(new StringLiteral(""));
+        } else {
+            // add json type string to the last
+            newArguments.add(new StringLiteral(jsonTypeStr.toString()));
+        }
+        return (BoundFunction) function.withChildren(newArguments);
     }
 
     private static Expression processDecimalV3BinaryArithmetic(BinaryArithmetic binaryArithmetic,

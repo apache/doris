@@ -80,7 +80,7 @@
 namespace doris {
 class Status;
 
-// If you want to modify the value of config, please go to common/config.cpp to modify.
+// If you want to modify the value of the config, please go to common/config.cpp to modify.
 namespace config {
 // Dir of custom config file
 DECLARE_String(custom_config_dir);
@@ -169,9 +169,9 @@ DECLARE_mBool(enable_query_memory_overcommit);
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
-// malloc or new large memory larger than large_memory_check_bytes and Doris Allocator is not used,
+// malloc or new large memory larger than large_memory_check_bytes, default 2G,
 // will print a warning containing the stacktrace, but not prevent memory alloc.
-// large memory alloc looking forward to using Allocator.
+// If is -1, disable large memory check.
 DECLARE_mInt64(large_memory_check_bytes);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
@@ -326,7 +326,7 @@ DECLARE_mString(broken_storage_path);
 // and exit. When config is false, process will only log warning.
 DECLARE_Bool(storage_strict_check_incompatible_old_format);
 
-// BE process will exit if the percentage of error disk reach this value.
+// BE process will exit if the percentage of error disk reaches this value.
 DECLARE_mInt32(max_percentage_of_error_disk);
 DECLARE_mInt32(default_num_rows_per_column_file_block);
 // pending data policy
@@ -348,6 +348,7 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // minimum file descriptor number
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
+DECLARE_mBool(disable_segment_cache);
 DECLARE_Int64(index_stream_cache_capacity);
 DECLARE_String(row_cache_mem_limit);
 
@@ -362,7 +363,7 @@ DECLARE_Int32(index_page_cache_percentage);
 // whether to disable page cache feature in storage
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
-DECLARE_Bool(disable_storage_row_cache);
+DECLARE_mBool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
@@ -423,6 +424,12 @@ DECLARE_mDouble(compaction_promotion_ratio);
 // the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
 DECLARE_mInt64(compaction_promotion_min_size_mbytes);
+
+// When output rowset of cumulative compaction total version count (end_version - start_version)
+// exceed this config count, the rowset will be moved to base compaction
+// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
+// related cost on delete bitmap more effectively.
+DECLARE_mInt64(compaction_promotion_version_count);
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -938,7 +945,7 @@ DECLARE_mInt64(file_cache_max_size_per_disk); // zero for no limit
 DECLARE_Int32(s3_transfer_executor_pool_size);
 
 DECLARE_Bool(enable_time_lut);
-DECLARE_Bool(enable_simdjson_reader);
+DECLARE_mBool(enable_simdjson_reader);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
 // number of s3 scanner thread pool size
@@ -990,8 +997,10 @@ DECLARE_Bool(enable_java_support);
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
+DECLARE_Bool(enable_debug_points);
+
 DECLARE_Int32(pipeline_executor_size);
-DECLARE_mInt16(pipeline_short_query_timeout_s);
+DECLARE_mBool(enable_workload_group_for_scan);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -1092,6 +1101,12 @@ DECLARE_mInt64(kerberos_expiration_time_seconds);
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
 
+// DISABLED: Don't resolve location info.
+// FAST: Perform CU lookup using .debug_aranges (might be incomplete).
+// FULL: Scan all CU in .debug_info (slow!) on .debug_aranges lookup failure.
+// FULL_WITH_INLINE: Scan .debug_info (super slower, use with caution) for inline functions in addition to FULL.
+DECLARE_mString(dwarf_location_info_mode);
+
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DECLARE_mInt64(auto_inc_prefetch_size_ratio);
 
@@ -1112,16 +1127,6 @@ DECLARE_mBool(enable_flatten_nested_for_variant);
 // Notice: TEST ONLY
 DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
 DECLARE_mInt64(threshold_rows_to_estimate_sparse_column);
-
-// whether to enable hdfs hedged read.
-// If set to true, it will be enabled even if user not enable it when creating catalog
-DECLARE_Bool(enable_hdfs_hedged_read);
-// hdfs hedged read thread pool size, for "dfs.client.hedged.read.threadpool.size"
-// Maybe overwritten by the value specified when creating catalog
-DECLARE_Int32(hdfs_hedged_read_thread_num);
-// the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
-// Maybe overwritten by the value specified when creating catalog
-DECLARE_Int32(hdfs_hedged_read_threshold_time);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 
@@ -1145,9 +1150,20 @@ DECLARE_mBool(exit_on_exception);
 
 DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 
-// The configuration item is used to lower the priority of the scanner thread,
-// typically employed to ensure CPU scheduling for write operations.
-DECLARE_mBool(enable_scan_thread_low_thread_priority);
+// Remove predicate that is always true for a segment.
+DECLARE_Bool(ignore_always_true_predicate_for_segment);
+
+// Dir of default timezone files
+DECLARE_String(default_tzfiles_path);
+
+// the max package bytes be thrift server can receive
+// avoid accepting error or too large package causing OOM,default 20000000(20M)
+DECLARE_Int32(be_thrift_max_pkg_bytes);
+// Ingest binlog work pool size
+DECLARE_Int32(ingest_binlog_work_pool_size);
+
+// Download binlog rate limit, unit is KB/s
+DECLARE_Int32(download_binlog_rate_limit_kbs);
 
 // The max columns size for a tablet schema
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);

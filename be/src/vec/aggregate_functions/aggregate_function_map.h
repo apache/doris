@@ -86,8 +86,9 @@ struct AggregateFunctionMapAggData {
         for (size_t i = 0; i != count; ++i) {
             StringRef key;
             if constexpr (std::is_same_v<K, String>) {
-                auto string = key_array[i].get<K>();
-                key = string;
+                auto& string = key_array[i].get<K>();
+                key.data = string.data();
+                key.size = string.size();
             } else {
                 auto& k = key_array[i].get<KeyType>();
                 key.data = reinterpret_cast<const char*>(&k);

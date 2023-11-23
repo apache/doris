@@ -164,7 +164,8 @@ Status HdfsFileSystem::connect_impl() {
     return Status::OK();
 }
 
-Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
+Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
+                                        const FileWriterOptions* opts) {
     *writer = std::make_unique<HdfsFileWriter>(file, getSPtr());
     return Status::OK();
 }
@@ -315,7 +316,7 @@ Status HdfsFileSystem::upload_impl(const Path& local_file, const Path& remote_fi
 
     // 2. open remote file for write
     FileWriterPtr hdfs_writer = nullptr;
-    RETURN_IF_ERROR(create_file_impl(remote_file, &hdfs_writer));
+    RETURN_IF_ERROR(create_file_impl(remote_file, &hdfs_writer, nullptr));
 
     constexpr size_t buf_sz = 1024 * 1024;
     char read_buf[buf_sz];

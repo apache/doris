@@ -44,10 +44,9 @@ namespace doris {
 
 namespace vectorized {
 
-using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
-
 enum TimeUnit {
     MICROSECOND,
+    MILLISECOND,
     SECOND,
     MINUTE,
     HOUR,
@@ -76,6 +75,7 @@ struct TimeInterval {
     int64_t hour;
     int64_t minute;
     int64_t second;
+    int64_t millisecond;
     int64_t microsecond;
     bool is_neg;
 
@@ -86,6 +86,7 @@ struct TimeInterval {
               hour(0),
               minute(0),
               second(0),
+              millisecond(0),
               microsecond(0),
               is_neg(false) {}
 
@@ -96,6 +97,7 @@ struct TimeInterval {
               hour(0),
               minute(0),
               second(0),
+              millisecond(0),
               microsecond(0),
               is_neg(is_neg_param) {
         switch (unit) {
@@ -122,6 +124,9 @@ struct TimeInterval {
             break;
         case SECOND_MICROSECOND:
             microsecond = count;
+            break;
+        case MILLISECOND:
+            millisecond = count;
             break;
         case MICROSECOND:
             microsecond = count;
@@ -194,6 +199,7 @@ static constexpr uint32_t MIN_YEAR = 0;
 
 static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;
+static constexpr uint32_t DATETIMEV2_MONTH_WIDTH = 4;
 
 static RE2 time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 
@@ -357,8 +363,7 @@ public:
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len);
-    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
-                       ZoneList& time_zone_cache, std::shared_mutex* cache_lock);
+    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone);
 
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -696,8 +701,7 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone,
-                            ZoneList* time_zone_cache, std::shared_mutex* cache_lock);
+    bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone);
 
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
@@ -760,7 +764,7 @@ public:
     }
 
     void set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                  uint8_t second, uint32_t microsecond);
+                  uint8_t second, uint32_t microsecond = 0);
 
     void set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
 
@@ -819,7 +823,7 @@ public:
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len, int scale = -1);
     bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
-                       ZoneList& time_zone_cache, std::shared_mutex* cache_lock, int scale = -1);
+                       int scale = -1);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -956,11 +960,15 @@ public:
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
     bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
+    bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const std::string& timezone) const;
+    bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
     //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
     bool from_unixtime(int64_t, const std::string& timezone);
     bool from_unixtime(int64_t, const cctz::time_zone& ctz);
+    bool from_unixtime(std::pair<int64_t, int64_t>, const std::string& timezone);
+    bool from_unixtime(std::pair<int64_t, int64_t>, const cctz::time_zone& ctz);
 
     bool from_unixtime(int64_t, int32_t, const std::string& timezone, const int scale);
     bool from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
@@ -1183,8 +1191,7 @@ private:
                              bool disable_lut = false);
 
     bool from_date_str_base(const char* date_str, int len, int scale,
-                            const cctz::time_zone* local_time_zone, ZoneList* time_zone_cache,
-                            std::shared_mutex* cache_lock);
+                            const cctz::time_zone* local_time_zone);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);
@@ -1334,8 +1341,9 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         int month = (ts_value2.year() - ts_value1.year()) * 12 +
                     (ts_value2.month() - ts_value1.month());
         if constexpr (std::is_same_v<T0, T1>) {
-            int shift_bits = DateV2Value<T0>::is_datetime ? DATETIMEV2_YEAR_WIDTH + 5
-                                                          : DATEV2_YEAR_WIDTH + 5;
+            int shift_bits = DateV2Value<T0>::is_datetime
+                                     ? DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH
+                                     : DATEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH;
             decltype(ts_value2.to_date_int_val()) minus_one = -1;
             if (month > 0) {
                 month -= ((ts_value2.to_date_int_val() & (minus_one >> shift_bits)) <
@@ -1348,23 +1356,27 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
             auto ts1_int_value = ((uint64_t)ts_value1.to_date_int_val()) << TIME_PART_LENGTH;
             if (month > 0) {
                 month -= ((ts_value2.to_date_int_val() &
-                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) <
-                          (ts1_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))) <
+                          (ts1_int_value &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             } else if (month < 0) {
                 month += ((ts_value2.to_date_int_val() &
-                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) >
-                          (ts1_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))) >
+                          (ts1_int_value &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             }
         } else {
             auto ts2_int_value = ((uint64_t)ts_value2.to_date_int_val()) << TIME_PART_LENGTH;
             if (month > 0) {
-                month -= ((ts2_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) <
+                month -= ((ts2_int_value &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))) <
                           (ts_value1.to_date_int_val() &
-                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             } else if (month < 0) {
-                month += ((ts2_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) >
+                month += ((ts2_int_value &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))) >
                           (ts_value1.to_date_int_val() &
-                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             }
         }
         return month;
@@ -1390,6 +1402,15 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
     case SECOND: {
         int64_t second = ts_value2.second_diff(ts_value1);
         return second;
+    }
+    case MILLISECOND: {
+        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
+        int64_t millisecond = microsecond / 1000;
+        return millisecond;
+    }
+    case MICROSECOND: {
+        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
+        return microsecond;
     }
     }
     // Rethink the default return value
@@ -1499,6 +1520,9 @@ class DataTypeDateTime;
 class DataTypeDateV2;
 class DataTypeDateTimeV2;
 
+/**
+ * Date dict table. date range is [1900-01-01, 2039-12-31].
+ */
 class date_day_offset_dict {
 private:
     static date_day_offset_dict instance;
@@ -1509,13 +1533,31 @@ private:
     date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
 
 public:
-    static constexpr int DAY_BEFORE_EPOCH = 25566; // 1900-01-01
-    static constexpr int DAY_AFTER_EPOCH = 25500;  // 2039-10-24
-    static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + DAY_AFTER_EPOCH;
+    static constexpr int DAY_BEFORE_EPOCH = 25567;                           // 1900-01-01
+    static constexpr int DAY_AFTER_EPOCH = 25566;                            // 2039-12-31
+    static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + 1 + DAY_AFTER_EPOCH; // 1 means 1970-01-01
+
+    static constexpr int START_YEAR = 1900; // 1900-01-01
+    static constexpr int END_YEAR = 2039;   // 2039-10-24
+    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
+            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
+
+    static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year <= END_YEAR; }
+
+    static int get_offset_by_daynr(int daynr) { return daynr - DAY_OFFSET_CAL_START_POINT_DAYNR; }
+
+    static bool can_speed_up_daynr_to_date(int daynr) {
+        auto res = get_offset_by_daynr(daynr);
+        return res >= 0 ? res <= DAY_AFTER_EPOCH : -res <= DAY_BEFORE_EPOCH;
+    }
 
     static date_day_offset_dict& get();
 
-    DateV2Value<DateV2ValueType> operator[](int day);
+    static bool get_dict_init();
+
+    DateV2Value<DateV2ValueType> operator[](int day) const;
+
+    int daynr(int year, int month, int day) const;
 };
 
 template <typename T>

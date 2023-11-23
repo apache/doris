@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -44,7 +45,6 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
@@ -63,10 +63,12 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.GlobalVariable;
 
@@ -310,12 +312,24 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return checkedExpr.get();
         }
         Expression child = cast.child();
+        DataType dataType = cast.getDataType();
         // todo: process other null case
         if (child.isNullLiteral()) {
-            return new NullLiteral(cast.getDataType());
+            return new NullLiteral(dataType);
+        } else if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
+            try {
+                return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
+            } catch (AnalysisException t) {
+                if (cast.isExplicitType()) {
+                    return new NullLiteral(dataType);
+                } else {
+                    // If cast is from type coercion, we don't use NULL literal and will throw exception.
+                    throw t;
+                }
+            }
         }
         try {
-            Expression castResult = child.checkedCastTo(cast.getDataType());
+            Expression castResult = child.checkedCastTo(dataType);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }
@@ -495,8 +509,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     private Optional<Expression> preProcess(Expression expression) {
-        if (expression instanceof PropagateNullable && !(expression instanceof NullableAggregateFunction)
-                && argsHasNullLiteral(expression)) {
+        if (expression instanceof AggregateFunction) {
+            return Optional.of(expression);
+        }
+        if (expression instanceof PropagateNullable && argsHasNullLiteral(expression)) {
             return Optional.of(new NullLiteral(expression.getDataType()));
         }
         if (!allArgsIsAllLiteral(expression)) {

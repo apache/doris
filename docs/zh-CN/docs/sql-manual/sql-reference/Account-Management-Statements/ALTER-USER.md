@@ -71,7 +71,7 @@ password_policy:
 1. 修改用户的密码
 
     ```
-    ALTER USER jack@‘%’ IDENTIFIED BY "12345";
+    ALTER USER jack@'%' IDENTIFIED BY "12345";
     ```
 	
 2. 修改用户的密码策略

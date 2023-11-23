@@ -90,7 +90,7 @@ public:
 
     RowsetId rowset_id() const { return _rowset_id; }
 
-    uint32_t num_rows() const { return _footer.num_rows(); }
+    uint32_t num_rows() const { return _num_rows; }
 
     Status new_column_iterator(const TabletColumn& tablet_column,
                                std::unique_ptr<ColumnIterator>* iter,
@@ -124,20 +124,17 @@ public:
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
-    // only used by UT
-    const SegmentFooterPB& footer() const { return _footer; }
-
     Status load_index();
 
     Status load_pk_index_and_bf();
 
     std::string min_key() {
-        DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
-        return _footer.primary_key_index_meta().min_key();
+        DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr);
+        return _pk_index_meta->min_key();
     }
     std::string max_key() {
-        DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
-        return _footer.primary_key_index_meta().max_key();
+        DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr);
+        return _pk_index_meta->max_key();
     }
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
@@ -153,31 +150,32 @@ public:
     // If column in segment is the same type in schema
     bool is_same_file_col_type_with_expected(int32_t cid, const Schema& schema,
                                              bool ignore_children) const;
+    void remove_from_segment_cache() const;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
-    Status _parse_footer();
-    Status _create_column_readers();
+    Status _parse_footer(SegmentFooterPB* footer);
+    Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter();
+
+    Status _load_index_impl();
 
 private:
     friend class SegmentIterator;
     io::FileReaderSPtr _file_reader;
 
     uint32_t _segment_id;
+    uint32_t _num_rows;
+    int64_t _meta_mem_usage;
+
     RowsetId _rowset_id;
     TabletSchemaSPtr _tablet_schema;
 
-    int64_t _meta_mem_usage;
-    SegmentFooterPB _footer;
-
-    // Map from column unique id to column ordinal in footer's ColumnMetaPB
-    // If we can't find unique id from it, it means this segment is created
-    // with an old schema.
-    std::unordered_map<uint32_t, uint32_t> _column_id_to_footer_ordinal;
+    std::unique_ptr<PrimaryKeyIndexMetaPB> _pk_index_meta;
+    PagePointerPB _sk_index_page;
 
     // map column unique id ---> column reader
     // ColumnReader for each column in TabletSchema. If ColumnReader is nullptr,
@@ -191,8 +189,6 @@ private:
 
     // subcolumn tree of each subcolumn's unique id
     SubcolumnColumnReaders _sub_column_tree;
-    std::unordered_map<vectorized::PathInData, uint32_t, vectorized::PathInData::Hash>
-            _column_path_to_footer_ordinal;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
@@ -206,6 +202,7 @@ private:
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
     // Segment may be destructed after StorageEngine, in order to exit gracefully.
     std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
+    std::mutex _open_lock;
 };
 
 } // namespace segment_v2

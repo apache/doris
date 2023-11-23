@@ -34,7 +34,9 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "runtime/exec_env.h"
 #include "s3_uri.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
 
@@ -152,6 +154,9 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
 
     Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
     DCHECK(!aws_cred.IsExpiredOrEmpty());
+    if (!s3_conf.token.empty()) {
+        aws_cred.SetSessionToken(s3_conf.token);
+    }
 
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
     aws_config.endpointOverride = s3_conf.endpoint;
@@ -159,7 +164,14 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {
-        aws_config.maxConnections = config::doris_remote_scanner_thread_pool_thread_num;
+#ifdef BE_TEST
+        // the S3Client may shared by many threads.
+        // So need to set the number of connections large enough.
+        aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
+#else
+        aws_config.maxConnections =
+                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
+#endif
     }
 
     if (s3_conf.request_timeout_ms > 0) {
@@ -189,6 +201,9 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
     s3_conf->ak = properties.find(S3_AK)->second;
     s3_conf->sk = properties.find(S3_SK)->second;
+    if (properties.find(S3_TOKEN) != properties.end()) {
+        s3_conf->token = properties.find(S3_TOKEN)->second;
+    }
     s3_conf->endpoint = properties.find(S3_ENDPOINT)->second;
     s3_conf->region = properties.find(S3_REGION)->second;
 

@@ -262,16 +262,6 @@ size_t ColumnStruct::filter(const Filter& filter) {
     return result_size;
 }
 
-Status ColumnStruct::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto to = reinterpret_cast<vectorized::ColumnStruct*>(col_ptr);
-    const size_t tuple_size = columns.size();
-    DCHECK_EQ(to->tuple_size(), tuple_size);
-    for (size_t i = 0; i < tuple_size; ++i) {
-        columns[i]->filter_by_selector(sel, sel_size, &to->get_column(i));
-    }
-    return Status::OK();
-}
-
 ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);
@@ -301,6 +291,21 @@ void ColumnStruct::replicate(const uint32_t* indexs, size_t target_size, IColumn
     for (size_t i = 0; i != columns.size(); ++i) {
         columns[i]->replicate(indexs, target_size, *res.columns[i]);
     }
+}
+
+MutableColumnPtr ColumnStruct::get_shrinked_column() {
+    const size_t tuple_size = columns.size();
+    MutableColumns new_columns(tuple_size);
+
+    for (size_t i = 0; i < tuple_size; ++i) {
+        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
+            columns[i]->is_column_map() || columns[i]->is_column_struct()) {
+            new_columns[i] = columns[i]->get_shrinked_column();
+        } else {
+            new_columns[i] = columns[i]->get_ptr();
+        }
+    }
+    return ColumnStruct::create(std::move(new_columns));
 }
 
 MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {

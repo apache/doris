@@ -20,6 +20,26 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_index_change_with_compaction") {
     def tableName = "index_change_with_compaction_dup_keys"
 
+    def timeout = 60000
+    def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
+
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(3000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
     try {
         //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
         String[][] backends = sql """ show backends; """
@@ -118,6 +138,8 @@ suite("test_index_change_with_compaction") {
         sql """ CREATE INDEX idx_user_id ON ${tableName}(`user_id`) USING INVERTED """
         sql """ CREATE INDEX idx_date ON ${tableName}(`date`) USING INVERTED """
         sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED """
+
+        wait_for_latest_op_on_table_finish(tableName, timeout)
 
         // trigger compactions for all tablets in ${tableName}
         for (String[] tablet in tablets) {

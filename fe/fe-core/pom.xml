@@ -70,7 +70,7 @@ under the License.
             </activation>
             <properties>
                 <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}:exe:osx-x86_64</protoc.artifact>
-                <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:osx-x86_64</grpc.java.artifact>
+                <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}:exe:osx-x86_64</grpc.java.artifact>
             </properties>
         </profile>
         <profile>
@@ -695,6 +695,10 @@ under the License.
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+        </dependency>
 
     </dependencies>
     <repositories>
@@ -820,7 +824,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -Xmx512m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
+                        -Xmx512m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
                     </argLine>
                 </configuration>
             </plugin>

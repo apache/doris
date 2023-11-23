@@ -22,9 +22,10 @@
 namespace doris {
 namespace io {
 
-Status FileSystem::create_file(const Path& file, FileWriterPtr* writer) {
+Status FileSystem::create_file(const Path& file, FileWriterPtr* writer,
+                               const FileWriterOptions* opts) {
     auto path = absolute_path(file);
-    FILESYSTEM_M(create_file_impl(path, writer));
+    FILESYSTEM_M(create_file_impl(path, writer, opts));
 }
 
 Status FileSystem::open_file(const FileDescription& fd, const FileReaderOptions& reader_options,

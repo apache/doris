@@ -31,6 +31,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Formatter;
 import java.util.LinkedList;
 import java.util.List;
@@ -242,6 +243,44 @@ public class RuntimeProfile {
             }
             childProfile.update(nodes, idx);
         }
+    }
+
+    public class Brief {
+        String name;
+        long rowsReturned = 0;
+        String totalTime = "";
+        List<Brief> children = new ArrayList<>();
+    }
+
+    public Brief toBrief() {
+        Brief brief = new Brief();
+        brief.name = this.name;
+        brief.rowsReturned = 0L;
+
+        counterLock.readLock().lock();
+        try {
+            Counter rowsReturnedCounter = counterMap.get("RowsReturned");
+            if (rowsReturnedCounter != null) {
+                brief.rowsReturned = rowsReturnedCounter.getValue();
+            }
+            Counter totalTimeCounter = counterMap.get("TotalTime");
+            if (totalTimeCounter != null) {
+                brief.totalTime = printCounter(totalTimeCounter.getValue(), totalTimeCounter.getType());
+            }
+        } finally {
+            counterLock.readLock().unlock();
+        }
+
+        childLock.readLock().lock();
+        try {
+            for (Pair<RuntimeProfile, Boolean> pair : childList) {
+                brief.children.add(pair.first.toBrief());
+            }
+        } finally {
+            childLock.readLock().unlock();
+        }
+
+        return brief;
     }
 
     // Print the profile:

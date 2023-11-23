@@ -34,10 +34,11 @@
 #include <unordered_map>
 
 #include "config.h"
+#include "util/string_util.h"
 #include "vec/common/demangle.h"
 #include "vec/common/hex.h"
 
-#if USE_UNWIND
+#if USE_UNWIND && defined(__x86_64__)
 #include <libunwind.h>
 #else
 #include <execinfo.h>
@@ -48,14 +49,14 @@ namespace {
 /// But we use atomic just in case, so it is possible to be modified at runtime.
 std::atomic<bool> show_addresses = true;
 
-#if defined(__ELF__) && !defined(__FreeBSD__)
-void writePointerHex(const void* ptr, std::stringstream& buf) {
-    buf.write("0x", 2);
-    char hex_str[2 * sizeof(ptr)];
-    doris::vectorized::write_hex_uint_lowercase(reinterpret_cast<uintptr_t>(ptr), hex_str);
-    buf.write(hex_str, 2 * sizeof(ptr));
-}
-#endif
+// #if defined(__ELF__) && !defined(__FreeBSD__)
+// void writePointerHex(const void* ptr, std::stringstream& buf) {
+//     buf.write("0x", 2);
+//     char hex_str[2 * sizeof(ptr)];
+//     doris::vectorized::write_hex_uint_lowercase(reinterpret_cast<uintptr_t>(ptr), hex_str);
+//     buf.write(hex_str, 2 * sizeof(ptr));
+// }
+// #endif
 
 bool shouldShowAddress(const void* addr) {
     /// If the address is less than 4096, most likely it is a nullptr dereference with offset,
@@ -344,7 +345,7 @@ constexpr bool operator<(const MaybeRef auto& left, const MaybeRef auto& right) 
            std::tuple {right.pointers, right.size, right.offset};
 }
 
-static void toStringEveryLineImpl([[maybe_unused]] bool fatal,
+static void toStringEveryLineImpl([[maybe_unused]] const std::string dwarf_location_info_mode,
                                   const StackTraceRefTriple& stack_trace,
                                   std::function<void(std::string_view)> callback) {
     if (stack_trace.size == 0) {
@@ -353,7 +354,20 @@ static void toStringEveryLineImpl([[maybe_unused]] bool fatal,
 #if defined(__ELF__) && !defined(__FreeBSD__)
 
     using enum doris::Dwarf::LocationInfoMode;
-    const auto mode = fatal ? FULL_WITH_INLINE : FAST;
+    doris::Dwarf::LocationInfoMode mode;
+    auto dwarf_location_info_mode_lower = doris::to_lower(dwarf_location_info_mode);
+    if (dwarf_location_info_mode_lower == "disabled") {
+        mode = DISABLED;
+    } else if (dwarf_location_info_mode_lower == "fast") {
+        mode = FAST;
+    } else if (dwarf_location_info_mode_lower == "full") {
+        mode = FULL;
+    } else if (dwarf_location_info_mode_lower == "full_with_inline") {
+        mode = FULL_WITH_INLINE;
+    } else {
+        LOG(INFO) << "invalid LocationInfoMode: " << dwarf_location_info_mode;
+        mode = DISABLED;
+    }
     auto symbol_index_ptr = doris::SymbolIndex::instance();
     const doris::SymbolIndex& symbol_index = *symbol_index_ptr;
     std::unordered_map<std::string, doris::Dwarf> dwarfs;
@@ -366,17 +380,9 @@ static void toStringEveryLineImpl([[maybe_unused]] bool fatal,
                 reinterpret_cast<const void*>(uintptr_t(virtual_addr) - virtual_offset);
 
         std::stringstream out;
-        out << i << ". ";
-
-        if (std::error_code ec; object && std::filesystem::exists(object->name, ec) && !ec) {
-            auto dwarf_it = dwarfs.try_emplace(object->name, object->elf).first;
-
-            doris::Dwarf::LocationInfo location;
-
-            if (dwarf_it->second.findAddress(uintptr_t(physical_addr), location, mode,
-                                             inline_frames)) {
-                out << location.file.toString() << ":" << location.line << ": ";
-            }
+        out << "\t" << i << "# ";
+        if (i < 10) { // for alignment
+            out << " ";
         }
 
         if (const auto* const symbol = symbol_index.findSymbol(virtual_addr)) {
@@ -385,21 +391,33 @@ static void toStringEveryLineImpl([[maybe_unused]] bool fatal,
             out << "?";
         }
 
-        if (shouldShowAddress(physical_addr)) {
-            out << " @ ";
-            writePointerHex(physical_addr, out);
+        if (std::error_code ec; object && std::filesystem::exists(object->name, ec) && !ec) {
+            auto dwarf_it = dwarfs.try_emplace(object->name, object->elf).first;
+
+            doris::Dwarf::LocationInfo location;
+
+            if (dwarf_it->second.findAddress(uintptr_t(physical_addr), location, mode,
+                                             inline_frames)) {
+                out << " at " << location.file.toString() << ":" << location.line;
+            }
         }
 
-        out << " in " << (object ? object->name : "?");
+        // Do not display the stack address and file name, it is not important.
+        // if (shouldShowAddress(physical_addr)) {
+        //     out << " @ ";
+        //     writePointerHex(physical_addr, out);
+        // }
+
+        // out << "  in " << (object ? object->name : "?");
+
+        callback(out.str());
 
         for (size_t j = 0; j < inline_frames.size(); ++j) {
             const auto& frame = inline_frames[j];
-            callback(fmt::format("{}.{}. inlined from {}:{}: {}", i, j + 1,
-                                 frame.location.file.toString(), frame.location.line,
-                                 collapseNames(demangle(frame.name))));
+            callback(fmt::format("\t{}.{}. inlined from {}: {}:{}", i, j + 1,
+                                 collapseNames(demangle(frame.name)),
+                                 frame.location.file.toString(), frame.location.line));
         }
-
-        callback(out.str());
     }
 #else
     for (size_t i = stack_trace.offset; i < stack_trace.size; ++i)
@@ -409,7 +427,7 @@ static void toStringEveryLineImpl([[maybe_unused]] bool fatal,
 }
 
 void StackTrace::toStringEveryLine(std::function<void(std::string_view)> callback) const {
-    toStringEveryLineImpl(true, {frame_pointers, offset, size}, std::move(callback));
+    toStringEveryLineImpl("FULL_WITH_INLINE", {frame_pointers, offset, size}, std::move(callback));
 }
 
 using StackTraceCache = std::map<StackTraceTriple, std::string, std::less<>>;
@@ -434,14 +452,20 @@ std::string toStringCached(const StackTrace::FramePointers& pointers, size_t off
         return it->second;
     } else {
         std::stringstream out;
-        toStringEveryLineImpl(false, key, [&](std::string_view str) { out << str << '\n'; });
+        toStringEveryLineImpl(doris::config::dwarf_location_info_mode, key,
+                              [&](std::string_view str) { out << str << '\n'; });
 
         return cache.emplace(StackTraceTriple {pointers, offset, size}, out.str()).first->second;
     }
 }
 
-std::string StackTrace::toString() const {
-    return toStringCached(frame_pointers, offset, size);
+std::string StackTrace::toString(int start_pointers_index) const {
+    // Default delete the first three frame pointers, which are inside the stack_trace.cpp.
+    start_pointers_index += 3;
+    StackTrace::FramePointers frame_pointers_raw {};
+    std::copy(frame_pointers.begin() + start_pointers_index, frame_pointers.end(),
+              frame_pointers_raw.begin());
+    return toStringCached(frame_pointers_raw, offset, size - start_pointers_index);
 }
 
 std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_t size) {

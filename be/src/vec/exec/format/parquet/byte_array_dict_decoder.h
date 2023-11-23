@@ -25,7 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/endian.h"
+#include "util/bit_util.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -75,6 +75,12 @@ protected:
     std::vector<uint8_t> _dict_data;
     size_t _max_value_length;
     std::unordered_map<StringRef, int32_t> _dict_value_to_code;
+
+private:
+    template <typename DecimalPrimitiveType, bool has_filter,
+              DecimalScaleParams::ScaleType ScaleType>
+    Status _decode_binary_decimal_internal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                           ColumnSelectVector& select_vector);
 };
 
 template <typename DecimalPrimitiveType, bool has_filter>
@@ -82,6 +88,26 @@ Status ByteArrayDictDecoder::_decode_binary_decimal(MutableColumnPtr& doris_colu
                                                     DataTypePtr& data_type,
                                                     ColumnSelectVector& select_vector) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
+    DecimalScaleParams& scale_params = _decode_params->decimal_scale;
+    if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        return _decode_binary_decimal_internal<DecimalPrimitiveType, has_filter,
+                                               DecimalScaleParams::SCALE_UP>(
+                doris_column, data_type, select_vector);
+    } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+        return _decode_binary_decimal_internal<DecimalPrimitiveType, has_filter,
+                                               DecimalScaleParams::SCALE_DOWN>(
+                doris_column, data_type, select_vector);
+    } else {
+        return _decode_binary_decimal_internal<DecimalPrimitiveType, has_filter,
+                                               DecimalScaleParams::NO_SCALE>(
+                doris_column, data_type, select_vector);
+    }
+}
+
+template <typename DecimalPrimitiveType, bool has_filter, DecimalScaleParams::ScaleType ScaleType>
+Status ByteArrayDictDecoder::_decode_binary_decimal_internal(MutableColumnPtr& doris_column,
+                                                             DataTypePtr& data_type,
+                                                             ColumnSelectVector& select_vector) {
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
@@ -98,14 +124,19 @@ Status ByteArrayDictDecoder::_decode_binary_decimal(MutableColumnPtr& doris_colu
                 uint32_t length = (uint32_t)slice.size;
                 // When Decimal in parquet is stored in byte arrays, binary and fixed,
                 // the unscaled number must be encoded as two's complement using big-endian byte order.
-                Int128 value = buf_start[0] & 0x80 ? -1 : 0;
-                memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - length, buf_start,
-                       length);
-                value = BigEndian::ToHost128(value);
-                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+                DecimalPrimitiveType value = 0;
+                memcpy(reinterpret_cast<char*>(&value), buf_start, length);
+                value = BitUtil::big_endian_to_host(value);
+                value = value >> ((sizeof(value) - length) * 8);
+                if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
                     value *= scale_params.scale_factor;
-                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+                } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
                     value /= scale_params.scale_factor;
+                } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
+                    // do nothing
+                } else {
+                    LOG(FATAL) << "__builtin_unreachable";
+                    __builtin_unreachable();
                 }
                 auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
                 v = (DecimalPrimitiveType)value;

@@ -218,7 +218,11 @@ public class StreamLoadPlanner {
             slotDesc.setIsNullable(false);
             LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }
-
+        scanTupleDesc.setTable(destTable);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        if (null != taskInfo.getWhereExpr()) {
+            taskInfo.getWhereExpr().analyze(analyzer);
+        }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
@@ -428,7 +432,11 @@ public class StreamLoadPlanner {
             slotDesc.setIsNullable(false);
             LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }
-
+        scanTupleDesc.setTable(destTable);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        if (null != taskInfo.getWhereExpr()) {
+            taskInfo.getWhereExpr().analyze(analyzer);
+        }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group

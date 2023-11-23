@@ -1,0 +1,9 @@
+-- https://github.com/apache/incubator-doris/issues/4451
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','HOST')
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','PATH')
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','PROTOCOL')
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','QUERY')
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','QUERY','case')
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=#abc','REF');
+select parse_url('https://mp.weixin.qq.com:8080/s/bblf5-0Ur8MUgG02kpOc5Q?case=#abc','PORT');
+select parse_url('https://mp.weixin.qq.com:8080/s/bblf5-0Ur8MUgG02kpOc5Q?case=#abc','port');

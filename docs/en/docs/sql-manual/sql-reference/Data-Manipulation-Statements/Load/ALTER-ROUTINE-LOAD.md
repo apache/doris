@@ -70,6 +70,7 @@ FROM data_source
    11. `num_as_string`
    12. `fuzzy_parse`
    13. `partial_columns`
+   14. `max_filter_ratio`
 
 
 4. `data_source`

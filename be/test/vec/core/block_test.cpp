@@ -129,7 +129,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
-        vectorized::Block block2(pblock);
+        vectorized::Block block2;
+        block2.deserialize(pblock);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -150,7 +151,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
-        vectorized::Block block2(pblock);
+        vectorized::Block block2;
+        block2.deserialize(pblock);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -174,7 +176,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
-        vectorized::Block block2(pblock);
+        vectorized::Block block2;
+        block2.deserialize(pblock);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -200,7 +203,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
-        vectorized::Block block2(pblock);
+        vectorized::Block block2;
+        block2.deserialize(pblock);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -220,7 +224,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
-        vectorized::Block block2(pblock);
+        vectorized::Block block2;
+        block2.deserialize(pblock);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -242,7 +247,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         EXPECT_TRUE(pblock.column_metas()[0].has_decimal_param());
         std::string s1 = pblock.DebugString();
 
-        vectorized::Block block2(pblock);
+        vectorized::Block block2;
+        block2.deserialize(pblock);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -264,7 +270,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
-        vectorized::Block block2(pblock);
+        vectorized::Block block2;
+        block2.deserialize(pblock);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -279,7 +286,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         block_to_pb(block, &pblock, compression_type);
         std::string s1 = pblock.DebugString();
 
-        vectorized::Block block2(pblock);
+        vectorized::Block block2;
+        block2.deserialize(pblock);
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();

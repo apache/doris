@@ -50,7 +50,7 @@ public class DbUsedDataQuotaInfoCollector extends MasterDaemon {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;
             }
-            if (db.isInfoSchemaDb() || db.isMysqlDb()) {
+            if (db.isMysqlCompatibleDatabase()) {
                 continue;
             }
             try {

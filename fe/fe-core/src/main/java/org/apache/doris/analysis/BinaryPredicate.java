@@ -403,6 +403,8 @@ public class BinaryPredicate extends Predicate implements Writable {
             } else if (getChild(1).getType().isDate()
                     && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
                 return ((StringLiteral) getChild(0)).canConvertToDateType(Type.DATE) ? Type.DATE : Type.DATETIME;
+            } else if (getChild(1).getType().isDate() && getChild(0).getType().isDate()) {
+                return Type.DATE;
             } else {
                 return Type.DATETIME;
             }
@@ -420,6 +422,12 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
+
+        if (t1 == PrimitiveType.DECIMALV2 && t2 == PrimitiveType.DECIMALV2) {
+            return ScalarType.getAssignmentCompatibleDecimalV2Type((ScalarType) getChild(0).getType(),
+                    (ScalarType) getChild(1).getType());
+        }
+
         if ((t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.DECIMALV2)
                 || (t2 == PrimitiveType.BIGINT && t1 == PrimitiveType.DECIMALV2)
                 || (t1 == PrimitiveType.LARGEINT && t2 == PrimitiveType.DECIMALV2)
@@ -718,8 +726,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
-    public Expr getResultValue(boolean inView) throws AnalysisException {
-        recursiveResetChildrenResult(inView);
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        recursiveResetChildrenResult(forPushDownPredicatesToView);
         final Expr leftChildValue = getChild(0);
         final Expr rightChildValue = getChild(1);
         if (!(leftChildValue instanceof LiteralExpr)

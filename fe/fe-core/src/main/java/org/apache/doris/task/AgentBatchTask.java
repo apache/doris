@@ -165,7 +165,12 @@ public class AgentBatchTask implements Runnable {
                 client = ClientPool.backendPool.borrowObject(address);
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {
-                    agentTaskRequests.add(toAgentTaskRequest(task));
+                    try {
+                        agentTaskRequests.add(toAgentTaskRequest(task));
+                    } catch (Exception e) {
+                        task.failed();
+                        throw e;
+                    }
                 }
                 client.submitTasks(agentTaskRequests);
                 if (LOG.isDebugEnabled()) {

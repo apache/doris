@@ -111,6 +111,16 @@ Status EngineCloneTask::_do_clone() {
     // Check local tablet exist or not
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
+
+    // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
+    // change failure. It should not provide normal read and write, so drop it here.
+    if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
+        LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
+                     << tablet->tablet_id();
+        RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
+                tablet->tablet_id(), tablet->replica_id(), false));
+        tablet.reset();
+    }
     bool is_new_tablet = tablet == nullptr;
     // try to incremental clone
     std::vector<Version> missed_versions;
@@ -323,7 +333,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             // change all rowset ids because they maybe its id same with local rowset
             status = SnapshotManager::instance()->convert_rowset_ids(
                     local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
-                    _clone_req.schema_hash);
+                    _clone_req.partition_id, _clone_req.schema_hash);
         } else {
             LOG_WARNING("failed to download snapshot from remote BE")
                     .tag("url", remote_url_prefix)
