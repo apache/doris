@@ -238,10 +238,10 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
 
     if constexpr (JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
                   JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
-        auto new_filter_column = ColumnVector<UInt8>::create(row_count);
+        auto new_filter_column = ColumnUInt8::create(row_count);
         auto* __restrict filter_map = new_filter_column->get_data().data();
 
-        auto null_map_column = ColumnVector<UInt8>::create(row_count, 0);
+        auto null_map_column = ColumnUInt8::create(row_count, 0);
         auto* __restrict null_map_data = null_map_column->get_data().data();
         // process equal-conjuncts-matched tuples that are newly generated
         // in this run if there are any.
@@ -273,33 +273,42 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
     } else if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
                          JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                          JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
-        auto new_filter_column = ColumnVector<UInt8>::create(row_count);
+        auto new_filter_column = ColumnUInt8::create(row_count);
         auto* __restrict filter_map = new_filter_column->get_data().data();
-        for (size_t i = 0; i < row_count; ++i) {
-            if (filter_column_ptr[i]) {
-                if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
-                    filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
-                    _parent->_last_probe_match = _probe_indexs[i];
-                } else {
-                    if (_build_indexs[i]) {
-                        filter_map[i] = false;
-                        _parent->_last_probe_match = _probe_indexs[i];
-                    } else {
-                        filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
-                    }
-                }
-            } else {
-                filter_map[i] = false;
-            }
-        }
 
         if (is_mark_join) {
-            auto& matched_map = assert_cast<ColumnVector<UInt8>&>(
-                                        *(output_block->get_by_position(orig_columns - 1)
-                                                  .column->assume_mutable()))
-                                        .get_data();
-            for (int i = 0; i < row_count; ++i) {
-                matched_map.push_back(filter_map[i] ^ (JoinOpType != TJoinOp::LEFT_SEMI_JOIN));
+            auto mark_column =
+                    output_block->get_by_position(orig_columns - 1).column->assume_mutable();
+            ColumnFilterHelper helper(*mark_column);
+
+            mark_column->clear();
+            for (size_t i = 0; i < row_count; ++i) {
+                filter_map[i] = true;
+                if constexpr (JoinOpType != TJoinOp::LEFT_SEMI_JOIN) {
+                    if (!_build_indexs[i]) {
+                        helper.insert_null();
+                        continue;
+                    }
+                }
+                helper.insert_value(filter_column_ptr[i]);
+            }
+        } else {
+            for (size_t i = 0; i < row_count; ++i) {
+                if (filter_column_ptr[i]) {
+                    if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
+                        filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
+                        _parent->_last_probe_match = _probe_indexs[i];
+                    } else {
+                        if (_build_indexs[i]) {
+                            filter_map[i] = false;
+                            _parent->_last_probe_match = _probe_indexs[i];
+                        } else {
+                            filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
+                        }
+                    }
+                } else {
+                    filter_map[i] = false;
+                }
             }
         }
 
