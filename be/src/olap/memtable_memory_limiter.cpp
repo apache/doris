@@ -216,16 +216,23 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
 
 void MemTableMemoryLimiter::_refresh_mem_tracker_without_lock() {
     _mem_usage = 0;
+    int64_t flush_usage = 0;
+    int64_t write_usage = 0;
     for (auto it = _writers.begin(); it != _writers.end();) {
         if (auto writer = it->lock()) {
             _mem_usage += writer->mem_consumption(MemType::ALL);
+            flush_usage += writer->mem_consumption(MemType::FLUSH);
+            write_usage += writer->mem_consumption(MemType::WRITE);
             ++it;
         } else {
             *it = std::move(_writers.back());
             _writers.pop_back();
         }
     }
-    VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
+    LOG(INFO) << "refreshed mem_tracker, num writers: " << _writers.size()
+              << ", mem usage: " << PrettyPrinter::print_bytes(_mem_usage)
+              << " (flush: " << PrettyPrinter::print_bytes(flush_usage)
+              << ", write: " << PrettyPrinter::print_bytes(write_usage) << ")";
     THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
 }
 

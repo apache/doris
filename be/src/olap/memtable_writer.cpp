@@ -340,17 +340,25 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
         return 0;
     }
     int64_t mem_usage = 0;
+    std::ostringstream wos; 
+    std::ostringstream fos; 
+    wos << "write usage:";
+    fos << "flush usage:";
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
         if ((mem & MemType::WRITE) == MemType::WRITE) { // 3 & 2 = 2
             for (const auto& mem_table_tracker : _mem_table_insert_trackers) {
                 mem_usage += mem_table_tracker->consumption();
+                wos << " " << PrettyPrinter::print_bytes(mem_table_tracker->consumption());
             }
+            LOG(INFO) << wos.str();
         }
         if ((mem & MemType::FLUSH) == MemType::FLUSH) { // 3 & 1 = 1
             for (const auto& mem_table_tracker : _mem_table_flush_trackers) {
                 mem_usage += mem_table_tracker->consumption();
+                fos << " " << PrettyPrinter::print_bytes(mem_table_tracker->consumption());
             }
+            LOG(INFO) << fos.str();
         }
     }
     return mem_usage;
