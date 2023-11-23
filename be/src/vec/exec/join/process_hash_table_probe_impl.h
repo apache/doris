@@ -241,15 +241,11 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         auto new_filter_column = ColumnUInt8::create(row_count);
         auto* __restrict filter_map = new_filter_column->get_data().data();
 
-        auto null_map_column = ColumnUInt8::create(row_count, 0);
-        auto* __restrict null_map_data = null_map_column->get_data().data();
         // process equal-conjuncts-matched tuples that are newly generated
         // in this run if there are any.
         for (int i = 0; i < row_count; ++i) {
             bool join_hit = _build_indexs[i];
             bool other_hit = filter_column_ptr[i];
-
-            null_map_data[i] = !join_hit || !other_hit;
 
             if (!join_hit) {
                 filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
@@ -263,7 +259,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
 
         for (size_t i = 0; i < row_count; ++i) {
             if (filter_map[i]) {
-                _tuple_is_null_right_flags->emplace_back(null_map_data[i]);
+                _tuple_is_null_right_flags->emplace_back(!_build_indexs[i] ||
+                                                         !filter_column_ptr[i]);
                 if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
                     visited[_build_indexs[i]] = 1;
                 }
