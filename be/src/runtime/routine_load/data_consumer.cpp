@@ -634,6 +634,15 @@ Status PulsarDataConsumer::cancel(std::shared_ptr<StreamLoadContext> ctx) {
 
     _cancelled = true;
     LOG(INFO) << "pulsar consumer cancelled. " << _id;
+    return Status::OK();
+}
+
+Status PulsarDataConsumer::unsubscribe(std::shared_ptr<StreamLoadContext> ctx) {
+    std::unique_lock<std::mutex> l(_lock);
+    if (!_init) {
+        return Status::InternalError("consumer is not initialized");
+    }
+
     _p_consumer.unsubscribe();
     LOG(INFO) << "pulsar consumer unsubscribe. " << _id;
     return Status::OK();

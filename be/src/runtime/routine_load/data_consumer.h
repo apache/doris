@@ -208,6 +208,8 @@ public:
 
     const std::string& get_partition();
 
+    Status unsubscribe(std::shared_ptr<StreamLoadContext> ctx) override;
+
 private:
     std::string _service_url;
     std::string _topic;
