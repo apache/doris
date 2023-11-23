@@ -2188,6 +2188,7 @@ void ORCFileInputStream::beforeReadStripe(
     // Generate prefetch ranges, build stripe file reader.
     uint64_t offset = current_strip_information->getOffset();
     std::vector<io::PrefetchRange> prefetch_ranges;
+    size_t total_io_size = 0;
     for (uint64_t stream_id = 0; stream_id < current_strip_information->getNumberOfStreams();
          ++stream_id) {
         std::unique_ptr<orc::StreamInformation> stream =
@@ -2195,13 +2196,20 @@ void ORCFileInputStream::beforeReadStripe(
         uint32_t columnId = stream->getColumnId();
         uint64_t length = stream->getLength();
         if (selected_columns[columnId]) {
+            total_io_size += length;
             doris::io::PrefetchRange prefetch_range = {offset, offset + length};
             prefetch_ranges.emplace_back(std::move(prefetch_range));
         }
         offset += length;
     }
-    // The underlying page reader will prefetch data in column.
-    _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
+    size_t num_columns = std::count_if(selected_columns.begin(), selected_columns.end(),
+                                       [](bool selected) { return selected; });
+    if (total_io_size / num_columns < io::MergeRangeFileReader::SMALL_IO) {
+        // The underlying page reader will prefetch data in column.
+        _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
+    } else {
+        _file_reader = _inner_reader;
+    }
 }
 
 } // namespace doris::vectorized
