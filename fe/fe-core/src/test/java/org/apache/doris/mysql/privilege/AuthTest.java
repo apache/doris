@@ -2342,15 +2342,15 @@ public class AuthTest {
         // Skip set root password if `initial_root_password` set to empty string
         auth.setInitialRootPassword("");
         Assert.assertTrue(
-            auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
         // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
         auth.setInitialRootPassword("invalidRootPassword");
         Assert.assertTrue(
-            auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
         // Set initial root password
         byte[] scrambled = MysqlPassword.makeScrambledPassword("validRootPassword");
         auth.setInitialRootPassword(new String(scrambled));
         Assert.assertTrue(
-            auth.checkPlainPasswordForTest("root", "192.168.0.1", "validRootPassword", null));
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", "validRootPassword", null));
     }
 }
