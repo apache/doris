@@ -258,7 +258,7 @@ struct TCloneReq {
     3: required list<Types.TBackend> src_backends
     4: optional Types.TStorageMedium storage_medium
     // these are visible version(hash) actually
-    5: optional Types.TVersion committed_version
+    5: optional Types.TVersion version
     6: optional Types.TVersionHash committed_version_hash // Deprecated
     7: optional i32 task_version;
     8: optional i64 src_path_hash;

@@ -60,11 +60,11 @@ public:
 private:
     Status _do_clone();
 
-    virtual Status _finish_clone(Tablet* tablet, const std::string& clone_dir,
-                                 int64_t committed_version, bool is_incremental_clone);
+    virtual Status _finish_clone(Tablet* tablet, const std::string& clone_dir, int64_t version,
+                                 bool is_incremental_clone);
 
     Status _finish_incremental_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta,
-                                     int64_t committed_version);
+                                     int64_t version);
 
     Status _finish_full_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta);
 
