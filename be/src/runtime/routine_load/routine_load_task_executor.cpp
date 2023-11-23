@@ -510,12 +510,15 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
             std::string topics = std::static_pointer_cast<PulsarDataConsumer>(consumer)->get_partition();
             LOG(INFO) << "pulsar consumer topic / partition :" << topics;
 
-            // assign partition for consumer
-            st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->assign_partition(kv.first, ctx);
-            if (!st.ok()) {
-                // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
-                // So just print a warning
-                LOG(WARNING) << st;
+            if (topics.empty()) {
+                LOG(INFO) << "start assign partition of consumer : " << consumer;
+                // assign partition for consumer
+                st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->assign_partition(kv.first, ctx);
+                if (!st.ok()) {
+                    // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
+                    // So just print a warning
+                    LOG(WARNING) << st;
+                }
             }
 
             // do ack
