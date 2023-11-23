@@ -261,6 +261,12 @@ suite("test_routine_load","p0") {
                     );
                 """
                 sql "sync"
+                sql "pause routine load for ${jobs[i]}"
+                def res = sql "show routine load for ${jobs[i]}"
+                log.info("routine load job properties: ${res[0][11].toString()}".toString())
+                def json = parseJson(res[0][11])
+                assertEquals("3", json.desired_concurrent_number.toString())
+                sql "resume routine load for ${jobs[i]}"
                 i++
             }
 
