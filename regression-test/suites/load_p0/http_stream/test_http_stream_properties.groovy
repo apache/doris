@@ -629,7 +629,7 @@ suite("test_http_stream_properties", "p0") {
         }
     }
 
-    // enable_profile
+    // enable profile
     i = 0
     try {
         for (String tableName in tables) {
@@ -659,9 +659,9 @@ suite("test_http_stream_properties", "p0") {
                 }
             }
             if (i <= 3) {
-                qt_sql_load_to_single_tablet "select * from ${tableNm} order by k00,k01"
+                qt_sql_enable_profile "select * from ${tableNm} order by k00,k01"
             } else {
-                qt_sql_load_to_single_tablet "select * from ${tableNm} order by k00"
+                qt_sql_enable_profile "select * from ${tableNm} order by k00"
             }
             i++
         }
