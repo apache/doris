@@ -62,8 +62,8 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
             state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
             state->execution_timeout()));
-    _result_sink_dependency =
-            ResultSinkDependency::create_shared(_parent->operator_id(), _parent->node_id());
+    _result_sink_dependency = ResultSinkDependency::create_shared(
+            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
     ((PipBufferControlBlock*)_sender.get())->set_dependency(_result_sink_dependency);
@@ -167,7 +167,7 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(exec_time_counter());
-    COUNTER_SET(_wait_for_dependency_timer, _result_sink_dependency->write_watcher_elapse_time());
+    COUNTER_SET(_wait_for_dependency_timer, _result_sink_dependency->watcher_elapse_time());
     Status final_status = exec_status;
     if (_writer) {
         // close the writer

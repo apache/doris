@@ -1341,6 +1341,17 @@ MasterOnly：true
 
 Default stream load pre-submission timeout
 
+#### `stream_load_default_memtable_on_sink_node`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：false
+
+Enable memtable on sink node for stream load by default.
+When HTTP header `memtable_on_sink_node` is not set.
+
 #### `insert_load_default_timeout_second`
 
 Default：3600（1 hour）

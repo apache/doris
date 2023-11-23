@@ -359,8 +359,8 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::StreamOptions stream_options;
 
-        LOG(INFO) << "open load stream, load_id = " << request->load_id()
-                  << ", src_id = " << request->src_id();
+        LOG(INFO) << "open load stream, load_id=" << request->load_id()
+                  << ", src_id=" << request->src_id();
 
         for (const auto& req : request->tablets()) {
             TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
@@ -1796,8 +1796,8 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
         ctx->pipe = pipe;
         Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
         if (st.ok()) {
-            doris::Mutex mutex;
-            doris::ConditionVariable cv;
+            std::mutex mutex;
+            std::condition_variable cv;
             bool handled = false;
             try {
                 st = _exec_plan_fragment_impl(

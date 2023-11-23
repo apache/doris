@@ -121,9 +121,11 @@ suite("test_stream_load", "p0") {
             assertEquals(1, json.NumberFilteredRows)
         }
     }
-    qt_sql_strict_mode_ratio "select * from ${tableName} order by k1, k2"
 
     sql "sync"
+
+    qt_sql_strict_mode_ratio "select * from ${tableName} order by k1, k2"
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
