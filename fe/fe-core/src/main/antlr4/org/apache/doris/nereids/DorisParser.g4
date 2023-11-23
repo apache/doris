@@ -96,6 +96,17 @@ statement
        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
+    | ALTER TABLE tableName=multipartIdentifier
+            ADD CONSTRAINT constraintName=errorCapturingIdentifier
+            contraints += keyConstraints (COMMA keyConstraints)*              #addConstraints
+    | ALTER TABLE tableName=multipartIdentifier
+            DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraints
+    ;
+
+keyConstraints
+    : PRIMARY KEY identifierList
+    | UNIQUE identifierList
+    | FOREIGN KEY identifierList REFERENCES tableName=errorCapturingIdentifier identifierList
     ;
 
 dataDesc

@@ -34,6 +34,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.catalog.external.Constraints;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
@@ -160,6 +161,9 @@ public class OlapTable extends Table {
 
     @SerializedName(value = "indexes")
     private TableIndexes indexes;
+
+    @SerializedName(value = "constraints")
+    private volatile Map<String, Constraints> constraintsMap = Maps.newConcurrentMap();
 
     // In former implementation, base index id is same as table id.
     // But when refactoring the process of alter table job, we find that
