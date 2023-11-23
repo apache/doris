@@ -201,6 +201,7 @@ public:
         auto st = _decompressor->decompress((uint8_t*)input.data, input.size, &input_bytes_read,
                                             (uint8_t*)output->data, output->size, &decompressed_len,
                                             &stream_end, &more_input_bytes, &more_output_bytes);
+        //try decompress use hadoopLz4 ,if failed fall back lz4.
         return (st != Status::OK()) ? Lz4BlockCompression::decompress(input, output) : Status::OK();
     }
 
