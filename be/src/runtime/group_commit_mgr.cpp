@@ -42,6 +42,9 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block)
         *_all_block_queues_bytes += block->bytes();
         *_single_block_queue_bytes += block->bytes();
     }
+    LOG(WARNING) << "Load block queue add block single block size is "
+                 << _single_block_queue_bytes->load() << ", all block queues size is "
+                 << _all_block_queues_bytes->load();
     _get_cond.notify_all();
     return Status::OK();
 }
