@@ -50,10 +50,10 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int
     _init_connector_timer = ADD_TIMER(get_parent()->_scanner_profile, "InitConnectorTime");
     _check_type_timer = ADD_TIMER(get_parent()->_scanner_profile, "CheckTypeTime");
     _get_data_timer = ADD_TIMER(get_parent()->_scanner_profile, "GetDataTime");
-    _call_jni_next_timer =
-            ADD_CHILD_TIMER(get_parent()->_scanner_profile, "CallJniNextTime", "GetDataTime");
-    _convert_batch_timer =
-            ADD_CHILD_TIMER(get_parent()->_scanner_profile, "ConvertBatchTime", "GetDataTime");
+    _get_block_address_timer =
+            ADD_CHILD_TIMER(get_parent()->_scanner_profile, "GetBlockAddressTime", "GetDataTime");
+    _fill_block_timer =
+            ADD_CHILD_TIMER(get_parent()->_scanner_profile, "FillBlockTime", "GetDataTime");
     _execte_read_timer = ADD_TIMER(get_parent()->_scanner_profile, "ExecteReadTime");
     _connector_close_timer = ADD_TIMER(get_parent()->_scanner_profile, "ConnectorCloseTime");
 }
@@ -73,10 +73,10 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state,
     _init_connector_timer = ADD_TIMER(local_state->_scanner_profile, "InitConnectorTime");
     _check_type_timer = ADD_TIMER(local_state->_scanner_profile, "CheckTypeTime");
     _get_data_timer = ADD_TIMER(local_state->_scanner_profile, "GetDataTime");
-    _call_jni_next_timer =
-            ADD_CHILD_TIMER(local_state->_scanner_profile, "CallJniNextTime", "GetDataTime");
-    _convert_batch_timer =
-            ADD_CHILD_TIMER(local_state->_scanner_profile, "ConvertBatchTime", "GetDataTime");
+    _get_block_address_timer =
+            ADD_CHILD_TIMER(local_state->_scanner_profile, "GetBlockAddressTime", "GetDataTime");
+    _fill_block_timer =
+            ADD_CHILD_TIMER(local_state->_scanner_profile, "FillBlockTime", "GetDataTime");
     _execte_read_timer = ADD_TIMER(local_state->_scanner_profile, "ExecteReadTime");
     _connector_close_timer = ADD_TIMER(local_state->_scanner_profile, "ConnectorCloseTime");
 }
@@ -198,8 +198,8 @@ void NewJdbcScanner::_update_profile() {
     COUNTER_UPDATE(_init_connector_timer, jdbc_statistic._init_connector_timer);
     COUNTER_UPDATE(_check_type_timer, jdbc_statistic._check_type_timer);
     COUNTER_UPDATE(_get_data_timer, jdbc_statistic._get_data_timer);
-    COUNTER_UPDATE(_call_jni_next_timer, jdbc_statistic._call_jni_next_timer);
-    COUNTER_UPDATE(_convert_batch_timer, jdbc_statistic._convert_batch_timer);
+    COUNTER_UPDATE(_get_block_address_timer, jdbc_statistic._get_block_address_timer);
+    COUNTER_UPDATE(_fill_block_timer, jdbc_statistic._fill_block_timer);
     COUNTER_UPDATE(_execte_read_timer, jdbc_statistic._execte_read_timer);
     COUNTER_UPDATE(_connector_close_timer, jdbc_statistic._connector_close_timer);
 }
