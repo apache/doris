@@ -785,6 +785,22 @@ If `yarn_client_path` is not set correctly. An error `yarn client does not exist
 
 If the `JAVA_HOME`  environment variable is not set, the error `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` will be reported.
 
+* When using spark load, the launch log for `SparkLauncher` is not printed.
+
+In <SPARK_HOME>/conf, add the log4j.properties configuration file and set the log level to INFO.
+
+* When using spark load, `SparkLauncher` fails to launch.
+
+Copy the spark-launcher_<xxx>.jar from <SPARK_HOME>/lib to the lib of FE and restart the FE process.
+
+* Error with `Compression codec com.hadoop.compression.lzo.LzoCodec not found`.
+
+Copy <HADOOP_HOME>/share/hadoop/yarn/lib/hadoop-lzo-.<xxx>jar to <SPARK_HOME>/lib and repackage it into a zip and upload it to hdfs.
+
+* Error with `NoClassDefFoundError com/sun/jersey/api/client/config/ClientConfig`.
+
+Delete or rename the jersey-client-<xxx>.jar in the <SPARK_HOME>/lib, copy <HADOOP_HOME>/share/hadoop/yarn/lib/jersey-client-.<xxx>jar to <SPARK_HOME>/lib, and repackage it into a zip and upload it to hdfs.
+
 ## More Help
 
 For more detailed syntax used by **Spark Load**,  you can enter `HELP SPARK LOAD` on the Mysql client command line for more help.

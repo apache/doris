@@ -748,6 +748,22 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 如果 `JAVA_HOME` 环境变量没有设置，会报 `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` 错误
 
+- 使用 Spark Load 时没有打印 SparkLauncher 的启动日志。
+
+在<SPARK_HOME>/conf下，添加log4j.properties配置文件，并配置日志级别为INFO。
+
+- 使用 Spark Load 时 SparkLauncher 启动失败。
+
+将<SPARK_HOME>/lib下的spark-launcher_<xxx>.jar包复制到fe的lib下，并重启fe进程。
+
+- 报错：`Compression codec com.hadoop.compression.lzo.LzoCodec not found`。
+
+将<HADOOP_HOME>/share/hadoop/yarn/lib/hadoop-lzo-<xxx>.jar复制到<SPARK_HOME>/lib下，并重新打包成zip上传到hdfs。
+
+- 报错：`NoClassDefFoundError com/sun/jersey/api/client/config/ClientConfig`。
+
+将原来的<SPARK_HOME>/lib下的jersey-client-<xxx>.jar删除或者重命名，将<HADOOP_HOME>/share/hadoop/yarn/lib/jersey-client-<xxx>.jar复制到<SPARK_HOME>/lib下，并重新打包成zip上传到hdfs。
+
 ## 更多帮助
 
 关于**Spark Load** 使用的更多详细语法，可以在 MySQL 客户端命令行下输入 `HELP SPARK LOAD` 获取更多帮助信息。
