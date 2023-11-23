@@ -781,7 +781,7 @@ class Suite implements GroovyInterceptable {
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
         do {
             result = sql(showTasks)
-            logger.info(result)
+            logger.info(result.toString())
             if (!result.isEmpty()) {
                 status = result.last().get(index)
             }
@@ -802,7 +802,7 @@ class Suite implements GroovyInterceptable {
         int index = showTaskMetaResult.indexOf(['JobName', 'TINYTEXT'])
         logger.info(index)
         List<List<Object>> result = sql(showMTMV)
-        logger.info(result)
+        logger.info(result.toString())
         if (result.isEmpty()) {
             Assert.fail();
         }
