@@ -2166,6 +2166,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
 
+        // check `update on current_timestamp`
+        if (!enableUniqueKeyMergeOnWrite) {
+            for (Column column : baseSchema) {
+                if (column.hasOnUpdateDefaultValue()) {
+                    throw new DdlException("'ON UPDATE CURRENT_TIMESTAMP' is only supportted"
+                            + " in unique table with merge-on-write enabled.");
+                }
+            }
+        }
+
         // analyze bloom filter columns
         Set<String> bfColumns = null;
         double bfFpp = 0;
