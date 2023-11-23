@@ -772,7 +772,7 @@ class Suite implements GroovyInterceptable {
         Thread.sleep(2000);
         String showTasks = "SHOW MTMV JOB TASKS FOR ${jobName}"
         List<List<String>> showTaskMetaResult = sql_meta(showTasks)
-        logger.info(showTaskMetaResult)
+        logger.info(showTaskMetaResult.toString())
         int index = showTaskMetaResult.indexOf(['Status', 'CHAR'])
         logger.info(index)
         String status = "PENDING"
@@ -798,7 +798,7 @@ class Suite implements GroovyInterceptable {
         String showMTMV = "select * from mtmvs('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
         List<List<String>> showTaskMetaResult = sql_meta(showMTMV)
-        logger.info(showTaskMetaResult)
+        logger.info(showTaskMetaResult.toString())
         int index = showTaskMetaResult.indexOf(['JobName', 'TINYTEXT'])
         logger.info(index)
         List<List<Object>> result = sql(showMTMV)
