@@ -860,7 +860,7 @@ suite("test_stream_load_properties", "p0") {
                 set 'format', 'json'
                 set 'columns', columns[i]
                 set 'strip_outer_array', 'true'
-                set 'jsonpath', '[\"$.k00\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\", \"$.k18\"]'
+                set 'jsonpaths', '[\"$.k00\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\", \"$.k18\"]'
                 if (i <= 3) {
                     file json_files[0]
                 } else {
@@ -977,13 +977,29 @@ suite("test_stream_load_properties", "p0") {
             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
         }
     }
-    
-    // test read_json_by_line with enable_simdjson_read=false (default)
+
+    // test read_json_by_line with enable_simdjson_reader=false/true
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def get_be_param = { paramName ->
+        // assuming paramName on all BEs have save value
+        String backend_id = backendId_to_backendIP.keySet()[0]
+        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+        assertEquals(code, 0)
+        def configList = parseJson(out.trim())
+        assert configList instanceof List
+        for (Object ele in (List) configList) {
+            assert ele instanceof List<String>
+            if (((List<String>) ele)[0] == paramName) {
+                return ((List<String>) ele)[2]
+            }
+        }
+    }
+
     def set_be_param = { paramName, paramValue ->
-        // for eache be node, set paramName=paramValue
+        // for eache BE node, set paramName=paramValue
         for (String id in backendId_to_backendIP.keySet()) {
             def beIp = backendId_to_backendIP.get(id)
             def bePort = backendId_to_backendHttpPort.get(id)
@@ -992,8 +1008,12 @@ suite("test_stream_load_properties", "p0") {
         }
     }
 
+    // read and save original value of enable_simdjson_reader
+    boolean enable_simdjson_reader = Boolean.parseBoolean(get_be_param.call("enable_simdjson_reader"))
+
     i = 0
     try {
+        // set enable_simdjson_reader=false and test
         set_be_param.call("enable_simdjson_reader", "false")
 
         for (String tableName in tables) {
@@ -1034,8 +1054,97 @@ suite("test_stream_load_properties", "p0") {
             i++
         }
     } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    i = 0
+    try {
+        // set enable_simdjson_reader=true and test
         set_be_param.call("enable_simdjson_reader", "true")
 
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'columns', columns[i]
+                set 'read_json_by_line', 'true'
+                if (i <= 3) {
+                    file json_by_line_files[0]
+                } else {
+                    file json_by_line_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            def tableName1 =  "stream_load_" + tableName
+            if (i <= 3) {
+                qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+    // restore BEs to original value
+    set_be_param.call("enable_simdjson_reader", enable_simdjson_reader ? "true" : "false")
+
+    // test invalid jsonpaths
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'columns', columns[i]
+                set 'strip_outer_array', 'true'
+                set 'jsonpaths', '[\"$.invalid\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\", \"$.k18\"]'
+                if (i <= 3) {
+                    file json_files[0]
+                } else {
+                    file json_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("fail", json.Status.toLowerCase())
+                    assertTrue(json.Message.contains("too many filtered rows"))
+                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
+                    assertEquals(0, json.NumberLoadedRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberFilteredRows)
+                }
+            }
+            i++
+        }
+    } finally {
         for (String tableName in tables) {
             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
         }
