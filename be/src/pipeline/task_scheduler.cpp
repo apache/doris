@@ -352,6 +352,10 @@ void TaskScheduler::_do_work(size_t index) {
 
 void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
                                     Status exec_status) {
+    // close_a_pipeline may delete fragment context and will core in some defer
+    // code, because the defer code will access fragment context it self.
+    std::shared_ptr<PipelineFragmentContext> lock_for_context =
+            task->fragment_context()->shared_from_this();
     auto status = task->try_close(exec_status);
     auto cancel = [&]() {
         task->query_context()->cancel(true, status.to_string(),
@@ -365,6 +369,9 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     }
     if (!task->is_pipelineX() && task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
+        // After the task is added to the block queue, it maybe run by another thread
+        // and the task maybe released in the other thread. And will core at
+        // task set running.
         static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
         task->set_running(false);
         return;
@@ -382,10 +389,6 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     task->set_close_pipeline_time();
     task->finalize();
     task->set_running(false);
-    // close_a_pipeline may delete fragment context and will core in some defer
-    // code, because the defer code will access fragment context it self.
-    std::shared_ptr<PipelineFragmentContext> lock_for_context =
-            task->fragment_context()->shared_from_this();
     task->fragment_context()->close_a_pipeline();
 }
 

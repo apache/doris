@@ -505,6 +505,10 @@ public class Config extends ConfigBase {
             "Default pre-commit timeout for stream load job, in seconds."})
     public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
 
+    @ConfField(description = {"Stream Load 是否默认打开 memtable 前移",
+            "Whether to enable memtable on sink node by default in stream load"})
+    public static boolean stream_load_default_memtable_on_sink_node = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Load 的最大超时时间，单位是秒。",
             "Maximal timeout for load job, in seconds."})
     public static int max_load_timeout_second = 259200; // 3days
@@ -1559,6 +1563,7 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean enable_pipeline_load = false;
+
     /*---------------------- JOB CONFIG START------------------------*/
     /**
      * The number of threads used to dispatch timer job.

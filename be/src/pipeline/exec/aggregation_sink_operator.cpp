@@ -82,6 +82,9 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
         Base::_shared_state->aggregate_evaluators.back()->set_timer(_exec_timer, _merge_timer,
                                                                     _expr_timer);
     }
+    if (p._is_streaming) {
+        Base::_shared_state->data_queue->set_sink_dependency(Base::_dependency, 0);
+    }
     Base::_shared_state->probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < Base::_shared_state->probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(
@@ -717,7 +720,7 @@ Status AggSinkLocalState<DependencyType, Derived>::try_spill_disk(bool eos) {
 template <typename LocalStateType>
 AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operator_id,
                                                    const TPlanNode& tnode,
-                                                   const DescriptorTbl& descs)
+                                                   const DescriptorTbl& descs, bool is_streaming)
         : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
@@ -727,7 +730,8 @@ AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operato
           _is_merge(false),
           _pool(pool),
           _limit(tnode.limit),
-          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) {
+          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
+          _is_streaming(is_streaming) {
     _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
 }
 
