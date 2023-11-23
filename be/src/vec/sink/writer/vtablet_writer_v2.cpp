@@ -268,8 +268,7 @@ Status VTabletWriterV2::_open_streams(int64_t src_id) {
     return Status::OK();
 }
 
-Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id,
-                                                 LoadStreams& streams) {
+Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreams& streams) {
     const auto* node_info = _nodes_info->find_node(dst_id);
     DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.node_info_null",
                     { node_info = nullptr; });

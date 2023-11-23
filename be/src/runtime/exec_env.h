@@ -236,9 +236,7 @@ public:
     }
 
 #endif
-    LoadStreamStubPool* load_stream_stub_pool() {
-        return _load_stream_stub_pool.get();
-    }
+    LoadStreamStubPool* load_stream_stub_pool() { return _load_stream_stub_pool.get(); }
 
     vectorized::DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
 
