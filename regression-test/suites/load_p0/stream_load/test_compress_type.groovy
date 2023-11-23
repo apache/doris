@@ -31,6 +31,19 @@ suite("test_compress_type", "load_p0") {
         set 'compress_type', 'GZ'
 
         file "basic_data.csv.gz"
+
+        check {
+            result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("Success", json.Status)
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.LoadBytes > 0)
+        }
     }
 
     streamLoad {
@@ -41,6 +54,18 @@ suite("test_compress_type", "load_p0") {
         set 'compress_type', 'BZ2'
 
         file "basic_data.csv.bz2"
+        check {
+            result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("Success", json.Status)
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.LoadBytes > 0)
+        }
     }
 
     streamLoad {
@@ -51,6 +76,18 @@ suite("test_compress_type", "load_p0") {
         set 'compress_type', 'LZ4'
 
         file "basic_data.csv.lz4"
+        check {
+            result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("Success", json.Status)
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.LoadBytes > 0)
+        }
     }
 
     streamLoad {
@@ -60,6 +97,18 @@ suite("test_compress_type", "load_p0") {
         set 'compress_type', 'GZ'
 
         file "basic_data.csv.gz"
+        check {
+            result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("Success", json.Status)
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.LoadBytes > 0)
+        }
     }
 
     streamLoad {
@@ -69,6 +118,18 @@ suite("test_compress_type", "load_p0") {
         set 'compress_type', 'BZ2'
 
         file "basic_data.csv.bz2"
+        check {
+            result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("Success", json.Status)
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.LoadBytes > 0)
+        }
     }
 
     streamLoad {
@@ -78,7 +139,18 @@ suite("test_compress_type", "load_p0") {
         set 'compress_type', 'LZ4'
 
         file "basic_data.csv.lz4"
-        
+        check {
+            result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("Success", json.Status)
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.LoadBytes > 0)
+        }       
     }
 
     streamLoad {
