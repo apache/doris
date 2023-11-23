@@ -808,7 +808,10 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeInt64>());
+        if (arguments[0].type->is_nullable()) {
+            return make_nullable(std::make_shared<DataTypeInt64>());
+        }
+        return std::make_shared<DataTypeInt64>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -816,31 +819,23 @@ public:
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnUInt64&>(*arg_col);
         auto res_col = ColumnInt64::create();
-        auto null_vector = ColumnVector<UInt8>::create();
-        res_col->get_data().resize_fill(input_rows_count, 0);
-        null_vector->get_data().resize_fill(input_rows_count, false);
-        NullMap& null_map = null_vector->get_data();
         auto& res_data = res_col->get_data();
-        const cctz::time_zone& time_zone = context->state()->timezone_obj();
+        res_col->get_data().resize_fill(input_rows_count, 0);
         for (int i = 0; i < input_rows_count; i++) {
-            if (arg_col->is_null_at(i)) {
-                null_map[i] = true;
-                continue;
-            }
             StringRef source = column_data.get_data_at(i);
             const auto& dt =
                     reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
+            const cctz::time_zone& time_zone = context->state()->timezone_obj();
             int64_t timestamp {0};
-            if (!dt.unix_timestamp(&timestamp, time_zone)) {
-                null_map[i] = true;
-            } else {
-                auto microsecond = dt.microsecond();
-                timestamp = timestamp * Impl::ratio + microsecond / ratio_to_micro;
-                res_data[i] = timestamp;
-            }
+            auto ret = dt.unix_timestamp(&timestamp, time_zone);
+            // ret must be true
+            DCHECK(ret);
+            auto microsecond = dt.microsecond();
+            timestamp = timestamp * Impl::ratio + microsecond / ratio_to_micro;
+            res_data[i] = timestamp;
         }
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(res_col), std::move(null_vector));
+        block.replace_by_position(result, std::move(res_col));
+
         return Status::OK();
     }
 };
