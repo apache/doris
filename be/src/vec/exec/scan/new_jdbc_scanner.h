@@ -70,6 +70,7 @@ protected:
     RuntimeProfile::Counter* _connector_close_timer = nullptr;
 
 private:
+    void _init_profile(const std::shared_ptr<RuntimeProfile>& profile);
     void _update_profile();
 
     bool _jdbc_eos;

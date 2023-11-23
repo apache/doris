@@ -45,17 +45,7 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int
           _query_string(query_string),
           _tuple_desc(nullptr),
           _table_type(table_type) {
-    _is_init = false;
-    _load_jar_timer = ADD_TIMER(get_parent()->_scanner_profile, "LoadJarTime");
-    _init_connector_timer = ADD_TIMER(get_parent()->_scanner_profile, "InitConnectorTime");
-    _check_type_timer = ADD_TIMER(get_parent()->_scanner_profile, "CheckTypeTime");
-    _get_data_timer = ADD_TIMER(get_parent()->_scanner_profile, "GetDataTime");
-    _get_block_address_timer =
-            ADD_CHILD_TIMER(get_parent()->_scanner_profile, "GetBlockAddressTime", "GetDataTime");
-    _fill_block_timer =
-            ADD_CHILD_TIMER(get_parent()->_scanner_profile, "FillBlockTime", "GetDataTime");
-    _execte_read_timer = ADD_TIMER(get_parent()->_scanner_profile, "ExecteReadTime");
-    _connector_close_timer = ADD_TIMER(get_parent()->_scanner_profile, "ConnectorCloseTime");
+    _init_profile(get_parent()->_scanner_profile);
 }
 
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state,
@@ -68,17 +58,7 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state,
           _query_string(query_string),
           _tuple_desc(nullptr),
           _table_type(table_type) {
-    _is_init = false;
-    _load_jar_timer = ADD_TIMER(local_state->_scanner_profile, "LoadJarTime");
-    _init_connector_timer = ADD_TIMER(local_state->_scanner_profile, "InitConnectorTime");
-    _check_type_timer = ADD_TIMER(local_state->_scanner_profile, "CheckTypeTime");
-    _get_data_timer = ADD_TIMER(local_state->_scanner_profile, "GetDataTime");
-    _get_block_address_timer =
-            ADD_CHILD_TIMER(local_state->_scanner_profile, "GetBlockAddressTime", "GetDataTime");
-    _fill_block_timer =
-            ADD_CHILD_TIMER(local_state->_scanner_profile, "FillBlockTime", "GetDataTime");
-    _execte_read_timer = ADD_TIMER(local_state->_scanner_profile, "ExecteReadTime");
-    _connector_close_timer = ADD_TIMER(local_state->_scanner_profile, "ConnectorCloseTime");
+    _init_profile(local_state->_scanner_profile);
 }
 
 Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
@@ -190,6 +170,18 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
         VLOG_ROW << "NewJdbcScanNode output rows: " << block->rows();
     } while (block->rows() == 0 && !(*eof));
     return Status::OK();
+}
+
+void NewJdbcScanner::_init_profile(const std::shared_ptr<RuntimeProfile>& profile) {
+    _is_init = false;
+    _load_jar_timer = ADD_TIMER(profile, "LoadJarTime");
+    _init_connector_timer = ADD_TIMER(profile, "InitConnectorTime");
+    _check_type_timer = ADD_TIMER(profile, "CheckTypeTime");
+    _get_data_timer = ADD_TIMER(profile, "GetDataTime");
+    _get_block_address_timer = ADD_CHILD_TIMER(profile, "GetBlockAddressTime", "GetDataTime");
+    _fill_block_timer = ADD_CHILD_TIMER(profile, "FillBlockTime", "GetDataTime");
+    _execte_read_timer = ADD_TIMER(profile, "ExecteReadTime");
+    _connector_close_timer = ADD_TIMER(profile, "ConnectorCloseTime");
 }
 
 void NewJdbcScanner::_update_profile() {
