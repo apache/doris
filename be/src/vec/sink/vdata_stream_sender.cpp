@@ -126,7 +126,7 @@ template <typename Parent>
 Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
     SCOPED_TIMER(_parent->local_send_timer());
     Block block = _serializer.get_block()->to_block();
-    _serializer.get_block()->set_muatable_columns(block.clone_empty_columns());
+    _serializer.get_block()->set_mutable_columns(block.clone_empty_columns());
     if (_recvr_is_valid()) {
         if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
             COUNTER_UPDATE(_parent->local_bytes_send_counter(), block.bytes());
@@ -568,7 +568,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         }
                     }
                     cur_block.clear_column_data();
-                    _serializer.get_block()->set_muatable_columns(cur_block.mutate_columns());
+                    _serializer.get_block()->set_mutable_columns(cur_block.mutate_columns());
                 }
             }
         } else {
@@ -595,7 +595,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                     }
                 }
                 cur_block.clear_column_data();
-                _serializer.get_block()->set_muatable_columns(cur_block.mutate_columns());
+                _serializer.get_block()->set_mutable_columns(cur_block.mutate_columns());
                 _roll_pb_block();
             }
         }
@@ -750,7 +750,7 @@ Status BlockSerializer<Parent>::serialize_block(PBlock* dest, int num_receivers)
         auto block = _mutable_block->to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
         block.clear_column_data();
-        _mutable_block->set_muatable_columns(block.mutate_columns());
+        _mutable_block->set_mutable_columns(block.mutate_columns());
     }
 
     return Status::OK();
