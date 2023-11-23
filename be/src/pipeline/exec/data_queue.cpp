@@ -40,9 +40,7 @@ DataQueue::DataQueue(int child_count)
           _is_canceled(child_count),
           _cur_bytes_in_queue(child_count),
           _cur_blocks_nums_in_queue(child_count),
-          _flag_queue_idx(0),
-          _source_dependency(nullptr),
-          _sink_dependency(nullptr) {
+          _flag_queue_idx(0) {
     for (int i = 0; i < child_count; ++i) {
         _queue_blocks_lock[i].reset(new std::mutex());
         _free_blocks_lock[i].reset(new std::mutex());
@@ -51,6 +49,8 @@ DataQueue::DataQueue(int child_count)
         _cur_bytes_in_queue[i] = 0;
         _cur_blocks_nums_in_queue[i] = 0;
     }
+    _un_finished_counter = child_count;
+    _sink_dependencies.resize(child_count, nullptr);
 }
 
 std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
@@ -118,11 +118,12 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
             }
             _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
             _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
-            if (_sink_dependency) {
-                if (!_is_finished[_flag_queue_idx]) {
+            auto old_value = _cur_blocks_total_nums.fetch_sub(1);
+            if (old_value == 1 && _source_dependency) {
+                if (!is_all_finish()) {
                     _source_dependency->block();
                 }
-                _sink_dependency->set_ready();
+                _sink_dependencies[_flag_queue_idx]->set_ready();
             }
         } else {
             if (_is_finished[_flag_queue_idx]) {
@@ -142,9 +143,10 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
         _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
         _queue_blocks[child_idx].emplace_back(std::move(block));
         _cur_blocks_nums_in_queue[child_idx] += 1;
-        if (_sink_dependency) {
+        _cur_blocks_total_nums++;
+        if (_source_dependency) {
             _source_dependency->set_ready();
-            _sink_dependency->block();
+            _sink_dependencies[child_idx]->block();
         }
         //this only use to record the queue[0] for profile
         _max_bytes_in_queue = std::max(_max_bytes_in_queue, _cur_bytes_in_queue[0].load());
@@ -154,9 +156,15 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
 
 void DataQueue::set_finish(int child_idx) {
     std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
+    if (_is_finished[child_idx]) {
+        return;
+    }
     _is_finished[child_idx] = true;
     if (_source_dependency) {
         _source_dependency->set_ready();
+    }
+    if (_un_finished_counter.fetch_sub(1) == 1) {
+        _is_all_finished = true;
     }
 }
 
@@ -175,12 +183,7 @@ bool DataQueue::is_finish(int child_idx) {
 }
 
 bool DataQueue::is_all_finish() {
-    for (int i = 0; i < _child_count; ++i) {
-        if (_is_finished[i] == false) {
-            return false;
-        }
-    }
-    return true;
+    return _is_all_finished;
 }
 
 } // namespace pipeline
