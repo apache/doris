@@ -234,8 +234,8 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
         _convert_block_to_null(block);
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
-            assert_cast<vectorized::ColumnNullable*>(
-                    (*std::move(block.safe_get_by_position(i).column)).mutate().get())
+            auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
+            assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
                     ->get_null_map_column()
                     .get_data()
                     .data()[0] = 1;
@@ -476,14 +476,13 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     }
 
     if (local_state._should_build_hash_table && source_state == SourceState::FINISHED) {
-        if (!local_state._build_side_mutable_block.empty()) {
-            local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
-                    local_state._build_side_mutable_block.to_block());
-            COUNTER_UPDATE(local_state._build_blocks_memory_usage,
-                           (*local_state._shared_state->build_block).bytes());
-            RETURN_IF_ERROR(local_state.process_build_block(
-                    state, (*local_state._shared_state->build_block)));
-        }
+        DCHECK(!local_state._build_side_mutable_block.empty());
+        local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
+                local_state._build_side_mutable_block.to_block());
+        COUNTER_UPDATE(local_state._build_blocks_memory_usage,
+                       (*local_state._shared_state->build_block).bytes());
+        RETURN_IF_ERROR(
+                local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         auto ret = std::visit(
                 Overload {[&](std::monostate&) -> Status {
                               LOG(FATAL) << "FATAL: uninited hash table";
