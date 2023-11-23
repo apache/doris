@@ -36,6 +36,7 @@ under the License.
 2. hive 支持 1/2/3 版本。
 3. 支持 Managed Table 和 External Table，支持部分 Hive View。
 4. 可以识别 Hive Metastore 中存储的 hive、iceberg、hudi 元数据。
+5. 如果 hadoop 节点配置了 hostname，请确保添加对应的映射关系到 /etc/hosts 文件。
 
 ## 创建 Catalog
 
