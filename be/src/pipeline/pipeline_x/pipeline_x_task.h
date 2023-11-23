@@ -114,7 +114,7 @@ public:
 
     bool is_pipelineX() const override { return true; }
 
-    void try_wake_up(Dependency* wake_up_dep);
+    void wake_up();
 
     DataSinkOperatorXPtr sink() const { return _sink; }
 
@@ -181,7 +181,6 @@ private:
     }
 
     Status _extract_dependencies();
-    void _make_run();
     void set_close_pipeline_time() override {}
     void _init_profile() override;
     void _fresh_profile_counter() override;

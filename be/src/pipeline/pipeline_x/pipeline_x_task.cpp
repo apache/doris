@@ -380,21 +380,8 @@ std::string PipelineXTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
+void PipelineXTask::wake_up() {
     // call by dependency
-    VecDateTimeValue now = VecDateTimeValue::local_time();
-    // TODO(gabriel): task will never be wake up if canceled / timeout
-    if (query_context()->is_cancelled()) {
-        _make_run();
-        return;
-    }
-    if (query_context()->is_timeout(now)) {
-        query_context()->cancel(true, "", Status::Cancelled(""));
-    }
-    _make_run();
-}
-
-void PipelineXTask::_make_run() {
     static_cast<void>(get_task_queue()->push_back(this));
 }
 
