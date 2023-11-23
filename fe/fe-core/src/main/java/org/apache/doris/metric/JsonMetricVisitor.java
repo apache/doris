@@ -82,7 +82,8 @@ public class JsonMetricVisitor extends MetricVisitor {
         // gc
         for (GarbageCollector gc : jvmStats.getGc()) {
             setJvmJsonMetric(sb, JVM_GC, gc.getName() + " Count", "count", "nounit", gc.getCollectionCount());
-            setJvmJsonMetric(sb, JVM_GC, gc.getName() + " Time", "time", "milliseconds", gc.getCollectionTime().getMillis());
+            setJvmJsonMetric(sb, JVM_GC, gc.getName() + " Time", "time", "milliseconds",
+                    gc.getCollectionTime().getMillis());
         }
 
         // threads
