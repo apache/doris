@@ -90,9 +90,10 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                         },
                         *local_state._shared_state->hash_table_variants);
             }
-            local_state._shared_state->set_probe_finished_children(_cur_child_id);
+            local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
+                    ->set_ready();
             if (_child_quantity == 1) {
-                local_state._dependency->set_ready_for_read();
+                local_state._shared_state->source_dep->set_ready();
             }
         }
     }
@@ -159,12 +160,13 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SetDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSinkDependency>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _build_timer = ADD_TIMER(_profile, "BuildTime");
 
     Parent& parent = _parent->cast<Parent>();
+    _dependency->set_cur_child_id(parent._cur_child_id);
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
         RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));

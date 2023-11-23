@@ -51,10 +51,10 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
     *eos = false;
     std::unique_lock l(mutex);
     if (!need_commit) {
-        auto left_milliseconds = config::group_commit_interval_ms -
-                                 std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         std::chrono::steady_clock::now() - _start_time)
-                                         .count();
+        auto left_milliseconds =
+                _group_commit_interval_ms - std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                    std::chrono::steady_clock::now() - _start_time)
+                                                    .count();
         if (left_milliseconds <= 0) {
             need_commit = true;
         }
@@ -62,9 +62,9 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
     while (_status.ok() && _block_queue.empty() &&
            (!need_commit || (need_commit && !_load_ids.empty()))) {
         CHECK(*_single_block_queue_bytes == 0);
-        auto left_milliseconds = config::group_commit_interval_ms;
+        auto left_milliseconds = _group_commit_interval_ms;
         if (!need_commit) {
-            left_milliseconds = config::group_commit_interval_ms -
+            left_milliseconds = _group_commit_interval_ms -
                                 std::chrono::duration_cast<std::chrono::milliseconds>(
                                         std::chrono::steady_clock::now() - _start_time)
                                         .count();
@@ -73,11 +73,7 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
                 break;
             }
         }
-#if !defined(USE_BTHREAD_SCANNER)
         _get_cond.wait_for(l, std::chrono::milliseconds(left_milliseconds));
-#else
-        _get_cond.wait_for(l, left_milliseconds * 1000);
-#endif
     }
     if (!_block_queue.empty()) {
         auto& future_block = _block_queue.front();
@@ -123,7 +119,7 @@ void LoadBlockQueue::cancel(const Status& st) {
     while (!_block_queue.empty()) {
         {
             auto& future_block = _block_queue.front();
-            std::unique_lock<doris::Mutex> l0(*(future_block->lock));
+            std::unique_lock<std::mutex> l0(*(future_block->lock));
             future_block->set_result(st, future_block->rows(), 0);
             *_all_block_queues_bytes -= future_block->bytes();
             *_single_block_queue_bytes -= future_block->bytes();
@@ -163,11 +159,7 @@ Status GroupCommitTable::get_first_block_load_queue(
                     [[maybe_unused]] auto st = _create_group_commit_load(load_block_queue);
                 }));
             }
-#if !defined(USE_BTHREAD_SCANNER)
             _cv.wait_for(l, std::chrono::seconds(4));
-#else
-            _cv.wait_for(l, 4 * 1000000);
-#endif
             if (load_block_queue != nullptr) {
                 if (load_block_queue->schema_version == base_schema_version) {
                     if (load_block_queue->add_load_id(block->get_load_id()).ok()) {
@@ -251,7 +243,7 @@ Status GroupCommitTable::_create_group_commit_load(
     {
         load_block_queue = std::make_shared<LoadBlockQueue>(
                 instance_id, label, txn_id, schema_version, _all_block_queues_bytes,
-                result.wait_internal_group_commit_finish);
+                result.wait_internal_group_commit_finish, result.group_commit_interval_ms);
         std::unique_lock l(_lock);
         _load_block_queues.emplace(instance_id, load_block_queue);
         _need_plan_fragment = false;
@@ -315,7 +307,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         result_status = Status::create(result.status);
     }
     {
-        std::lock_guard<doris::Mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         auto it = _load_block_queues.find(instance_id);
         if (it != _load_block_queues.end()) {
             auto& load_block_queue = it->second;
@@ -444,7 +436,7 @@ Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& i
                                             std::shared_ptr<LoadBlockQueue>& load_block_queue) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
-        std::lock_guard<doris::Mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         auto it = _table_map.find(table_id);
         if (it == _table_map.end()) {
             return Status::NotFound("table_id: " + std::to_string(table_id) +

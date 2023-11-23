@@ -118,7 +118,7 @@ public:
     std::string debug_string() override;
 
 private:
-    void _close_action() override;
+    void _close_fragment_instance() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
     Status _add_local_exchange(ObjectPool* pool, OperatorXPtr& op, PipelinePtr& cur_pipe,
                                const std::vector<TExpr>& texprs);

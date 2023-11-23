@@ -3255,6 +3255,10 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
             sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
 
+            // group commit interval ms
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
+            sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+
             // enable duplicate without keys by default
             if (olapTable.isDuplicateWithoutKey()) {
                 sb.append(",\n\"")
@@ -4360,7 +4364,8 @@ public class Env {
     }
 
     private void renameColumn(Database db, OlapTable table, String colName,
-                              String newColName, boolean isReplay) throws DdlException {
+                              String newColName, Map<Long, Integer> indexIdToSchemaVersion,
+                              boolean isReplay) throws DdlException {
         table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
@@ -4406,6 +4411,12 @@ public class Env {
                 Env.getCurrentEnv().getQueryStats()
                         .rename(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId(),
                                 table.getId(), entry.getKey(), colName, newColName);
+                if (!isReplay) {
+                    indexIdToSchemaVersion.put(entry.getKey(), entry.getValue().getSchemaVersion() + 1);
+                }
+                if (indexIdToSchemaVersion != null) {
+                    entry.getValue().setSchemaVersion(indexIdToSchemaVersion.get(entry.getKey()));
+                }
             }
         }
         if (!hasColumn) {
@@ -4466,7 +4477,8 @@ public class Env {
 
         if (!isReplay) {
             // log
-            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName);
+            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName,
+                    indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
         }
@@ -4477,7 +4489,8 @@ public class Env {
         try {
             String colName = renameClause.getColName();
             String newColName = renameClause.getNewColName();
-            renameColumn(db, table, colName, newColName, false);
+            Map<Long, Integer> indexIdToSchemaVersion = new HashMap<Long, Integer>();
+            renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, false);
         } finally {
             table.writeUnlock();
         }
@@ -4489,12 +4502,13 @@ public class Env {
         long tableId = info.getTableId();
         String colName = info.getColName();
         String newColName = info.getNewColName();
+        Map<Long, Integer> indexIdToSchemaVersion = info.getIndexIdToSchemaVersion();
 
         Database db = getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         table.writeLock();
         try {
-            renameColumn(db, table, colName, newColName, true);
+            renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, true);
         } catch (DdlException e) {
             // should not happen
             LOG.warn("failed to replay rename column", e);

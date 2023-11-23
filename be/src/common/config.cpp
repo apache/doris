@@ -505,7 +505,8 @@ DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
-DEFINE_mInt32(olap_table_sink_send_interval_ms, "1");
+DEFINE_mInt32(olap_table_sink_send_interval_microseconds, "1000");
+DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_pool_thread_num_min, "64");
@@ -745,6 +746,13 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 DEFINE_Bool(share_delta_writers, "true");
 // timeout for open load stream rpc in ms
 DEFINE_Int64(open_load_stream_timeout_ms, "500");
+
+// idle timeout for load stream in ms
+DEFINE_Int64(load_stream_idle_timeout_ms, "600000");
+// brpc streaming max_buf_size in bytes
+DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
+// brpc streaming messages_in_batch
+DEFINE_Int32(load_stream_messages_in_batch, "128");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -1080,7 +1088,6 @@ DEFINE_Bool(wait_internal_group_commit_finish, "false");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
-DEFINE_mInt32(group_commit_interval_ms, "10000");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");

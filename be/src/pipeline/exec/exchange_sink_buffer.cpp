@@ -93,7 +93,7 @@ bool ExchangeSinkBuffer<Parent>::can_write() const {
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_set_ready_to_finish(bool all_done) {
     if (_finish_dependency && _should_stop && all_done) {
-        _finish_dependency->set_ready_to_finish();
+        _finish_dependency->set_ready();
     }
 }
 
@@ -171,7 +171,7 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
         _instance_to_package_queue[ins_id.lo].emplace(std::move(request));
         _total_queue_size++;
         if (_queue_dependency && _total_queue_size > _queue_capacity) {
-            _queue_dependency->block_writing();
+            _queue_dependency->block();
         }
     }
     if (send_now) {
@@ -292,7 +292,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         q.pop();
         _total_queue_size--;
         if (_queue_dependency && _total_queue_size <= _queue_capacity) {
-            _queue_dependency->set_ready_for_write();
+            _queue_dependency->set_ready();
         }
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted

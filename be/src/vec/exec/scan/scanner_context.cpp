@@ -323,7 +323,7 @@ void ScannerContext::set_ready_to_finish() {
     // `_should_stop == true` means this task has already ended and wait for pending finish now.
     if (_finish_dependency && _should_stop && _num_running_scanners == 0 &&
         _num_scheduling_ctx == 0) {
-        _finish_dependency->set_ready_to_finish();
+        _finish_dependency->set_ready();
     }
 }
 
@@ -430,8 +430,8 @@ bool ScannerContext::no_schedule() {
 }
 
 void ScannerContext::_set_scanner_done() {
-    if (_scanner_done_dependency) {
-        _scanner_done_dependency->set_ready_for_read();
+    if (_dependency) {
+        _dependency->set_scanner_done();
     }
 }
 

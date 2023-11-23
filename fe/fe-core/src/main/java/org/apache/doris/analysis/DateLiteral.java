@@ -67,6 +67,14 @@ import java.util.stream.Collectors;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
+    private static final double[] SCALE_FACTORS;
+
+    static {
+        SCALE_FACTORS = new double[7];
+        for (int i = 0; i < SCALE_FACTORS.length; i++) {
+            SCALE_FACTORS[i] = Math.pow(10, 6 - i);
+        }
+    }
 
     private static final DateLiteral MIN_DATE = new DateLiteral(0000, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
@@ -596,23 +604,49 @@ public class DateLiteral extends LiteralExpr {
         return "'" + getStringValue() + "'";
     }
 
+    private void fillPaddedValue(char[] buffer, int start, long value, int length) {
+        int end = start + length;
+        for (int i = end - 1; i >= start; i--) {
+            buffer[i] = (char) ('0' + value % 10);
+            value /= 10;
+        }
+    }
+
     @Override
     public String getStringValue() {
+        char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
+
+        // Populate the date part
+        fillPaddedValue(dateTimeChars, 0, year, 4);
+        dateTimeChars[4] = '-';
+        fillPaddedValue(dateTimeChars, 5, month, 2);
+        dateTimeChars[7] = '-';
+        fillPaddedValue(dateTimeChars, 8, day, 2);
+
         if (type.isDate() || type.isDateV2()) {
-            return String.format("%04d-%02d-%02d", year, month, day);
-        } else if (type.isDatetimeV2()) {
-            int scale = ((ScalarType) type).getScalarScale();
-            long ms = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - ((ScalarType) type).getScalarScale()))
-                    * (Math.pow(10, 6 - ((ScalarType) type).getScalarScale()))).longValue();
-            String tmp = String.format("%04d-%02d-%02d %02d:%02d:%02d",
-                    year, month, day, hour, minute, second);
-            if (ms == 0) {
-                return tmp;
-            }
-            return tmp + String.format(".%06d", ms).substring(0, scale + 1);
-        } else {
-            return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+            return new String(dateTimeChars, 0, 10);
         }
+
+        // Populate the time part
+        dateTimeChars[10] = ' ';
+        fillPaddedValue(dateTimeChars, 11, hour, 2);
+        dateTimeChars[13] = ':';
+        fillPaddedValue(dateTimeChars, 14, minute, 2);
+        dateTimeChars[16] = ':';
+        fillPaddedValue(dateTimeChars, 17, second, 2);
+
+        if (type.isDatetimeV2()) {
+            int scale = ((ScalarType) type).getScalarScale();
+            long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
+
+            if (scaledMicroseconds != 0) {
+                dateTimeChars[19] = '.';
+                fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+                return new String(dateTimeChars, 0, 20 + scale);
+            }
+        }
+
+        return new String(dateTimeChars, 0, 19);
     }
 
     @Override

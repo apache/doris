@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -26,9 +27,15 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -38,6 +45,12 @@ class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testPushdownJoin() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_DISTINCT_THROUGH_JOIN.type());
+            }
+        };
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -60,6 +73,12 @@ class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testPushdownProjectJoin() {
+        new MockUp<SessionVariable>() {
+            @Mock
+            public Set<Integer> getEnableNereidsRules() {
+                return ImmutableSet.of(RuleType.PUSHDOWN_DISTINCT_THROUGH_JOIN.type());
+            }
+        };
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 2))

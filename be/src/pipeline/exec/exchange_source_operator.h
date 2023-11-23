@@ -53,29 +53,9 @@ public:
 struct ExchangeDataDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
-    ExchangeDataDependency(int id, int node_id,
+    ExchangeDataDependency(int id, int node_id, QueryContext* query_ctx,
                            vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
-            : Dependency(id, node_id, "DataDependency"), _always_done(false) {}
-    void* shared_state() override { return nullptr; }
-
-    void set_always_done() {
-        _always_done = true;
-        if (_ready_for_read) {
-            return;
-        }
-        _read_dependency_watcher.stop();
-        _ready_for_read = true;
-    }
-
-    void block_reading() override {
-        if (_always_done) {
-            return;
-        }
-        Dependency::block_reading();
-    }
-
-private:
-    std::atomic<bool> _always_done;
+            : Dependency(id, node_id, "DataDependency", query_ctx) {}
 };
 
 class ExchangeSourceOperatorX;
