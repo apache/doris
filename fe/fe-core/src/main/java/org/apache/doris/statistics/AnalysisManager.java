@@ -248,7 +248,6 @@ public class AnalysisManager implements Writable {
         if (!Env.isCheckpointThread()) {
             this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num);
             this.statisticsCache = new StatisticsCache();
-            taskExecutor.start();
         }
     }
 

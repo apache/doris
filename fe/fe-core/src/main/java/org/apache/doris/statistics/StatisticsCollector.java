@@ -40,7 +40,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
     public StatisticsCollector(String name, long intervalMs, AnalysisTaskExecutor analysisTaskExecutor) {
         super(name, intervalMs);
         this.analysisTaskExecutor = analysisTaskExecutor;
-        analysisTaskExecutor.start();
     }
 
     @Override
