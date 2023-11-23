@@ -362,6 +362,10 @@ public:
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
+    bool skip_missing_version() const {
+        return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
+    }
+
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
             return 0;

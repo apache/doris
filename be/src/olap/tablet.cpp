@@ -581,7 +581,7 @@ void Tablet::delete_expired_stale_rowset() {
         Version test_version = Version(0, lastest_delta->end_version());
         stale_version_path_map[*path_id_iter] = version_path;
 
-        Status status = capture_consistent_versions(test_version, nullptr);
+        Status status = capture_consistent_versions(test_version, nullptr, false, false);
         // 1. When there is no consistent versions, we must reconstruct the tracker.
         if (!status.ok()) {
             // 2. fetch missing version after delete
@@ -696,7 +696,8 @@ bool Tablet::_reconstruct_version_tracker_if_necessary() {
 }
 
 Status Tablet::capture_consistent_versions(const Version& spec_version,
-                                           std::vector<Version>* version_path, bool quiet) const {
+                                           std::vector<Version>* version_path,
+                                           bool skip_missing_version, bool quiet) const {
     Status status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
     if (!status.ok() && !quiet) {
@@ -715,6 +716,10 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
                 LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
                              << ", missed version for version:" << spec_version;
                 _print_missed_versions(missed_versions);
+                if (skip_missing_version) {
+                    LOG(WARNING) << "force skipping missing version for tablet:" << full_name();
+                    return Status::OK();
+                }
             }
         }
     }
@@ -723,7 +728,7 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
 
 Status Tablet::check_version_integrity(const Version& version, bool quiet) {
     std::shared_lock rdlock(_meta_lock);
-    return capture_consistent_versions(version, nullptr, quiet);
+    return capture_consistent_versions(version, nullptr, false, quiet);
 }
 
 // If any rowset contains the specific version, it means the version already exist
@@ -747,7 +752,7 @@ void Tablet::acquire_version_and_rowsets(
 Status Tablet::capture_consistent_rowsets(const Version& spec_version,
                                           std::vector<RowsetSharedPtr>* rowsets) const {
     std::vector<Version> version_path;
-    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
+    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path, false, false));
     RETURN_NOT_OK(_capture_consistent_rowsets_unlocked(version_path, rowsets));
     return Status::OK();
 }
@@ -784,9 +789,11 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
 }
 
 Status Tablet::capture_rs_readers(const Version& spec_version,
-                                  std::vector<RowsetReaderSharedPtr>* rs_readers) const {
+                                  std::vector<RowsetReaderSharedPtr>* rs_readers,
+                                  bool skip_missing_version) const {
     std::vector<Version> version_path;
-    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
+    RETURN_NOT_OK(
+            capture_consistent_versions(spec_version, &version_path, skip_missing_version, false));
     RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
     return Status::OK();
 }
