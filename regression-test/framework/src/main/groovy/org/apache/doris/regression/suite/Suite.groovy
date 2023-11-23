@@ -772,16 +772,16 @@ class Suite implements GroovyInterceptable {
         Thread.sleep(2000);
         String showTasks = "SHOW MTMV JOB TASKS FOR ${jobName}"
         List<List<String>> showTaskMetaResult = sql_meta(showTasks)
-        logger.info(showTaskMetaResult.toString())
+        logger.info("showTaskMetaResult: " + showTaskMetaResult.toString())
         int index = showTaskMetaResult.indexOf(['Status', 'CHAR'])
-        logger.info(index)
+        logger.info("index: " + index)
         String status = "PENDING"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
         do {
             result = sql(showTasks)
-            logger.info(result.toString())
+            logger.info("result: " + result.toString())
             if (!result.isEmpty()) {
                 status = result.last().get(index)
             }
@@ -798,11 +798,11 @@ class Suite implements GroovyInterceptable {
         String showMTMV = "select * from mtmvs('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
         List<List<String>> showTaskMetaResult = sql_meta(showMTMV)
-        logger.info(showTaskMetaResult.toString())
+        logger.info("showTaskMetaResult: " + showTaskMetaResult.toString())
         int index = showTaskMetaResult.indexOf(['JobName', 'TINYTEXT'])
-        logger.info(index)
+        logger.info("index: " + index)
         List<List<Object>> result = sql(showMTMV)
-        logger.info(result.toString())
+        logger.info("result: " + result.toString())
         if (result.isEmpty()) {
             Assert.fail();
         }
