@@ -447,6 +447,47 @@ suite("test_routine_load","p0") {
         }
     }
 
+    i = 0
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+                def name = "routine_load_" + tableName
+                try {
+                    sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]}),
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "exec_mem_limit" = "test",
+                        "max_batch_interval" = "5",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${topics[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                    sql "sync"
+                    i++
+                } catch (Exception e) {
+                    log.info("exception: ${e.toString()}".toString())
+                    assertEquals(e.toString(), "java.sql.SQLException: errCode = 2, detailMessage = exec_mem_limit must be greater than 0")
+                }
+            }
+        } finally {
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
+        }
+    }
+
     // timezone
     i = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
