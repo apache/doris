@@ -120,7 +120,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_dependency(_dependency, info.upstream_dependencies.front().get());
+    ss->data_queue.set_source_dependency(_dependency);
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     // Const exprs materialized by this node. These exprs don't refer to any children.
@@ -140,6 +140,9 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             auto& other_expr_list = p._const_expr_lists[i];
             RETURN_IF_ERROR(clone_expr_list(_const_expr_list, other_expr_list));
         }
+    }
+    if (child_count == 0) {
+        _dependency->set_ready();
     }
     return Status::OK();
 }
