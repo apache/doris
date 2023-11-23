@@ -386,7 +386,7 @@ protected:
 
     bool _eos = false;
 
-    doris::Mutex _block_lock;
+    std::mutex _block_lock;
 };
 
 template <typename LocalStateType>

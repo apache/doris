@@ -41,7 +41,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/scanner_context.h"
@@ -252,7 +251,7 @@ protected:
     TupleId _output_tuple_id = -1;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
-    doris::Mutex _block_lock;
+    std::mutex _block_lock;
 
     // These two values are from query_options
     int _max_scan_key_num;

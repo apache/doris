@@ -36,7 +36,6 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/lock.h"
 
 namespace doris {
 
@@ -321,7 +320,7 @@ protected:
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
     // mutex lock for load/close api because it is costly
-    doris::Mutex _lock;
+    std::mutex _lock;
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset
     std::atomic<uint64_t> _refs_by_reader;

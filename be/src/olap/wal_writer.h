@@ -18,12 +18,13 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "util/lock.h"
 
 namespace doris {
 
@@ -49,7 +50,7 @@ public:
 public:
     static const int64_t LENGTH_SIZE = 8;
     static const int64_t CHECKSUM_SIZE = 4;
-    doris::ConditionVariable cv;
+    std::condition_variable cv;
     static const int64_t VERSION_SIZE = 4;
 
 private:
@@ -58,7 +59,7 @@ private:
     io::FileWriterPtr _file_writer;
     std::atomic_size_t _disk_bytes;
     std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
-    doris::Mutex _mutex;
+    std::mutex _mutex;
 };
 
 } // namespace doris

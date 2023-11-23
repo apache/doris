@@ -1168,18 +1168,8 @@ bool IRuntimeFilter::await() {
             if (ms_remaining <= 0) {
                 return false;
             }
-#if !defined(USE_BTHREAD_SCANNER)
             return _inner_cv.wait_for(lock, std::chrono::milliseconds(ms_remaining),
                                       [this] { return _rf_state == RuntimeFilterState::READY; });
-#else
-            auto timeout_ms = butil::milliseconds_from_now(ms_remaining);
-            while (_rf_state != RuntimeFilterState::READY) {
-                if (_inner_cv.wait_until(lock, timeout_ms) != 0) {
-                    // timeout
-                    return _rf_state == RuntimeFilterState::READY;
-                }
-            }
-#endif
         }
     }
     return true;

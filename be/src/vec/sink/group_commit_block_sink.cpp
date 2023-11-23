@@ -91,7 +91,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
     int64_t total_rows = 0;
     int64_t loaded_rows = 0;
     for (const auto& future_block : _future_blocks) {
-        std::unique_lock<doris::Mutex> l(*(future_block->lock));
+        std::unique_lock<std::mutex> l(*(future_block->lock));
         if (!future_block->is_handled()) {
             future_block->cv->wait(l);
         }

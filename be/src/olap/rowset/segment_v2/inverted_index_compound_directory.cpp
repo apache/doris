@@ -298,7 +298,7 @@ DorisCompoundDirectory::FSIndexInput::FSIndexInput(const FSIndexInput& other)
         _CLTHROWA(CL_ERR_NullPointer, "other handle is null");
     }
 
-    std::lock_guard<doris::Mutex> wlock(*other._handle->_shared_lock);
+    std::lock_guard<std::mutex> wlock(*other._handle->_shared_lock);
     _handle = _CL_POINTER(other._handle);
     _pos = other._handle->_fpos; //note where we are currently...
 }
@@ -307,7 +307,7 @@ DorisCompoundDirectory::FSIndexInput::SharedHandle::SharedHandle(const char* pat
     _length = 0;
     _fpos = 0;
     strcpy(this->path, path);
-    _shared_lock = new doris::Mutex();
+    _shared_lock = new std::mutex();
 }
 
 DorisCompoundDirectory::FSIndexInput::SharedHandle::~SharedHandle() {
@@ -328,10 +328,10 @@ lucene::store::IndexInput* DorisCompoundDirectory::FSIndexInput::clone() const {
 void DorisCompoundDirectory::FSIndexInput::close() {
     BufferedIndexInput::close();
     if (_handle != nullptr) {
-        doris::Mutex* lock = _handle->_shared_lock;
+        std::mutex* lock = _handle->_shared_lock;
         bool ref = false;
         {
-            std::lock_guard<doris::Mutex> wlock(*lock);
+            std::lock_guard<std::mutex> wlock(*lock);
             //determine if we are about to delete the handle...
             ref = (_LUCENE_ATOMIC_INT_GET(_handle->__cl_refcount) > 1);
             //decdelete (deletes if refcount is down to 0
@@ -354,7 +354,7 @@ void DorisCompoundDirectory::FSIndexInput::seekInternal(const int64_t position) 
 void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     CND_PRECONDITION(_handle != nullptr, "shared file handle has closed");
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
-    std::lock_guard<doris::Mutex> wlock(*_handle->_shared_lock);
+    std::lock_guard<std::mutex> wlock(*_handle->_shared_lock);
 
     int64_t position = getFilePointer();
     if (_pos != position) {
@@ -523,7 +523,7 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
 }
 
 void DorisCompoundDirectory::create() {
-    std::lock_guard<doris::Mutex> wlock(_this_lock);
+    std::lock_guard<std::mutex> wlock(_this_lock);
 
     //clear old files
     std::vector<std::string> files;
@@ -689,7 +689,7 @@ bool DorisCompoundDirectory::deleteDirectory() {
 
 void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
-    std::lock_guard<doris::Mutex> wlock(_this_lock);
+    std::lock_guard<std::mutex> wlock(_this_lock);
     char old[CL_MAX_DIR];
     priv_getFN(old, from);
 

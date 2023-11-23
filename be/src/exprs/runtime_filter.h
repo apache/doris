@@ -34,7 +34,6 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -286,7 +285,7 @@ public:
     // if return true , filter is ready to use
     bool await();
     // this function will be called if a runtime filter sent by rpc
-    // it will nodify all wait threads
+    // it will notify all wait threads
     void signal();
 
     // init filter with desc
@@ -449,8 +448,8 @@ protected:
     // expr index
     int _expr_order;
     // used for await or signal
-    Mutex _inner_mutex;
-    ConditionVariable _inner_cv;
+    std::mutex _inner_mutex;
+    std::condition_variable _inner_cv;
 
     bool _is_push_down = false;
 
@@ -470,7 +469,7 @@ protected:
 
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
-    /// runtime filter wait time will be ignored if wait_infinitly is true
+    /// runtime filter wait time will be ignored if wait_infinitely is true
     const bool _wait_infinitely;
     const int32_t _rf_wait_time_ms;
 
