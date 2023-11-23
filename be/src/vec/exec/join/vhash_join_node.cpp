@@ -551,9 +551,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         Block temp_block;
         //get probe side output column
         for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            if (_left_output_slot_flags[i]) {
-                temp_block.insert(_probe_block.get_by_position(i));
-            }
+            temp_block.insert(_probe_block.get_by_position(i));
         }
         auto mark_column = ColumnNullable::create(ColumnUInt8::create(block_rows, 0),
                                                   ColumnUInt8::create(block_rows, 1));
