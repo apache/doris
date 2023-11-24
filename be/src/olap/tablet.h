@@ -440,7 +440,8 @@ public:
     Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                  const std::vector<uint32_t>& rowids,
                                  const TabletColumn& tablet_column,
-                                 vectorized::MutableColumnPtr& dst);
+                                 vectorized::MutableColumnPtr& dst,
+                                 std::pair<int64_t, int64_t>& data_pages_num);
 
     // We use the TabletSchema from the caller because the TabletSchema in the rowset'meta
     // may be outdated due to schema change. Also note that the the cids should indicate the indexes

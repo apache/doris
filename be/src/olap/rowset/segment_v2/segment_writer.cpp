@@ -568,6 +568,10 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
     size_t read_idx = 0;
+
+    int64_t total_pages_num = 0;
+    int64_t cached_pages_num = 0;
+
     for (auto rs_it : _rssid_to_rid) {
         for (auto seg_it : rs_it.second) {
             auto rowset = _rsid_to_rowset[rs_it.first];
@@ -590,8 +594,11 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             }
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
                 TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
+                std::pair<int64_t, int64_t> pages_num;
                 auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
-                                                         mutable_old_columns[cid]);
+                                                         mutable_old_columns[cid], pages_num);
+                total_pages_num += pages_num.first;
+                cached_pages_num += pages_num.second;
                 // set read value to output block
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value by rowids";
@@ -599,6 +606,11 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 }
             }
         }
+    }
+    {
+        LOG(INFO) << fmt::format(
+                "[haier][fill_missing_columns]total_pages_num:{}, cached_pages_num:{}",
+                total_pages_num, cached_pages_num);
     }
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();

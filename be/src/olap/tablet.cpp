@@ -2754,7 +2754,8 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
 Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                      const std::vector<uint32_t>& rowids,
                                      const TabletColumn& tablet_column,
-                                     vectorized::MutableColumnPtr& dst) {
+                                     vectorized::MutableColumnPtr& dst,
+                                     std::pair<int64_t, int64_t>& data_pages_num) {
     // read row data
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
@@ -2787,6 +2788,8 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
     opt.use_page_cache = !config::disable_storage_page_cache;
     column_iterator->init(opt);
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), dst));
+    data_pages_num.first = stats.total_pages_num;
+    data_pages_num.second = stats.cached_pages_num;
     return Status::OK();
 }
 
@@ -3247,6 +3250,10 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
     bool has_row_column = tablet_schema->store_row_column();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;
+
+    int64_t total_pages_num = 0;
+    int64_t cached_pages_num = 0;
+
     for (auto rs_it : read_plan) {
         for (auto seg_it : rs_it.second) {
             auto rowset_iter = rsid_to_rowset.find(rs_it.first);
@@ -3269,8 +3276,11 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
             }
             for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
                 TabletColumn tablet_column = tablet_schema->column(cids_to_read[cid]);
+                std::pair<int64_t, int64_t> pages_num;
                 auto st = fetch_value_by_rowids(rowset_iter->second, seg_it.first, rids,
-                                                tablet_column, mutable_columns[cid]);
+                                                tablet_column, mutable_columns[cid], pages_num);
+                total_pages_num += pages_num.first;
+                cached_pages_num += pages_num.second;
                 // set read value to output block
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value";
@@ -3279,6 +3289,13 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
             }
         }
     }
+
+    {
+        LOG(INFO) << fmt::format(
+                "[haier][read_columns_by_plan]total_pages_num:{}, cached_pages_num:{}",
+                total_pages_num, cached_pages_num);
+    }
+
     return Status::OK();
 }
 
