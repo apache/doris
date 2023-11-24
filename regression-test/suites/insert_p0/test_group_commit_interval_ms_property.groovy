@@ -39,13 +39,14 @@ suite("test_group_commit_interval_ms_property") {
         return serverInfo
     }
 
+
+
     for (item in ["legacy", "nereids"]) {
         try {
-            // create table
-            sql """ drop table if exists ${table}; """
-
+            test_table = table + "_" + item;
+            sql """ drop table if exists ${test_table} force; """
             sql """
-            CREATE TABLE ${table} (
+            CREATE table ${test_table} (
                 k bigint,  
                 v bigint
                 )  
@@ -69,25 +70,25 @@ suite("test_group_commit_interval_ms_property") {
                 sql """ set enable_nereids_dml = false; """
             }
 
-            qt_1 "show create table ${table}"
+            qt_1 "show create table ${test_table}"
 
-            def msg1 = group_commit_insert """insert into ${table} values(1,1); """, 1
+            def msg1 = group_commit_insert """insert into ${test_table} values(1,1); """, 1
 
             Thread.sleep(8000);
 
-            def msg2 = group_commit_insert """insert into ${table} values(2,2) """, 1
+            def msg2 = group_commit_insert """insert into ${test_table} values(2,2) """, 1
 
             assertEquals(msg1.substring(msg1.indexOf("group_commit")+11, msg1.indexOf("group_commit")+43), msg2.substring(msg2.indexOf("group_commit")+11, msg2.indexOf("group_commit")+43));
 
-            sql "ALTER TABLE ${table} SET (\"group_commit_interval_ms\"=\"1000\"); "
+            sql "ALTER table ${test_table} SET (\"group_commit_interval_ms\"=\"1000\"); "
 
-            qt_2 "show create table ${table}"
+            qt_2 "show create table ${test_table}"
 
-            def msg3 = group_commit_insert """insert into ${table} values(3,3); """, 1
+            def msg3 = group_commit_insert """insert into ${test_table} values(3,3); """, 1
 
             Thread.sleep(2000);
 
-            def msg4 = group_commit_insert """insert into ${table} values(4,4); """, 1
+            def msg4 = group_commit_insert """insert into ${test_table} values(4,4); """, 1
 
             assertNotEquals(msg3.substring(msg3.indexOf("group_commit")+11, msg3.indexOf("group_commit")+43), msg4.substring(msg4.indexOf("group_commit")+11, msg4.indexOf("group_commit")+43));
 

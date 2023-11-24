@@ -244,6 +244,7 @@ private:
 
     //return number of same keys
     size_t _sort();
+    void _sort_by_cluster_keys();
     void _sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                           std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
     template <bool is_final>
