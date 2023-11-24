@@ -198,6 +198,15 @@ public interface TableIf {
             }
         }
 
+        public TableType getParentType() {
+            switch (this) {
+                case MATERIALIZED_VIEW:
+                    return OLAP;
+                default:
+                    return this;
+            }
+        }
+
         public String toMysqlType() {
             switch (this) {
                 case OLAP:

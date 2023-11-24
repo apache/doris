@@ -462,7 +462,8 @@ columnDef
     : colName=identifier type=dataType
         KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
         (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL
-            | CURRENT_TIMESTAMP (LEFT_PAREN precision=number RIGHT_PAREN)?))?
+            | CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+        (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
     

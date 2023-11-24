@@ -19,14 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.job.common.JobType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import lombok.Getter;
 
@@ -49,43 +45,27 @@ public class ShowJobTaskStmt extends ShowStmt {
                     .add("ExecuteSql")
                     .add("Result")
                     .add("ErrorMsg")
-                    .add("TaskType")
                     .build();
 
     @Getter
     private final LabelName labelName;
 
-
-    @Getter
-    private String dbFullName; // optional
     @Getter
     private String name; // optional
 
-    public ShowJobTaskStmt(String category, LabelName labelName) {
+    @Getter
+    JobType jobType;
+
+    public ShowJobTaskStmt(LabelName labelName, JobType jobType) {
         this.labelName = labelName;
+        this.jobType = jobType;
+        this.name = labelName == null ? null : labelName.getLabelName();
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         CreateJobStmt.checkAuth();
-        checkLabelName(analyzer);
-    }
-
-    private void checkLabelName(Analyzer analyzer) throws AnalysisException {
-        String dbName = labelName == null ? null : labelName.getDbName();
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbFullName = analyzer.getContext().getDatabase();
-            if (Strings.isNullOrEmpty(dbFullName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbFullName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        }
-        if (null == labelName) {
-            throw new AnalysisException("Job name is null");
-        }
-        name = labelName.getLabelName();
     }
 
     public static List<String> getTitleNames() {

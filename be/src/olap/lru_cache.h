@@ -22,7 +22,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
-#include "util/lock.h"
 #include "util/metrics.h"
 #include "util/slice.h"
 
@@ -370,7 +369,7 @@ private:
     size_t _capacity = 0;
 
     // _mutex protects the following state.
-    doris::Mutex _mutex;
+    std::mutex _mutex;
     size_t _usage = 0;
 
     // Dummy head of LRU list.

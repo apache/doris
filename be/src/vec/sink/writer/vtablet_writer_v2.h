@@ -130,6 +130,8 @@ private:
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
 
+    Status _send_new_partition_batch();
+
     void _build_tablet_node_mapping();
 
     void _generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,

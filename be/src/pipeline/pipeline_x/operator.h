@@ -47,6 +47,7 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile;
     const int sender_id;
     std::vector<DependencySPtr>& dependencys;
+    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
     const TDataSink& tsink;
 };
 
@@ -326,7 +327,7 @@ public:
 
 protected:
     DependencyType* _dependency;
-    typename DependencyType::SharedState* _shared_state;
+    typename DependencyType::SharedState* _shared_state = nullptr;
 };
 
 class DataSinkOperatorXBase;
