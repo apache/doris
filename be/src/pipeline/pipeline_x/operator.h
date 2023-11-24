@@ -326,7 +326,7 @@ public:
 
 protected:
     DependencyType* _dependency;
-    typename DependencyType::SharedState* _shared_state;
+    typename DependencyType::SharedState* _shared_state = nullptr;
 };
 
 class DataSinkOperatorXBase;
