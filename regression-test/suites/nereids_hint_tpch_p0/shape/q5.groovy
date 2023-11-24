@@ -30,6 +30,8 @@ suite("q5") {
 sql 'set be_number_for_test=3'
 sql "set enable_runtime_filter_prune=false"
 
+sql "set ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+
     qt_select """
     explain shape plan
     select 
