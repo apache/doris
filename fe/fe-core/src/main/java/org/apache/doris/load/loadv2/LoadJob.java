@@ -833,6 +833,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }else {
                 jobInfo.add(userInfo.getQualifiedUser());
             }
+
             // comment
             jobInfo.add(comment);
             return jobInfo;
