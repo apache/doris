@@ -2297,60 +2297,15 @@ multi catalog 并发文件扫描线程数
 
 multi catalog 并发文件扫描大小
 
-#### `enable_odbc_table`
+#### `enable_odbc_mysql_broker_table`
 
 默认值：false
 
 是否可以动态配置：true
 
-是否为 Master FE 节点独有的配置项：true
-
-是否启用 ODBC 表，默认不启用，在使用的时候需要手动配置启用，该参数可以通过：
-
-`ADMIN SET FRONTEND CONFIG("key"="value") `方式进行设置
-
-**注意：** 这个参数在1.2版本中已经删除，默认启用ODBC外表，并且会在以后的某个版本中删除ODBC外表，推荐使用JDBC外表
-
-#### `disable_iceberg_hudi_table`
-
-默认值：true
-
-是否可以动态配置：true
-
 是否为 Master FE 节点独有的配置项：false
 
-从 1.2 版本开始，我们不再支持创建hudi和iceberg外表。请改用multi catalog功能。
-
-#### `iceberg_table_creation_interval_second`
-
-默认值：10 (s)
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：false
-
-fe 将每隔 iceberg_table_creation_interval_second 创建iceberg table
-
-#### `iceberg_table_creation_strict_mode`
-
-默认值：true
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-如果设置为 true，iceberg 表和 Doris 表的列定义必须一致。
-如果设置为 false，Doris 只创建支持的数据类型的列。
-
-#### `max_iceberg_table_creation_record_size`
-
-内存中可以存储的最近iceberg库表创建记录的默认最大数量
-
-默认值：2000
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
+从 2.1 版本开始，我们不再支持创建 odbc, mysql 和 broker外表。对于 odbc 外表，可以使用 jdbc 外表或者 jdbc catalog 替代。对于 broker 外表，可以使用 table valued function 替代。
 
 #### `max_hive_partition_cache_num`
 

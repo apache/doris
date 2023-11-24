@@ -56,6 +56,7 @@ public class EnvOperationTest {
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Env.getCurrentEnv().createDb(createDbStmt);
+        Config.enable_odbc_mysql_broker_table = true;
 
         createTable("create table test.renameTest\n"
                 + "(k1 int,k2 int)\n"
@@ -101,7 +102,6 @@ public class EnvOperationTest {
     }
 
     private static void createResource(String sql) throws Exception {
-        Config.enable_odbc_table = true;
         CreateResourceStmt createResourceStmt = (CreateResourceStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().getResourceMgr().createResource(createResourceStmt);
     }
