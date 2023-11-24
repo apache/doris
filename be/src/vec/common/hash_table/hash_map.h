@@ -224,7 +224,8 @@ public:
     }
 
     template <int JoinOpType>
-    void prepare_build(size_t num_elem, int batch_size) {
+    void prepare_build(size_t num_elem, int batch_size, bool has_null_key) {
+        _has_null_key = has_null_key;
         max_batch_size = batch_size;
         bucket_size = calc_bucket_size(num_elem + 1);
         first.resize(bucket_size + 1);
@@ -314,6 +315,8 @@ public:
         return iter_idx >= elem_num;
     }
 
+    bool has_null_key() { return _has_null_key; }
+
 private:
     // only LEFT_ANTI_JOIN/LEFT_SEMI_JOIN/NULL_AWARE_LEFT_ANTI_JOIN/CROSS_JOIN support mark join
     template <int JoinOpType, bool with_other_conjuncts>
@@ -338,7 +341,11 @@ private:
                 } else {
                     bool matched = JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0
                                                                                 : build_idx == 0;
-                    mark_column->insert_value(matched);
+                    if (!matched && _has_null_key) {
+                        mark_column->insert_null();
+                    } else {
+                        mark_column->insert_value(matched);
+                    }
                 }
             }
 
@@ -515,6 +522,7 @@ private:
     mutable uint32_t iter_idx = 1;
     Cell cell;
     doris::vectorized::Arena* pool;
+    bool _has_null_key = false;
 };
 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
