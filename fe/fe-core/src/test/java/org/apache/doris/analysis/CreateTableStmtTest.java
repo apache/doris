@@ -371,62 +371,6 @@ public class CreateTableStmtTest {
     }
 
     @Test
-    public void testCreateIcebergTable() throws UserException {
-        Config.disable_iceberg_hudi_table = false;
-        Map<String, String> properties = new HashMap<>();
-        properties.put("iceberg.database", "doris");
-        properties.put("iceberg.table", "test");
-        properties.put("iceberg.hive.metastore.uris", "thrift://127.0.0.1:9087");
-        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
-        stmt.analyze(analyzer);
-
-        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" + "\n" + ") ENGINE = iceberg\n"
-                + "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n"
-                + "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
-                + "\"iceberg.table\"  =  \"test\")", stmt.toString());
-    }
-
-    @Test
-    public void testCreateHudiTable() throws UserException {
-        Config.disable_iceberg_hudi_table = false;
-        Map<String, String> properties = new HashMap<>();
-        properties.put("hudi.database", "doris");
-        properties.put("hudi.table", "test");
-        properties.put("hudi.hive.metastore.uris", "thrift://127.0.0.1:9087");
-        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "hudi", properties, "");
-        stmt.analyze(analyzer);
-
-        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" + "\n" + ") ENGINE = hudi\n"
-                        + "PROPERTIES (\"hudi.database\"  =  \"doris\",\n"
-                        + "\"hudi.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
-                        + "\"hudi.table\"  =  \"test\")",
-                stmt.toString());
-    }
-
-    @Test
-    public void testCreateHudiTableWithSchema() throws UserException {
-        Config.disable_iceberg_hudi_table = false;
-        Map<String, String> properties = new HashMap<>();
-        properties.put("hudi.database", "doris");
-        properties.put("hudi.table", "test");
-        properties.put("hudi.hive.metastore.uris", "thrift://127.0.0.1:9087");
-        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "hudi", properties, "");
-        ColumnDef idCol = new ColumnDef("id", TypeDef.create(PrimitiveType.INT));
-        stmt.addColumnDef(idCol);
-        ColumnDef nameCol = new ColumnDef("name", TypeDef.create(PrimitiveType.INT), false, null, true,
-                ColumnDef.DefaultValue.NOT_SET, "");
-        stmt.addColumnDef(nameCol);
-        stmt.analyze(analyzer);
-
-        Assert.assertEquals(
-                "CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" + "  `id` INT NOT NULL COMMENT \"\",\n"
-                        + "  `name` INT NULL COMMENT \"\"\n" + ") ENGINE = hudi\n"
-                        + "PROPERTIES (\"hudi.database\"  =  \"doris\",\n"
-                        + "\"hudi.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
-                        + "\"hudi.table\"  =  \"test\")", stmt.toString());
-    }
-
-    @Test
     public void testOdbcString() throws AnalysisException {
         ColumnDef col = new ColumnDef("string_col", TypeDef.create(PrimitiveType.STRING), true, null, true,
                 new DefaultValue(false, null), "");

@@ -49,17 +49,31 @@ const std::string GetDorisJNIDefaultClasspath() {
     DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
 
     std::ostringstream out;
-    std::string path(doris_home);
-    path += "/lib";
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(path)) {
-        if (entry.path().extension() != ".jar") {
-            continue;
+
+    auto add_jars_from_path = [&](const std::string& base_path) {
+        if (!std::filesystem::exists(base_path)) {
+            return;
         }
-        if (out.str().empty()) {
-            out << entry.path().string();
-        } else {
-            out << ":" << entry.path().string();
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(base_path)) {
+            if (entry.path().extension() == ".jar") {
+                if (!out.str().empty()) {
+                    out << ":";
+                }
+                out << entry.path().string();
+            }
         }
+    };
+
+    add_jars_from_path(std::string(doris_home) + "/lib");
+    add_jars_from_path(std::string(doris_home) + "/custom_lib");
+
+    // Check and add HADOOP_CONF_DIR if it's set
+    const auto* hadoop_conf_dir = getenv("HADOOP_CONF_DIR");
+    if (hadoop_conf_dir != nullptr && strlen(hadoop_conf_dir) > 0) {
+        if (!out.str().empty()) {
+            out << ":";
+        }
+        out << hadoop_conf_dir;
     }
 
     DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
@@ -80,15 +94,18 @@ const std::string GetDorisJNIClasspathOption() {
     DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
 
     // CLASSPATH
-    static const std::string classpath =
-            fmt::format("{}/conf:{}", doris_home, GetDorisJNIDefaultClasspath());
+    const std::string original_classpath = getenv("CLASSPATH") ? getenv("CLASSPATH") : "";
+    static const std::string classpath = fmt::format(
+            "{}/conf:{}:{}", doris_home, GetDorisJNIDefaultClasspath(), original_classpath);
     setenv("CLASSPATH", classpath.c_str(), 0);
 
     // LIBHDFS_OPTS
-    setenv("LIBHDFS_OPTS",
-           fmt::format("-Djava.library.path={}/lib/hadoop_hdfs/native", getenv("DORIS_HOME"))
-                   .c_str(),
-           0);
+    const std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
+    std::string libhdfs_opts =
+            fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{}", java_opts,
+                        getenv("DORIS_HOME"), getenv("DORIS_HOME") + std::string("/lib"));
+
+    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 0);
 }
 
 // Only used on non-x86 platform
@@ -145,16 +162,16 @@ const std::string GetDorisJNIClasspathOption() {
 
 bool JniUtil::jvm_inited_ = false;
 __thread JNIEnv* JniUtil::tls_env_ = nullptr;
-jclass JniUtil::internal_exc_cl_ = NULL;
-jclass JniUtil::jni_util_cl_ = NULL;
+jclass JniUtil::internal_exc_cl_ = nullptr;
+jclass JniUtil::jni_util_cl_ = nullptr;
 jclass JniUtil::jni_native_method_exc_cl_ = nullptr;
-jmethodID JniUtil::throwable_to_string_id_ = NULL;
-jmethodID JniUtil::throwable_to_stack_trace_id_ = NULL;
-jmethodID JniUtil::get_jvm_metrics_id_ = NULL;
-jmethodID JniUtil::get_jvm_threads_id_ = NULL;
-jmethodID JniUtil::get_jmx_json_ = NULL;
-jobject JniUtil::jni_scanner_loader_obj_ = NULL;
-jmethodID JniUtil::jni_scanner_loader_method_ = NULL;
+jmethodID JniUtil::throwable_to_string_id_ = nullptr;
+jmethodID JniUtil::throwable_to_stack_trace_id_ = nullptr;
+jmethodID JniUtil::get_jvm_metrics_id_ = nullptr;
+jmethodID JniUtil::get_jvm_threads_id_ = nullptr;
+jmethodID JniUtil::get_jmx_json_ = nullptr;
+jobject JniUtil::jni_scanner_loader_obj_ = nullptr;
+jmethodID JniUtil::jni_scanner_loader_method_ = nullptr;
 
 Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) {
     DCHECK(jstr != nullptr);
@@ -176,7 +193,7 @@ Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) 
 }
 
 Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
-    DCHECK(env_ == NULL);
+    DCHECK(env_ == nullptr);
     DCHECK_GT(max_local_ref, 0);
     if (env->PushLocalFrame(max_local_ref) < 0) {
         env->ExceptionClear();

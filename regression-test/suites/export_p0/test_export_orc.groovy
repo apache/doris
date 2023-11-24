@@ -202,6 +202,8 @@ suite("test_export_orc", "p0") {
             }
         }
 
+        sql """ sync; """
+
         qt_select_load1 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
     
     } finally {

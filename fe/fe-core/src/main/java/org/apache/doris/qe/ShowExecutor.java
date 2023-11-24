@@ -179,7 +179,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
+import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
@@ -189,8 +189,6 @@ import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -231,6 +229,7 @@ import java.net.URLConnection;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -1421,39 +1420,36 @@ public class ShowExecutor {
     private void handleShowJobTask() {
         ShowJobTaskStmt showJobTaskStmt = (ShowJobTaskStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        List<Job> jobs = Env.getCurrentEnv().getJobRegister()
-                .getJobs(showJobTaskStmt.getDbFullName(), showJobTaskStmt.getName(), showJobTaskStmt.getJobCategory(),
-                        null);
+        List<org.apache.doris.job.base.AbstractJob> jobs = Env.getCurrentEnv().getJobManager()
+                .queryJobs(showJobTaskStmt.getJobType(), showJobTaskStmt.getName());
         if (CollectionUtils.isEmpty(jobs)) {
             resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
             return;
         }
-        Job job = jobs.get(0);
-        long jobId = job.getJobId();
-        List<JobTask> jobTasks = Env.getCurrentEnv().getJobTaskManager().getJobTasks(jobId);
+        org.apache.doris.job.base.AbstractJob job = jobs.get(0);
+        List<AbstractTask> jobTasks = job.queryTasks();
         if (CollectionUtils.isEmpty(jobTasks)) {
-            resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
+            resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
             return;
         }
-        for (JobTask jobTask : jobTasks) {
-            rows.add(jobTask.getShowInfo(job.getJobName()));
+        for (AbstractTask jobTask : jobTasks) {
+            rows.add(jobTask.getShowInfo());
         }
-        resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
+        resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
     }
 
     private void handleShowJob() throws AnalysisException {
         ShowJobStmt showJobStmt = (ShowJobStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         // if job exists
-        List<Job> jobList;
-        PatternMatcher matcher = null;
-        if (showJobStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showJobStmt.getPattern(),
-                    CaseSensibility.JOB.getCaseSensibility());
+        List<org.apache.doris.job.base.AbstractJob> jobList;
+        if (null == showJobStmt.getJobType()) {
+            jobList = Env.getCurrentEnv().getJobManager()
+                    .queryJobs(showJobStmt.getJobTypes());
+        } else {
+            jobList = Env.getCurrentEnv().getJobManager()
+                    .queryJobs(showJobStmt.getJobType(), showJobStmt.getName());
         }
-        jobList = Env.getCurrentEnv().getJobRegister()
-                .getJobs(showJobStmt.getDbFullName(), showJobStmt.getName(), showJobStmt.getJobCategory(),
-                        matcher);
 
         if (jobList.isEmpty()) {
             resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
@@ -1461,17 +1457,11 @@ public class ShowExecutor {
         }
 
         // check auth
-        for (Job job : jobList) {
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), job.getDbName(), PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                        ConnectContext.get().getQualifiedUser(), job.getDbName());
-            }
-        }
-        for (Job job : jobList) {
+
+        for (org.apache.doris.job.base.AbstractJob job : jobList) {
             rows.add(job.getShowInfo());
         }
-        resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
+        resultSet = new ShowResultSet(jobList.get(0).getJobMetaData(), rows);
     }
 
     private void handleShowRoutineLoad() throws AnalysisException {
@@ -2504,21 +2494,8 @@ public class ShowExecutor {
 
     private void handleShowTableCreation() throws AnalysisException {
         ShowTableCreationStmt showStmt = (ShowTableCreationStmt) stmt;
-        String dbName = showStmt.getDbName();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
-
-        List<IcebergTableCreationRecord> records = ctx.getEnv().getIcebergTableCreationRecordMgr()
-                .getTableCreationRecordByDbId(db.getId());
 
         List<List<Comparable>> rowSet = Lists.newArrayList();
-        for (IcebergTableCreationRecord record : records) {
-            List<Comparable> row = record.getTableCreationRecord();
-            // like predicate
-            if (Strings.isNullOrEmpty(showStmt.getWild()) || showStmt.like(record.getTable())) {
-                rowSet.add(row);
-            }
-        }
-
         // sort function rows by fourth column (Create Time) asc
         ListComparator<List<Comparable>> comparator = null;
         OrderByPair orderByPair = new OrderByPair(3, false);
@@ -2643,6 +2620,7 @@ public class ShowExecutor {
         List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager()
                 .showAnalysisJob(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.jobId));
@@ -2673,6 +2651,14 @@ public class ShowExecutor {
                 LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
             }
             row.add(analysisInfo.scheduleType.toString());
+            LocalDateTime startTime =
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),
+                            java.time.ZoneId.systemDefault());
+            LocalDateTime endTime =
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.endTime),
+                            java.time.ZoneId.systemDefault());
+            row.add(startTime.format(formatter));
+            row.add(endTime.format(formatter));
             resultRows.add(row);
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);

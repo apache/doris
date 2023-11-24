@@ -168,23 +168,6 @@ public:
         return desc;
     }
 
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
-            return TPrimitiveType::DECIMAL32;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
-            return TPrimitiveType::DECIMAL64;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
-            return TPrimitiveType::DECIMAL128I;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
-            return TPrimitiveType::DECIMAL256;
-        }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
-
     doris::FieldType get_storage_field_type() const override {
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL32;
@@ -247,8 +230,6 @@ public:
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return sizeof(T); }
 
-    bool is_summable() const override { return true; }
-    bool can_be_used_in_boolean_context() const override { return true; }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;

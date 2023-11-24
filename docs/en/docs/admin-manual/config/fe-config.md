@@ -829,7 +829,7 @@ In order to avoid occupying too much memory, the maximum data size of rows that 
 
 #### `cache_last_version_interval_second`
 
-Default：900
+Default：30
 
 IsMutable：true
 
@@ -1340,6 +1340,17 @@ IsMutable：true
 MasterOnly：true
 
 Default stream load pre-submission timeout
+
+#### `stream_load_default_memtable_on_sink_node`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：false
+
+Enable memtable on sink node for stream load by default.
+When HTTP header `memtable_on_sink_node` is not set.
 
 #### `insert_load_default_timeout_second`
 
@@ -2045,11 +2056,17 @@ Only for Master FE: true
 
 The data size threshold used to judge whether replica is too large
 
-#### `schedule_slot_num_per_path`
+#### `schedule_slot_num_per_hdd_path`
 
-Default：2
+Default：4
 
-the default slot number per path in tablet scheduler , remove this config and dynamically adjust it by clone task statistic
+the default slot number per path in tablet scheduler for hdd , remove this config and dynamically adjust it by clone task statistic
+
+#### `schedule_slot_num_per_ssd_path`
+
+Default：8
+
+the default slot number per path in tablet scheduler for ssd , remove this config and dynamically adjust it by clone task statistic
 
 #### `tablet_repair_delay_factor_second`
 
@@ -2279,60 +2296,15 @@ MasterOnly：false
 
 multi catalog concurrent file scan size
 
-#### `enable_odbc_table`
+#### `enable_odbc_mysql_broker_table`
 
 Default：false
 
 IsMutable：true
 
-MasterOnly：true
-
-Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it.
-
-This parameter can be set by: ADMIN SET FRONTEND CONFIG("key"="value")
-
-**Note:** This parameter has been deleted in version 1.2. The ODBC External Table is enabled by default, and the ODBC External Table will be deleted in a later version. It is recommended to use the JDBC External Table
-
-#### `disable_iceberg_hudi_table`
-
-Default：true
-
-IsMutable：true
-
 MasterOnly：false
 
-Starting from version 1.2, we no longer support create hudi and iceberg External Table. Please use the multi catalog.
-
-#### `iceberg_table_creation_interval_second`
-
-Default：10 (s)
-
-IsMutable：true
-
-MasterOnly：false
-
-fe will create iceberg table every iceberg_table_creation_interval_second
-
-#### `iceberg_table_creation_strict_mode`
-
-Default：true
-
-IsMutable：true
-
-MasterOnly：true
-
-If set to TRUE, the column definitions of iceberg table and the doris table must be consistent
-If set to FALSE, Doris only creates columns of supported data types.
-
-#### `max_iceberg_table_creation_record_size`
-
-Default max number of recent iceberg database table creation record that can be stored in memory.
-
-Default：2000
-
-IsMutable：true
-
-MasterOnly：true
+Starting from version 2.1, we no longer support create odbc, jdbc and broker external table. For odbc and mysql external table, use jdbc table or jdbc catalog instead. For broker table, use table valued function instead.
 
 #### `max_hive_partition_cache_num`
 

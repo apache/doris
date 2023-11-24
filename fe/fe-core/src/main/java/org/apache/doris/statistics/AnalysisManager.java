@@ -29,7 +29,6 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -93,7 +92,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -159,6 +158,7 @@ public class AnalysisManager implements Writable {
             // Set the job state to RUNNING when its first task becomes RUNNING.
             if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
                 job.state = AnalysisState.RUNNING;
+                job.markStartTime(System.currentTimeMillis());
                 replayCreateAnalysisJob(job);
             }
             boolean allFinished = true;
@@ -175,9 +175,9 @@ public class AnalysisManager implements Writable {
             }
             if (allFinished) {
                 if (hasFailure) {
-                    job.state = AnalysisState.FAILED;
+                    job.markFailed();
                 } else {
-                    job.state = AnalysisState.FINISHED;
+                    job.markFinished();
                     try {
                         updateTableStats(job);
                     } catch (Throwable e) {
@@ -200,6 +200,13 @@ public class AnalysisManager implements Writable {
         AnalysisInfo job = systemJobInfoMap.get(info.jobId);
         if (job == null) {
             return null;
+        }
+        synchronized (job) {
+            // Set the job state to RUNNING when its first task becomes RUNNING.
+            if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
+                job.state = AnalysisState.RUNNING;
+                job.markStartTime(System.currentTimeMillis());
+            }
         }
         int failedCount = 0;
         StringJoiner reason = new StringJoiner(", ");
@@ -224,12 +231,13 @@ public class AnalysisManager implements Writable {
                     taskMap.size() - failedCount, failedCount, 0, taskMap.size());
             if (failedCount > 0) {
                 job.message = reason.toString();
-                job.state = AnalysisState.FAILED;
+                job.markFailed();
             } else {
-                job.state = AnalysisState.FINISHED;
+                job.markFinished();
             }
             autoJobs.offer(job);
             systemJobInfoMap.remove(info.jobId);
+            analysisJobIdToTaskMap.remove(info.jobId);
         }
         return null;
     };
@@ -241,7 +249,6 @@ public class AnalysisManager implements Writable {
         if (!Env.isCheckpointThread()) {
             this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num);
             this.statisticsCache = new StatisticsCache();
-            taskExecutor.start();
         }
     }
 
@@ -340,6 +347,7 @@ public class AnalysisManager implements Writable {
         constructJob(jobInfo, analysisTaskInfos.values());
         if (isSync) {
             syncExecute(analysisTaskInfos.values());
+            jobInfo.state = AnalysisState.FINISHED;
             updateTableStats(jobInfo);
             return null;
         }
@@ -504,7 +512,7 @@ public class AnalysisManager implements Writable {
                 partitionNames, analysisType);
         infoBuilder.setColToPartitions(colToPartitions);
         infoBuilder.setTaskIds(Lists.newArrayList());
-
+        infoBuilder.setTblUpdateTime(table.getUpdateTime());
         return infoBuilder.build();
     }
 
@@ -593,15 +601,16 @@ public class AnalysisManager implements Writable {
     public void updateTableStats(AnalysisInfo jobInfo) {
         TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId,
                 jobInfo.dbId, jobInfo.tblId);
-        // External Table update table stats after table level task finished.
-        if (tbl instanceof ExternalTable) {
+        // External Table only update table stats when all tasks finished.
+        // Because it needs to get the row count from the result of row count task.
+        if (tbl instanceof ExternalTable && !jobInfo.state.equals(AnalysisState.FINISHED)) {
             return;
         }
         TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
         if (tableStats == null) {
-            updateTableStatsStatus(new TableStatsMeta(tbl.getId(), tbl.estimatedRowCount(), jobInfo));
+            updateTableStatsStatus(new TableStatsMeta(tbl.estimatedRowCount(), jobInfo, tbl));
         } else {
-            tableStats.updateByJob(jobInfo);
+            tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);
         }
 
@@ -677,7 +686,7 @@ public class AnalysisManager implements Writable {
         return new ThreadPoolExecutor(0,
                 ConnectContext.get().getSessionVariable().parallelSyncAnalyzeTaskNum,
                 0, TimeUnit.SECONDS,
-                new SynchronousQueue(),
+                new LinkedBlockingQueue<>(),
                 new ThreadFactoryBuilder().setDaemon(true).setNameFormat("SYNC ANALYZE" + "-%d")
                         .build(), new BlockedPolicy(poolName,
                 StatisticsUtil.getAnalyzeTimeout()));
@@ -831,6 +840,9 @@ public class AnalysisManager implements Writable {
                 LOG.warn("Thread got interrupted when waiting sync analyze task execution finished", t);
             }
             if (!colNames.isEmpty()) {
+                if (cancelled) {
+                    throw new RuntimeException("Cancelled");
+                }
                 throw new RuntimeException("Failed to analyze following columns:[" + String.join(",", colNames)
                         + "] Reasons: " + String.join(",", errorMessages));
             }
@@ -998,24 +1010,8 @@ public class AnalysisManager implements Writable {
     }
 
     public void registerSysJob(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> taskInfos) {
-        jobInfo.state = AnalysisState.RUNNING;
         systemJobInfoMap.put(jobInfo.jobId, jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
-    }
-
-    @VisibleForTesting
-    protected Set<String> findReAnalyzeNeededPartitions(TableIf table) {
-        TableStatsMeta tableStats = findTableStatsStatus(table.getId());
-        if (tableStats == null) {
-            return table.getPartitionNames().stream().map(table::getPartition)
-                    .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
-        }
-        return table.getPartitionNames().stream()
-                .map(table::getPartition)
-                .filter(Partition::hasData)
-                .filter(partition ->
-                        partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
-                .collect(Collectors.toSet());
     }
 
     protected void logAutoJob(AnalysisInfo autoJob) {
@@ -1084,5 +1080,9 @@ public class AnalysisManager implements Writable {
 
     public void removeJob(long id) {
         idToAnalysisJob.remove(id);
+    }
+
+    public boolean hasUnFinished() {
+        return !analysisJobIdToTaskMap.isEmpty();
     }
 }

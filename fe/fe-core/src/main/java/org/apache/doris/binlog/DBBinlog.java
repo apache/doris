@@ -181,6 +181,7 @@ public class DBBinlog {
             if (tableId >= 0) {
                 TableBinlog tableBinlog = tableBinlogMap.get(tableId);
                 if (tableBinlog == null) {
+                    LOG.warn("table binlog not found. tableId: {}", tableId);
                     status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
                     return Pair.of(status, null);
                 }
@@ -200,6 +201,7 @@ public class DBBinlog {
             if (tableId >= 0) {
                 TableBinlog tableBinlog = tableBinlogMap.get(tableId);
                 if (tableBinlog == null) {
+                    LOG.warn("table binlog not found. tableId: {}", tableId);
                     status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
                     return Pair.of(status, null);
                 }

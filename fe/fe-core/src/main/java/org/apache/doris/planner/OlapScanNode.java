@@ -873,22 +873,9 @@ public class OlapScanNode extends ScanNode {
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
         } else {
-            selectedPartitionIds = null;
+            selectedPartitionIds = olapTable.getPartitionIds();
         }
-
-        if (selectedPartitionIds == null) {
-            selectedPartitionIds = Lists.newArrayList();
-            for (Partition partition : olapTable.getPartitions()) {
-                if (!partition.hasData()) {
-                    continue;
-                }
-                selectedPartitionIds.add(partition.getId());
-            }
-        } else {
-            selectedPartitionIds = selectedPartitionIds.stream()
-                    .filter(id -> olapTable.getPartition(id).hasData())
-                    .collect(Collectors.toList());
-        }
+        selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);
         selectedPartitionNum = selectedPartitionIds.size();
 
         for (long id : selectedPartitionIds) {
@@ -959,9 +946,13 @@ public class OlapScanNode extends ScanNode {
         }
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
-            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
-            selectedRows += selectedTable.getRowCount();
-            selectedPartitionList.add(partitionId);
+            final MaterializedIndex selectedIndex = partition.getIndex(selectedIndexId);
+            // selectedIndex is not expected to be null, because MaterializedIndex ids in one rollup's partitions
+            // are all same. skip this partition here.
+            if (selectedIndex != null) {
+                selectedRows += selectedIndex.getRowCount();
+                selectedPartitionList.add(partitionId);
+            }
         }
         selectedPartitionList.sort(Comparator.naturalOrder());
 
@@ -981,7 +972,7 @@ public class OlapScanNode extends ScanNode {
         // 3. Sampling partition. If Seek is specified, the partition will be the same for each sampling.
         long hitRows = 0; // The number of rows hit by the tablet
         long partitionSeek = tableSample.getSeek() != -1
-                ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * selectedPartitionIds.size());
+                ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * selectedPartitionList.size());
         for (int i = 0; i < selectedPartitionList.size(); i++) {
             int seekPid = (int) ((i + partitionSeek) % selectedPartitionList.size());
             final Partition partition = olapTable.getPartition(selectedPartitionList.get(seekPid));
@@ -1239,8 +1230,11 @@ public class OlapScanNode extends ScanNode {
             output.append(getRuntimeFilterExplainString(false));
         }
 
-        output.append(prefix).append(String.format("partitions=%s/%s, tablets=%s/%s", selectedPartitionNum,
-                olapTable.getPartitions().size(), selectedTabletsNum, totalTabletsNum));
+        String selectedPartitions = getSelectedPartitionIds().stream().sorted()
+                .map(id -> olapTable.getPartition(id).getName())
+                .collect(Collectors.joining(","));
+        output.append(prefix).append(String.format("partitions=%s/%s (%s), tablets=%s/%s", selectedPartitionNum,
+                olapTable.getPartitions().size(), selectedPartitions, selectedTabletsNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
@@ -1397,6 +1391,10 @@ public class OlapScanNode extends ScanNode {
         }
 
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
+        if (olapTable.getBaseSchema().stream().anyMatch(Column::isClusterKey)) {
+            keyColumnNames.clear();
+            keyColumnTypes.clear();
+        }
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
@@ -1672,6 +1670,13 @@ public class OlapScanNode extends ScanNode {
         // The value column of the agg does not support zone_map index.
         if (type == KeysType.AGG_KEYS && !col.isKey()) {
             return false;
+        }
+
+        if (aggExpr.getChild(0) instanceof SlotRef) {
+            SlotRef slot = (SlotRef) aggExpr.getChild(0);
+            if (CreateMaterializedViewStmt.isMVColumn(slot.getColumnName()) && slot.getColumn().isAggregated()) {
+                return false;
+            }
         }
 
         return true;

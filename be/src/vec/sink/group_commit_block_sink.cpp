@@ -56,6 +56,7 @@ Status GroupCommitBlockSink::prepare(RuntimeState* state) {
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
+    init_sink_common_profile();
     _mem_tracker =
             std::make_shared<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
@@ -90,7 +91,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
     int64_t total_rows = 0;
     int64_t loaded_rows = 0;
     for (const auto& future_block : _future_blocks) {
-        std::unique_lock<doris::Mutex> l(*(future_block->lock));
+        std::unique_lock<std::mutex> l(*(future_block->lock));
         if (!future_block->is_handled()) {
             future_block->cv->wait(l);
         }

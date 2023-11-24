@@ -151,4 +151,20 @@ suite("test_inlineview_with_window_function") {
                     group by ordernum
                 )tmp1
                 on tmp.ordernum=tmp1.ordernum;"""
+
+    sql """set enable_nereids_planner=false;"""
+    qt_order2 """
+            SELECT  
+                row_number() over(partition by add_date order by pc_num desc)
+                ,row_number() over(partition by add_date order by vc_num desc)
+                ,row_number() over(partition by add_date order by vt_num desc)
+            FROM (
+            SELECT  
+                cast(dnt as datev2) add_date
+                ,row_number() over(order by dnt) pc_num
+                ,row_number() over(order by dnt) vc_num
+                ,row_number() over(order by dnt) vt_num
+            FROM test_table_aaa
+            ) t;
+    """
 }
