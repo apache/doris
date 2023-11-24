@@ -2058,7 +2058,7 @@ public class StmtExecutor {
                         .recordFinishedLoadJob(label, txnId, insertStmt.getDbName(),
                                 insertStmt.getTargetTable().getId(),
                                 EtlJobType.INSERT, createTime, throwable == null ? "" : throwable.getMessage(),
-                                coord.getTrackingUrl(), insertStmt.getUserInfo());
+                                coord.getTrackingUrl(), insertStmt.getUserInfo(), 0L);
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
                 errMsg = "Record info of insert load with error " + e.getMessage();

@@ -254,6 +254,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         this.label = label;
     }
 
+    public LoadJob(EtlJobType jobType, long dbId, String label, long jobId) {
+        this(jobType);
+        this.id = jobId;
+        this.dbId = dbId;
+        this.label = label;
+    }
+
     protected void readLock() {
         lock.readLock().lock();
     }
@@ -842,7 +849,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return gson.toJson(map);
     }
 
-    protected String getResourceName() {
+    public String getResourceName() {
         return "N/A";
     }
 
@@ -869,7 +876,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             job = new BrokerLoadJob();
         } else if (type == EtlJobType.SPARK) {
             job = new SparkLoadJob();
-        } else if (type == EtlJobType.INSERT) {
+        } else if (type == EtlJobType.INSERT || type == EtlJobType.INSERT_JOB) {
             job = new InsertLoadJob();
         } else if (type == EtlJobType.MINI) {
             job = new MiniLoadJob();
@@ -1199,7 +1206,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     // unit: second
-    protected long getTimeout() {
+    public long getTimeout() {
         return (long) jobProperties.get(LoadStmt.TIMEOUT_PROPERTY);
     }
 
@@ -1211,7 +1218,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return (long) jobProperties.get(LoadStmt.EXEC_MEM_LIMIT);
     }
 
-    protected double getMaxFilterRatio() {
+    public double getMaxFilterRatio() {
         return (double) jobProperties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY);
     }
 

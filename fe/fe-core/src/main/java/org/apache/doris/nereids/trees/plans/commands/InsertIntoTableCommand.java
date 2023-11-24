@@ -66,6 +66,7 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import lombok.Setter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -95,10 +96,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
     private final LogicalPlan logicalQuery;
-    private final Optional<String> labelName;
+
+    @Setter
+    private Optional<String> labelName;
     private final boolean isOverwrite;
     private NereidsPlanner planner;
     private boolean isTxnBegin = false;
+
+    /**
+     * When source it's from job scheduler,it will be set.
+     */
+    @Setter
+    private long jobId;
 
     /**
      * constructor
@@ -204,7 +213,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         LOG.info("Nereids start to execute the insert command, query id: {}, txn id: {}",
                 ctx.queryId(), txn.getTxnId());
 
-        txn.executeInsertIntoTableCommand(executor);
+        txn.executeInsertIntoTableCommand(executor, jobId);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
