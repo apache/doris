@@ -2224,7 +2224,7 @@ suite("test_routine_load","p0") {
                         continue;
                     }
                     log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals(res[0][17].toString(), "ErrorReason{code=errCode = 102, msg='current error rows is more than max error num or the filter ratio is more than the max'}")
+                    assertEquals(res[0][17].toString(), "ErrorReason{code=errCode = 102, msg='current error rows is more than max_error_number or the max_filter_ratio is more than the value set'}")
                     break;
                 }
 
