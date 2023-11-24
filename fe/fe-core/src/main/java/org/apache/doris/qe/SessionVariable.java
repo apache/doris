@@ -457,6 +457,11 @@ public class SessionVariable implements Serializable, Writable {
             SHOW_HIDDEN_COLUMNS
     );
 
+    public static final String SHUFFLE_FACTOR_LOWER_BOUND = "shuffle_factor_lower_bound";
+
+    @VariableMgr.VarAttr(name = SHUFFLE_FACTOR_LOWER_BOUND)
+    public double shuffleFactorLowerBound = 0.03;
+
     public static final String ENABLE_STATS = "enable_stats";
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.

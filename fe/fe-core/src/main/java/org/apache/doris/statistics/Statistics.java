@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.qe.ConnectContext;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
@@ -129,7 +130,12 @@ public class Statistics {
     }
 
     public double dataSizeFactor() {
-        return computeTupleSize() / K_BYTES;
+        double lowerBound = 0.03;
+        double upperBound = 0.07;
+        if (ConnectContext.get() != null) {
+            lowerBound = ConnectContext.get().getSessionVariable().shuffleFactorLowerBound;
+        }
+        return Math.min(Math.max(computeTupleSize() / K_BYTES, lowerBound), upperBound);
     }
 
     @Override
