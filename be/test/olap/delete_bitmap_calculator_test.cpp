@@ -227,7 +227,7 @@ public:
         MergeIndexDeleteBitmapCalculator calculator;
         size_t seq_col_len = 0;
         if (has_sequence_col) {
-            seq_col_len = tablet_schema->column(tablet_schema->sequence_col_idx()).length();
+            seq_col_len = tablet_schema->column(tablet_schema->sequence_col_idx()).length() + 1;
         }
 
         ASSERT_TRUE(calculator.init(rowset_id, segments, seq_col_len).ok());

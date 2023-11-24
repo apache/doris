@@ -1391,6 +1391,10 @@ public class OlapScanNode extends ScanNode {
         }
 
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
+        if (olapTable.getBaseSchema().stream().anyMatch(Column::isClusterKey)) {
+            keyColumnNames.clear();
+            keyColumnTypes.clear();
+        }
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);

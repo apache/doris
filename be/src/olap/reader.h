@@ -172,6 +172,7 @@ public:
 
         // for vertical compaction
         bool is_key_column_group = false;
+        std::vector<uint32_t> key_group_cluster_key_idxes;
 
         bool is_segcompaction = false;
 

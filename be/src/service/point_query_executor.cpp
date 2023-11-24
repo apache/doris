@@ -286,7 +286,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
         st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
                                       &location, INT32_MAX /*rethink?*/, segment_caches,
-                                      rowset_ptr.get()));
+                                      rowset_ptr.get(), false));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }

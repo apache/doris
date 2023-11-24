@@ -254,7 +254,7 @@ suite("test_point_query") {
                     "disable_auto_compaction" = "false"
                     );"""
                 sql """insert into ${tableName} values (0, "1", "2", "3")"""
-                qt_sql "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test_query where customer_key = 0"
+                qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where customer_key = 0"""
             }
         }
     } finally {

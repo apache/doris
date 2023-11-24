@@ -202,6 +202,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -2333,17 +2334,30 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (sortExprs.size() > olapTable.getDataSortInfo().getColNum()) {
             return false;
         }
+        List<Column> sortKeyColumns = olapTable.getFullSchema();
+        if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            Map<Integer, Column> clusterKeyMap = new TreeMap<>();
+            for (Column column : olapTable.getFullSchema()) {
+                if (column.getClusterKeyId() != -1) {
+                    clusterKeyMap.put(column.getClusterKeyId(), column);
+                }
+            }
+            if (!clusterKeyMap.isEmpty()) {
+                sortKeyColumns.clear();
+                sortKeyColumns.addAll(clusterKeyMap.values());
+            }
+        }
         for (int i = 0; i < sortExprs.size(); i++) {
-            // table key.
-            Column tableKey = olapTable.getFullSchema().get(i);
+            // sort key.
+            Column sortColumn = sortKeyColumns.get(i);
             // sort slot.
             Expr sortExpr = sortExprs.get(i);
             if (sortExpr instanceof SlotRef) {
                 SlotRef slotRef = (SlotRef) sortExpr;
-                if (tableKey.equals(slotRef.getColumn())) {
+                if (sortColumn.equals(slotRef.getColumn())) {
                     // ORDER BY DESC NULLS FIRST can not be optimized to only read file tail,
                     // since NULLS is at file head but data is at tail
-                    if (tableKey.isAllowNull() && nullsFirsts.get(i) && !isAscOrders.get(i)) {
+                    if (sortColumn.isAllowNull() && nullsFirsts.get(i) && !isAscOrders.get(i)) {
                         return false;
                     }
                 } else {

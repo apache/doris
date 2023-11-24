@@ -360,7 +360,10 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
+    // leave _check_and_set_is_doing_segcompaction as the last condition
+    // otherwise _segcompacting_cond will never get notified
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
+        !_context.tablet_schema->cluster_key_idxes().empty() ||
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }

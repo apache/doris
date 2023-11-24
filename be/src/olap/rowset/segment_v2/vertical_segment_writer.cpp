@@ -231,7 +231,14 @@ Status VerticalSegmentWriter::init() {
             seq_col_length =
                     _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
         }
-        _primary_key_index_builder.reset(new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
+        size_t rowid_length = 0;
+        if (!_tablet_schema->cluster_key_idxes().empty()) {
+            rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
+            _short_key_index_builder.reset(
+                    new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
+        }
+        _primary_key_index_builder.reset(
+                new PrimaryKeyIndexBuilder(_file_writer, seq_col_length, rowid_length));
         RETURN_IF_ERROR(_primary_key_index_builder->init());
     } else {
         _short_key_index_builder.reset(
