@@ -75,7 +75,7 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     {
         // set sink local state
         LocalSinkStateInfo info {_parent_profile, local_params.sender_id,
-                                 get_downstream_dependency(), tsink};
+                                 get_downstream_dependency(), _local_exchange_state, tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(state, info));
     }
 
