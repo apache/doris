@@ -125,7 +125,7 @@ void AgentServer::start_workers(ExecEnv* exec_env) {
     _push_delete_workers = std::make_unique<TaskWorkerPool>(
             "DELETE", config::delete_worker_count, push_callback);
 
-    // Both PUSH and REALTIME_PUSH type use _push_load_workers
+    // Both PUSH and REALTIME_PUSH type use push_callback
     _push_load_workers = std::make_unique<PriorTaskWorkerPool>(
             "PUSH", config::push_worker_count_normal_priority, config::push_worker_count_high_priority, push_callback);
 

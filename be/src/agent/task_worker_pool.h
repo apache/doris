@@ -47,6 +47,7 @@ public:
     void submit_task(const TAgentTaskRequest& task);
 
 protected:
+    std::atomic_bool _stopped {false};
     std::unique_ptr<ThreadPool> _thread_pool;
     std::function<void(const TAgentTaskRequest&)> _callback;
 };

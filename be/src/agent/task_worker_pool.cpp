@@ -417,6 +417,10 @@ TaskWorkerPool::~TaskWorkerPool() {
 }
 
 void TaskWorkerPool::stop() {
+    if (_stopped.exchange(true)) {
+        return;
+    }
+
     if (_thread_pool) {
         _thread_pool->shutdown();
     }
@@ -462,6 +466,10 @@ PriorTaskWorkerPool::~PriorTaskWorkerPool() {
 void PriorTaskWorkerPool::stop() {
     {
         std::lock_guard lock(_mtx);
+        if (_stopped) {
+            return;
+        }
+
         _stopped = true;
     }
     _normal_condv.notify_all();
@@ -600,6 +608,10 @@ void ReportWorker::notify() {
 void ReportWorker::stop() {
     {
         std::lock_guard lock(_mtx);
+        if (_stopped) {
+            return;
+        }
+
         _stopped = true;
     }
     _condv.notify_all();
@@ -1420,7 +1432,6 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     std::map<TTableId, int64_t> table_id_to_num_delta_rows;
     uint32_t retry_time = 0;
     Status status;
-    bool is_task_timeout = false;
     constexpr uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
     while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
         succ_tablets.clear();
@@ -1432,36 +1443,40 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         status = engine_task.execute();
         if (status.ok()) {
             break;
-        } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+        }
+
+        if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+            LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done, "
+                                   << "transaction_id: " << publish_version_req.transaction_id;
+
             int64_t time_elapsed = time(nullptr) - req.recv_time;
             if (time_elapsed > config::publish_version_task_timeout_s) {
                 LOG(INFO) << "task elapsed " << time_elapsed
                           << " seconds since it is inserted to queue, it is timeout";
-                is_task_timeout = true;
-            } else {
-                // version not continuous, put to queue and wait pre version publish
-                // task execute
-                PUBLISH_VERSION_count << 1;
-                status = _thread_pool->submit_func([this, req] {
-                    _callback(req);
-                    PUBLISH_VERSION_count << -1;
-                });
+                break;
             }
-            LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done, "
-                                   << "transaction_id: " << publish_version_req.transaction_id;
-            break;
-        } else {
-            LOG_WARNING("failed to publish version")
-                    .tag("transaction_id", publish_version_req.transaction_id)
-                    .tag("error_tablets_num", error_tablet_ids.size())
-                    .tag("retry_time", retry_time)
-                    .error(status);
-            ++retry_time;
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+
+            // Version not continuous, put to queue and wait pre version publish task execute
+            PUBLISH_VERSION_count << 1;
+            auto st = _thread_pool->submit_func([this, req] {
+                _callback(req);
+                PUBLISH_VERSION_count << -1;
+            });
+            if (!st.ok()) [[unlikely]] {
+                PUBLISH_VERSION_count << -1;
+                status = std::move(st);
+            } else {
+                return;
+            }
         }
-    }
-    if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>() && !is_task_timeout) {
-        return;
+
+        LOG_WARNING("failed to publish version")
+                .tag("transaction_id", publish_version_req.transaction_id)
+                .tag("error_tablets_num", error_tablet_ids.size())
+                .tag("retry_time", retry_time)
+                .error(status);
+        ++retry_time;
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     for (auto& item : discontinuous_version_tablets) {
@@ -1469,7 +1484,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                                        publish_version_req.transaction_id, false);
     }
     TFinishTaskRequest finish_task_request;
-    if (!status) {
+    if (!status.ok()) [[unlikely]] {
         DorisMetrics::instance()->publish_task_failed_total->increment(1);
         // if publish failed, return failed, FE will ignore this error and
         // check error tablet ids and FE will also republish this task
