@@ -276,11 +276,6 @@ public:
     // TODO(ygl):
     bool is_primary_replica() { return false; }
 
-    // TODO(ygl):
-    // eco mode means power saving in new energy car
-    // eco mode also means save money in palo
-    bool in_eco_mode() { return false; }
-
     // return true if the checkpoint is actually done
     bool do_tablet_meta_checkpoint();
 
