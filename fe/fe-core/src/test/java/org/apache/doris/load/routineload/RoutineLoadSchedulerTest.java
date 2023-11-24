@@ -129,7 +129,7 @@ public class RoutineLoadSchedulerTest {
 
     public void functionTest(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Mocked SystemInfoService systemInfoService, @Injectable Database database)
-            throws DdlException, InterruptedException {
+            throws DdlException, InterruptedException, MetaNotFoundException {
         new Expectations() {
             {
                 minTimes = 0;
