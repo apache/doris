@@ -387,16 +387,6 @@ public class TabletScheduler extends MasterDaemon {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TabletSchedCtx tabletCtx : currentBatch) {
             try {
-                if (Config.disable_tablet_scheduler) {
-                    // do not schedule more tablet is tablet scheduler is disabled.
-                    throw new SchedException(Status.FINISHED, "tablet scheduler is disabled");
-                }
-                if (Config.disable_balance && tabletCtx.getType() == Type.BALANCE) {
-                    tabletCtx.setSchedFailedCode(SubCode.DIAGNOSE_IGNORE);
-                    finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
-                            "config disable balance");
-                    continue;
-                }
                 scheduleTablet(tabletCtx, batchTask);
             } catch (SchedException e) {
                 tabletCtx.setErrMsg(e.getMessage());
@@ -429,6 +419,7 @@ public class TabletScheduler extends MasterDaemon {
                         tabletCtx.getTabletId(), e);
                 stat.counterTabletScheduledFailed.incrementAndGet();
                 tabletCtx.setSchedFailedCode(SubCode.NONE);
+                tabletCtx.setErrMsg(e.getMessage());
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, Status.UNRECOVERABLE, e.getMessage());
                 continue;
             }
@@ -470,6 +461,14 @@ public class TabletScheduler extends MasterDaemon {
      * Try to schedule a single tablet.
      */
     private void scheduleTablet(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
+        if (Config.disable_tablet_scheduler) {
+            // do not schedule more tablet is tablet scheduler is disabled.
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "tablet scheduler is disabled");
+        }
+        if (Config.disable_balance && tabletCtx.getType() == Type.BALANCE) {
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "balance is disabled");
+        }
+
         long currentTime = System.currentTimeMillis();
         tabletCtx.setLastSchedTime(currentTime);
         tabletCtx.setLastVisitedTime(currentTime);
@@ -1793,6 +1792,7 @@ public class TabletScheduler extends MasterDaemon {
             // Set "resetReplicaState" to true because
             // the timeout task should also be considered as UNRECOVERABLE,
             // so need to reset replica state.
+            t.setErrMsg("timeout");
             finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, "timeout");
             stat.counterCloneTaskTimeout.incrementAndGet();
         });
