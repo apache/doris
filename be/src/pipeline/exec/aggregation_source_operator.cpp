@@ -63,8 +63,6 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                                                      std::placeholders::_1, std::placeholders::_2,
                                                      std::placeholders::_3);
         }
-
-        _executor.close = std::bind<void>(&AggLocalState::_close_without_key, this);
     } else {
         if (p._needs_finalize) {
             _executor.get_result = std::bind<Status>(
@@ -75,10 +73,9 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                     &AggLocalState::_serialize_with_serialized_key_result, this,
                     std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
         }
-        _executor.close = std::bind<void>(&AggLocalState::_close_with_serialized_key, this);
     }
 
-    _agg_data_created_without_key = p._without_key;
+    _shared_state->agg_data_created_without_key = p._without_key;
     return Status::OK();
 }
 
@@ -89,39 +86,6 @@ Status AggLocalState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
                 data + shared_state.offsets_of_aggregate_states[i]);
     }
     return Status::OK();
-}
-
-void AggLocalState::_close_with_serialized_key() {
-    std::visit(
-            [&](auto&& agg_method) -> void {
-                auto& data = *agg_method.hash_table;
-                data.for_each_mapped([&](auto& mapped) {
-                    if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
-                        mapped = nullptr;
-                    }
-                });
-                if (data.has_null_key_data()) {
-                    auto st = _destroy_agg_status(
-                            data.template get_null_key_data<vectorized::AggregateDataPtr>());
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
-                    }
-                }
-            },
-            _agg_data->method_variant);
-    _release_tracker();
-}
-
-void AggLocalState::_close_without_key() {
-    //because prepare maybe failed, and couldn't create agg data.
-    //but finally call close to destory agg data, if agg data has bitmapValue
-    //will be core dump, it's not initialized
-    if (_agg_data_created_without_key) {
-        static_cast<void>(_destroy_agg_status(_agg_data->without_key));
-        _agg_data_created_without_key = false;
-    }
-    _release_tracker();
 }
 
 Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
@@ -596,12 +560,6 @@ Status AggLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
-    }
-    for (auto* aggregate_evaluator : _shared_state->aggregate_evaluators) {
-        aggregate_evaluator->close(state);
-    }
-    if (_executor.close) {
-        _executor.close();
     }
 
     /// _hash_table_size_counter may be null if prepare failed.
