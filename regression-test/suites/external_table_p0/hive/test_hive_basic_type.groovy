@@ -96,6 +96,7 @@ suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,exte
 			order_qt_33 """select * from ${catalog_name}.${ex_db_name}.parquet_all_types limit 1;"""
 
 			order_qt_36 """select * from ${catalog_name}.${ex_db_name}.parquet_gzip_all_types limit 1;"""
+			order_qt_42 """select * from ${catalog_name}.${ex_db_name}.parquet_zstd_all_types limit 1;"""
 
 			// hive tables of json classes do not necessarily support column separation to identify errors
 			//order_qt_8 """select * from ${catalog_name}.${ex_db_name}.json_all_types limit 1;"""
