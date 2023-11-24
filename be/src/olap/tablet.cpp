@@ -1347,7 +1347,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
     return pick_candidate_rowsets_to_single_replica_compaction();
 }
 
-std::vector<RowsetSharedPtr> Tablet::pick_first_consecutive_empty_rowsets() {
+std::vector<RowsetSharedPtr> Tablet::pick_first_consecutive_empty_rowsets(int limit) {
     std::vector<RowsetSharedPtr> consecutive_empty_rowsets;
     std::vector<RowsetSharedPtr> candidate_rowsets;
     traverse_rowsets([&candidate_rowsets, this](const auto& rs) {
@@ -1378,7 +1378,11 @@ std::vector<RowsetSharedPtr> Tablet::pick_first_consecutive_empty_rowsets() {
                 consecutive_empty_rowsets.emplace_back(candidate_rowsets[next_index]);
                 rowset = candidate_rowsets[next_index++];
             }
-            return consecutive_empty_rowsets;
+            if (consecutive_empty_rowsets.size() >= limit) {
+                return consecutive_empty_rowsets;
+            } else {
+                i = next_index - 1;
+            }
         }
     }
 
