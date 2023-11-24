@@ -347,8 +347,8 @@ void VNestedLoopJoinNode::_process_left_child_block(MutableBlock& mutable_block,
 
 void VNestedLoopJoinNode::_update_additional_flags(Block* block) {
     if (_is_outer_join) {
-        auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
-        auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
+        auto p0 = std::move(*_tuple_is_null_left_flag_column).mutate();
+        auto p1 = std::move(*_tuple_is_null_right_flag_column).mutate();
         auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
         auto& right_null_map = reinterpret_cast<ColumnUInt8&>(*p1);
         auto left_size = left_null_map.size();
@@ -383,8 +383,8 @@ void VNestedLoopJoinNode::_resize_fill_tuple_is_null_column(size_t new_size, int
 
 void VNestedLoopJoinNode::_add_tuple_is_null_column(Block* block) {
     if (_is_outer_join) {
-        auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
-        auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
+        auto p0 = std::move(*_tuple_is_null_left_flag_column).mutate();
+        auto p1 = std::move(*_tuple_is_null_right_flag_column).mutate();
         block->insert({std::move(p0), std::make_shared<vectorized::DataTypeUInt8>(),
                        "left_tuples_is_null"});
         block->insert({std::move(p1), std::make_shared<vectorized::DataTypeUInt8>(),
