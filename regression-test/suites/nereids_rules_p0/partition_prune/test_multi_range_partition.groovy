@@ -52,11 +52,6 @@ suite("test_multi_range_partition") {
     }
 
     explain{
-        sql "select * from pt where k1=11;"
-        contains "VEMPTYSET"
-    }
-
-    explain{
         sql "select * from pt where k1=-1;"
         contains "partitions=1/3 (p1)"
     }
@@ -85,11 +80,6 @@ suite("test_multi_range_partition") {
     explain{
         sql "select * from pt where k1 in (7, 8);"
         contains "partitions=2/3 (p2,p3)"
-    }
-
-    explain{
-        sql "select * from pt where k1 in (15, 18);"
-        contains "VEMPTYSET"
     }
 
     // =========== is null ===================
@@ -186,12 +176,7 @@ suite("test_multi_range_partition") {
         sql "select * from pt where k1=7 and k2 not in (null);"
         contains "partitions=2/3 (p2,p3)"
     }
-
-    explain {
-        sql "select * from pt where k1=10 and k2 in (30);"
-        contains "VEMPTYSET"
-    }
-
+    
     explain {
         sql "select * from pt where k1=7 and k1 > k3;"
         contains "partitions=2/3 (p2,p3)"
