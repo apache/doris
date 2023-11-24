@@ -229,6 +229,7 @@ public class AnalysisManager implements Writable {
             }
             autoJobs.offer(job);
             systemJobInfoMap.remove(info.jobId);
+            analysisJobIdToTaskMap.remove(info.jobId);
         }
         return null;
     };
