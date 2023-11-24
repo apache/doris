@@ -146,7 +146,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
             _vcollect_iter = new_vertical_heap_merge_iterator(
                     std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
                     ori_return_col_size, read_params.tablet->keys_type(), seq_col_idx,
-                    _row_sources_buffer);
+                    _row_sources_buffer, read_params.key_group_cluster_key_idxes);
         }
     } else {
         _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr),
@@ -224,9 +224,13 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
         _next_block_func = &VerticalBlockReader::_direct_next_block;
         break;
     case KeysType::UNIQUE_KEYS:
-        _next_block_func = &VerticalBlockReader::_unique_key_next_block;
-        if (_filter_delete) {
-            _delete_filter_column = ColumnUInt8::create();
+        if (tablet()->tablet_meta()->tablet_schema()->cluster_key_idxes().empty()) {
+            _next_block_func = &VerticalBlockReader::_unique_key_next_block;
+            if (_filter_delete) {
+                _delete_filter_column = ColumnUInt8::create();
+            }
+        } else {
+            _next_block_func = &VerticalBlockReader::_direct_next_block;
         }
         break;
     case KeysType::AGG_KEYS:
