@@ -38,7 +38,7 @@ suite("test_datetime_filter_stats0") {
     sql """ alter table test_datetime_filter_stats0 modify column company_id set stats('row_count'='52899687', 'ndv'='7559', 'num_nulls'='0', 'min_value'='2', 'max_value'='876981', 'data_size'='4'); """
 
     explain {
-        sql("physical plan select count(1) from test_datetime_filter_stats0 o where o.book_time >= '2020-03-01 00:00:00.0' and o.book_time <= '2020-03-03 23:59:59.0';");
+        sql("physical plan select count(1) from test_datetime_filter_stats0 o where o.book_time >= '2020-03-01 00:00:00.0' and o.book_time <= '2020-03-01 23:59:59.0';");
         notContains"stats=2.24"
     }
 
