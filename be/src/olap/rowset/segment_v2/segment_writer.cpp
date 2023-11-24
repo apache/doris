@@ -573,10 +573,12 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
             std::vector<uint32_t> rids;
+            rids.reserve(seg_it.second.size());
             for (auto id_and_pos : seg_it.second) {
                 rids.emplace_back(id_and_pos.rid);
                 read_index[id_and_pos.pos] = read_idx++;
             }
+            std::sort(rids.begin(), rids.end());
             if (has_row_column) {
                 auto st = _tablet->fetch_value_through_row_column(
                         rowset, *_tablet_schema, seg_it.first, rids, cids_missing, old_value_block);
