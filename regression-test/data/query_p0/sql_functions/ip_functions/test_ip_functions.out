@@ -60,3 +60,18 @@ abcd:1234:5600::
 
 -- !sql --
 ::
+
+-- !sql --
+\N
+
+-- !sql --
+aaaa:aaaa:ffff:ffff:ffff:ffff:aaaa:aaaa
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+::ffff:127.0.0.1

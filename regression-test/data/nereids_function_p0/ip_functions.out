@@ -73,3 +73,18 @@ abcd:1234:5600::
 
 -- !ip25 --
 ::
+
+-- !ip26 --
+\N
+
+-- !ip27 --
+aaaa:aaaa:ffff:ffff:ffff:ffff:aaaa:aaaa
+
+-- !ip28 --
+\N
+
+-- !ip29 --
+\N
+
+-- !ip30 --
+::ffff:127.0.0.1
