@@ -48,6 +48,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -114,6 +115,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     protected String comment = "";
     // sql for creating this table, default is "";
     protected String ddlSql = "";
+
+    @SerializedName(value = "constraints")
+    private HashMap<String, Constraint> constraintsMap = new HashMap<>();
 
     public Table(TableType type) {
         this.type = type;
@@ -289,6 +293,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         } else {
             return qualifiedDbName + "." + name;
         }
+    }
+
+    public Constraint getConstraint(String name) {
+        return constraintsMap.get(name);
+    }
+
+    @Override
+    public Map<String, Constraint> getConstraintMap() {
+        return constraintsMap;
     }
 
     public TableType getType() {
