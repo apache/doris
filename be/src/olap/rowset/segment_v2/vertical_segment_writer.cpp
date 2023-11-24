@@ -525,6 +525,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                 rids.emplace_back(id_and_pos.rid);
                 read_index[id_and_pos.pos] = read_idx++;
             }
+            std::sort(rids.begin(), rids.end());
             if (has_row_column) {
                 auto st = tablet->fetch_value_through_row_column(
                         rowset, *_tablet_schema, seg_it.first, rids, missing_cids, old_value_block);

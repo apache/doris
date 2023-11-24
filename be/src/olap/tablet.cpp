@@ -3154,6 +3154,7 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                 rids.emplace_back(id_and_pos.rid);
                 (*read_index)[id_and_pos.pos] = read_idx++;
             }
+            std::sort(rids.begin(), rids.end());
             if (has_row_column) {
                 auto st = fetch_value_through_row_column(rowset_iter->second, *tablet_schema,
                                                          seg_it.first, rids, cids_to_read, block);
