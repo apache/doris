@@ -327,6 +327,7 @@ public:
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
+    std::set<BitmapKey> delete_bitmap_ignore;
     constexpr static inline uint32_t INVALID_SEGMENT_ID = std::numeric_limits<uint32_t>::max() - 1;
     constexpr static inline uint32_t ROWSET_SENTINEL_MARK =
             std::numeric_limits<uint32_t>::max() - 1;
@@ -370,6 +371,11 @@ public:
      * Marks the specific row deleted
      */
     void add(const BitmapKey& bmk, uint32_t row_id);
+
+    /**
+     * Marks the specific ignore deleted
+     */
+    void add_ignore(const BitmapKey& bmk);
 
     /**
      * Clears the deletetion mark specific row
@@ -428,6 +434,16 @@ public:
      */
     void subset(const BitmapKey& start, const BitmapKey& end,
                 DeleteBitmap* subset_delete_map) const;
+
+    /**
+     * Gets subset without ignore of delete_bitmap with given range [start, end)
+     *
+     * @parma start start
+     * @parma end end
+     * @parma subset_delete_map output param
+     */
+    void subset_ignore(const BitmapKey& start, const BitmapKey& end,
+                       DeleteBitmap* subset_delete_map) const;
 
     /**
      * Merges the given segment delete bitmap into *this

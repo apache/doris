@@ -26,6 +26,7 @@ public enum PartitionTopnPhase {
     TWO_PHASE_LOCAL_PTOPN("TwoPhaseLocalPartitionTopn"),
     TWO_PHASE_GLOBAL_PTOPN("TwoPhaseGlobalPartitionTopn");
     private final String name;
+
     PartitionTopnPhase(String name) {
         this.name = name;
     }

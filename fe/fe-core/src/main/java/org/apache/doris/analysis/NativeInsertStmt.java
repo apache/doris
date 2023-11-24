@@ -160,6 +160,8 @@ public class NativeInsertStmt extends InsertStmt {
 
     private boolean isFromDeleteOrUpdateStmt = false;
 
+    private boolean isInsertIgnore = false;
+
     private InsertType insertType = InsertType.NATIVE_INSERT;
 
     enum InsertType {
@@ -192,6 +194,26 @@ public class NativeInsertStmt extends InsertStmt {
         this.tableId = tableId;
     }
 
+    public NativeInsertStmt(long tableId, String label, List<String> cols, InsertSource source,
+            List<String> hints, boolean isInsertIgnore) {
+        this(new InsertTarget(new TableName(null, null, null), null), label, cols, source, hints, isInsertIgnore);
+        this.tableId = tableId;
+    }
+
+    public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
+            List<String> hints, boolean isInsertIgnore) {
+        super(new LabelName(null, label), null, null);
+        this.tblName = target.getTblName();
+        this.targetPartitionNames = target.getPartitionNames();
+        this.label = new LabelName(null, label);
+        this.queryStmt = source.getQueryStmt();
+        this.planHints = hints;
+        this.isInsertIgnore = isInsertIgnore;
+        this.targetColumnNames = cols;
+        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
+                && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
+    }
+
     // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
     public NativeInsertStmt(TableName name, PartitionNames targetPartitionNames, LabelName label,
             QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames) {
@@ -206,11 +228,13 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
-                            List<String> hints, boolean isPartialUpdate, InsertType insertType) {
+                            List<String> hints, boolean isPartialUpdate, InsertType insertType,
+                            boolean isInsertIgnore) {
         this(target, label, cols, source, hints);
         this.isPartialUpdate = isPartialUpdate;
         this.partialUpdateCols.addAll(cols);
         this.insertType = insertType;
+        this.isInsertIgnore = isInsertIgnore;
     }
 
     public boolean isValuesOrConstantSelect() {
@@ -399,7 +423,7 @@ public class NativeInsertStmt extends InsertStmt {
             boolean isInsertStrict = analyzer.getContext().getSessionVariable().getEnableInsertStrict()
                     && !isFromDeleteOrUpdateStmt;
             sink.init(loadId, transactionId, db.getId(), timeoutSecond,
-                    sendBatchParallelism, false, isInsertStrict);
+                    sendBatchParallelism, false, isInsertStrict, isInsertIgnore);
         }
     }
 

@@ -125,7 +125,8 @@ public class UpdateStmt extends DdlStmt {
                 cols,
                 new InsertSource(selectStmt),
                 null,
-                isPartialUpdate, NativeInsertStmt.InsertType.UPDATE);
+                isPartialUpdate, NativeInsertStmt.InsertType.UPDATE,
+                false);
         ((NativeInsertStmt) insertStmt).setIsFromDeleteOrUpdateStmt(true);
     }
 

@@ -642,6 +642,7 @@ struct TStreamLoadPutRequest {
     53: optional bool memtable_on_sink_node;
     54: optional bool group_commit
     55: optional i32 stream_per_node;
+    56: optional bool ignore_mode = false
 }
 
 struct TStreamLoadPutResult {

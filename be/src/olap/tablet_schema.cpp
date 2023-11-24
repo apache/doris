@@ -775,6 +775,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _schema_version = schema.schema_version();
+    _is_unique_key_ignore_mode = schema.is_unique_key_ignore_mode();
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -920,6 +921,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
+    tablet_schema_pb->set_is_unique_key_ignore_mode(_is_unique_key_ignore_mode);
 }
 
 size_t TabletSchema::row_size() const {
