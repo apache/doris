@@ -203,8 +203,9 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     // BE1 should performs compaction on its own, the time series compaction may re-compact previously fetched rowsets.
     // time series compaction policy needs to skip over the fetched rowset
     const auto& first_rowset_iter = std::find_if(
-            candidate_rowsets.begin(), candidate_rowsets.end(),
-            [](const RowsetSharedPtr& rs) { return rs->start_version() == rs->end_version(); });
+            candidate_rowsets.begin(), candidate_rowsets.end(), [](const RowsetSharedPtr& rs) {
+                return rs->start_version() == rs->end_version() || rs->num_segments() == 0;
+            });
     for (auto it = first_rowset_iter; it != candidate_rowsets.end(); ++it) {
         const auto& rowset = *it;
         // check whether this rowset is delete version
