@@ -41,4 +41,14 @@ suite ("agg_invalid") {
         sql "CREATE MATERIALIZED VIEW mv_4 AS SELECT p1, SUM(abs(v1)) FROM t1 GROUP BY p1;"
         exception "errCode = 2,"
     }
+
+    test {
+        sql "CREATE MATERIALIZED VIEW mv_5 AS SELECT p1, p2, p1, SUM(v1) FROM t1 GROUP BY p1,p2,p1;"
+        exception "errCode = 2,"
+    }
+
+    test {
+        sql "CREATE MATERIALIZED VIEW mv_5 AS SELECT p1, p2, SUM(v1), SUM(v1) FROM t1 GROUP BY p1,p2;"
+        exception "errCode = 2,"
+    }
 }

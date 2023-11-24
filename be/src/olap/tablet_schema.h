@@ -252,6 +252,7 @@ public:
     std::vector<TabletColumn>& mutable_columns();
     size_t num_columns() const { return _num_columns; }
     size_t num_key_columns() const { return _num_key_columns; }
+    std::vector<uint32_t> cluster_key_idxes() const { return _cluster_key_idxes; }
     size_t num_null_columns() const { return _num_null_columns; }
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
@@ -373,6 +374,7 @@ private:
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
+    std::vector<uint32_t> _cluster_key_idxes;
     size_t _num_null_columns = 0;
     size_t _num_short_key_columns = 0;
     size_t _num_rows_per_row_block = 0;

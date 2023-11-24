@@ -95,8 +95,8 @@ private:
 class MultiCastSourceDependency final : public Dependency {
 public:
     using SharedState = MultiCastSharedState;
-    MultiCastSourceDependency(int id, int node_id)
-            : Dependency(id, node_id, "MultiCastSourceDependency") {}
+    MultiCastSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "MultiCastSourceDependency", query_ctx) {}
     ~MultiCastSourceDependency() override = default;
 };
 

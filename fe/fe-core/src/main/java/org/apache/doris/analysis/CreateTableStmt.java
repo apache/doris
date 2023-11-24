@@ -67,7 +67,7 @@ public class CreateTableStmt extends DdlStmt {
 
     protected static final String DEFAULT_ENGINE_NAME = "olap";
 
-    private boolean ifNotExists;
+    protected boolean ifNotExists;
     private boolean isExternal;
     protected TableName tableName;
     protected List<ColumnDef> columnDefs;
@@ -244,7 +244,7 @@ public class CreateTableStmt extends DdlStmt {
         this.extProperties = extProperties;
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
-        this.rollupAlterClauseList = rollupAlterClauseList;
+        this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
     }
 
     public void addColumnDef(ColumnDef columnDef) {
@@ -450,6 +450,10 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             keysDesc.analyze(columnDefs);
+            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) && !enableUniqueKeyMergeOnWrite) {
+                throw new AnalysisException("Cluster keys only support unique keys table which enabled "
+                        + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            }
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);
             }

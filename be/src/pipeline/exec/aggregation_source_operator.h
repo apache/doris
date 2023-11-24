@@ -51,7 +51,8 @@ public:
 class AggSourceDependency final : public Dependency {
 public:
     using SharedState = AggSharedState;
-    AggSourceDependency(int id, int node_id) : Dependency(id, node_id, "AggSourceDependency") {}
+    AggSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AggSourceDependency", query_ctx) {}
     ~AggSourceDependency() override = default;
 
     void block() override {
@@ -87,8 +88,6 @@ protected:
     friend class DistinctStreamingAggSourceOperatorX;
     friend class DistinctStreamingAggSinkOperatorX;
 
-    void _close_without_key();
-    void _close_with_serialized_key();
     Status _get_without_key_result(RuntimeState* state, vectorized::Block* block,
                                    SourceState& source_state);
     Status _serialize_without_key(RuntimeState* state, vectorized::Block* block,
@@ -121,11 +120,6 @@ protected:
             }
         }
     }
-    void _release_tracker() {
-        Base::_shared_state->mem_tracker->release(
-                Base::_shared_state->mem_usage_record.used_in_state +
-                Base::_shared_state->mem_usage_record.used_in_arena);
-    }
 
     RuntimeProfile::Counter* _get_results_timer;
     RuntimeProfile::Counter* _serialize_result_timer;
@@ -136,17 +130,14 @@ protected:
 
     using vectorized_get_result = std::function<Status(
             RuntimeState* state, vectorized::Block* block, SourceState& source_state)>;
-    using vectorized_closer = std::function<void()>;
 
     struct executor {
         vectorized_get_result get_result;
-        vectorized_closer close;
     };
 
     executor _executor;
 
     vectorized::AggregatedDataVariants* _agg_data;
-    bool _agg_data_created_without_key = false;
 };
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {

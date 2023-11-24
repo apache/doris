@@ -505,6 +505,10 @@ public class Config extends ConfigBase {
             "Default pre-commit timeout for stream load job, in seconds."})
     public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
 
+    @ConfField(description = {"Stream Load 是否默认打开 memtable 前移",
+            "Whether to enable memtable on sink node by default in stream load"})
+    public static boolean stream_load_default_memtable_on_sink_node = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Load 的最大超时时间，单位是秒。",
             "Maximal timeout for load job, in seconds."})
     public static int max_load_timeout_second = 259200; // 3days
@@ -1559,6 +1563,7 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean enable_pipeline_load = false;
+
     /*---------------------- JOB CONFIG START------------------------*/
     /**
      * The number of threads used to dispatch timer job.
@@ -1581,14 +1586,15 @@ public class Config extends ConfigBase {
     @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
 
-    /**
-     * The number of threads used to consume insert tasks.
-     * if you have a lot of insert jobs,and the average execution frequency is relatively high you need to increase
-     * this value or increase the number of {@code @job_insert_task_queue_size}
-     * The value should be greater than 0, if it is 0 or <=0, set it to 5
-     */
-    @ConfField(description = {"用于执行 Insert 任务的线程数", "The number of threads used to consume insert tasks."})
+    @ConfField(description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为5",
+            "The number of threads used to consume Insert tasks, "
+                    + "the value should be greater than 0, if it is <=0, default is 5."})
     public static int job_insert_task_consumer_thread_num = 10;
+
+    @ConfField(description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为5",
+            "The number of threads used to consume mtmv tasks, "
+                    + "the value should be greater than 0, if it is <=0, default is 5."})
+    public static int job_mtmv_task_consumer_thread_num = 10;
 
     /*---------------------- JOB CONFIG END------------------------*/
     /**

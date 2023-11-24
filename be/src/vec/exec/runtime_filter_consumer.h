@@ -63,7 +63,7 @@ protected:
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
-    doris::Mutex _rf_locks;
+    std::mutex _rf_locks;
     phmap::flat_hash_set<VExprSPtr> _rf_vexpr_set;
     RuntimeState* _state;
 

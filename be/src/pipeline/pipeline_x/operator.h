@@ -47,6 +47,7 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile;
     const int sender_id;
     std::vector<DependencySPtr>& dependencys;
+    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
     const TDataSink& tsink;
 };
 
@@ -97,7 +98,7 @@ public:
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
-    [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const;
+    [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
 
     virtual Dependency* dependency() { return nullptr; }
 
@@ -176,13 +177,11 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
-    virtual DependencySPtr get_dependency() = 0;
+    virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
 
     Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
-
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
 
     [[nodiscard]] bool can_terminate_early() override { return false; }
 
@@ -307,7 +306,7 @@ public:
         return state->get_local_state(operator_id())->template cast<LocalState>();
     }
 
-    DependencySPtr get_dependency() override;
+    DependencySPtr get_dependency(QueryContext* ctx) override;
 };
 
 template <typename DependencyArg = FakeDependency>
@@ -328,7 +327,7 @@ public:
 
 protected:
     DependencyType* _dependency;
-    typename DependencyType::SharedState* _shared_state;
+    typename DependencyType::SharedState* _shared_state = nullptr;
 };
 
 class DataSinkOperatorXBase;
@@ -348,7 +347,7 @@ public:
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     virtual Status try_close(RuntimeState* state, Status exec_status) = 0;
 
-    [[nodiscard]] virtual std::string debug_string(int indentation_level) const;
+    [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
     template <class TARGET>
     TARGET& cast() {
@@ -456,7 +455,7 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    virtual void get_dependency(std::vector<DependencySPtr>& dependency) = 0;
+    virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
@@ -518,8 +517,6 @@ public:
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
-
     virtual bool should_dry_run(RuntimeState* state) { return false; }
 
 protected:
@@ -551,7 +548,7 @@ public:
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
-    void get_dependency(std::vector<DependencySPtr>& dependency) override;
+    void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) override;
 
     using LocalState = LocalStateType;
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {

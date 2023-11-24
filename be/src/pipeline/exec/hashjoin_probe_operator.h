@@ -64,8 +64,8 @@ using HashTableCtxVariants = std::variant<
 class HashJoinProbeDependency final : public Dependency {
 public:
     using SharedState = HashJoinSharedState;
-    HashJoinProbeDependency(int id, int node_id)
-            : Dependency(id, node_id, "HashJoinProbeDependency") {}
+    HashJoinProbeDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "HashJoinProbeDependency", query_ctx) {}
     ~HashJoinProbeDependency() override = default;
 };
 

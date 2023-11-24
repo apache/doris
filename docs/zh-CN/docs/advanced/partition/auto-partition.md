@@ -38,19 +38,19 @@ under the License.
 
 1. AUTO RANGE PARTITION:
 
-  ```SQL
+  ```sql
   AUTO PARTITION BY RANGE FUNC_CALL_EXPR
   (
   )
   ```
   其中
-  ```SQL
+  ```sql
   FUNC_CALL_EXPR ::= date_trunc ( <partition_column>, '<interval>' )
   ```
 
 2. AUTO LIST PARTITION:
 
-  ```SQL
+  ```sql
   AUTO PARTITION BY LIST(`partition_col`)
   (
   )
@@ -60,7 +60,7 @@ under the License.
 
 1. AUTO RANGE PARTITION
 
-  ```SQL
+  ```sql
   CREATE TABLE `${tblDate}` (
       `TIME_STAMP` datev2 NOT NULL COMMENT '采集日期'
   ) ENGINE=OLAP
@@ -76,7 +76,7 @@ under the License.
 
 2. AUTO LIST PARTITION
 
-  ```SQL
+  ```sql
   CREATE TABLE `${tblName1}` (
       `str` varchar not null
   ) ENGINE=OLAP
@@ -144,7 +144,7 @@ PROPERTIES (
 
 该表内存储了大量业务历史数据，依据交易发生的日期进行分区。可以看到在建表时，我们需要预先手动创建分区。如果分区列的数据范围发生变化，例如上表中增加了2022年的数据，则我们需要通过[ALTER-TABLE-PARTITION](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION.md)对表的分区进行更改。在使用AUTO PARTITION后，该表DDL可以改为：
 
-```SQL
+```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
     `TRADE_DATE`              datev2 NULL COMMENT '交易日期',
@@ -162,13 +162,13 @@ PROPERTIES (
 ```
 
 此时新表没有默认分区：
-```SQL
+```sql
 mysql> show partitions from `DAILY_TRADE_VALUE`;
 Empty set (0.12 sec)
 ```
 
 经过插入数据后再查看，发现该表已经创建了对应的分区：
-```SQL
+```sql
 mysql> insert into `DAILY_TRADE_VALUE` values ('2012-12-13', 1), ('2008-02-03', 2), ('2014-11-11', 3);
 Query OK, 3 rows affected (0.88 sec)
 {'label':'insert_754e2a3926a345ea_854793fb2638f0ec', 'status':'VISIBLE', 'txnId':'20014'}
@@ -188,3 +188,4 @@ mysql> show partitions from `DAILY_TRADE_VALUE`;
 
 - 在数据的插入或导入过程中如果创建了分区，而最终整个过程失败，被创建的分区不会被自动删除。
 - 使用AUTO PARTITION的表，只是分区创建方式上由手动转为了自动。表及其所创建分区的原本使用方法都与非AUTO PARTITION的表或分区相同。
+- 向开启了AUTO PARTITION的表导入数据时，Coordinator发送数据的轮询间隔与普通表有所不同。具体请见[BE配置项](../../admin-manual/config/be-config.md)中的`olap_table_sink_send_interval_auto_partition_factor`。
