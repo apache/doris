@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser.hive;
+package org.apache.doris.nereids.parser.spark;
 
 import org.apache.doris.nereids.analyzer.PlaceholderExpression;
 import org.apache.doris.nereids.parser.AbstractFnCallTransformer;
@@ -25,12 +25,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import com.google.common.collect.Lists;
 
 /**
- * The builder and factory for spark3 {@link AbstractFnCallTransformer},
+ * The builder and factory for spark-sql 3.x {@link AbstractFnCallTransformer},
  * and supply transform facade ability.
  */
-public class Spark3FnCallTransformers extends AbstractFnCallTransformers {
+public class SparkSql3FnCallTransformers extends AbstractFnCallTransformers {
 
-    private Spark3FnCallTransformers() {
+    private SparkSql3FnCallTransformers() {
     }
 
     @Override
@@ -62,10 +62,10 @@ public class Spark3FnCallTransformers extends AbstractFnCallTransformers {
     }
 
     static class SingletonHolder {
-        private static final Spark3FnCallTransformers INSTANCE = new Spark3FnCallTransformers();
+        private static final SparkSql3FnCallTransformers INSTANCE = new SparkSql3FnCallTransformers();
     }
 
-    public static Spark3FnCallTransformers getSingleton() {
+    public static SparkSql3FnCallTransformers getSingleton() {
         return SingletonHolder.INSTANCE;
     }
 }

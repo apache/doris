@@ -35,7 +35,7 @@ public enum ParseDialect {
     /**
      * Spark parser and it's version is 3.x.
      */
-    SPARK_3_ALL(Dialect.SPARK, Version.SPARK_3_ALL);
+    SPARK_SQL_3_ALL(Dialect.SPARK_SQL, Version.SPARK_SQL_3_ALL);
 
     private final Dialect dialect;
     private final Version version;
@@ -66,9 +66,9 @@ public enum ParseDialect {
          */
         DORIS_2_ALL("2.*"),
         /**
-         * Spark parser and it's version is 3.x.
+         * Spark sql parser and it's version is 3.x.
          */
-        SPARK_3_ALL("3.*");
+        SPARK_SQL_3_ALL("3.*");
         private final String version;
 
         Version(String version) {
@@ -92,8 +92,10 @@ public enum ParseDialect {
          * Doris parser dialect
          */
         DORIS("doris"),
-
-        SPARK("spark");
+        /**
+         * Spark sql parser dialect
+         */
+        SPARK_SQL("spark_sql");
 
         private String dialectName;
 

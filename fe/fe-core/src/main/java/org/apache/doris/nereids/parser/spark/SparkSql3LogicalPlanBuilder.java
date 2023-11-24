@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser.hive;
+package org.apache.doris.nereids.parser.spark;
 
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -35,14 +35,14 @@ import org.apache.commons.lang3.StringUtils;
  * Extends from {@link org.apache.doris.nereids.parser.LogicalPlanBuilder},
  * just focus on the difference between these query syntax.
  */
-public class Spark3LogicalPlanBuilder extends LogicalPlanBuilder {
-    // use a default alias name if not exists, keep the same name with spark
+public class SparkSql3LogicalPlanBuilder extends LogicalPlanBuilder {
+    // use a default alias name if not exists, keep the same name with spark-sql
     public static final String DEFAULT_TABLE_ALIAS = "__auto_generated_subquery_name";
 
     private final ParserContext parserContext;
 
-    public Spark3LogicalPlanBuilder() {
-        this.parserContext = new ParserContext(ParseDialect.SPARK_3_ALL);
+    public SparkSql3LogicalPlanBuilder() {
+        this.parserContext = new ParserContext(ParseDialect.SPARK_SQL_3_ALL);
     }
 
     @Override
@@ -61,7 +61,7 @@ public class Spark3LogicalPlanBuilder extends LogicalPlanBuilder {
             return expression;
         }
         UnboundFunction sourceFunction = (UnboundFunction) expression;
-        Function transformedFunction = Spark3FnCallTransformers.getSingleton().transform(
+        Function transformedFunction = SparkSql3FnCallTransformers.getSingleton().transform(
                 sourceFunction.getName(),
                 sourceFunction.getArguments(),
                 this.parserContext

@@ -28,7 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.parser.ParseDialect;
-import org.apache.doris.nereids.parser.hive.Spark3LogicalPlanBuilder;
+import org.apache.doris.nereids.parser.spark.SparkSql3LogicalPlanBuilder;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TNullSide;
@@ -195,7 +195,7 @@ public class InlineViewRef extends TableRef {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
             }
             hasExplicitAlias = true;
-            aliases = new String[] { Spark3LogicalPlanBuilder.DEFAULT_TABLE_ALIAS };
+            aliases = new String[] { SparkSql3LogicalPlanBuilder.DEFAULT_TABLE_ALIAS };
         }
 
         // Analyze the inline view query statement with its own analyzer

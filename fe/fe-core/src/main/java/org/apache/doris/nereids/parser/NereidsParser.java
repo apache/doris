@@ -23,7 +23,7 @@ import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.parser.hive.Spark3LogicalPlanBuilder;
+import org.apache.doris.nereids.parser.spark.SparkSql3LogicalPlanBuilder;
 import org.apache.doris.nereids.parser.trino.TrinoParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -89,8 +89,8 @@ public class NereidsParser {
                 }
                 return logicalPlans;
 
-            case SPARK:
-                return parseSQL(sql, new Spark3LogicalPlanBuilder());
+            case SPARK_SQL:
+                return parseSQL(sql, new SparkSql3LogicalPlanBuilder());
 
             default:
                 return parseSQL(sql);
