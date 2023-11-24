@@ -330,6 +330,8 @@ Status Segment::_load_index_impl() {
     });
 }
 
+// Return the storage datatype of related column to field.
+// Return nullptr meaning no such storage infomation for this column
 vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignore_children) const {
     // Path has higher priority
     if (!field.path().empty()) {
@@ -691,8 +693,6 @@ bool Segment::same_with_storage_type(int32_t cid, const Schema& schema,
 #endif
     bool same =
             (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
-    // Currently only variant column can lead to not same
-    CHECK(same || schema.column(cid)->type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
     return same;
 }
 

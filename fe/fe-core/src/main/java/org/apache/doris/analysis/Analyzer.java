@@ -1026,9 +1026,15 @@ public class Analyzer {
                 subColumnSlotRefMap.put(key, Maps.newTreeMap(
                     new Comparator<List<String>>() {
                         public int compare(List<String> lst1, List<String> lst2) {
-                            String str1 = String.join(".", lst1);
-                            String str2 = String.join(".", lst2);
-                            return str1.compareTo(str2);
+                            Iterator<String> it1 = lst1.iterator();
+                            Iterator<String> it2 = lst2.iterator();
+                            while (it1.hasNext() && it2.hasNext()) {
+                                int result = it1.next().compareTo(it2.next());
+                                if (result != 0) {
+                                    return result;
+                                }
+                            }
+                            return Integer.compare(lst1.size(), lst2.size());
                         }
                     }));
             }

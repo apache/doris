@@ -411,14 +411,10 @@ Status NewOlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
-vectorized::PathInData NewOlapScanner::_build_path(SlotDescriptor* slot) {
+vectorized::PathInData NewOlapScanner::_build_path(SlotDescriptor* slot,
+                                                   const std::string& root_name) {
     PathInDataBuilder path_builder;
-    const std::string& col_name = slot->col_name_lower_case();
-    auto delimeter_index = col_name.find(".");
-    std::string_view root_name = delimeter_index == std::string::npos
-                                         ? col_name
-                                         : std::string_view(col_name.data(), delimeter_index);
-    path_builder = path_builder.append(root_name, false);
+    path_builder.append(root_name, false);
     for (const std::string& path : slot->column_paths()) {
         path_builder.append(path, false);
     }
@@ -441,19 +437,15 @@ Status NewOlapScanner::_init_variant_columns() {
             TabletColumn subcol;
             subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
             subcol.set_is_nullable(true);
-            subcol.set_unique_id(slot->col_unique_id());
+            subcol.set_unique_id(-1);
             subcol.set_parent_unique_id(slot->col_unique_id());
-            PathInData path = _build_path(slot);
+            PathInData path = _build_path(
+                    slot, tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case());
             subcol.set_path_info(path);
             subcol.set_name(path.get_path());
             if (tablet_schema->field_index(path) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
-        } else if (!slot->column_paths().empty()) {
-            // Extracted materialized columns update it's path info
-            PathInData path = _build_path(slot);
-            int index = tablet_schema->field_index(slot->col_unique_id());
-            tablet_schema->mutable_columns()[index].set_path_info(path);
         }
         schema_util::inherit_tablet_index(tablet_schema);
     }
@@ -473,7 +465,8 @@ Status NewOlapScanner::_init_return_columns() {
         int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
         if (slot->type().is_variant_type()) {
-            index = tablet_schema->field_index(_build_path(slot));
+            index = tablet_schema->field_index(_build_path(
+                    slot, tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case()));
         } else {
             index = slot->col_unique_id() >= 0 ? tablet_schema->field_index(slot->col_unique_id())
                                                : tablet_schema->field_index(slot->col_name());

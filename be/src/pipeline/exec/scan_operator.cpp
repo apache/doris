@@ -227,7 +227,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
         _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
-        _slot_id_to_slot_idx[slots[slot_idx]->id()] = slot_idx;
+        _slot_id_to_slot_desc[slots[slot_idx]->id()] = slots[slot_idx];
 
         auto type = slots[slot_idx]->type().type;
         if (slots[slot_idx]->type().type == TYPE_ARRAY) {
@@ -241,7 +241,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
 
     get_cast_types_for_variants();
     for (const auto& [colname, type] : _cast_types_for_variants) {
-        init_value_range(slots[_slot_id_to_slot_idx[_colname_to_slot_id[colname]]], type);
+        init_value_range(_slot_id_to_slot_desc[_colname_to_slot_id[colname]], type);
     }
 
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
@@ -1311,7 +1311,7 @@ void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
             return;
         }
         std::vector<SlotDescriptor*> slots = output_tuple_desc()->slots();
-        SlotDescriptor* src_slot_desc = slots[_slot_id_to_slot_idx[src_slot->slot_id()]];
+        SlotDescriptor* src_slot_desc = _slot_id_to_slot_desc[src_slot->slot_id()];
         PrimitiveType cast_dst_type =
                 cast_expr->get_target_type()->get_type_as_type_descriptor().type;
         if (src_slot_desc->type().is_variant_type()) {

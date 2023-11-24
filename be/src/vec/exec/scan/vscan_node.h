@@ -282,8 +282,8 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
-    // slot id -> slot idx in TupleDescriptor
-    phmap::flat_hash_map<int, int> _slot_id_to_slot_idx;
+    // slot id -> SlotDescriptor
+    phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
     // column -> ColumnValueRange
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;

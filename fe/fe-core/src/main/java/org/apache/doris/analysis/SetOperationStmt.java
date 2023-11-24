@@ -798,9 +798,9 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
-    public ArrayList<List<String>> getSubColLabels() {
+    public ArrayList<List<String>> getSubColPath() {
         Preconditions.checkState(operands.size() > 0);
-        return operands.get(0).getQueryStmt().getSubColLabels();
+        return operands.get(0).getQueryStmt().getSubColPath();
     }
 
     @Override

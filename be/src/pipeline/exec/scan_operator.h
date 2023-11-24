@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
+#include "runtime/descriptors.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
@@ -366,8 +367,8 @@ protected:
     // colname -> cast dst type
     std::map<std::string, PrimitiveType> _cast_types_for_variants;
 
-    // slot id -> slot idx in TupleDescriptor
-    phmap::flat_hash_map<int, int> _slot_id_to_slot_idx;
+    // slot id -> SlotDescriptor
+    phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts

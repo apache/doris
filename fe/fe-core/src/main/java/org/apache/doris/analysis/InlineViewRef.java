@@ -56,7 +56,7 @@ public class InlineViewRef extends TableRef {
     // and column labels used in the query definition. Either all or none of the column
     // labels must be overridden.
     private List<String> explicitColLabels;
-    private List<List<String>> explicitSubColLabels;
+    private List<List<String>> explicitSubColPath;
 
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -155,11 +155,11 @@ public class InlineViewRef extends TableRef {
         return queryStmt.getColLabels();
     }
 
-    public List<List<String>> getSubColLabels() {
-        if (explicitSubColLabels != null) {
-            return explicitSubColLabels;
+    public List<List<String>> getSubColPath() {
+        if (explicitSubColPath != null) {
+            return explicitSubColPath;
         }
-        return queryStmt.getSubColLabels();
+        return queryStmt.getSubColPath();
     }
 
     @Override
@@ -240,7 +240,7 @@ public class InlineViewRef extends TableRef {
             String colName = getColLabels().get(i);
             LOG.debug("inline view register {}", colName);
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(),
-                                            colName, getSubColLabels().get(i));
+                                            colName, getSubColPath().get(i));
             Expr colExpr = queryStmt.getResultExprs().get(i);
             if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getValueList() != null) {
                 ValueList valueList = ((SelectStmt) queryStmt).getValueList();

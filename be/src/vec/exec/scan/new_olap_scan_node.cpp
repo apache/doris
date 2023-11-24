@@ -431,7 +431,7 @@ void NewOlapScanNode::_filter_and_collect_cast_type_for_variant(
             return;
         }
         std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
-        SlotDescriptor* src_slot_desc = slots[_slot_id_to_slot_idx[src_slot->slot_id()]];
+        SlotDescriptor* src_slot_desc = _slot_id_to_slot_desc[src_slot->slot_id()];
         PrimitiveType cast_dst_type =
                 cast_expr->get_target_type()->get_type_as_type_descriptor().type;
         if (src_slot_desc->type().is_variant_type()) {
@@ -455,9 +455,11 @@ void NewOlapScanNode::get_cast_types_for_variants() {
     }
     // cast to one certain type for variant could utilize fully predicates performance
     // when storage layer type equals to cast type
-    for (const auto& [slotid, types] : colname_to_cast_types) {
+    for (const auto& [name, types] : colname_to_cast_types) {
+        // If cast to multiple types detected, then we should not elimate cast to predicate
+        // but let the  expr to handle such case
         if (types.size() == 1) {
-            _cast_types_for_variants[slotid] = types[0];
+            _cast_types_for_variants[name] = types[0];
         }
     }
 }

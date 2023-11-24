@@ -591,7 +591,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      */
     public abstract ArrayList<String> getColLabels();
 
-    public abstract ArrayList<List<String>> getSubColLabels();
+    public abstract ArrayList<List<String>> getSubColPath();
 
     /**
      * Returns the materialized tuple ids of the output of this stmt.

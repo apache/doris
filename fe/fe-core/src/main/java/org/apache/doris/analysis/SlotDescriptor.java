@@ -45,11 +45,11 @@ public class SlotDescriptor {
     // for SlotRef.toSql() in the absence of a path
     private String label;
     // for variant column's sub column lables
-    private List<String> subColLabels;
-    // materializedColumnnName is the target name of a slot
+    private List<String> subColPath;
+    // materializedColumnName is the target name of a slot
     // it could be either column name or a composed name for a variant
     // subcolumn like `a.b.c`
-    private String materializedColumnnName;
+    private String materializedColumnName;
 
     // Expr(s) materialized into this slot; multiple exprs for unions. Should be empty if
     // path_ is set.
@@ -119,12 +119,12 @@ public class SlotDescriptor {
         return id;
     }
 
-    public void setSubColLables(List<String> subColLables) {
-        this.subColLabels = subColLables;
+    public void setSubColLables(List<String> subColPath) {
+        this.subColPath = subColPath;
     }
 
     public List<String> getSubColLables() {
-        return this.subColLabels;
+        return this.subColPath;
     }
 
     public TupleDescriptor getParent() {
@@ -216,8 +216,8 @@ public class SlotDescriptor {
         this.stats = stats;
     }
 
-    void setMaterializedColumnName(String name) {
-        this.materializedColumnnName = name;
+    public void setMaterializedColumnName(String name) {
+        this.materializedColumnName = name;
     }
 
     public ColumnStats getStats() {
@@ -303,7 +303,7 @@ public class SlotDescriptor {
 
     public TSlotDescriptor toThrift() {
         // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-        String colName = materializedColumnnName != null ? materializedColumnnName :
+        String colName = materializedColumnName != null ? materializedColumnName :
                                      ((column != null) ? column.getNonShadowName() : "");
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
                 byteOffset, 0, getIsNullable() ? 0 : -1, colName, slotIdx,
@@ -317,8 +317,8 @@ public class SlotDescriptor {
             tSlotDescriptor.setIsKey(column.isKey());
             tSlotDescriptor.setColDefaultValue(column.getDefaultValue());
         }
-        if (subColLabels != null) {
-            tSlotDescriptor.setColumnPaths(subColLabels);
+        if (subColPath != null) {
+            tSlotDescriptor.setColumnPaths(subColPath);
         }
         return tSlotDescriptor;
     }
@@ -330,7 +330,7 @@ public class SlotDescriptor {
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
                 .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
                 .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable())
-                .add("isAutoIncrement", isAutoInc).add("subColLabels", subColLabels).toString();
+                .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath).toString();
     }
 
     @Override
@@ -347,7 +347,7 @@ public class SlotDescriptor {
                 .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)
                 .append(", isAutoIncrement=").append(isAutoInc)
-                .append(", subColLabels=").append(subColLabels)
+                .append(", subColPath=").append(subColPath)
                 .append("}")
                 .toString();
     }

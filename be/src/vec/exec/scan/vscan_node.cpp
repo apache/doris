@@ -81,6 +81,7 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
         return true;
     }
     // Variant slot cast could be eliminated
+    // We could use predicate to speed up query, so ignore cast to build predicate
     if (slot->type().is_variant_type()) {
         return true;
     }
@@ -408,7 +409,7 @@ Status VScanNode::_normalize_conjuncts() {
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
         _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
-        _slot_id_to_slot_idx[slots[slot_idx]->id()] = slot_idx;
+        _slot_id_to_slot_desc[slots[slot_idx]->id()] = slots[slot_idx];
 
         auto type = slots[slot_idx]->type().type;
         if (slots[slot_idx]->type().type == TYPE_ARRAY) {
@@ -422,7 +423,7 @@ Status VScanNode::_normalize_conjuncts() {
 
     get_cast_types_for_variants();
     for (const auto& [colname, type] : _cast_types_for_variants) {
-        init_value_range(slots[_slot_id_to_slot_idx[_colname_to_slot_id[colname]]], type);
+        init_value_range(_slot_id_to_slot_desc[_colname_to_slot_id[colname]], type);
     }
 
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {

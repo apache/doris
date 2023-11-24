@@ -765,7 +765,7 @@ nonterminal String sequence_col_clause;
 nonterminal Predicate predicate, between_predicate, comparison_predicate,
   compound_predicate, in_predicate, like_predicate, exists_predicate, match_predicate;
 nonterminal ArrayList<Expr> opt_partition_by_clause;
-nonterminal ArrayList<String> sub_column_lables;
+nonterminal ArrayList<String> sub_column_path;
 nonterminal Expr having_clause;
 nonterminal ArrayList<OrderByElement> order_by_elements, order_by_clause;
 nonterminal OrderByElement order_by_element;
@@ -7065,12 +7065,12 @@ compound_predicate ::=
   {: RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null); :}
   ;
 
-sub_column_lables ::=
+sub_column_path ::=
     ident: subcol
     {:
         RESULT = Lists.newArrayList(subcol);
     :}
-    | sub_column_lables:list DOT ident:subcol
+    | sub_column_path:list DOT ident:subcol
     {:
         list.add(subcol);
         RESULT = list;
@@ -7088,14 +7088,14 @@ column_ref ::=
   | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
 
-  | ident:pcol COLON sub_column_lables:lables
+  | ident:pcol COLON sub_column_path:lables
   {: RESULT = new SlotRef(null, pcol, lables); :} 
   // table_name:tblName DOT IDENT:pcol causes reduce/reduce conflicts
-  | ident:tbl DOT ident:pcol COLON sub_column_lables:lables
+  | ident:tbl DOT ident:pcol COLON sub_column_path:lables
   {: RESULT = new SlotRef(new TableName(null, null, tbl), pcol, lables); :}
-  | ident:db DOT ident:tbl DOT ident:pcol COLON sub_column_lables:lables
+  | ident:db DOT ident:tbl DOT ident:pcol COLON sub_column_path:lables
   {: RESULT = new SlotRef(new TableName(null, db, tbl), pcol, lables); :}
-  | ident:ctl DOT ident:db DOT ident:tbl DOT ident:pcol COLON sub_column_lables:lables
+  | ident:ctl DOT ident:db DOT ident:tbl DOT ident:pcol COLON sub_column_path:lables
   {: RESULT = new SlotRef(new TableName(ctl, db, tbl), pcol, lables); :}
   ;
 
