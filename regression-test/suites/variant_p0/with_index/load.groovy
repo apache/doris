@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_with_index", "variant_type"){
+suite("regression_test_variant_with_index", "nonConcurrent"){
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
