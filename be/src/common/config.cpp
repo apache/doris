@@ -1078,6 +1078,8 @@ DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
 
 DEFINE_Bool(exit_on_exception, "false")
 
+DEFINE_mInt32(buffered_reader_read_timeout_ms, "10000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

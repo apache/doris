@@ -32,6 +32,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/s3_common.h"
+#include "olap/utils.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -94,12 +95,15 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
+    LOG_INFO("start to read from offset {}", offset);
+    OlapStopWatch watch;
     auto outcome = client->GetObject(request);
     if (!outcome.IsSuccess()) {
         return Status::IOError("failed to read from {}: {}", _path.native(),
                                outcome.GetError().GetMessage());
     }
     *bytes_read = outcome.GetResult().GetContentLength();
+    LOG_INFO("It takes {} to read {} bytes", watch.get_elapse_second(), *bytes_read);
     if (*bytes_read != bytes_req) {
         return Status::IOError("failed to read from {}(bytes read: {}, bytes req: {})",
                                _path.native(), *bytes_read, bytes_req);
