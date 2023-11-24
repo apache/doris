@@ -348,6 +348,7 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
         auto& deps = info.upstream_dependencies;
         _dependency->set_shared_state(deps.front()->shared_state());
         _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state().get();
+        _shared_state->ref();
         _wait_for_dependency_timer =
                 ADD_TIMER(_runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time");
         _shared_state->source_dep = _dependency;
@@ -382,6 +383,9 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
+    if (_shared_state) {
+        RETURN_IF_ERROR(_shared_state->close(state));
+    }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     }
@@ -410,6 +414,7 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
             _wait_for_dependency_timer =
                     ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
         }
+        _shared_state->ref();
     } else {
         auto& deps = info.dependencys;
         deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());
@@ -428,6 +433,9 @@ template <typename DependencyType>
 Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
+    }
+    if (_shared_state) {
+        RETURN_IF_ERROR(_shared_state->close(state));
     }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
