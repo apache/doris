@@ -493,7 +493,8 @@ public class RuntimeProfile {
             Counter counter = templateProfile.counterMap.get(childCounterName);
             mergeCounters(childCounterName, profiles, simpleProfile);
             if (counter.getLevel() == 1) {
-                AggCounter aggCounter = new AggCounter(profiles.get(0).counterMap.get(childCounterName).getType(), 0);
+                Counter oldCounter = profiles.get(0).counterMap.get(childCounterName);
+                AggCounter aggCounter = new AggCounter(oldCounter.getType(), oldCounter.getValue());
                 for (RuntimeProfile profile : profiles) {
                     Counter orgCounter = profile.counterMap.get(childCounterName);
                     aggCounter.addCounter(orgCounter);
