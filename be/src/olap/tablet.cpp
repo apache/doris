@@ -1378,10 +1378,11 @@ std::vector<RowsetSharedPtr> Tablet::pick_first_consecutive_empty_rowsets(int li
                 consecutive_empty_rowsets.emplace_back(candidate_rowsets[next_index]);
                 rowset = candidate_rowsets[next_index++];
             }
-            if (consecutive_empty_rowsets.size() >= limit) {
+            if (consecutive_empty_rowsets.size() >= limit && next_index < len) {
                 return consecutive_empty_rowsets;
             } else {
                 i = next_index - 1;
+                consecutive_empty_rowsets.clear();
             }
         }
     }
