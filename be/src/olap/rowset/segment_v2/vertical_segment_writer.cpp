@@ -521,6 +521,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
             std::vector<uint32_t> rids;
+            rids.reserve(seg_it.second.size());
             for (auto id_and_pos : seg_it.second) {
                 rids.emplace_back(id_and_pos.rid);
                 read_index[id_and_pos.pos] = read_idx++;

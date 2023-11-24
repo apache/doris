@@ -3150,6 +3150,7 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
             auto rowset_iter = rsid_to_rowset.find(rs_it.first);
             CHECK(rowset_iter != rsid_to_rowset.end());
             std::vector<uint32_t> rids;
+            rids.reserve(seg_it.second.size());
             for (auto id_and_pos : seg_it.second) {
                 rids.emplace_back(id_and_pos.rid);
                 (*read_index)[id_and_pos.pos] = read_idx++;
