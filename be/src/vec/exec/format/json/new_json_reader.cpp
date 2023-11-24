@@ -1463,17 +1463,6 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
                                            simdjson::error_code* error) {
     SCOPED_TIMER(_file_read_timer);
     // step1: read buf from pipe.
-    RETURN_IF_ERROR(_read_pipe_buf(size, eof));
-    if (*eof) {
-        return Status::OK();
-    }
-
-    // step2: init json parser iterate.
-    RETURN_IF_ERROR(_init_json_parser_iterate(size, error));
-    return Status::OK();
-}
-
-Status NewJsonReader::_read_pipe_buf(size_t* size, bool* eof) {
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&_json_str, size, eof, _io_ctx));
     } else {
@@ -1485,12 +1474,11 @@ Status NewJsonReader::_read_pipe_buf(size_t* size, bool* eof) {
             *eof = true;
         }
     }
+    if (*eof) {
+        return Status::OK();
+    }
 
-    _bytes_read_counter += *size;
-    return Status::OK();
-}
-
-Status NewJsonReader::_init_json_parser_iterate(size_t* size, simdjson::error_code* error) {
+    // step2: init json parser iterate.
     if (*size + simdjson::SIMDJSON_PADDING > _padded_size) {
         // For efficiency reasons, simdjson requires a string with a few bytes (simdjson::SIMDJSON_PADDING) at the end.
         // Hence, a re-allocation is needed if the space is not enough.
