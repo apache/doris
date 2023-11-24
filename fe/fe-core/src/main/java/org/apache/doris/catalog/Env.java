@@ -2967,7 +2967,7 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
-        sb.append("TABLE ");
+        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
 
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`.");
