@@ -164,9 +164,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     bool all_match_one = false;
     size_t probe_size = 0;
 
-    // Is the last sub block of splitted block
-    bool is_the_last_sub_block = false;
-
     std::unique_ptr<ColumnFilterHelper> mark_column;
     if (is_mark_join) {
         mark_column = std::make_unique<ColumnFilterHelper>(*mcol[mcol.size() - 1]);
@@ -199,8 +196,9 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     output_block->swap(mutable_block.to_block());
 
     if constexpr (with_other_conjuncts) {
-        return do_other_join_conjuncts(output_block, is_mark_join, is_the_last_sub_block,
-                                       hash_table_ctx.hash_table->get_visited());
+        return do_other_join_conjuncts(output_block, is_mark_join,
+                                       hash_table_ctx.hash_table->get_visited(),
+                                       hash_table_ctx.hash_table->has_null_key());
     }
 
     return Status::OK();
@@ -208,8 +206,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
 template <int JoinOpType, typename Parent>
 Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
-        Block* output_block, bool is_mark_join, bool is_the_last_sub_block,
-        std::vector<uint8_t>& visited) {
+        Block* output_block, bool is_mark_join, std::vector<uint8_t>& visited,
+        bool has_null_in_build_side) {
     // dispose the other join conjunct exec
     auto row_count = output_block->rows();
     if (!row_count) {
@@ -280,13 +278,12 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
 
             for (size_t i = 0; i < row_count; ++i) {
                 filter_map[i] = true;
-                if constexpr (JoinOpType != TJoinOp::LEFT_SEMI_JOIN) {
-                    if (!_build_indexs[i]) {
-                        helper.insert_null();
-                        continue;
-                    }
+                if (has_null_in_build_side &&
+                    (_build_indexs[i] != 0) ^ (JoinOpType == TJoinOp::LEFT_SEMI_JOIN)) {
+                    helper.insert_null();
+                } else {
+                    helper.insert_value(filter_column_ptr[i]);
                 }
-                helper.insert_value(filter_column_ptr[i]);
             }
         } else {
             if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
