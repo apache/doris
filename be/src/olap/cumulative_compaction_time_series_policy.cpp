@@ -63,10 +63,9 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         return 0;
     }
 
-    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets();
-    if (!consecutive_empty_rowsets.empty() &&
-        consecutive_empty_rowsets.size() >
-                tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold()) {
+    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets(
+            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
+    if (!consecutive_empty_rowsets.empty()) {
         return score;
     }
 
@@ -181,10 +180,9 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     }
 
     // If their are many empty rowsets, maybe should be compacted
-    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets();
-    if (!consecutive_empty_rowsets.empty() &&
-        consecutive_empty_rowsets.size() >
-                tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold()) {
+    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets(
+            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
+    if (!consecutive_empty_rowsets.empty()) {
         VLOG_NOTICE << "tablet is " << tablet->tablet_id()
                     << ", there are too many consecutive empty rowsets, size is "
                     << consecutive_empty_rowsets.size();
