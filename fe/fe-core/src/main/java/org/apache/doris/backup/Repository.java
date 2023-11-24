@@ -692,7 +692,7 @@ public class Repository implements Writable {
 
         stmtBuilder.append("\nPROPERTIES\n(");
         stmtBuilder.append(new PrintableMap<>(this.getRemoteFileSystem().getProperties(), " = ",
-                true, true));
+                true, true, true));
         stmtBuilder.append("\n)");
         return stmtBuilder.toString();
     }

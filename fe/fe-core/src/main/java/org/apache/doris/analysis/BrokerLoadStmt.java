@@ -117,7 +117,7 @@ public class BrokerLoadStmt extends InsertStmt {
 
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<>(properties, "=", true, false));
+            sb.append(new PrintableMap<>(properties, "=", true, false, true));
             sb.append(")");
         }
         return sb.toString();
