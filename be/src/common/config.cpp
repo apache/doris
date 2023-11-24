@@ -1119,6 +1119,8 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
+DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
