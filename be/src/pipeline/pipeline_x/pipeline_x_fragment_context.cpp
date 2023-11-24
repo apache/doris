@@ -131,7 +131,7 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason)
             .tag("error message", msg);
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
+    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             FOR_EACH_RUNTIME_STATE(LOG(WARNING) << "PipelineXFragmentContext cancel instance: "
                                                 << print_id(runtime_state->fragment_instance_id());)
@@ -148,6 +148,14 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
+    }
+    if (reason == PPlanFragmentCancelReason::TIMEOUT) {
+        LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
+    }
+    for (auto& tasks : _tasks) {
+        for (auto& task : tasks) {
+            task->clear_blocking_state();
+        }
     }
 }
 
@@ -1039,7 +1047,7 @@ std::string PipelineXFragmentContext::debug_string() {
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
-            if (_tasks[j][i]->get_state() == PipelineTaskState::FINISHED) {
+            if (_tasks[j][i]->is_finished()) {
                 continue;
             }
             fmt::format_to(debug_string_buffer, "Task {}: {}\n", i, _tasks[j][i]->debug_string());

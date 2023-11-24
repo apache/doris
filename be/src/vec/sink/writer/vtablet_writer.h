@@ -29,15 +29,13 @@
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
-#include <stddef.h>
-#include <stdint.h>
-
-#include <atomic>
 
 #include "olap/wal_writer.h"
 #include "vwal_writer.h"
 // IWYU pragma: no_include <bits/chrono.h>
+#include <atomic>
 #include <chrono> // IWYU pragma: keep
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
@@ -60,6 +58,7 @@
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
+#include "olap/wal_writer.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -226,7 +225,7 @@ public:
     void add_tablet(const TTabletWithPartition& tablet) { _all_tablets.emplace_back(tablet); }
     std::string debug_tablets() const {
         std::stringstream ss;
-        for (auto& tab : _all_tablets) {
+        for (const auto& tab : _all_tablets) {
             tab.printTo(ss);
             ss << '\n';
         }
@@ -272,7 +271,7 @@ public:
         ss << "close wait failed coz rpc error";
         {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            if (_cancel_msg != "") {
+            if (!_cancel_msg.empty()) {
                 ss << ". " << _cancel_msg;
             }
         }
@@ -308,8 +307,6 @@ public:
     int64_t node_id() const { return _node_id; }
     std::string host() const { return _node_info.host; }
     std::string name() const { return _name; }
-
-    Status none_of(std::initializer_list<bool> vars);
 
     std::string channel_info() const {
         return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
@@ -418,9 +415,8 @@ protected:
 // an IndexChannel is related to specific table and its rollup and mv
 class IndexChannel {
 public:
-    IndexChannel(VTabletWriter* parent, int64_t index_id,
-                 const vectorized::VExprContextSPtr& where_clause)
-            : _parent(parent), _index_id(index_id), _where_clause(where_clause) {
+    IndexChannel(VTabletWriter* parent, int64_t index_id, vectorized::VExprContextSPtr where_clause)
+            : _parent(parent), _index_id(index_id), _where_clause(std::move(where_clause)) {
         _index_channel_tracker =
                 std::make_unique<MemTracker>("IndexChannel:indexID=" + std::to_string(_index_id));
     }
@@ -447,7 +443,7 @@ public:
 
     size_t get_pending_bytes() const {
         size_t mem_consumption = 0;
-        for (auto& kv : _node_channels) {
+        for (const auto& kv : _node_channels) {
             mem_consumption += kv.second->get_pending_bytes();
         }
         return mem_consumption;
@@ -542,6 +538,8 @@ public:
 
     Status on_partitions_created(TCreatePartitionResult* result);
 
+    Status _send_new_partition_batch();
+
 private:
     friend class VNodeChannel;
     friend class IndexChannel;
@@ -560,17 +558,7 @@ private:
     void _generate_index_channels_payloads(std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                            ChannelDistributionPayloadVec& payload);
 
-    Status _cancel_channel_and_check_intolerable_failure(Status status, const std::string& err_msg,
-                                                         const std::shared_ptr<IndexChannel> ich,
-                                                         const std::shared_ptr<VNodeChannel> nch);
-
     void _cancel_all_channel(Status status);
-
-    void _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
-                              std::vector<int64_t> filter);
-
-    // create partitions when need for auto-partition table using #_partitions_need_create.
-    Status _automatic_create_partition();
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 

@@ -48,8 +48,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    _shared_hash_table_dependency =
-            SharedHashTableDependency::create_shared(_parent->operator_id(), _parent->node_id());
+    _shared_hash_table_dependency = SharedHashTableDependency::create_shared(
+            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
     if (p._is_broadcast_join && state->enable_share_hash_table_for_broadcast_join()) {

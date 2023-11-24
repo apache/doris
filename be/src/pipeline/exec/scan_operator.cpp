@@ -123,7 +123,8 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
 
     _scan_dependency = ScanDependency::create_shared(PipelineXLocalState<>::_parent->operator_id(),
-                                                     PipelineXLocalState<>::_parent->node_id());
+                                                     PipelineXLocalState<>::_parent->node_id(),
+                                                     state->get_query_ctx());
 
     auto& p = _parent->cast<typename Derived::Parent>();
     set_scan_ranges(state, info.scan_ranges);
@@ -147,10 +148,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     RETURN_IF_ERROR(_init_profile());
     // if you want to add some profile in scan node, even it have not new VScanner object
     // could add here, not in the _init_profile() function
-    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
-
     _prepare_rf_timer(_runtime_profile.get());
-    _alloc_resource_timer = ADD_TIMER(_runtime_profile, "AllocateResourceTime");
 
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER(_runtime_profile, timer_name);
@@ -171,10 +169,10 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
 
-    auto status = _scan_dependency->eos() ? Status::OK() : _prepare_scanners();
+    auto status = _eos ? Status::OK() : _prepare_scanners();
     if (_scanner_ctx) {
         _finish_dependency->block();
-        DCHECK(!_scan_dependency->eos() && _num_scanners->value() > 0);
+        DCHECK(!_eos && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
         RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
     }
@@ -262,7 +260,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
         std::visit(
                 [&](auto&& range) {
                     if (range.is_empty_value_range()) {
-                        _scan_dependency->set_eos();
+                        _eos = true;
+                        _scan_dependency->set_ready();
                     }
                 },
                 it.second.second);
@@ -561,7 +560,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                 *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
-                _scan_dependency->set_eos();
+                _eos = true;
+                _scan_dependency->set_ready();
             }
         } else if (const vectorized::ColumnVector<vectorized::UInt8>* bool_column =
                            check_and_get_column<vectorized::ColumnVector<vectorized::UInt8>>(
@@ -578,7 +578,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                 constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
                 if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                     *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
-                    _scan_dependency->set_eos();
+                    _eos = true;
+                    _scan_dependency->set_ready();
                 }
             } else {
                 LOG(WARNING) << "Constant predicate in scan node should return a bool column with "
@@ -775,7 +776,8 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
         if (!is_fixed_range && state->null_in_set) {
-            _scan_dependency->set_eos();
+            _eos = true;
+            _scan_dependency->set_ready();
         }
         while (iter->has_next()) {
             // column not in (nullptr) is always true
@@ -1168,7 +1170,8 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
     std::list<vectorized::VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     if (scanners.empty()) {
-        _scan_dependency->set_eos();
+        _eos = true;
+        _scan_dependency->set_ready();
     } else {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(scanners));
@@ -1350,7 +1353,6 @@ template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                 SourceState& source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state._get_next_timer);
     SCOPED_TIMER(local_state.exec_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
     // we built some temporary columns into block, these columns only used in scan node level,
@@ -1376,7 +1378,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         }
     }
 
-    if (local_state._scan_dependency->eos()) {
+    if (local_state._eos) {
         source_state = SourceState::FINISHED;
         return Status::OK();
     }

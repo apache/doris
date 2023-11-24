@@ -108,7 +108,12 @@ public class CreateResourceStmt extends DdlStmt {
             sb.append("EXTERNAL ");
         }
         sb.append("RESOURCE '").append(resourceName).append("' ");
-        sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
+        sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false, true)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

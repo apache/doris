@@ -855,7 +855,7 @@ public class Env {
                     // to see which thread held this lock for long time.
                     Thread owner = lock.getOwner();
                     if (owner != null) {
-                        LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
+                        LOG.info("env lock is held by: {}", Util.dumpThread(owner, 10));
                     }
 
                     if (mustLock) {
@@ -866,7 +866,7 @@ public class Env {
                 }
                 return true;
             } catch (InterruptedException e) {
-                LOG.warn("got exception while getting catalog lock", e);
+                LOG.warn("got exception while getting env lock", e);
                 if (mustLock) {
                     continue;
                 } else {
@@ -2634,7 +2634,7 @@ public class Env {
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
         if (!tryLock(false)) {
-            throw new DdlException("Failed to acquire catalog lock. Try again");
+            throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
             Frontend fe = checkFeExist(host, editLogPort);
@@ -2680,7 +2680,7 @@ public class Env {
 
     public void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
         if (!tryLock(false)) {
-            throw new DdlException("Failed to acquire catalog lock. Try again");
+            throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
             Frontend fe = getFeByName(nodeName);
@@ -2711,7 +2711,7 @@ public class Env {
             throw new DdlException("can not drop current master node.");
         }
         if (!tryLock(false)) {
-            throw new DdlException("Failed to acquire catalog lock. Try again");
+            throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
             Frontend fe = checkFeExist(host, port);
@@ -3370,7 +3370,7 @@ public class Env {
             sb.append("\nPROPERTIES (\n");
             sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, false).toString());
+            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.ICEBERG) {
             IcebergTable icebergTable = (IcebergTable) table;
@@ -3381,7 +3381,8 @@ public class Env {
             sb.append("\nPROPERTIES (\n");
             sb.append("\"iceberg.database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
             sb.append("\"iceberg.table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
-            sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(), " = ", true, true, false).toString());
+            sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(),
+                        " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.JDBC) {
             JdbcTable jdbcTable = (JdbcTable) table;

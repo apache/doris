@@ -53,8 +53,8 @@ public:
 class PartitionSortSinkDependency final : public Dependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "PartitionSortSinkDependency", true) {}
+    PartitionSortSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "PartitionSortSinkDependency", true, query_ctx) {}
     ~PartitionSortSinkDependency() override = default;
 };
 
@@ -84,8 +84,6 @@ private:
 
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _emplace_key_timer;
-    RuntimeProfile::Counter* _partition_sort_timer;
-    RuntimeProfile::Counter* _get_sorted_timer;
     RuntimeProfile::Counter* _selector_block_timer;
 
     RuntimeProfile::Counter* _hash_table_size_counter;
