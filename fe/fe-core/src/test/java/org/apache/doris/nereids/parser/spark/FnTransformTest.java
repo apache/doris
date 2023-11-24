@@ -15,18 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser.hive;
+package org.apache.doris.nereids.parser.spark;
 
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserTestBase;
-import org.apache.doris.nereids.parser.spark.SparkSql3LogicalPlanBuilder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Hive to Doris function mapping test.
+ * Spark SQL to Doris function mapping test.
  */
 public class FnTransformTest extends ParserTestBase {
 
