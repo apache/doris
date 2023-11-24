@@ -57,6 +57,23 @@ suite("test_build_mtmv") {
     sql """drop materialized view if exists ${mvName};"""
     sql """drop materialized view if exists ${mvNameRenamed};"""
 
+    // show create table
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        (aa comment "aaa",bb)
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+        COMMENT "comment1"
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS
+        SELECT id, username FROM ${tableName};
+        """
+
+    order_qt_show "show create table ${mvName}"
+    sql """
+        DROP MATERIALIZED VIEW ${mvName}
+    """
+
     // IMMEDIATE MANUAL
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
