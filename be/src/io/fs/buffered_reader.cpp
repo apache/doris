@@ -386,20 +386,15 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
     return Status::OK();
 }
 
-// the condition variable would wait at most 10 seconds
-// otherwise it would quit the procedure and treat it
-// as one time out error status and would make the load
-// task failed
-constexpr static int WAIT_TIME_OUT_MS = 10000;
-
 // there exists occasions where the buffer is already closed but
 // some prior tasks are still queued in thread pool, so we have to check whether
 // the buffer is closed each time the condition variable is notified.
 void PrefetchBuffer::reset_offset(size_t offset) {
     {
         std::unique_lock lck {_lock};
-        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
-                                  [this]() { return _buffer_status != BufferStatus::PENDING; })) {
+        if (!_prefetched.wait_for(
+                    lck, std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
+                    [this]() { return _buffer_status != BufferStatus::PENDING; })) {
             _prefetch_status = Status::TimedOut("time out when reset prefetch buffer");
             return;
         }
@@ -426,10 +421,12 @@ void PrefetchBuffer::reset_offset(size_t offset) {
 void PrefetchBuffer::prefetch_buffer() {
     {
         std::unique_lock lck {_lock};
-        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
-                return _buffer_status == BufferStatus::RESET ||
-                       _buffer_status == BufferStatus::CLOSED;
-            })) {
+        if (!_prefetched.wait_for(
+                    lck, std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
+                    [this]() {
+                        return _buffer_status == BufferStatus::RESET ||
+                               _buffer_status == BufferStatus::CLOSED;
+                    })) {
             _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
             return;
         }
@@ -470,7 +467,8 @@ void PrefetchBuffer::prefetch_buffer() {
     _statis.prefetch_request_io += 1;
     _statis.prefetch_request_bytes += _len;
     std::unique_lock lck {_lock};
-    if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+    if (!_prefetched.wait_for(lck,
+                              std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
                               [this]() { return _buffer_status == BufferStatus::PENDING; })) {
         _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
         return;
@@ -551,10 +549,12 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     {
         std::unique_lock lck {_lock};
         // buffer must be prefetched or it's closed
-        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
-                return _buffer_status == BufferStatus::PREFETCHED ||
-                       _buffer_status == BufferStatus::CLOSED;
-            })) {
+        if (!_prefetched.wait_for(
+                    lck, std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
+                    [this]() {
+                        return _buffer_status == BufferStatus::PREFETCHED ||
+                               _buffer_status == BufferStatus::CLOSED;
+                    })) {
             _prefetch_status = Status::TimedOut("time out when read prefetch buffer");
             return _prefetch_status;
         }
@@ -590,7 +590,8 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
 void PrefetchBuffer::close() {
     std::unique_lock lck {_lock};
     // in case _reader still tries to write to the buf after we close the buffer
-    if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+    if (!_prefetched.wait_for(lck,
+                              std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
                               [this]() { return _buffer_status != BufferStatus::PENDING; })) {
         _prefetch_status = Status::TimedOut("time out when close prefetch buffer");
         return;
