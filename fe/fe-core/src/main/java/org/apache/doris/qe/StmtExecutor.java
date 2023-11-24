@@ -1367,7 +1367,7 @@ public class StmtExecutor {
             LOG.debug("Handling query {} with query id {}",
                           originStmt.originStmt, DebugUtil.printId(context.queryId));
         }
-        
+
         if (context.getConnectType() == ConnectType.MYSQL) {
             // Every time set no send flag and clean all data in buffer
             context.getMysqlChannel().reset();
