@@ -32,9 +32,8 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((item.i_item_id = item.i_item_id)) otherCondition=() build RFs:RF0 i_item_id->[i_item_id]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[item] apply RFs: RF0
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[item] apply RFs: RF0
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------filter((item.i_category = 'Jewelry'))
@@ -63,9 +62,8 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((item.i_item_id = item.i_item_id)) otherCondition=() build RFs:RF4 i_item_id->[i_item_id]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[item] apply RFs: RF4
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[item] apply RFs: RF4
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------filter((item.i_category = 'Jewelry'))
@@ -94,9 +92,8 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((item.i_item_id = item.i_item_id)) otherCondition=() build RFs:RF8 i_item_id->[i_item_id]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[item] apply RFs: RF8
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[item] apply RFs: RF8
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------filter((item.i_category = 'Jewelry'))
