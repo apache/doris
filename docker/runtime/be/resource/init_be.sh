@@ -156,7 +156,7 @@ cleanup() {
 _main() {
     trap 'cleanup' SIGTERM SIGINT
     if [[ $RUN_TYPE == "K8S" ]]; then
-        start_be.sh &
+        start_be.sh --console &
         child_pid=$!
     else
         docker_setup_env
@@ -168,7 +168,7 @@ _main() {
         fi
         check_be_status
         doris_note "Ready to start BE！"
-        start_be.sh &
+        start_be.sh --console &
         child_pid=$!
     fi
     wait $child_pid
