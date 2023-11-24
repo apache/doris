@@ -75,6 +75,7 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -330,14 +331,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         while (true) {
             try {
                 if (!lock.tryLock(Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
-                    if (LOG.isDebugEnabled()) {
-                        // to see which thread held this lock for long time.
-                        Thread owner = lock.getOwner();
-                        if (owner != null) {
-                            // There are many catalog timeout during regression test
-                            // And this timeout should not happen very often, so it could be info log
-                            LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
-                        }
+                    // to see which thread held this lock for long time.
+                    Thread owner = lock.getOwner();
+                    if (owner != null) {
+                        // There are many catalog timeout during regression test
+                        // And this timeout should not happen very often, so it could be info log
+                        LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                     }
 
                     if (mustLock) {
@@ -500,7 +499,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             long recycleTime = 0;
             try {
                 if (!stmt.isForceDrop()) {
-                    if (Env.getCurrentEnv().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
+                    if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
                         throw new DdlException(
                                 "There are still some transactions in the COMMITTED state waiting to be completed. "
                                         + "The database [" + dbName
@@ -884,8 +883,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
 
+            if (!stmt.isMaterializedView() && table instanceof MTMV) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+            } else if (stmt.isMaterializedView() && !(table instanceof MTMV)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV");
+            }
+
             if (!stmt.isForceDrop()) {
-                if (Env.getCurrentEnv().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
+                if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
                     throw new DdlException(
                             "There are still some transactions in the COMMITTED state waiting to be completed. "
                                     + "The table [" + tableName
@@ -917,6 +922,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
+            if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
+            }
+            Env.getCurrentEnv().getMtmvService().dropTable(table);
+        } catch (UserException e) {
+            throw new DdlException(e.getMessage(), e);
         } finally {
             db.writeUnlock();
         }
@@ -934,6 +945,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         } else if (table.getType() == TableType.ICEBERG) {
             // drop Iceberg database table creation record
             icebergTableCreationRecordMgr.deregisterTable(db, (IcebergTable) table);
+        } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
         }
 
         db.dropTable(table.getName());
@@ -1320,7 +1333,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             Table table = db.getTableOrDdlException(tableName);
 
-            if (table.getType() != TableType.OLAP) {
+            if (table.getType() != TableType.OLAP && table.getType() != TableType.MATERIALIZED_VIEW) {
                 throw new DdlException("Only support create partition from a OLAP table");
             }
 
@@ -1663,7 +1676,8 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void replayAddPartition(PartitionPersistInfo info) throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(),
+                Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW));
         olapTable.writeLock();
         try {
             Partition partition = info.getPartition();
@@ -1734,7 +1748,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!clause.isForceDrop()) {
                 partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
-                    if (Env.getCurrentEnv().getGlobalTransactionMgr()
+                    if (Env.getCurrentGlobalTransactionMgr()
                             .existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
                         throw new DdlException(
                                 "There are still some transactions in the COMMITTED state waiting to be completed."
@@ -2166,6 +2180,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
 
+        // check `update on current_timestamp`
+        if (!enableUniqueKeyMergeOnWrite) {
+            for (Column column : baseSchema) {
+                if (column.hasOnUpdateDefaultValue()) {
+                    throw new DdlException("'ON UPDATE CURRENT_TIMESTAMP' is only supportted"
+                            + " in unique table with merge-on-write enabled.");
+                }
+            }
+        }
+
         // analyze bloom filter columns
         Set<String> bfColumns = null;
         double bfFpp = 0;
@@ -2286,7 +2310,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             DataProperty dataProperty = null;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                        new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                    new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -2297,7 +2321,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo.setTabletType(partitionId, tabletType);
             partitionInfo.setIsMutable(partitionId, isMutable);
         }
-
         // check colocation properties
         try {
             String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
@@ -2400,6 +2423,15 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
 
+        // analyse group commit interval ms
+        int groupCommitIntervalMs = 0;
+        try {
+            groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties);
+            olapTable.setGroupCommitIntervalMs(groupCommitIntervalMs);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
         olapTable.initSchemaColumnUniqueId();
         olapTable.initAutoIncrentGenerator(db.getId());
         olapTable.rebuildFullSchema();
@@ -2457,10 +2489,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
+                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                        new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                    Map<String, String> propertiesCheck = new HashMap<>(properties);
+                    propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
+                    if (propertiesCheck != null && !propertiesCheck.isEmpty()) {
+                        // here, all properties should be checked
+                        throw new DdlException("Unknown properties: " + propertiesCheck);
+                    }
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
-                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                            new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
@@ -2470,10 +2508,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         }
                     }
 
-                    if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
-                        // here, all properties should be checked
-                        throw new DdlException("Unknown properties: " + properties);
-                    }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
@@ -2578,6 +2612,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             throw e;
+        }
+        if (olapTable instanceof MTMV) {
+            Env.getCurrentEnv().getMtmvService().createMTMV((MTMV) olapTable);
         }
     }
 

@@ -69,7 +69,7 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -379,30 +379,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         HashSet<String> partialUpdateCols = new HashSet<>();
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
         if (isPartialUpdate) {
-            OlapTable olapTable = olapTableSink.getTargetTable();
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new AnalysisException("Partial update is only allowed in"
-                        + "unique table with merge-on-write enabled.");
-            }
-            for (Column col : olapTable.getFullSchema()) {
-                boolean exists = false;
-                for (Column insertCol : olapTableSink.getCols()) {
-                    if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
-                        exists = true;
-                        break;
-                    }
-                }
-                if (col.isKey() && !exists) {
-                    throw new AnalysisException("Partial update should include all key columns, missing: "
-                            + col.getName());
-                }
-            }
             for (Column col : olapTableSink.getCols()) {
                 partialUpdateCols.add(col.getName());
-            }
-            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
-                        && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
-                partialUpdateCols.add(Column.SEQUENCE_COL);
             }
         }
         TupleDescriptor olapTuple = context.generateTupleDesc();
@@ -517,7 +495,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addScanNode(scanNode);
         ScanNode finalScanNode = scanNode;
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(fileScan.getRelationId()).forEach(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(fileScan).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
         );
@@ -560,7 +538,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Utils.execWithUncheckedException(esScanNode::init);
         context.addScanNode(esScanNode);
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(esScan.getRelationId()).forEach(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(esScan).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, esScanNode, context)
                 )
         );
@@ -583,7 +561,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode);
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(jdbcScan.getRelationId()).forEach(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(jdbcScan).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, jdbcScanNode, context)
                 )
         );
@@ -611,10 +589,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
             if (context.getSessionVariable() != null && context.getSessionVariable().forbidUnknownColStats) {
                 for (int i = 0; i < slots.size(); i++) {
-                    Slot slot = slots.get(i);
+                    SlotReference slot = (SlotReference) slots.get(i);
+                    boolean inVisibleCol = slot.getColumn().isPresent()
+                            && StatisticConstants.shouldIgnoreCol(olapTable, slot.getColumn().get());
                     if (olapScan.getStats().findColumnStatistics(slot).isUnKnown()
                             && !isComplexDataType(slot.getDataType())
-                            && !StatisticConstants.isSystemTable(olapTable)) {
+                            && !StatisticConstants.isSystemTable(olapTable)
+                            && !inVisibleCol) {
                         context.addUnknownStatsColumn(olapScanNode, tupleDescriptor.getSlots().get(i).getId());
                     }
                 }
@@ -652,7 +633,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: process translate runtime filter in one place
         //   use real plan node to present rf apply and rf generator
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterTranslator -> runtimeFilterTranslator.getTargetOnScanNode(olapScan.getRelationId())
+                runtimeFilterTranslator -> runtimeFilterTranslator.getContext().getTargetListByScan(olapScan)
                         .forEach(expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(
                                 expr, olapScanNode, context)
                 )
@@ -738,7 +719,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         SchemaScanNode finalScanNode = scanNode;
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(schemaScan.getRelationId())
+                runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(schemaScan)
                         .forEach(expr -> runtimeFilterGenerator
                                 .translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
@@ -760,7 +741,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ScanNode scanNode = catalogFunction.getScanNode(tvfRelation.translatePlanNodeId(), tupleDescriptor);
         Utils.execWithUncheckedException(scanNode::init);
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(tvfRelation.getRelationId())
+                runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(tvfRelation)
                         .forEach(expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
                 )
         );
@@ -977,7 +958,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         CTEScanNode cteScanNode = new CTEScanNode(tupleDescriptor);
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
-                    runtimeFilterTranslator.getTargetOnScanNode(cteConsumer.getRelationId()).forEach(
+                    runtimeFilterTranslator.getContext().getTargetListByScan(cteConsumer).forEach(
                             expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(expr, cteScanNode, context)));
         context.getCteScanNodeMap().put(multiCastFragment.getFragmentId(), cteScanNode);
 
@@ -1138,7 +1119,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         JoinType joinType = hashJoin.getJoinType();
 
         List<Expr> execEqConjuncts = hashJoin.getHashJoinConjuncts().stream()
-                .map(EqualTo.class::cast)
+                .map(EqualPredicate.class::cast)
                 .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
@@ -2117,7 +2098,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     && !StatisticConstants.isSystemTable(scanNode.getTupleDesc().getTable())) {
                 for (SlotId slotId : requiredByProjectSlotIdSet) {
                     if (context.isColumnStatsUnknown(scanNode, slotId)) {
-                        throw new AnalysisException("meet unknown column stats on table " + scanNode);
+                        String colName = scanNode.getTupleDesc().getSlot(slotId.asInt()).getColumn().getName();
+                        throw new AnalysisException("meet unknown column stats: " + colName);
                     }
                 }
                 context.removeScanFromStatsUnknownColumnsMap(scanNode);

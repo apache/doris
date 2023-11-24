@@ -422,9 +422,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
 
-    public static final String FULL_AUTO_ANALYZE_START_TIME = "full_auto_analyze_start_time";
+    public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
-    public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
+    public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
 
     public static final String SQL_DIALECT = "sql_dialect";
 
@@ -432,12 +432,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
 
-    public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
+    public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
     public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
+    public static final String ENABLE_EXTERNAL_MV_REWRITE = "enable_external_mv_rewrite";
+    public static final String ENABLE_MV_REWRITE = "enable_mv_rewrite";
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
 
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
@@ -766,6 +768,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_EXTERNAL_MV_REWRITE, needForward = true)
+    public boolean enableExternalMvRewrite = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_MV_REWRITE, needForward = true)
+    public boolean enableMvRewrite = false;
 
     // the maximum size in bytes for a table that will be broadcast to all be nodes
     // when performing a join, By setting this value to -1 broadcasting can be disabled.
@@ -938,6 +945,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
+
+    @VariableMgr.VarAttr(name = "ENABLE_NEREIDS_RULES", needForward = true)
+    public String enableNereidsRules = "";
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
     private boolean enableNewCostModel = false;
@@ -1277,18 +1287,6 @@ public class SessionVariable implements Serializable, Writable {
                     + " use a skiplist to optimize the intersection."})
     public int invertedIndexConjunctionOptThreshold = 1000;
 
-    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
-            description = {"该参数定义自动ANALYZE例程的开始时间",
-                    "This parameter defines the start time for the automatic ANALYZE routine."},
-            flag = VariableMgr.GLOBAL)
-    public String fullAutoAnalyzeStartTime = "00:00:00";
-
-    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
-            description = {"该参数定义自动ANALYZE例程的结束时间",
-                    "This parameter defines the end time for the automatic ANALYZE routine."},
-            flag = VariableMgr.GLOBAL)
-    public String fullAutoAnalyzeEndTime = "23:59:59";
-
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
     public String sqlDialect = "doris";
@@ -1303,10 +1301,22 @@ public class SessionVariable implements Serializable, Writable {
             options = {"none", "sql_cache", "partition_cache"})
     public String testQueryCacheHit = "none";
 
-    @VariableMgr.VarAttr(name = ENABLE_FULL_AUTO_ANALYZE,
+    @VariableMgr.VarAttr(name = ENABLE_AUTO_ANALYZE,
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
-    public boolean enableFullAutoAnalyze = true;
+    public boolean enableAutoAnalyze = true;
+
+    @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的开始时间",
+                    "This parameter defines the start time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String autoAnalyzeStartTime = "00:00:00";
+
+    @VariableMgr.VarAttr(name = AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的结束时间",
+                    "This parameter defines the end time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String autoAnalyzeEndTime = "23:59:59";
 
     @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
             description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
@@ -1480,10 +1490,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         // set random 1, 10, 100, 1000, 10000
-        // this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
-        // Now P0 test have some failed cese about topn, but can't reproduce at local
-        // So set this threshold to 0 temporary.
-        this.topnOptLimitThreshold = 0;
+        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
     }
 
     public String printFuzzyVariables() {
@@ -2285,6 +2292,14 @@ public class SessionVariable implements Serializable, Writable {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    public Set<Integer> getEnableNereidsRules() {
+        return Arrays.stream(enableNereidsRules.split(",[\\s]*"))
+                .filter(rule -> !rule.isEmpty())
+                .map(rule -> rule.toUpperCase(Locale.ROOT))
+                .map(rule -> RuleType.valueOf(rule).type())
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
     public void setEnableNewCostModel(boolean enable) {
         this.enableNewCostModel = enable;
     }
@@ -2408,6 +2423,22 @@ public class SessionVariable implements Serializable, Writable {
                 maxTableCountUseCascadesJoinReorder < MIN_JOIN_REORDER_TABLE_COUNT
                         ? MIN_JOIN_REORDER_TABLE_COUNT
                         : maxTableCountUseCascadesJoinReorder;
+    }
+
+    public boolean isEnableExternalMvRewrite() {
+        return enableExternalMvRewrite;
+    }
+
+    public void setEnableExternalMvRewrite(boolean enableExternalMvRewrite) {
+        this.enableExternalMvRewrite = enableExternalMvRewrite;
+    }
+
+    public boolean isEnableMvRewrite() {
+        return enableMvRewrite;
+    }
+
+    public void setEnableMvRewrite(boolean enableMvRewrite) {
+        this.enableMvRewrite = enableMvRewrite;
     }
 
     public boolean isShowUserDefaultRole() {
@@ -2670,8 +2701,9 @@ public class SessionVariable implements Serializable, Writable {
      **/
     public void setForwardedSessionVariables(Map<String, String> variables) {
         try {
-            Field[] fields = SessionVariable.class.getFields();
+            Field[] fields = SessionVariable.class.getDeclaredFields();
             for (Field f : fields) {
+                f.setAccessible(true);
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
                 if (varAttr == null || !varAttr.needForward()) {
                     continue;

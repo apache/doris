@@ -58,7 +58,7 @@ Column definition list:
 
     Column definition:
 
-    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT] [default_value] [column_comment]`
+    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT] [default_value] [on update current_timestamp] [column_comment]`
 
     * `column_type`
 
@@ -142,6 +142,10 @@ Column definition list:
             dt DATETIME DEFAULT CURRENT_TIMESTAMP
         ```
 
+    * `on update current_timestamp`
+
+        To indicate that whether the value of this column should be updated to the current timestamp (`current_timestamp`) when there is an update on the row. The feature is only available on unique table with merge-on-write enabled. Columns with this feature enabled must declare a default value, and the default value must be `current_timestamp`. If the precision of the timestamp is declared here, the timestamp precision in the default value of the column must be the same as the precision declared here."
+
     Example:
 
         ```
@@ -152,6 +156,7 @@ Column definition list:
         v2 BITMAP BITMAP_UNION,
         v3 HLL HLL_UNION,
         v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
+        dt datetime(6) default current_timestamp(6) on update current_timestamp(6)
         ```
 
 #### index_definition_list

@@ -148,6 +148,7 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -155,6 +156,7 @@ import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
+import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
@@ -174,9 +176,17 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVService;
+import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -333,6 +343,7 @@ public class Env {
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
     private RoutineLoadManager routineLoadManager;
+    private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
     private SyncJobManager syncJobManager;
@@ -492,6 +503,8 @@ public class Env {
 
     private TopicPublisherThread topicPublisherThread;
 
+    private MTMVService mtmvService;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -603,6 +616,7 @@ public class Env {
         this.catalogMgr = new CatalogMgr();
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
+        this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
         this.syncJobManager = new SyncJobManager();
@@ -717,6 +731,7 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
+        this.mtmvService = new MTMVService();
     }
 
     public static void destroyCheckpoint() {
@@ -770,6 +785,10 @@ public class Env {
 
     public AccessControllerManager getAccessManager() {
         return accessManager;
+    }
+
+    public MTMVService getMtmvService() {
+        return mtmvService;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -852,7 +871,7 @@ public class Env {
                     // to see which thread held this lock for long time.
                     Thread owner = lock.getOwner();
                     if (owner != null) {
-                        LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
+                        LOG.info("env lock is held by: {}", Util.dumpThread(owner, 10));
                     }
 
                     if (mustLock) {
@@ -863,7 +882,7 @@ public class Env {
                 }
                 return true;
             } catch (InterruptedException e) {
-                LOG.warn("got exception while getting catalog lock", e);
+                LOG.warn("got exception while getting env lock", e);
                 if (mustLock) {
                     continue;
                 } else {
@@ -2631,7 +2650,7 @@ public class Env {
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
         if (!tryLock(false)) {
-            throw new DdlException("Failed to acquire catalog lock. Try again");
+            throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
             Frontend fe = checkFeExist(host, editLogPort);
@@ -2677,7 +2696,7 @@ public class Env {
 
     public void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
         if (!tryLock(false)) {
-            throw new DdlException("Failed to acquire catalog lock. Try again");
+            throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
             Frontend fe = getFeByName(nodeName);
@@ -2708,7 +2727,7 @@ public class Env {
             throw new DdlException("can not drop current master node.");
         }
         if (!tryLock(false)) {
-            throw new DdlException("Failed to acquire catalog lock. Try again");
+            throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
             Frontend fe = checkFeExist(host, port);
@@ -2947,48 +2966,47 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
-        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
+        sb.append("TABLE ");
 
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`.");
         }
         sb.append("`").append(table.getName()).append("`");
 
-        if (table.getType() != TableType.MATERIALIZED_VIEW) {
-            sb.append(" (\n");
-            int idx = 0;
-            List<Column> columns;
-            // when 'create table B like A', always return schema of A without hidden columns
-            if (getDdlForLike) {
-                columns = table.getBaseSchema(false);
-            } else {
-                columns = table.getBaseSchema();
-            }
-            for (Column column : columns) {
-                if (idx++ != 0) {
-                    sb.append(",\n");
-                }
-                // There MUST BE 2 space in front of each column description line
-                // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
-                if (table.getType() == TableType.OLAP) {
-                    sb.append("  ").append(
-                            column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
-                } else {
-                    sb.append("  ").append(column.toSql());
-                }
-            }
-            if (table.getType() == TableType.OLAP) {
-                OlapTable olapTable = (OlapTable) table;
-                if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
-                    for (Index index : olapTable.getIndexes()) {
-                        sb.append(",\n");
-                        sb.append("  ").append(index.toSql());
-                    }
-                }
-            }
-            sb.append("\n) ENGINE=");
-            sb.append(table.getType().name());
+
+        sb.append(" (\n");
+        int idx = 0;
+        List<Column> columns;
+        // when 'create table B like A', always return schema of A without hidden columns
+        if (getDdlForLike) {
+            columns = table.getBaseSchema(false);
+        } else {
+            columns = table.getBaseSchema();
         }
+        for (Column column : columns) {
+            if (idx++ != 0) {
+                sb.append(",\n");
+            }
+            // There MUST BE 2 space in front of each column description line
+            // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
+            if (table.getType() == TableType.OLAP) {
+                sb.append("  ").append(
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
+            } else {
+                sb.append("  ").append(column.toSql());
+            }
+        }
+        if (table.getType() == TableType.OLAP) {
+            OlapTable olapTable = (OlapTable) table;
+            if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
+                for (Index index : olapTable.getIndexes()) {
+                    sb.append(",\n");
+                    sb.append("  ").append(index.toSql());
+                }
+            }
+        }
+        sb.append("\n) ENGINE=");
+        sb.append(table.getType().name());
 
         if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
             OlapTable olapTable = (OlapTable) table;
@@ -3252,6 +3270,10 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
             sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
 
+            // group commit interval ms
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
+            sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+
             // enable duplicate without keys by default
             if (olapTable.isDuplicateWithoutKey()) {
                 sb.append(",\n\"")
@@ -3363,7 +3385,7 @@ public class Env {
             sb.append("\nPROPERTIES (\n");
             sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, false).toString());
+            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.ICEBERG) {
             IcebergTable icebergTable = (IcebergTable) table;
@@ -3374,7 +3396,8 @@ public class Env {
             sb.append("\nPROPERTIES (\n");
             sb.append("\"iceberg.database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
             sb.append("\"iceberg.table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
-            sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(), " = ", true, true, false).toString());
+            sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(),
+                        " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.JDBC) {
             JdbcTable jdbcTable = (JdbcTable) table;
@@ -3778,6 +3801,10 @@ public class Env {
         return routineLoadManager;
     }
 
+    public GroupCommitManager getGroupCommitManager() {
+        return groupCommitManager;
+    }
+
     public SqlBlockRuleMgr getSqlBlockRuleMgr() {
         return sqlBlockRuleMgr;
     }
@@ -4050,8 +4077,12 @@ public class Env {
         getBackupHandler().cancel(stmt);
     }
 
-    // entry of rename table operation
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+        renameTable(db, table, tableRenameClause.getNewTableName());
+    }
+
+    // entry of rename table operation
+    public void renameTable(Database db, Table table, String newTableName) throws DdlException {
         db.writeLockOrDdlException();
         try {
             table.writeLockOrDdlException();
@@ -4062,7 +4093,6 @@ public class Env {
                 }
 
                 String oldTableName = table.getName();
-                String newTableName = tableRenameClause.getNewTableName();
                 if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
                     newTableName = newTableName.toLowerCase();
                 }
@@ -4353,7 +4383,8 @@ public class Env {
     }
 
     private void renameColumn(Database db, OlapTable table, String colName,
-                              String newColName, boolean isReplay) throws DdlException {
+                              String newColName, Map<Long, Integer> indexIdToSchemaVersion,
+                              boolean isReplay) throws DdlException {
         table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
@@ -4399,6 +4430,12 @@ public class Env {
                 Env.getCurrentEnv().getQueryStats()
                         .rename(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId(),
                                 table.getId(), entry.getKey(), colName, newColName);
+                if (!isReplay) {
+                    indexIdToSchemaVersion.put(entry.getKey(), entry.getValue().getSchemaVersion() + 1);
+                }
+                if (indexIdToSchemaVersion != null) {
+                    entry.getValue().setSchemaVersion(indexIdToSchemaVersion.get(entry.getKey()));
+                }
             }
         }
         if (!hasColumn) {
@@ -4459,7 +4496,8 @@ public class Env {
 
         if (!isReplay) {
             // log
-            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName);
+            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName,
+                    indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
         }
@@ -4470,7 +4508,8 @@ public class Env {
         try {
             String colName = renameClause.getColName();
             String newColName = renameClause.getNewColName();
-            renameColumn(db, table, colName, newColName, false);
+            Map<Long, Integer> indexIdToSchemaVersion = new HashMap<Long, Integer>();
+            renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, false);
         } finally {
             table.writeUnlock();
         }
@@ -4482,12 +4521,13 @@ public class Env {
         long tableId = info.getTableId();
         String colName = info.getColName();
         String newColName = info.getNewColName();
+        Map<Long, Integer> indexIdToSchemaVersion = info.getIndexIdToSchemaVersion();
 
         Database db = getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         table.writeLock();
         try {
-            renameColumn(db, table, colName, newColName, true);
+            renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, true);
         } catch (DdlException e) {
             // should not happen
             LOG.warn("failed to replay rename column", e);
@@ -5226,7 +5266,8 @@ public class Env {
         long dbId = replaceTempPartitionLog.getDbId();
         long tableId = replaceTempPartitionLog.getTblId();
         Database db = getInternalCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db
+                .getTableOrMetaException(tableId, Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW));
         olapTable.writeLock();
         try {
             olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
@@ -5429,7 +5470,7 @@ public class Env {
         Env.getCurrentEnv().getLoadInstance().removeDbLoadJob(dbId);
 
         // remove database transaction manager
-        Env.getCurrentEnv().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+        Env.getCurrentGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
 
         if (needEditLog) {
             Env.getCurrentEnv().getEditLog().logEraseDb(dbId);
@@ -5740,5 +5781,29 @@ public class Env {
 
     public StatisticsAutoCollector getStatisticsAutoCollector() {
         return statisticsAutoCollector;
+    }
+
+    public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo(), MTMVAlterOpType.ALTER_REFRESH_INFO);
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVProperty(AlterMTMVPropertyInfo info) {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), MTMVAlterOpType.ALTER_PROPERTY);
+        alter.setMvProperties(info.getProperties());
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) {
+        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_STATUS);
+        alter.setStatus(status);
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation) {
+        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ADD_TASK);
+        alter.setTask(task);
+        alter.setRelation(relation);
+        this.alter.processAlterMTMV(alter, false);
     }
 }

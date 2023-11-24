@@ -247,7 +247,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                             }
                         }
                         cur_block.clear_column_data();
-                        _serializer.get_block()->set_muatable_columns(cur_block.mutate_columns());
+                        _serializer.get_block()->set_mutable_columns(cur_block.mutate_columns());
                     }
                 }
             }

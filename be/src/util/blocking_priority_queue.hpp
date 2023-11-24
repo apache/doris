@@ -27,7 +27,6 @@
 #include <queue>
 
 #include "common/config.h"
-#include "util/lock.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -55,7 +54,6 @@ public:
         timer.start();
         std::unique_lock unique_lock(_lock);
         bool wait_successful = false;
-#if !defined(USE_BTHREAD_SCANNER)
         if (timeout_ms > 0) {
             while (!(_shutdown || !_queue.empty())) {
                 ++_get_waiting;
@@ -73,25 +71,6 @@ public:
             }
             wait_successful = true;
         }
-#else
-        if (timeout_ms > 0) {
-            wait_successful = true;
-            while (!(_shutdown || !_queue.empty())) {
-                ++_get_waiting;
-                if (_get_cv.wait_for(unique_lock, std::chrono::milliseconds(timeout_ms)) ==
-                    std::cv_status::timeout) {
-                    // timeout
-                    wait_successful = _shutdown || !_queue.empty();
-                    break;
-                }
-            }
-        } else {
-            while (!(_shutdown || !_queue.empty())) {
-                _get_cv.wait(unique_lock);
-            }
-            wait_successful = true;
-        }
-#endif
         _total_get_wait_time += timer.elapsed_time();
         if (wait_successful) {
             if (_upgrade_counter > config::priority_queue_remaining_tasks_increased_frequency) {
@@ -226,10 +205,10 @@ public:
 private:
     bool _shutdown;
     const int _max_element;
-    doris::ConditionVariable _get_cv; // 'get' callers wait on this
-    doris::ConditionVariable _put_cv; // 'put' callers wait on this
+    std::condition_variable _get_cv; // 'get' callers wait on this
+    std::condition_variable _put_cv; // 'put' callers wait on this
     // _lock guards access to _queue, total_get_wait_time, and total_put_wait_time
-    mutable doris::Mutex _lock;
+    mutable std::mutex _lock;
     std::priority_queue<T> _queue;
     int _upgrade_counter;
     std::atomic<uint64_t> _total_get_wait_time;

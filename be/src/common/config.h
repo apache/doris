@@ -559,7 +559,9 @@ DECLARE_Int64(stream_tvf_buffer_size);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
-DECLARE_mInt32(olap_table_sink_send_interval_ms);
+DECLARE_mInt32(olap_table_sink_send_interval_microseconds);
+// For auto partition, the send interval will multiply the factor
+DECLARE_mDouble(olap_table_sink_send_interval_auto_partition_factor);
 
 // Fragment thread pool
 DECLARE_Int32(fragment_pool_thread_num_min);
@@ -802,6 +804,13 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 DECLARE_Bool(share_delta_writers);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
+
+// idle timeout for load stream in ms
+DECLARE_Int64(load_stream_idle_timeout_ms);
+// brpc streaming max_buf_size in bytes
+DECLARE_Int64(load_stream_max_buf_size);
+// brpc streaming messages_in_batch
+DECLARE_Int32(load_stream_messages_in_batch);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -1121,6 +1130,8 @@ DECLARE_mBool(enable_flatten_nested_for_variant);
 DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
+// rowid conversion correctness check when compaction for mow table
+DECLARE_mBool(enable_rowid_conversion_correctness_check);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1145,12 +1156,10 @@ DECLARE_Int16(bitmap_serialize_version);
 DECLARE_String(group_commit_replay_wal_dir);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
-DECLARE_Int32(group_commit_sync_wal_batch);
 DECLARE_Bool(wait_internal_group_commit_finish);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
-DECLARE_mInt32(group_commit_interval_ms);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1164,8 +1173,8 @@ DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 DECLARE_mBool(exit_on_exception);
 
 // cgroup
-DECLARE_String(doris_cgroup_cpu_path);
-DECLARE_Bool(enable_cgroup_cpu_soft_limit);
+DECLARE_mString(doris_cgroup_cpu_path);
+DECLARE_mBool(enable_cgroup_cpu_soft_limit);
 
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
@@ -1187,6 +1196,8 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
+
+DECLARE_mInt32(buffered_reader_read_timeout_ms);
 
 #ifdef BE_TEST
 // test s3

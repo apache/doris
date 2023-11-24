@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
+import org.apache.doris.job.exception.JobException;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
@@ -29,31 +31,38 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public abstract class AbstractTask implements Task {
 
+    @SerializedName(value = "jid")
     private Long jobId;
-
+    @SerializedName(value = "tid")
     private Long taskId;
 
+    @SerializedName(value = "st")
     private TaskStatus status;
-
+    @SerializedName(value = "ctm")
     private Long createTimeMs;
-
+    @SerializedName(value = "stm")
     private Long startTimeMs;
-
+    @SerializedName(value = "ftm")
     private Long finishTimeMs;
 
+    @SerializedName(value = "tt")
     private TaskType taskType;
 
     @Override
     public void onFail(String msg) {
+        status = TaskStatus.FAILD;
         if (!isCallable()) {
             return;
         }
         Env.getCurrentEnv().getJobManager().getJob(jobId).onTaskFail(this);
-        status = TaskStatus.FAILD;
     }
 
     @Override
-    public void onFail() {
+    public void onFail() throws JobException {
+        if (TaskStatus.CANCEL.equals(status)) {
+            return;
+        }
+        status = TaskStatus.FAILD;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
             return;
@@ -73,7 +82,7 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void onSuccess() {
+    public void onSuccess() throws JobException {
         status = TaskStatus.SUCCESS;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
@@ -88,17 +97,17 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void cancel() {
+    public void cancel() throws JobException {
         status = TaskStatus.CANCEL;
     }
 
     @Override
-    public void before() {
+    public void before() throws JobException {
         status = TaskStatus.RUNNING;
         setStartTimeMs(System.currentTimeMillis());
     }
 
-    public void runTask() {
+    public void runTask() throws JobException {
         try {
             before();
             run();

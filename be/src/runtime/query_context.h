@@ -40,6 +40,11 @@
 #include "vec/runtime/shared_scanner_controller.h"
 
 namespace doris {
+
+namespace pipeline {
+class PipelineFragmentContext;
+} // namespace pipeline
+
 struct ReportStatusRequest {
     bool is_pipeline_x;
     const Status status;
@@ -138,16 +143,7 @@ public:
     }
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
-    bool cancel(bool v, std::string msg, Status new_status) {
-        if (_is_cancelled) {
-            return false;
-        }
-        set_exec_status(new_status);
-        _is_cancelled.store(v);
-
-        set_ready_to_execute(true);
-        return true;
-    }
+    bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
         if (new_status.ok()) {
@@ -267,6 +263,8 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
     std::vector<TUniqueId> fragment_instance_ids;
+    std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
+    std::mutex pipeline_lock;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
