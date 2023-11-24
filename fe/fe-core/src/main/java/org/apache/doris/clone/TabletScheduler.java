@@ -1458,7 +1458,7 @@ public class TabletScheduler extends MasterDaemon {
 
         if (hasBePath) {
             throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                    "waiting for dest replica slot");
+                    "scheduler waiting for dest backend slot");
         } else {
             throw new SchedException(Status.UNRECOVERABLE,
                     "unable to find dest path which can be fit in");
@@ -1663,8 +1663,9 @@ public class TabletScheduler extends MasterDaemon {
             updateDestPathHash(tabletCtx);
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
         } else {
-            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
-                    request.getTaskStatus().getErrorMsgs().get(0));
+            String errMsg = request.getTaskStatus().getErrorMsgs().get(0);
+            tabletCtx.setErrMsg(errMsg);
+            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, errMsg);
         }
 
         return true;
@@ -1971,7 +1972,7 @@ public class TabletScheduler extends MasterDaemon {
                     LOG.debug("path hash is not set.", new Exception());
                 }
                 throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                        "path hash is not set");
+                        "backend " + beId + " path hash is not set");
             }
 
             Slot slot = pathSlots.get(pathHash);
