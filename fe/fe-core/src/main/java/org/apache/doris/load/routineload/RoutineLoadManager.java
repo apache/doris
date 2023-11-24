@@ -178,7 +178,8 @@ public class RoutineLoadManager implements Writable {
         addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName());
     }
 
-    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName) throws DdlException {
+    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName)
+                    throws DdlException, MetaNotFoundException {
         writeLock();
         try {
             // check if db.routineLoadName has been used
@@ -196,7 +197,8 @@ public class RoutineLoadManager implements Writable {
             unprotectedAddJob(routineLoadJob);
             Env.getCurrentEnv().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
             LOG.info("create routine load job: id: {}, job name: {}, db name: {}, table name: {}",
-                     routineLoadJob.getId(), routineLoadJob.getName(), routineLoadJob.getDBName(), routineLoadJob.getTableName());
+                     routineLoadJob.getId(), routineLoadJob.getName(),
+                     routineLoadJob.getDBName(), routineLoadJob.getTableName());
         } finally {
             writeUnlock();
         }

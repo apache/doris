@@ -471,7 +471,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (isMultiTable) {
             return null;
         }
-        return database.getName();
+        return database.getFullName();
     }
 
     public String getTableName() throws MetaNotFoundException {
