@@ -128,7 +128,7 @@ public:
          * 1. `_use_blocking_queue` is true.
          * 2. Or this task is blocked by FE two phase execution (BLOCKED_FOR_DEPENDENCY).
          */
-        return _use_blocking_queue || get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
+        return _use_blocking_queue;
     }
     void set_use_blocking_queue() {
         if (_blocked_dep->push_to_blocking_queue()) {
@@ -143,6 +143,16 @@ public:
             _blocked_dep->set_ready();
             _blocked_dep = nullptr;
         }
+    }
+
+    bool has_dependency() override {
+        _blocked_dep = _execution_dep->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            set_use_blocking_queue();
+            static_cast<Dependency*>(_blocked_dep)->start_watcher();
+            return true;
+        }
+        return false;
     }
 
 private:
@@ -204,6 +214,8 @@ private:
     bool _dry_run = false;
 
     Dependency* _blocked_dep {nullptr};
+
+    Dependency* _execution_dep {nullptr};
 
     std::atomic<bool> _use_blocking_queue {true};
     std::atomic<bool> _finished {false};
