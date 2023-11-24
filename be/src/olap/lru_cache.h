@@ -353,6 +353,8 @@ public:
     uint64_t get_hit_count() const { return _hit_count; }
     size_t get_usage() const { return _usage; }
     size_t get_capacity() const { return _capacity; }
+    size_t get_element_count() const { return _table.element_count(); }
+    size_t get_evicted_element_count() const { return _evicted_element_count; }
 
 private:
     void _lru_remove(LRUHandle* e);
@@ -391,6 +393,8 @@ private:
     LRUHandleSortedSet _sorted_durable_entries_with_timestamp;
 
     uint32_t _element_count_capacity = 0;
+
+    uint64_t _evicted_element_count = 0;
 };
 
 class ShardedLRUCache : public Cache {
@@ -442,6 +446,8 @@ private:
     DoubleGauge* cache_usage_ratio = nullptr;
     IntAtomicCounter* cache_lookup_count = nullptr;
     IntAtomicCounter* cache_hit_count = nullptr;
+    IntAtomicCounter* cache_element_count = nullptr;
+    IntAtomicCounter* cache_evicted_element_count = nullptr;
     DoubleGauge* cache_hit_ratio = nullptr;
     // bvars
     std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;

@@ -25,6 +25,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage_ratio, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_lookup_count, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_hit_count, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_element_count, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_evicted_element_count, MetricUnit::OPERATIONS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_hit_ratio, MetricUnit::NOUNIT);
 
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
@@ -341,6 +343,7 @@ void LRUCache::_evict_one_entry(LRUHandle* e) {
     e->in_cache = false;
     _unref(e);
     _usage -= e->total_size;
+    ++_evicted_element_count;
 }
 
 bool LRUCache::_check_element_count_limit() {
@@ -547,6 +550,8 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     INT_DOUBLE_METRIC_REGISTER(_entity, cache_usage_ratio);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_element_count);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_evicted_element_count);
     INT_DOUBLE_METRIC_REGISTER(_entity, cache_hit_ratio);
 
     _hit_count_bvar.reset(new bvar::Adder<uint64_t>("doris_cache", _name));
@@ -649,17 +654,23 @@ void ShardedLRUCache::update_cache_metrics() const {
     size_t total_usage = 0;
     size_t total_lookup_count = 0;
     size_t total_hit_count = 0;
+    size_t total_element_count = 0;
+    size_t total_evicted_element_count = 0;
     for (int i = 0; i < _num_shards; i++) {
         total_capacity += _shards[i]->get_capacity();
         total_usage += _shards[i]->get_usage();
         total_lookup_count += _shards[i]->get_lookup_count();
         total_hit_count += _shards[i]->get_hit_count();
+        total_element_count += _shards[i]->get_element_count();
+        total_evicted_element_count += _shards[i]->get_evicted_element_count();
     }
 
     cache_capacity->set_value(total_capacity);
     cache_usage->set_value(total_usage);
     cache_lookup_count->set_value(total_lookup_count);
     cache_hit_count->set_value(total_hit_count);
+    cache_element_count->set_value(total_element_count);
+    cache_evicted_element_count->set_value(total_evicted_element_count);
     cache_usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
     cache_hit_ratio->set_value(
             total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
