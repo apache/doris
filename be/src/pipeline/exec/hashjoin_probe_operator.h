@@ -97,7 +97,9 @@ public:
     vectorized::DataTypes right_table_data_types();
     vectorized::DataTypes left_table_data_types();
     bool* has_null_in_build_side() { return &_shared_state->_has_null_in_build_side; }
-    const std::shared_ptr<vectorized::Block>& build_block() const { return _shared_state->build_block; }
+    const std::shared_ptr<vectorized::Block>& build_block() const {
+        return _shared_state->build_block;
+    }
 
 private:
     void _prepare_probe_block();

@@ -262,8 +262,8 @@ public:
                     uint32_t* __restrict build_idxs,
                     doris::vectorized::ColumnFilterHelper* mark_column) {
         if constexpr (is_mark_join) {
-            return _find_batch_mark<JoinOpType>(keys, bucket_nums, probe_idx, probe_rows,
-                                                probe_idxs, build_idxs, mark_column);
+            return _find_batch_mark<JoinOpType, with_other_conjuncts>(
+                    keys, bucket_nums, probe_idx, probe_rows, probe_idxs, build_idxs, mark_column);
         }
 
         if constexpr (with_other_conjuncts) {
@@ -316,7 +316,7 @@ public:
 
 private:
     // only LEFT_ANTI_JOIN/LEFT_SEMI_JOIN/NULL_AWARE_LEFT_ANTI_JOIN/CROSS_JOIN support mark join
-    template <int JoinOpType>
+    template <int JoinOpType, bool with_other_conjuncts>
     auto _find_batch_mark(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                           int probe_idx, int probe_rows, uint32_t* __restrict probe_idxs,
                           uint32_t* __restrict build_idxs,
@@ -331,13 +331,15 @@ private:
                 build_idx = next[build_idx];
             }
 
-            if (bucket_nums[probe_idx] == bucket_size) {
-                // mark result as null when probe row is null
-                mark_column->insert_null();
-            } else {
-                bool matched = JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0
-                                                                            : build_idx == 0;
-                mark_column->insert_value(matched);
+            if constexpr (!with_other_conjuncts) {
+                if (bucket_nums[probe_idx] == bucket_size) {
+                    // mark result as null when probe row is null
+                    mark_column->insert_null();
+                } else {
+                    bool matched = JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0
+                                                                                : build_idx == 0;
+                    mark_column->insert_value(matched);
+                }
             }
 
             probe_idxs[matched_cnt] = probe_idx++;

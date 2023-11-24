@@ -278,7 +278,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
                     output_block->get_by_position(orig_columns - 1).column->assume_mutable();
             ColumnFilterHelper helper(*mark_column);
 
-            mark_column->clear();
             for (size_t i = 0; i < row_count; ++i) {
                 filter_map[i] = true;
                 if constexpr (JoinOpType != TJoinOp::LEFT_SEMI_JOIN) {
@@ -290,21 +289,25 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
                 helper.insert_value(filter_column_ptr[i]);
             }
         } else {
-            for (size_t i = 0; i < row_count; ++i) {
-                if (filter_column_ptr[i]) {
-                    if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
+            if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
+                for (size_t i = 0; i < row_count; ++i) {
+                    if (filter_column_ptr[i]) {
                         filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
                         _parent->_last_probe_match = _probe_indexs[i];
                     } else {
-                        if (_build_indexs[i]) {
-                            filter_map[i] = false;
-                            _parent->_last_probe_match = _probe_indexs[i];
-                        } else {
-                            filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
-                        }
+                        filter_map[i] = false;
                     }
-                } else {
-                    filter_map[i] = false;
+                }
+            } else {
+                for (size_t i = 0; i < row_count; ++i) {
+                    if (_build_indexs[i]) {
+                        filter_map[i] = false;
+                        if (filter_column_ptr[i]) {
+                            _parent->_last_probe_match = _probe_indexs[i];
+                        }
+                    } else {
+                        filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
+                    }
                 }
             }
         }
