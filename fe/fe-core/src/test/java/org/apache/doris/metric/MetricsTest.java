@@ -17,17 +17,23 @@
 
 package org.apache.doris.metric;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.common.FeConstants;
 
 import com.codahale.metrics.Histogram;
+import org.apache.doris.monitor.jvm.JvmService;
+import org.apache.doris.monitor.jvm.JvmStats;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
 
+@Slf4j
 public class MetricsTest {
 
     @BeforeClass
@@ -76,6 +82,22 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
+
+    }
+
+    @Test
+    public void testGc(){
+        PrometheusMetricVisitor visitor = new PrometheusMetricVisitor();
+        JvmService jvmService = new JvmService();
+        JvmStats jvmStats = jvmService.stats();
+        visitor.visitJvm(jvmStats);
+        String metric = MetricRepo.getMetric(visitor);
+        List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        gcMxBeans.forEach(gcMxBean -> {
+            String name = gcMxBean.getName();
+            Assert.assertTrue(metric.contains("jvm_gc{name=\"" + name + " Count\", type=\"count\"} "));
+            Assert.assertTrue(metric.contains("jvm_gc{name=\"" + name + " Time\", type=\"time\"} "));
+        });
 
     }
 }
