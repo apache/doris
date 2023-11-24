@@ -17,10 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import mockit.*;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LabelName;
@@ -33,16 +29,34 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.load.*;
+import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
+import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.EtlStatus;
+import org.apache.doris.load.Load;
+import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 public class BrokerLoadJobTest {
 
@@ -53,8 +67,8 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testFromLoadStmt(@Injectable LoadStmt loadStmt, @Injectable LabelName labelName,
-            @Injectable DataDescription dataDescription, @Mocked Env env, @Mocked InternalCatalog catalog,
-            @Injectable Database database) {
+                                 @Injectable DataDescription dataDescription, @Mocked Env env, @Mocked InternalCatalog catalog,
+                                 @Injectable Database database) {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
 
@@ -97,8 +111,8 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testFromLoadStmt2(@Injectable LoadStmt loadStmt, @Injectable DataDescription dataDescription,
-            @Injectable LabelName labelName, @Injectable Database database, @Injectable OlapTable olapTable,
-            @Mocked Env env, @Mocked InternalCatalog catalog) {
+                                  @Injectable LabelName labelName, @Injectable Database database, @Injectable OlapTable olapTable,
+                                  @Mocked Env env, @Mocked InternalCatalog catalog) {
 
         String label = "label";
         long dbId = 1;
@@ -157,7 +171,7 @@ public class BrokerLoadJobTest {
         new MockUp<Load>() {
             @Mock
             public void checkAndCreateSource(Database db, DataDescription dataDescription,
-                    Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) {
+                                             Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) {
 
             }
         };
@@ -177,8 +191,8 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testGetTableNames(@Injectable BrokerFileGroupAggInfo fileGroupAggInfo,
-            @Injectable BrokerFileGroup brokerFileGroup, @Mocked Env env, @Mocked InternalCatalog catalog,
-            @Injectable Database database, @Injectable Table table) throws MetaNotFoundException {
+                                  @Injectable BrokerFileGroup brokerFileGroup, @Mocked Env env, @Mocked InternalCatalog catalog,
+                                  @Injectable Database database, @Injectable Table table) throws MetaNotFoundException {
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         brokerFileGroups.add(brokerFileGroup);
         Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
@@ -256,11 +270,11 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testPendingTaskOnFinished(@Injectable BrokerPendingTaskAttachment attachment, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Injectable Database database,
-            @Injectable BrokerFileGroupAggInfo fileGroupAggInfo, @Injectable BrokerFileGroup brokerFileGroup1,
-            @Injectable BrokerFileGroup brokerFileGroup2, @Injectable BrokerFileGroup brokerFileGroup3,
-            @Mocked MasterTaskExecutor masterTaskExecutor, @Injectable OlapTable olapTable,
-            @Mocked LoadingTaskPlanner loadingTaskPlanner) {
+                                          @Mocked InternalCatalog catalog, @Injectable Database database,
+                                          @Injectable BrokerFileGroupAggInfo fileGroupAggInfo, @Injectable BrokerFileGroup brokerFileGroup1,
+                                          @Injectable BrokerFileGroup brokerFileGroup2, @Injectable BrokerFileGroup brokerFileGroup3,
+                                          @Mocked MasterTaskExecutor masterTaskExecutor, @Injectable OlapTable olapTable,
+                                          @Mocked LoadingTaskPlanner loadingTaskPlanner) {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
         Deencapsulation.setField(brokerLoadJob, "state", JobState.LOADING);
         long taskId = 1L;
@@ -398,8 +412,8 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testLoadingTaskOnFinished(@Injectable BrokerLoadingTaskAttachment attachment1,
-            @Injectable LoadTask loadTask1, @Mocked Env env, @Mocked InternalCatalog catalog,
-            @Injectable Database database) {
+                                          @Injectable LoadTask loadTask1, @Mocked Env env, @Mocked InternalCatalog catalog,
+                                          @Injectable Database database) {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
         Deencapsulation.setField(brokerLoadJob, "state", JobState.LOADING);
         Map<Long, LoadTask> idToTasks = Maps.newHashMap();

@@ -17,22 +17,29 @@
 
 package org.apache.doris.load;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TNetworkAddress;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -84,9 +91,6 @@ public class BrokerFileGroup implements Writable {
     private long srcTableId = -1;
     private boolean isLoadFromTable = false;
 
-    // for multi load
-    private TNetworkAddress beAddr;
-    private long backendID;
     private boolean stripOuterArray = false;
     private String jsonPaths = "";
     private String jsonRoot = "";
@@ -205,8 +209,6 @@ public class BrokerFileGroup implements Writable {
             srcTableId = srcTable.getId();
             isLoadFromTable = true;
         }
-        beAddr = dataDescription.getBeAddr();
-        backendID = dataDescription.getBackendId();
         if (fileFormat != null && fileFormat.equalsIgnoreCase("json")) {
             stripOuterArray = dataDescription.isStripOuterArray();
             jsonPaths = dataDescription.getJsonPaths();

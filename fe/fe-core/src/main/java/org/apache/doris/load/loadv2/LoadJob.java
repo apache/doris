@@ -300,6 +300,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return jobType;
     }
 
+    public long getCreateTimestamp() {
+        return createTimestamp;
+    }
+
     protected long getDeadlineMs() {
         return createTimestamp + getTimeout() * 1000;
     }
