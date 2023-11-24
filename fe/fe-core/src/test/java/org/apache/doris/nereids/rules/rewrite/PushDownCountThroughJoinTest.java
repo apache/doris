@@ -42,15 +42,15 @@ import java.util.Set;
 class PushDownCountThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+    private MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
+        @Mock
+        public Set<Integer> getEnableNereidsRules() {
+            return ImmutableSet.of(RuleType.PUSH_DOWN_COUNT_THROUGH_JOIN.type());
+        }
+    };
 
     @Test
     void testSingleCount() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_COUNT_THROUGH_JOIN.type());
-            }
-        };
         Alias count = new Count(scan1.getOutput().get(0)).alias("count");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -71,12 +71,6 @@ class PushDownCountThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testMultiCount() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_COUNT_THROUGH_JOIN.type());
-            }
-        };
         Alias leftCnt1 = new Count(scan1.getOutput().get(0)).alias("leftCnt1");
         Alias leftCnt2 = new Count(scan1.getOutput().get(1)).alias("leftCnt2");
         Alias rightCnt1 = new Count(scan2.getOutput().get(1)).alias("rightCnt1");
@@ -100,12 +94,6 @@ class PushDownCountThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testSingleCountStar() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_COUNT_THROUGH_JOIN.type());
-            }
-        };
         Alias count = new Count().alias("countStar");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -126,12 +114,6 @@ class PushDownCountThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testSingleCountStarEmptyGroupBy() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_COUNT_THROUGH_JOIN.type());
-            }
-        };
         Alias count = new Count().alias("countStar");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -153,12 +135,6 @@ class PushDownCountThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testBothSideCountAndCountStar() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_COUNT_THROUGH_JOIN.type());
-            }
-        };
         Alias leftCnt = new Count(scan1.getOutput().get(0)).alias("leftCnt");
         Alias rightCnt = new Count(scan2.getOutput().get(0)).alias("rightCnt");
         Alias countStar = new Count().alias("countStar");

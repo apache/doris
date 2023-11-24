@@ -91,9 +91,12 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
+import org.apache.doris.nereids.rules.rewrite.PushDownCountThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownMinMaxThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownSumThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
@@ -272,14 +275,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new BuildAggForUnion())
             ),
 
-            // topic("Eager aggregation",
-            //         topDown(
-            //                 new PushDownSumThroughJoin(),
-            //                 new PushDownMinMaxThroughJoin(),
-            //                 new PushDownCountThroughJoin()
-            //         ),
-            //         custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)
-            // ),
+            topic("Eager aggregation",
+                    topDown(
+                            new PushDownSumThroughJoin(),
+                            new PushDownMinMaxThroughJoin(),
+                            new PushDownCountThroughJoin()
+                    )
+            ),
 
             topic("Limit optimization",
                     // TODO: the logical plan should not contains any phase information,

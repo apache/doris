@@ -42,15 +42,15 @@ class PushDownDistinctThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
     private static final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
+    private MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
+        @Mock
+        public Set<Integer> getEnableNereidsRules() {
+            return ImmutableSet.of(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN.type());
+        }
+    };
 
     @Test
     void testPushdownJoin() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN.type());
-            }
-        };
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -73,12 +73,6 @@ class PushDownDistinctThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testPushdownProjectJoin() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN.type());
-            }
-        };
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 2))

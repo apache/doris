@@ -42,15 +42,15 @@ import java.util.Set;
 class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+    private MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
+        @Mock
+        public Set<Integer> getEnableNereidsRules() {
+            return ImmutableSet.of(RuleType.PUSH_DOWN_SUM_THROUGH_JOIN.type());
+        }
+    };
 
     @Test
     void testSingleJoinLeftSum() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_SUM_THROUGH_JOIN.type());
-            }
-        };
         Alias sum = new Sum(scan1.getOutput().get(1)).alias("sum");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -71,12 +71,6 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testSingleJoinRightSum() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_SUM_THROUGH_JOIN.type());
-            }
-        };
         Alias sum = new Sum(scan2.getOutput().get(1)).alias("sum");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -97,12 +91,6 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testAggNotOutputGroupBy() {
-        new MockUp<SessionVariable>() {
-            @Mock
-            public Set<Integer> getEnableNereidsRules() {
-                return ImmutableSet.of(RuleType.PUSH_DOWN_SUM_THROUGH_JOIN.type());
-            }
-        };
         // agg don't output group by
         Alias sum = new Sum(scan1.getOutput().get(1)).alias("sum");
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
