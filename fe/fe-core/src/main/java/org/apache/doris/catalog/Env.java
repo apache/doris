@@ -295,6 +295,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -3021,12 +3022,21 @@ public class Env {
                                 : keySql.substring("DUPLICATE ".length()))
                         .append("(");
                 List<String> keysColumnNames = Lists.newArrayList();
+                Map<Integer, String> clusterKeysColumnNamesToId = new TreeMap<>();
                 for (Column column : olapTable.getBaseSchema()) {
                     if (column.isKey()) {
                         keysColumnNames.add("`" + column.getName() + "`");
                     }
+                    if (column.isClusterKey()) {
+                        clusterKeysColumnNamesToId.put(column.getClusterKeyId(), column.getName());
+                    }
                 }
                 sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
+                // show cluster keys
+                if (!clusterKeysColumnNamesToId.isEmpty()) {
+                    sb.append("\n").append("CLUSTER BY (`");
+                    sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
+                }
             }
 
             if (specificVersion != -1) {
@@ -3952,15 +3962,22 @@ public class Env {
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties,
                                                 boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
+        Map<Integer, Column> clusterColumns = new TreeMap<>();
         for (Column column : columns) {
             if (column.isKey()) {
                 indexColumns.add(column);
             }
+            if (column.isClusterKey()) {
+                clusterColumns.put(column.getClusterKeyId(), column);
+            }
         }
-        LOG.debug("index column size: {}", indexColumns.size());
+        LOG.debug("index column size: {}, cluster column size: {}", indexColumns.size(), clusterColumns.size());
         if (isKeysRequired) {
             Preconditions.checkArgument(indexColumns.size() > 0);
         }
+        // sort by cluster keys for mow if set, otherwise by index columns
+        List<Column> sortKeyColumns = clusterColumns.isEmpty() ? indexColumns
+                : clusterColumns.values().stream().collect(Collectors.toList());
 
         // figure out shortKeyColumnCount
         short shortKeyColumnCount = (short) -1;
@@ -3975,12 +3992,12 @@ public class Env {
                 throw new DdlException("Invalid short key: " + shortKeyColumnCount);
             }
 
-            if (shortKeyColumnCount > indexColumns.size()) {
-                throw new DdlException("Short key is too large. should less than: " + indexColumns.size());
+            if (shortKeyColumnCount > sortKeyColumns.size()) {
+                throw new DdlException("Short key is too large. should less than: " + sortKeyColumns.size());
             }
 
             for (int pos = 0; pos < shortKeyColumnCount; pos++) {
-                if (indexColumns.get(pos).getDataType() == PrimitiveType.VARCHAR && pos != shortKeyColumnCount - 1) {
+                if (sortKeyColumns.get(pos).getDataType() == PrimitiveType.VARCHAR && pos != shortKeyColumnCount - 1) {
                     throw new DdlException("Varchar should not in the middle of short keys.");
                 }
             }
@@ -3995,9 +4012,9 @@ public class Env {
              */
             shortKeyColumnCount = 0;
             int shortKeySizeByte = 0;
-            int maxShortKeyColumnCount = Math.min(indexColumns.size(), FeConstants.shortkey_max_column_count);
+            int maxShortKeyColumnCount = Math.min(sortKeyColumns.size(), FeConstants.shortkey_max_column_count);
             for (int i = 0; i < maxShortKeyColumnCount; i++) {
-                Column column = indexColumns.get(i);
+                Column column = sortKeyColumns.get(i);
                 shortKeySizeByte += column.getOlapColumnIndexSize();
                 if (shortKeySizeByte > FeConstants.shortkey_maxsize_bytes) {
                     if (column.getDataType().isCharFamily()) {
@@ -4020,6 +4037,18 @@ public class Env {
 
         } // end calc shortKeyColumnCount
 
+        if (clusterColumns.size() > 0 && shortKeyColumnCount < clusterColumns.size()) {
+            boolean sameKey = true;
+            for (int i = 0; i < shortKeyColumnCount; i++) {
+                if (!clusterColumns.get(i).getName().equals(indexColumns.get(i).getName())) {
+                    sameKey = false;
+                    break;
+                }
+            }
+            if (sameKey) {
+                throw new DdlException(shortKeyColumnCount + " short keys is a part of unique keys");
+            }
+        }
         return shortKeyColumnCount;
     }
 
