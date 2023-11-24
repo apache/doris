@@ -70,38 +70,9 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options)
-            : fragment_num(total_fragment_num),
-              timeout_second(-1),
-              _query_id(query_id),
-              _exec_env(exec_env),
-              _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
-              _query_options(query_options) {
-        _start_time = VecDateTimeValue::local_time();
-        _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-        _shared_scanner_controller.reset(new vectorized::SharedScannerController());
-    }
+                 const TQueryOptions& query_options);
 
-    ~QueryContext() {
-        // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
-        // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
-        // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
-        // on query mem tracker, released on other trackers.
-        std::string mem_tracker_msg {""};
-        if (query_mem_tracker->peak_consumption() != 0) {
-            mem_tracker_msg = fmt::format(
-                    ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
-                    "PeakUsed={}",
-                    print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
-                    MemTracker::print_bytes(query_mem_tracker->consumption()),
-                    MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
-        }
-        if (_task_group) {
-            _task_group->remove_mem_tracker_limiter(query_mem_tracker);
-        }
-
-        LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
-    }
+    ~QueryContext();
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
@@ -130,17 +101,7 @@ public:
 
     ThreadPoolToken* get_token() { return _thread_token.get(); }
 
-    void set_ready_to_execute(bool is_cancelled) {
-        {
-            std::lock_guard<std::mutex> l(_start_lock);
-            _is_cancelled = is_cancelled;
-            _ready_to_execute = true;
-        }
-        if (query_mem_tracker && is_cancelled) {
-            query_mem_tracker->set_is_query_cancelled(is_cancelled);
-        }
-        _start_cond.notify_all();
-    }
+    void set_ready_to_execute(bool is_cancelled);
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
     bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
@@ -161,13 +122,7 @@ public:
         return _exec_status;
     }
 
-    void set_ready_to_execute_only() {
-        {
-            std::lock_guard<std::mutex> l(_start_lock);
-            _ready_to_execute = true;
-        }
-        _start_cond.notify_all();
-    }
+    void set_ready_to_execute_only();
 
     bool is_ready_to_execute() {
         std::lock_guard<std::mutex> l(_start_lock);
@@ -241,6 +196,8 @@ public:
 
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
+    pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
+
 public:
     DescriptorTbl* desc_tbl;
     bool set_rsc_info = false;
@@ -304,6 +261,7 @@ private:
 
     pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
+    std::unique_ptr<pipeline::Dependency> _execution_dependency;
 };
 
 } // namespace doris

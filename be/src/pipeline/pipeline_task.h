@@ -193,7 +193,7 @@ public:
         _previous_schedule_id = id;
     }
 
-    bool has_dependency();
+    virtual bool has_dependency();
 
     OperatorPtr get_root() { return _root; }
 
