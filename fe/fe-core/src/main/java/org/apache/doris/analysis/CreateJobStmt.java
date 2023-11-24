@@ -83,8 +83,6 @@ public class CreateJobStmt extends DdlStmt {
     private final String comment;
     private JobExecuteType executeType;
 
-    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
-
     private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
             = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
             .add(UpdateStmt.class).build();
@@ -114,7 +112,7 @@ public class CreateJobStmt extends DdlStmt {
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         analyzerSqlStmt();
         // check its insert stmt,currently only support insert stmt
-        //todo used InsertIntoCommand if job is InsertJob
+        //todo when support other stmt,need to check stmt type and generate jobInstance
         InsertJob job = new InsertJob();
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         jobExecutionConfiguration.setExecuteType(executeType);
@@ -144,10 +142,12 @@ public class CreateJobStmt extends DdlStmt {
         job.setJobName(labelName.getLabelName());
         job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
         job.setJobStatus(JobStatus.RUNNING);
-        job.checkJobParams();
+        job.setJobId(Env.getCurrentEnv().getNextId());
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt);
         job.setExecuteSql(executeSql);
+
+        //job.checkJobParams();
         jobInstance = job;
     }
 

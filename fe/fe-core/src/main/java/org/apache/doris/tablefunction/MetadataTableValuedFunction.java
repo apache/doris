@@ -41,6 +41,8 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
                 return WorkloadGroupsTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case CATALOGS:
                 return CatalogsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case MATERIALIZED_VIEWS:
+                return MaterializedViewsTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case QUERIES:
                 return QueriesTableValuedFunction.getColumnIndexFromColumnName(columnName);
             default:

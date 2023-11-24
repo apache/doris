@@ -122,6 +122,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.common.JobType;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
@@ -184,16 +185,32 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             env.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateJobStmt) {
-            env.getJobManager().registerJob(((CreateJobStmt) ddlStmt).getJobInstance());
+            try {
+                env.getJobManager().registerJob(((CreateJobStmt) ddlStmt).getJobInstance());
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
         } else if (ddlStmt instanceof StopJobStmt) {
             StopJobStmt stmt = (StopJobStmt) ddlStmt;
-            env.getJobManager().unregisterJob(stmt.getDbFullName(), stmt.getName());
+            try {
+                env.getJobManager().unregisterJob(stmt.getName(), JobType.INSERT);
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
         } else if (ddlStmt instanceof PauseJobStmt) {
             PauseJobStmt stmt = (PauseJobStmt) ddlStmt;
-            env.getJobManager().alterJobStatus(stmt.getDbFullName(), stmt.getName(), JobStatus.PAUSED);
+            try {
+                env.getJobManager().alterJobStatus(stmt.getName(), JobStatus.PAUSED, JobType.INSERT);
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
         } else if (ddlStmt instanceof ResumeJobStmt) {
             ResumeJobStmt stmt = (ResumeJobStmt) ddlStmt;
-            env.getJobManager().alterJobStatus(stmt.getDbFullName(), stmt.getName(), JobStatus.RUNNING);
+            try {
+                env.getJobManager().alterJobStatus(stmt.getName(), JobStatus.RUNNING, JobType.INSERT);
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
             env.getAuth().createUser(stmt);

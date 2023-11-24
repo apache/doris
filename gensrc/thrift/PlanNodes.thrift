@@ -469,9 +469,14 @@ struct TFrontendsMetadataParams {
   1: optional string cluster_name
 }
 
+struct TMaterializedViewsMetadataParams {
+  1: optional string database
+}
+
 struct TQueriesMetadataParams {
   1: optional string cluster_name
   2: optional bool   relay_to_other_fe
+  3: optional TMaterializedViewsMetadataParams materialized_views_params
 }
 
 struct TMetaScanRange {
@@ -479,7 +484,8 @@ struct TMetaScanRange {
   2: optional TIcebergMetadataParams iceberg_params
   3: optional TBackendsMetadataParams backends_params
   4: optional TFrontendsMetadataParams frontends_params
-  5: optional TQueriesMetadataParams queries_params;
+  5: optional TQueriesMetadataParams queries_params
+  6: optional TMaterializedViewsMetadataParams materialized_views_params
 }
 
 // Specification of an individual data range which is held in its entirety

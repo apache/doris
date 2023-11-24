@@ -2595,16 +2595,28 @@ resume_job_stmt ::=
 show_job_stmt ::=
     KW_SHOW KW_JOBS
     {:
-        RESULT = new ShowJobStmt(null,null,null);
+        RESULT = new ShowJobStmt(null,null);
+    :}
+    | KW_SHOW KW_MTMV KW_JOBS
+    {:
+        RESULT = new ShowJobStmt(null,org.apache.doris.job.common.JobType.MTMV);
+    :}
+    | KW_SHOW KW_MTMV KW_JOB KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
     :}
     | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobStmt(null,jobLabel,null);
-    :}
+        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.INSERT);
+    :}    
     | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobTaskStmt(null,jobLabel);
+        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.INSERT);
     :}    
+    | KW_SHOW KW_MTMV KW_JOB KW_TASKS KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
+    :}       
     ;
 pause_job_stmt ::=
     KW_PAUSE KW_JOB KW_FOR job_label:jobLabel
@@ -2977,10 +2989,6 @@ drop_stmt ::=
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
-    :}
-    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists table_name:mvName
-    {:
-        RESULT = new DropMaterializedViewStmt(ifExists, mvName);
     :}
     | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
     {:

@@ -53,7 +53,7 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
 
     private long latestBatchSchedulerTimerTaskTimeMs = 0L;
 
-    private static final long BATCH_SCHEDULER_INTERVAL_SECONDS = 60;
+    private static final long BATCH_SCHEDULER_INTERVAL_SECONDS = 600;
 
     private static final int HASHED_WHEEL_TIMER_TICKS_PER_WHEEL = 660;
 
@@ -104,12 +104,21 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         if (!job.getJobConfig().checkIsTimerJob()) {
             //manual job will not scheduler
             if (JobExecuteType.MANUAL.equals(job.getJobConfig().getExecuteType())) {
+                if (job.getJobConfig().isImmediate()) {
+                    schedulerInstantJob(job, TaskType.MANUAL);
+                }
                 return;
             }
+
             //todo skip streaming job,improve in the future
             if (JobExecuteType.INSTANT.equals(job.getJobConfig().getExecuteType())) {
                 schedulerInstantJob(job, TaskType.SCHEDULED);
             }
+        }
+        //RECURRING job and  immediate is true
+        if (job.getJobConfig().isImmediate()) {
+            job.getJobConfig().getTimerDefinition().setLatestSchedulerTimeMs(System.currentTimeMillis());
+            schedulerInstantJob(job, TaskType.SCHEDULED);
         }
         //if it's timer job and trigger last window already start, we will scheduler it immediately
         cycleTimerJobScheduler(job);
