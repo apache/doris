@@ -258,11 +258,11 @@ public class IntLiteral extends LiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
-        if (expr instanceof StringLiteral) {
-            return ((StringLiteral) expr).compareLiteral(this);
-        }
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
+        }
+        if (expr instanceof StringLiteral) {
+            return ((StringLiteral) expr).compareLiteral(this);
         }
         if (value == expr.getLongValue()) {
             return 0;

@@ -595,28 +595,28 @@ public class DateLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        DateLiteral other = (DateLiteral) expr;
-        // TODO: refactor the compare of Expr
-        if (other instanceof DateLiteral) {
-            if (this.year != other.year) {
-                return this.year > other.year ? 1 : -1;
-            } else if (this.month != other.month) {
-                return this.month > other.month ? 1 : -1;
-            } else if (this.day != other.day) {
-                return this.day > other.day ? 1 : -1;
-            } else if (this.hour != other.hour) {
-                return this.hour > other.hour ? 1 : -1;
-            } else if (this.minute != other.minute) {
-                return this.minute > other.minute ? 1 : -1;
-            } else if (this.second != other.second) {
-                return this.second > other.second ? 1 : -1;
-            } else if (this.microsecond != other.microsecond) {
-                return this.microsecond > other.microsecond ? 1 : -1;
-            }
-            return 0;
+
+        if (expr instanceof PlaceHolderExpr) {
+            expr = ((PlaceHolderExpr) expr).getlExpr();
         }
-        // date time will not overflow when doing addition and subtraction
-        return getStringValue().compareTo(expr.getStringValue());
+        DateLiteral other = (DateLiteral) expr;
+        Preconditions.checkState(expr instanceof DateLiteral, expr.getType() + "can't compare with DateLiteral");
+        if (this.year != other.year) {
+            return this.year > other.year ? 1 : -1;
+        } else if (this.month != other.month) {
+            return this.month > other.month ? 1 : -1;
+        } else if (this.day != other.day) {
+            return this.day > other.day ? 1 : -1;
+        } else if (this.hour != other.hour) {
+            return this.hour > other.hour ? 1 : -1;
+        } else if (this.minute != other.minute) {
+            return this.minute > other.minute ? 1 : -1;
+        } else if (this.second != other.second) {
+            return this.second > other.second ? 1 : -1;
+        } else if (this.microsecond != other.microsecond) {
+            return this.microsecond > other.microsecond ? 1 : -1;
+        }
+        return 0;
     }
 
     @Override

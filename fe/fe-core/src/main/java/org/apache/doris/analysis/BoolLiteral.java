@@ -27,6 +27,8 @@ import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
+import com.google.common.base.Preconditions;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -92,7 +94,13 @@ public class BoolLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        return Long.signum(getLongValue() - expr.getLongValue());
+        if (expr instanceof PlaceHolderExpr) {
+            expr = ((PlaceHolderExpr) expr).getlExpr();
+        }
+        BoolLiteral other = (BoolLiteral) expr;
+        Preconditions.checkState(expr instanceof BoolLiteral, expr.getType() + "can't compare with BoolLiteral");
+        // compare boolean
+        return value == other.value ? 0 : (value ? 1 : -1);
     }
 
     @Override

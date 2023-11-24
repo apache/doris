@@ -27,6 +27,8 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFloatLiteral;
 
+import com.google.common.base.Preconditions;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -120,7 +122,12 @@ public class FloatLiteral extends LiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
-        return Double.compare(value, expr.getDoubleValue());
+        if (expr instanceof PlaceHolderExpr) {
+            expr = ((PlaceHolderExpr) expr).getlExpr();
+        }
+        FloatLiteral other = (FloatLiteral) expr;
+        Preconditions.checkState(expr instanceof FloatLiteral, expr.getType() + "can't compare with FloatLiteral");
+        return Double.compare(value, other.value);
     }
 
     @Override

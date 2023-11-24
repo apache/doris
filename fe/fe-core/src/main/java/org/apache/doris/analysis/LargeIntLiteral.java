@@ -183,7 +183,7 @@ public class LargeIntLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (expr.type.equals(Type.LARGEINT)) {
+        if (expr instanceof LargeIntLiteral) {
             return value.compareTo(((LargeIntLiteral) expr).value);
         } else {
             BigInteger intValue = new BigInteger(((IntLiteral) expr).getStringValue());
