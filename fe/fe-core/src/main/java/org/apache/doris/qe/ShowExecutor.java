@@ -179,7 +179,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
@@ -2495,21 +2494,8 @@ public class ShowExecutor {
 
     private void handleShowTableCreation() throws AnalysisException {
         ShowTableCreationStmt showStmt = (ShowTableCreationStmt) stmt;
-        String dbName = showStmt.getDbName();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
-
-        List<IcebergTableCreationRecord> records = ctx.getEnv().getIcebergTableCreationRecordMgr()
-                .getTableCreationRecordByDbId(db.getId());
 
         List<List<Comparable>> rowSet = Lists.newArrayList();
-        for (IcebergTableCreationRecord record : records) {
-            List<Comparable> row = record.getTableCreationRecord();
-            // like predicate
-            if (Strings.isNullOrEmpty(showStmt.getWild()) || showStmt.like(record.getTable())) {
-                rowSet.add(row);
-            }
-        }
-
         // sort function rows by fourth column (Create Time) asc
         ListComparator<List<Comparable>> comparator = null;
         OrderByPair orderByPair = new OrderByPair(3, false);

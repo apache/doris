@@ -87,7 +87,7 @@ public class OdbcCatalogResourceTest {
 
         // host: 127.0.0.1, port: 7777, without driver and odbc_type
         CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, properties);
-        Config.enable_odbc_table = true;
+        Config.enable_odbc_mysql_broker_table = true;
         stmt.analyze(analyzer);
         OdbcCatalogResource resource = (OdbcCatalogResource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, resource.getName());

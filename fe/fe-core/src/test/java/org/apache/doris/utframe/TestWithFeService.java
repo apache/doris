@@ -625,7 +625,7 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            Config.enable_odbc_table = true;
+            Config.enable_odbc_mysql_broker_table = true;
             createTables(enableNerieds, sql);
         } catch (Exception e) {
             e.printStackTrace();

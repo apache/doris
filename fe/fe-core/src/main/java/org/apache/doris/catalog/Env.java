@@ -139,7 +139,6 @@ import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.external.elasticsearch.EsRepository;
-import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -1570,7 +1569,6 @@ public class Env {
         }
         streamLoadRecordMgr.start();
         tabletLoadIndexRecorderMgr.start();
-        getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
@@ -3397,18 +3395,6 @@ public class Env {
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
             sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
             sb.append("\n)");
-        } else if (table.getType() == TableType.ICEBERG) {
-            IcebergTable icebergTable = (IcebergTable) table;
-
-            addTableComment(icebergTable, sb);
-
-            // properties
-            sb.append("\nPROPERTIES (\n");
-            sb.append("\"iceberg.database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
-            sb.append("\"iceberg.table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
-            sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(),
-                        " = ", true, true, hidePassword).toString());
-            sb.append("\n)");
         } else if (table.getType() == TableType.JDBC) {
             JdbcTable jdbcTable = (JdbcTable) table;
             addTableComment(jdbcTable, sb);
@@ -3793,10 +3779,6 @@ public class Env {
 
     public TabletLoadIndexRecorderMgr getTabletLoadIndexRecorderMgr() {
         return tabletLoadIndexRecorderMgr;
-    }
-
-    public IcebergTableCreationRecordMgr getIcebergTableCreationRecordMgr() {
-        return getInternalCatalog().getIcebergTableCreationRecordMgr();
     }
 
     public MasterTaskExecutor getPendingLoadTaskScheduler() {

@@ -1811,11 +1811,6 @@ create_stmt ::=
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
     :}
-    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_ENGINE EQUAL ident:engineName
-          properties:properties opt_comment:tableComment
-    {:
-       RESULT = new CreateTableStmt(ifNotExists, isExternal, name, engineName, properties, tableComment);
-    :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             opt_col_list:columns
             opt_engine:engineName
