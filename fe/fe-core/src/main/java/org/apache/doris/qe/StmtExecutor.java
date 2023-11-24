@@ -1387,7 +1387,7 @@ public class StmtExecutor {
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString, false);
-            LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
+            LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
             return;
         }
 
@@ -1395,7 +1395,7 @@ public class StmtExecutor {
         Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
         if (resultSet.isPresent()) {
             sendResultSet(resultSet.get());
-            LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
+            LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
             return;
         }
 
@@ -1413,7 +1413,7 @@ public class StmtExecutor {
                 && context.getSessionVariable().getDefaultOrderByLimit() < 0) {
             if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
-                LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
+                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
         }
@@ -1429,13 +1429,13 @@ public class StmtExecutor {
 
                 sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
                 context.getState().setEof();
-                LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
+                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
         }
 
         sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
-        LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
+        LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
     }
 
     private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,

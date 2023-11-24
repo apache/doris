@@ -220,6 +220,8 @@ public final class QeProcessorImpl implements QeProcessor {
                 writeProfileExecutor.submit(new WriteProfileTask(params, info));
             }
         } catch (Exception e) {
+            LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
+                    DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id));
             return result;
         }
         result.setStatus(new TStatus(TStatusCode.OK));

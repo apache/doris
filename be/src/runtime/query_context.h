@@ -99,8 +99,7 @@ public:
             _task_group->remove_mem_tracker_limiter(query_mem_tracker);
         }
 
-        VLOG_DEBUG << fmt::format("Query {} deconstructed, {}", print_id(_query_id),
-                                  mem_tracker_msg);
+        LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
     }
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
