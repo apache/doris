@@ -2941,10 +2941,6 @@ public class SessionVariable implements Serializable, Writable {
         return this.profileLevel;
     }
 
-    public boolean fasterFloatConvert() {
-        return this.fasterFloatConvert;
-    }
-
     public void checkSqlDialect(String sqlDialect) {
         if (StringUtils.isEmpty(sqlDialect)) {
             LOG.warn("sqlDialect value is empty");
