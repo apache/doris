@@ -195,7 +195,8 @@ public class RoutineLoadManager implements Writable {
 
             unprotectedAddJob(routineLoadJob);
             Env.getCurrentEnv().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
-            LOG.info("create routine load job: id: {}, name: {}", routineLoadJob.getId(), routineLoadJob.getName());
+            LOG.info("create routine load job: id: {}, job name: {}, db name: {}, table name: {}",
+                     routineLoadJob.getId(), routineLoadJob.getName(), routineLoadJob.getDBName(), routineLoadJob.getTableName());
         } finally {
             writeUnlock();
         }

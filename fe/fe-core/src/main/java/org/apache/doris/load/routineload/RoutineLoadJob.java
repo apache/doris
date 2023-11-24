@@ -466,6 +466,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return tableId;
     }
 
+    public String getDBName() throws MetaNotFoundException {
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        if (isMultiTable) {
+            return null;
+        }
+        return database.getName();
+    }
+
     public String getTableName() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         if (isMultiTable) {
