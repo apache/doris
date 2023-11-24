@@ -56,6 +56,9 @@ public class CustomRewriteJob implements RewriteJob {
         // COUNTER_TRACER.log(CounterEvent.of(Memo.get=-StateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
         //         root));
         Plan rewrittenRoot = customRewriter.get().rewriteRoot(root, context);
+        if (rewrittenRoot == null) {
+            return;
+        }
 
         // don't remove this comment, it can help us to trace some bug when developing.
 
