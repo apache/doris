@@ -35,14 +35,14 @@ import org.apache.commons.lang3.StringUtils;
  * Extends from {@link org.apache.doris.nereids.parser.LogicalPlanBuilder},
  * just focus on the difference between these query syntax.
  */
-public class HiveLogicalPlanBuilder extends LogicalPlanBuilder {
-    // use a default alias name if not exists
-    public static final String DEFAULT_TABLE_ALIAS = "_";
+public class Spark3LogicalPlanBuilder extends LogicalPlanBuilder {
+    // use a default alias name if not exists, keep the same name with spark
+    public static final String DEFAULT_TABLE_ALIAS = "__auto_generated_subquery_name";
 
     private final ParserContext parserContext;
 
-    public HiveLogicalPlanBuilder() {
-        this.parserContext = new ParserContext(ParseDialect.HIVE_ALL);
+    public Spark3LogicalPlanBuilder() {
+        this.parserContext = new ParserContext(ParseDialect.SPARK_3_ALL);
     }
 
     @Override
@@ -61,7 +61,7 @@ public class HiveLogicalPlanBuilder extends LogicalPlanBuilder {
             return expression;
         }
         UnboundFunction sourceFunction = (UnboundFunction) expression;
-        Function transformedFunction = HiveFnCallTransformers.getSingleton().transform(
+        Function transformedFunction = Spark3FnCallTransformers.getSingleton().transform(
                 sourceFunction.getName(),
                 sourceFunction.getArguments(),
                 this.parserContext

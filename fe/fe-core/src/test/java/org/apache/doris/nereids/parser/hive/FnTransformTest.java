@@ -37,7 +37,7 @@ public class FnTransformTest extends ParserTestBase {
         String dialectSql1 = "SELECT get_json_object('{\"a\": 1}', '$.a') as b FROM t";
         LogicalPlan logicalPlan1 = nereidsParser.parseSingle(sql1);
         LogicalPlan dialectLogicalPlan1 = nereidsParser.parseSingle(dialectSql1,
-                    new HiveLogicalPlanBuilder());
+                    new Spark3LogicalPlanBuilder());
         Assertions.assertEquals(dialectLogicalPlan1, logicalPlan1);
         Assertions.assertTrue(dialectLogicalPlan1.child(0).toString().toLowerCase()
                     .contains("json_extract('{\"a\": 1}', '$.a')"));
@@ -46,7 +46,7 @@ public class FnTransformTest extends ParserTestBase {
         String dialectSql2 = "SELECT get_json_object(a, '$.a') as b FROM t";
         LogicalPlan logicalPlan2 = nereidsParser.parseSingle(sql2);
         LogicalPlan dialectLogicalPlan2 = nereidsParser.parseSingle(dialectSql2,
-                new HiveLogicalPlanBuilder());
+                new Spark3LogicalPlanBuilder());
         Assertions.assertEquals(dialectLogicalPlan2, logicalPlan2);
         Assertions.assertTrue(dialectLogicalPlan2.child(0).toString().toLowerCase()
                     .contains("json_extract('a, '$.a')"));

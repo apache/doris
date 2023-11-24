@@ -25,12 +25,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import com.google.common.collect.Lists;
 
 /**
- * The builder and factory for hive {@link AbstractFnCallTransformer},
+ * The builder and factory for spark3 {@link AbstractFnCallTransformer},
  * and supply transform facade ability.
  */
-public class HiveFnCallTransformers extends AbstractFnCallTransformers {
+public class Spark3FnCallTransformers extends AbstractFnCallTransformers {
 
-    private HiveFnCallTransformers() {
+    private Spark3FnCallTransformers() {
     }
 
     @Override
@@ -62,10 +62,10 @@ public class HiveFnCallTransformers extends AbstractFnCallTransformers {
     }
 
     static class SingletonHolder {
-        private static final HiveFnCallTransformers INSTANCE = new HiveFnCallTransformers();
+        private static final Spark3FnCallTransformers INSTANCE = new Spark3FnCallTransformers();
     }
 
-    public static HiveFnCallTransformers getSingleton() {
+    public static Spark3FnCallTransformers getSingleton() {
         return SingletonHolder.INSTANCE;
     }
 }

@@ -23,7 +23,7 @@ import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.parser.hive.HiveLogicalPlanBuilder;
+import org.apache.doris.nereids.parser.hive.Spark3LogicalPlanBuilder;
 import org.apache.doris.nereids.parser.trino.TrinoParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -65,11 +65,8 @@ public class NereidsParser {
      * ParseSQL with dialect.
      */
     public List<StatementBase> parseSQL(String sql, SessionVariable sessionVariable) {
-        ParseDialect.Dialect sqlDialect = ParseDialect.Dialect.getByName(sessionVariable.getSqlDialect());
-        if (sqlDialect != null) {
-            return parseSQLWithDialect(sql, sqlDialect, sessionVariable);
-        }
-        return parseSQL(sql);
+        @Nullable ParseDialect.Dialect sqlDialect = ParseDialect.Dialect.getByName(sessionVariable.getSqlDialect());
+        return parseSQLWithDialect(sql, sqlDialect, sessionVariable);
     }
 
     private List<StatementBase> parseSQL(String originStr, @Nullable LogicalPlanBuilder logicalPlanBuilder) {
@@ -81,7 +78,8 @@ public class NereidsParser {
         return statementBases;
     }
 
-    private List<StatementBase> parseSQLWithDialect(String sql, ParseDialect.Dialect sqlDialect,
+    private List<StatementBase> parseSQLWithDialect(String sql,
+                                                    @Nullable ParseDialect.Dialect sqlDialect,
                                                     SessionVariable sessionVariable) {
         switch (sqlDialect) {
             case TRINO:
@@ -91,8 +89,8 @@ public class NereidsParser {
                 }
                 return logicalPlans;
 
-            case HIVE:
-                return parseSQL(sql, new HiveLogicalPlanBuilder());
+            case SPARK:
+                return parseSQL(sql, new Spark3LogicalPlanBuilder());
 
             default:
                 return parseSQL(sql);

@@ -28,7 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.parser.ParseDialect;
-import org.apache.doris.nereids.parser.hive.HiveLogicalPlanBuilder;
+import org.apache.doris.nereids.parser.hive.Spark3LogicalPlanBuilder;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TNullSide;
@@ -191,11 +191,11 @@ public class InlineViewRef extends TableRef {
         if (view == null && !hasExplicitAlias()) {
             String dialect = ConnectContext.get().getSessionVariable().getSqlDialect();
             ParseDialect.Dialect sqlDialect = ParseDialect.Dialect.getByName(dialect);
-            if (ParseDialect.Dialect.HIVE != sqlDialect) {
+            if (ParseDialect.Dialect.SPARK != sqlDialect) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
             }
             hasExplicitAlias = true;
-            aliases = new String[] { HiveLogicalPlanBuilder.DEFAULT_TABLE_ALIAS };
+            aliases = new String[] { Spark3LogicalPlanBuilder.DEFAULT_TABLE_ALIAS };
         }
 
         // Analyze the inline view query statement with its own analyzer

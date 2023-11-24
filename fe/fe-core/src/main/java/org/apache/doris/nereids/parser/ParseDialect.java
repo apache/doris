@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.parser;
 
+import javax.annotation.Nullable;
+
 /**
  * ParseDialect enum, maybe support other dialect.
  */
@@ -31,9 +33,9 @@ public enum ParseDialect {
      */
     DORIS_2_ALL(Dialect.DORIS, Version.DORIS_2_ALL),
     /**
-     * Hive parser.
+     * Spark parser and it's version is 3.x.
      */
-    HIVE_ALL(Dialect.HIVE, Version.HIVE_ALL);
+    SPARK_3_ALL(Dialect.SPARK, Version.SPARK_3_ALL);
 
     private final Dialect dialect;
     private final Version version;
@@ -63,8 +65,10 @@ public enum ParseDialect {
          * Doris parser and it's version is 2.0.0.
          */
         DORIS_2_ALL("2.*"),
-
-        HIVE_ALL("*");
+        /**
+         * Spark parser and it's version is 3.x.
+         */
+        SPARK_3_ALL("3.*");
         private final String version;
 
         Version(String version) {
@@ -89,7 +93,7 @@ public enum ParseDialect {
          */
         DORIS("doris"),
 
-        HIVE("hive");
+        SPARK("spark");
 
         private String dialectName;
 
@@ -104,7 +108,7 @@ public enum ParseDialect {
         /**
          * Get dialect by name
          */
-        public static Dialect getByName(String dialectName) {
+        public static @Nullable Dialect getByName(String dialectName) {
             if (dialectName == null) {
                 return null;
             }
