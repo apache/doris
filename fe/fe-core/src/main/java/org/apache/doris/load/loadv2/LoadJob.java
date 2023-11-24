@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.sun.xml.internal.ws.util.StringUtils;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
