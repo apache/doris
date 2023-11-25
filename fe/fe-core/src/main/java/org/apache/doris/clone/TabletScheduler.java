@@ -171,6 +171,7 @@ public class TabletScheduler extends MasterDaemon {
         return stat;
     }
 
+    // just return be or partition rebalancer
     public Rebalancer getRebalancer() {
         return rebalancer;
     }
@@ -273,6 +274,8 @@ public class TabletScheduler extends MasterDaemon {
 
         return AddResult.ADDED;
     }
+
+
 
     public synchronized boolean containsTablet(long tabletId) {
         return allTabletTypes.containsKey(tabletId);
