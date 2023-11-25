@@ -1145,7 +1145,8 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         return Status::InternalError("unknown destination tuple descriptor");
     }
 
-    if (_output_tuple_desc->slots().size() != _vec_output_expr_ctxs.size()) {
+    if (_vec_output_expr_ctxs.size() > 0 &&
+        _output_tuple_desc->slots().size() != _vec_output_expr_ctxs.size()) {
         LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
                      << "output_tuple_slot_num " << _output_tuple_desc->slots().size()
                      << " output_expr_num " << _vec_output_expr_ctxs.size();
