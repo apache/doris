@@ -69,6 +69,7 @@ private:
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<doris::vectorized::ArrowPipInputStream> _pip_stream;
+    cctz::time_zone _ctzz;
 };
 } // namespace vectorized
 } // namespace doris

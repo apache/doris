@@ -43,7 +43,9 @@ ArrowStreamReader::ArrowStreamReader(RuntimeState* state, RuntimeProfile* profil
                                      const TFileRangeDesc& range,
                                      const std::vector<SlotDescriptor*>& file_slot_descs,
                                      io::IOContext* io_ctx)
-        : _state(state), _range(range), _file_slot_descs(file_slot_descs), _file_reader(nullptr) {}
+        : _state(state), _range(range), _file_slot_descs(file_slot_descs), _file_reader(nullptr) {
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz);
+}
 
 ArrowStreamReader::~ArrowStreamReader() = default;
 
@@ -81,9 +83,6 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
     std::vector<std::shared_ptr<arrow::RecordBatch>> out_batches = std::move(tRet2).ValueUnsafe();
 
     // convert arrow batch to block
-    // TODO get tz from schema
-    cctz::time_zone ctzz;
-    TimezoneUtils::find_cctz_time_zone("UTC", ctzz);
     auto columns = block->mutate_columns();
     int batch_size = out_batches.size();
     for (int i = 0; i < batch_size; i++) {
@@ -98,7 +97,7 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
             vectorized::ColumnWithTypeAndName& column_with_name = block->get_by_name(column_name);
 
             column_with_name.type->get_serde()->read_column_from_arrow(
-                    column_with_name.column->assume_mutable_ref(), column, 0, num_rows, ctzz);
+                    column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz);
         }
         *read_rows += batch.num_rows();
     }

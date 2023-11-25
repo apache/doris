@@ -101,7 +101,7 @@ void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::A
                                                  int start, int end,
                                                  const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<UInt32>&>(column).get_data();
-    auto concrete_array = dynamic_cast<const arrow::Date64Array*>(arrow_array);
+    auto concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
     int64_t divisor = 1;
     int64_t multiplier = 1;
 

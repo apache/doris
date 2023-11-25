@@ -343,12 +343,12 @@ public class Load {
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
-        HashMap<String, PrimitiveType> colToType = new HashMap<>();
+        HashMap<String, Type> colToType = new HashMap<>();
 
         // check default value and auto-increment column
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
-            colToType.put(columnName, column.getDataType());
+            colToType.put(columnName, column.getType());
             if (columnExprMap.containsKey(columnName)) {
                 continue;
             }
