@@ -45,6 +45,8 @@ namespace doris::vectorized {
 
 using namespace std::chrono_literals;
 
+static bvar::Adder<int64_t> scanner_memory_in_queue("doris_scanner", "memory_in_queue");
+
 ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::VScanNode* parent,
                                const doris::TupleDescriptor* output_tuple_desc,
                                const std::list<VScannerSPtr>& scanners_, int64_t limit_,
@@ -195,6 +197,7 @@ void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& 
             set_status_on_error(st, false);
         }
         _cur_bytes_in_queue += b->allocated_bytes();
+        scanner_memory_in_queue << b->allocated_bytes();
         _blocks_queue.push_back(std::move(b));
     }
     blocks.clear();
@@ -262,6 +265,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
 
         auto block_bytes = (*block)->allocated_bytes();
         _cur_bytes_in_queue -= block_bytes;
+        scanner_memory_in_queue << -block_bytes;
 
         _queued_blocks_memory_usage->add(-block_bytes);
         return Status::OK();

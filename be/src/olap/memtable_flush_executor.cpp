@@ -122,6 +122,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
         SKIP_MEMORY_CHECK(RETURN_IF_ERROR(
                 _rowset_writer->flush_memtable(block.get(), segment_id, flush_size)));
     }
+    VLOG_CRITICAL << memtable->flush_mem_tracker()->debug_string();
     _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
