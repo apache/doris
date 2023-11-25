@@ -299,6 +299,7 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
             }
         }
     }
+    return Status::OK();
 }
 
 void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
