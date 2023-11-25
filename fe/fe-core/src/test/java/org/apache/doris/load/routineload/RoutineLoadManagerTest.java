@@ -761,7 +761,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testCheckBeToTask(@Mocked Env env,
-                                  @Mocked SystemInfoService systemInfoService) throws LoadException, DdlException, MetaNotFoundException {
+                                  @Mocked SystemInfoService systemInfoService) throws LoadException, DdlException {
         List<Long> beIdsInCluster = Lists.newArrayList();
         beIdsInCluster.add(1L);
         Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
