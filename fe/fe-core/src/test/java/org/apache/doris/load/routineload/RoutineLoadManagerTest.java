@@ -195,7 +195,7 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testCreateWithSameName(@Mocked ConnectContext connectContext) throws MetaNotFoundException {
+    public void testCreateWithSameName(@Mocked ConnectContext connectContext) {
         String jobName = "job1";
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
@@ -225,7 +225,7 @@ public class RoutineLoadManagerTest {
     @Test
     public void testCreateWithSameNameOfStoppedJob(@Mocked ConnectContext connectContext,
                                                    @Mocked Env env,
-                                                   @Mocked EditLog editLog) throws DdlException, MetaNotFoundException {
+                                                   @Mocked EditLog editLog) throws DdlException {
         String jobName = "job1";
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
