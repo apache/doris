@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -136,8 +137,9 @@ public class TableStatsMeta implements Writable {
         }
         jobType = analyzedJob.jobType;
         if (tableIf != null && analyzedJob.colToPartitions.keySet()
-                .containsAll(tableIf.getBaseSchema().stream().map(Column::getName).collect(
-                        Collectors.toSet()))) {
+                .containsAll(tableIf.getBaseSchema().stream()
+                    .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                    .map(Column::getName).collect(Collectors.toSet()))) {
             updatedRows.set(0);
         }
     }

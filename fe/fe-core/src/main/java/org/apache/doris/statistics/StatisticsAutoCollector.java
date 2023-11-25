@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
@@ -50,8 +51,8 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     public StatisticsAutoCollector() {
         super("Automatic Analyzer",
-                TimeUnit.MINUTES.toMillis(Config.full_auto_analyze_simultaneously_running_task_num),
-                new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num));
+                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
+                new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num));
     }
 
     @Override
@@ -77,12 +78,17 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
                     continue;
                 }
-                analyzeDb(databaseIf);
+                try {
+                    analyzeDb(databaseIf);
+                } catch (Throwable t) {
+                    LOG.warn("Failed to analyze database {}.{}", ctl.getName(), databaseIf.getFullName(), t);
+                    continue;
+                }
             }
         }
     }
 
-    public void analyzeDb(DatabaseIf<TableIf> databaseIf) {
+    public void analyzeDb(DatabaseIf<TableIf> databaseIf) throws DdlException {
         List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
         for (AnalysisInfo analysisInfo : analysisInfos) {
             analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
@@ -91,8 +97,9 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             }
             try {
                 createSystemAnalysisJob(analysisInfo);
-            } catch (Exception e) {
-                LOG.warn("Failed to create analysis job", e);
+            } catch (Throwable t) {
+                analysisInfo.message = t.getMessage();
+                throw t;
             }
         }
     }
@@ -136,8 +143,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setTblId(table.getId())
                 .setColName(
                         table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                .map(
-                                        Column::getName).collect(Collectors.joining(","))
+                                .map(Column::getName).collect(Collectors.joining(","))
                 )
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)

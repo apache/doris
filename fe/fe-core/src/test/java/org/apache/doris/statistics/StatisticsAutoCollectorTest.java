@@ -247,7 +247,7 @@ public class StatisticsAutoCollectorTest {
     @Test
     public void checkAvailableThread() {
         StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
-        Assertions.assertEquals(Config.full_auto_analyze_simultaneously_running_task_num,
+        Assertions.assertEquals(Config.auto_analyze_simultaneously_running_task_num,
                 autoCollector.analysisTaskExecutor.executors.getMaximumPoolSize());
     }
 
