@@ -3253,8 +3253,10 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
 
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
+    int64_t segments_num = 0;
 
     for (auto rs_it : read_plan) {
+        segments_num += rs_it.second.size();
         for (auto seg_it : rs_it.second) {
             auto rowset_iter = rsid_to_rowset.find(rs_it.first);
             CHECK(rowset_iter != rsid_to_rowset.end());
@@ -3292,8 +3294,9 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
 
     {
         LOG(INFO) << fmt::format(
-                "[haier][read_columns_by_plan]total_pages_num:{}, cached_pages_num:{}",
-                total_pages_num, cached_pages_num);
+                "[haier][read_columns_by_plan]total_pages_num:{}, cached_pages_num:{}, "
+                "segments_num:{}, rowsets_num:{}",
+                total_pages_num, cached_pages_num, segments_num, read_plan.size());
     }
 
     return Status::OK();

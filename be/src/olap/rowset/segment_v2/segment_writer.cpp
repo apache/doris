@@ -571,8 +571,10 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
 
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
+    int64_t segments_num = 0;
 
     for (auto rs_it : _rssid_to_rid) {
+        segments_num += rs_it.second.size();
         for (auto seg_it : rs_it.second) {
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
@@ -609,8 +611,9 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     }
     {
         LOG(INFO) << fmt::format(
-                "[haier][fill_missing_columns]total_pages_num:{}, cached_pages_num:{}",
-                total_pages_num, cached_pages_num);
+                "[haier][fill_missing_columns]total_pages_num:{}, cached_pages_num:{}, "
+                "segments_num:{}, rowsets_num:{}",
+                total_pages_num, cached_pages_num, segments_num, _rssid_to_rid.size());
     }
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
