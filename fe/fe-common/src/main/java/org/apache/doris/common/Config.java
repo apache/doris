@@ -2268,4 +2268,8 @@ public class Config extends ConfigBase {
                     + "If it is less than this value, it will be diagnosed as balanced."
     })
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
+
+    @ConfField(description = {"nereids trace文件的存放路径。",
+            "The path of the nereids trace file."})
+    public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
 }
