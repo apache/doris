@@ -25,6 +25,11 @@
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
+#define DIVISOR_FOR_SECOND 1
+#define DIVISOR_FOR_MILLI 1000
+#define DIVISOR_FOR_MICRO 1000000
+#define DIVISOR_FOR_NANO 1000000000
+
 namespace doris {
 namespace vectorized {
 static const int64_t timestamp_threshold = -2177481943;
@@ -121,19 +126,19 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
         switch (type->unit()) {
         case arrow::TimeUnit::type::SECOND: {
-            divisor = 1;
+            divisor = DIVISOR_FOR_SECOND;
             break;
         }
         case arrow::TimeUnit::type::MILLI: {
-            divisor = 1000;
+            divisor = DIVISOR_FOR_MILLI;
             break;
         }
         case arrow::TimeUnit::type::MICRO: {
-            divisor = 1000000;
+            divisor = DIVISOR_FOR_MICRO;
             break;
         }
         case arrow::TimeUnit::type::NANO: {
-            divisor = 1000000000;
+            divisor = DIVISOR_FOR_NANO;
             break;
         }
         default: {
