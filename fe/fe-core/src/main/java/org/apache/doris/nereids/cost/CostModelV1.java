@@ -307,8 +307,15 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             int parallelInstance = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
             int totalInstanceNumber = parallelInstance * beNumber;
             if (buildSideFactor <= 1.0) {
-                // use totalInstanceNumber to the power of 2 as the default factor value
-                buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
+                if (buildSideFactor <= 1.0) {
+                    if (buildStats.computeSize() < 1024 * 1024) {
+                        // no penalty to broadcast if build side is small
+                        buildSideFactor = 1.0;
+                    } else {
+                        // use totalInstanceNumber to the power of 2 as the default factor value
+                        buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
+                    }
+                }
             }
             // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
             // will refine this in next generation cost model.
