@@ -90,6 +90,7 @@ import java.io.FileNotFoundException;
 import java.net.URI;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -788,6 +789,9 @@ public class HiveMetaStoreCache {
                 } else {
                     directory = AcidUtils.getAcidState(new Path(partition.getPath()), jobConf, validWriteIds, false,
                             true);
+                }
+                if (directory == null || directory.getBaseDirectory() == null) {
+                    return Collections.emptyList();
                 }
                 if (!directory.getOriginalFiles().isEmpty()) {
                     throw new Exception("Original non-ACID files in transactional tables are not supported");
