@@ -175,14 +175,12 @@ public class RoutineLoadManager implements Writable {
 
         routineLoadJob.setOrigStmt(createRoutineLoadStmt.getOrigStmt());
         routineLoadJob.setComment(createRoutineLoadStmt.getComment());
-        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName());
+        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName(),
+                    createRoutineLoadStmt.getTableName());
     }
 
-    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName)
+    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName, String tableName)
                     throws DdlException {
-        String dbFullName;
-        String tableName;
-
         writeLock();
         try {
             // check if db.routineLoadName has been used
@@ -203,14 +201,8 @@ public class RoutineLoadManager implements Writable {
             writeUnlock();
         }
 
-        try {
-            dbFullName = routineLoadJob.getDbFullName();
-            tableName = routineLoadJob.getTableName();
-        } catch (MetaNotFoundException e) {
-            throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
-        }
         LOG.info("create routine load job: id: {}, job name: {}, db name: {}, table name: {}",
-                 routineLoadJob.getId(), routineLoadJob.getName(), dbFullName, tableName);
+                 routineLoadJob.getId(), routineLoadJob.getName(), dbName, tableName);
     }
 
     private void unprotectedAddJob(RoutineLoadJob routineLoadJob) {
