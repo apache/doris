@@ -92,7 +92,7 @@ public:
         int64_t offset;
 
         // Encode to a flat binary which can be used as LRUCache's key
-        std::string encode() const {
+        [[nodiscard]] std::string encode() const {
             std::string key_buf(fname);
             key_buf.append((char*)&fsize, sizeof(fsize));
             key_buf.append((char*)&offset, sizeof(offset));
@@ -205,7 +205,7 @@ private:
 // class will release the cache entry when it is destroyed.
 class PageCacheHandle {
 public:
-    PageCacheHandle() {}
+    PageCacheHandle() = default;
     PageCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
     ~PageCacheHandle() {
         if (_handle != nullptr) {
@@ -225,8 +225,8 @@ public:
         return *this;
     }
 
-    Cache* cache() const { return _cache; }
-    Slice data() const {
+    [[nodiscard]] Cache* cache() const { return _cache; }
+    [[nodiscard]] Slice data() const {
         DataPage* cache_value = (DataPage*)_cache->value(_handle);
         return Slice(cache_value->data(), cache_value->size());
     }
