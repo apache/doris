@@ -17,6 +17,7 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 
+#include <condition_variable>
 #include <memory>
 
 #include "common/config.h"
@@ -28,7 +29,6 @@
 #include "olap/wal_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_context.h"
-#include "util/lock.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -86,6 +86,6 @@ private:
     std::unordered_map<int64_t, std::unordered_map<int64_t, WAL_STATUS>> _wal_status_queues;
     std::atomic<bool> _stop;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
-    std::shared_ptr<doris::ConditionVariable> _cv;
+    std::shared_ptr<std::condition_variable> _cv;
 };
 } // namespace doris

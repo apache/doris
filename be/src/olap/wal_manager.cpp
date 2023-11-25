@@ -32,7 +32,6 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/stream_load/stream_load_context.h"
-#include "util/lock.h"
 #include "util/path_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/exec/format/wal/wal_reader.h"
@@ -42,7 +41,7 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
         : _exec_env(exec_env), _stop_background_threads_latch(1), _stop(false) {
     doris::vectorized::WalReader::string_split(wal_dir_list, ",", _wal_dirs);
     _all_wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
-    _cv = std::make_shared<doris::ConditionVariable>();
+    _cv = std::make_shared<std::condition_variable>();
 }
 
 WalManager::~WalManager() {

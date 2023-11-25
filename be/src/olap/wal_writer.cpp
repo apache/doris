@@ -27,7 +27,6 @@
 #include "io/fs/path.h"
 #include "olap/storage_engine.h"
 #include "util/crc32c.h"
-#include "util/lock.h"
 
 namespace doris {
 
