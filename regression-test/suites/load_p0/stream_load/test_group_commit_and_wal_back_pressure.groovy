@@ -44,6 +44,19 @@ suite("test_group_commit_and_wal_back_pressure", "p0") {
             );
     """
 
+    sql """ DROP TABLE IF EXISTS ${tableName}3 """
+    sql """
+            CREATE TABLE ${tableName}3 (
+                k bigint,  
+                v string
+                )  
+                UNIQUE KEY(k)  
+                DISTRIBUTED BY HASH (k) BUCKETS 32  
+                PROPERTIES(  
+                "replication_num" = "1"
+            );
+    """
+
     def t1 = []
     for (int i = 0; i < 20; i++) {
         t1.add(Thread.startDaemon {
@@ -51,11 +64,12 @@ suite("test_group_commit_and_wal_back_pressure", "p0") {
                 table "${tableName}1"
 
                 set 'column_separator', ','
+                set 'compress_type', 'GZ'
                 set 'format', 'csv'
                 set 'group_commit', 'true'
-                set 'label', ''
+                unset 'label'
 
-                file 'test.csv'
+                file 'test_group_commit_and_wal_back_pressure.csv.gz'
                 time 100000 
             }
         })
@@ -68,11 +82,30 @@ suite("test_group_commit_and_wal_back_pressure", "p0") {
                 table "${tableName}2"
 
                 set 'column_separator', ','
+                set 'compress_type', 'GZ'
                 set 'format', 'csv'
                 set 'group_commit', 'true'
-                set 'label', ''
+                unset 'label'
 
-                file 'test.csv'
+                file 'test_group_commit_and_wal_back_pressure.csv.gz'
+                time 100000 
+            }
+        })
+    }
+
+    def t3 = []
+    for (int i = 0; i < 20; i++) {
+        t3.add(Thread.startDaemon {
+            streamLoad {
+                table "${tableName}3"
+
+                set 'column_separator', ','
+                set 'compress_type', 'GZ'
+                set 'format', 'csv'
+                set 'group_commit', 'true'
+                unset 'label'
+
+                file 'test_group_commit_and_wal_back_pressure.csv.gz'
                 time 100000 
             }
         })
@@ -86,8 +119,16 @@ suite("test_group_commit_and_wal_back_pressure", "p0") {
         th.join()
     }
 
+    for (Thread th in t3) {
+        th.join()
+    }
+
     sql "sync"
 
-    qt_sql """ select count(*) from ${tableName};"""
+    qt_1 """ select count(*) from ${tableName}1;"""
+
+    qt_2 """ select count(*) from ${tableName}2;"""
+
+    qt_3 """ select count(*) from ${tableName}3;"""
 
 }
