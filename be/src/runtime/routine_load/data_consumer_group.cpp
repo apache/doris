@@ -23,12 +23,17 @@
 #include <ostream>
 #include <string>
 #include <utility>
+#include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
 #include "common/logging.h"
 #include "librdkafka/rdkafkacpp.h"
 #include "runtime/routine_load/data_consumer.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/stopwatch.hpp"
+
 
 namespace doris {
 
@@ -344,13 +349,25 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
 
             //filter invalid prefix of json
             const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()), len);
-            size_t  filter_len = len_of_actual_data(filter_data);
-            // append filtered data
-            VLOG(3)   << "get pulsar message: " << std::string(filter_data, filter_len)
-                      << ", partition: " << partition << ", message id: " << msg_id
-                      << ", len: " << len << ", filter_len: " << filter_len;
-            Status st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
-            if (st.ok()) {
+            std::vector<const char*> rows = convert_rows(filter_data);
+            size_t rows_size = rows.size();
+            bool append_all = true;
+            for (const char* row : rows) {
+                size_t  row_len = len_of_actual_data(row);
+                if (rows_size > 1) {
+                    LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
+                              << ", partition: " << partition << ", message id: " << msg_id
+                              << ", len: " << len << ", filter_len: " << row_len;
+                }
+                // append filtered data
+                Status st = (pulsar_pipe.get()->*append_data)(row, row_len);
+                if (st.ok()) {
+                    append_all = append_all && true;
+                } else {
+                    append_all = append_all && false;
+                }
+            }
+            if (append_all) {
                 received_rows++;
                 // len of receive origin message from pulsar
                 left_bytes -= len;
@@ -444,5 +461,41 @@ size_t PulsarDataConsumerGroup::len_of_actual_data(const char* data) {
     }
     return length;
 }
+
+std::vector<const char*> PulsarDataConsumerGroup::convert_rows(const char* data) {
+    std::vector<const char*> targets;
+    rapidjson::Document source;
+    if(!source.Parse(data).HasParseError()) {
+        if (source.HasMember("events") && source["events"].IsArray()) {
+            const rapidjson::Value& array = doc["events"];
+            size_t len = array.Size();
+            for(size_t i = 0; i < len; i++) {
+                rapidjson::Document destination;
+                destination.SetObject();
+                const rapidjson::Value& object = array[i];
+                rapidjson::Value eventName("event", destination.GetAllocator());
+                destination.AddMember(eventName, object, destination.GetAllocator());
+                for (auto& member : source.GetObject()) {
+                    const char* key = member.name.GetString();
+                    if (std::strcmp(key, "events") != 0) {
+                        rapidjson::Value keyName(key, destination.GetAllocator());
+                        rapidjson::Value& sourceValue = source[key];
+                        destination.AddMember(keyName, sourceValue, destination.GetAllocator());
+                    }
+                }
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                doc.Accept(writer);
+                targets.push_back(buffer.GetString());
+            }
+        } else {
+            targets.push_back(data);
+        }
+    } else {
+        targets.push_back(data);
+    }
+    return targets;
+}
+
 
 } // namespace doris

@@ -131,6 +131,8 @@ private:
     // acknowledge pulsar message
     void acknowledge_cumulative(std::shared_ptr<StreamLoadContext> ctx);
 
+    std::vector<const char*> convert_rows(const char* data);
+
 private:
     // blocking queue to receive msgs from all consumers
     BlockingQueue<pulsar::Message*> _queue;
