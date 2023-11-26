@@ -139,7 +139,6 @@ import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.external.elasticsearch.EsRepository;
-import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -148,6 +147,7 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -175,9 +175,17 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVService;
+import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -286,6 +294,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -493,6 +502,8 @@ public class Env {
     private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
+
+    private MTMVService mtmvService;
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -720,6 +731,7 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
+        this.mtmvService = new MTMVService();
     }
 
     public static void destroyCheckpoint() {
@@ -773,6 +785,10 @@ public class Env {
 
     public AccessControllerManager getAccessManager() {
         return accessManager;
+    }
+
+    public MTMVService getMtmvService() {
+        return mtmvService;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -1555,7 +1571,6 @@ public class Env {
         }
         streamLoadRecordMgr.start();
         tabletLoadIndexRecorderMgr.start();
-        getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
@@ -2952,48 +2967,47 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
-        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
+        sb.append("TABLE ");
 
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`.");
         }
         sb.append("`").append(table.getName()).append("`");
 
-        if (table.getType() != TableType.MATERIALIZED_VIEW) {
-            sb.append(" (\n");
-            int idx = 0;
-            List<Column> columns;
-            // when 'create table B like A', always return schema of A without hidden columns
-            if (getDdlForLike) {
-                columns = table.getBaseSchema(false);
-            } else {
-                columns = table.getBaseSchema();
-            }
-            for (Column column : columns) {
-                if (idx++ != 0) {
-                    sb.append(",\n");
-                }
-                // There MUST BE 2 space in front of each column description line
-                // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
-                if (table.getType() == TableType.OLAP) {
-                    sb.append("  ").append(
-                            column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
-                } else {
-                    sb.append("  ").append(column.toSql());
-                }
-            }
-            if (table.getType() == TableType.OLAP) {
-                OlapTable olapTable = (OlapTable) table;
-                if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
-                    for (Index index : olapTable.getIndexes()) {
-                        sb.append(",\n");
-                        sb.append("  ").append(index.toSql());
-                    }
-                }
-            }
-            sb.append("\n) ENGINE=");
-            sb.append(table.getType().name());
+
+        sb.append(" (\n");
+        int idx = 0;
+        List<Column> columns;
+        // when 'create table B like A', always return schema of A without hidden columns
+        if (getDdlForLike) {
+            columns = table.getBaseSchema(false);
+        } else {
+            columns = table.getBaseSchema();
         }
+        for (Column column : columns) {
+            if (idx++ != 0) {
+                sb.append(",\n");
+            }
+            // There MUST BE 2 space in front of each column description line
+            // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
+            if (table.getType() == TableType.OLAP) {
+                sb.append("  ").append(
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
+            } else {
+                sb.append("  ").append(column.toSql());
+            }
+        }
+        if (table.getType() == TableType.OLAP) {
+            OlapTable olapTable = (OlapTable) table;
+            if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
+                for (Index index : olapTable.getIndexes()) {
+                    sb.append(",\n");
+                    sb.append("  ").append(index.toSql());
+                }
+            }
+        }
+        sb.append("\n) ENGINE=");
+        sb.append(table.getType().name());
 
         if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
             OlapTable olapTable = (OlapTable) table;
@@ -3008,12 +3022,21 @@ public class Env {
                                 : keySql.substring("DUPLICATE ".length()))
                         .append("(");
                 List<String> keysColumnNames = Lists.newArrayList();
+                Map<Integer, String> clusterKeysColumnNamesToId = new TreeMap<>();
                 for (Column column : olapTable.getBaseSchema()) {
                     if (column.isKey()) {
                         keysColumnNames.add("`" + column.getName() + "`");
                     }
+                    if (column.isClusterKey()) {
+                        clusterKeysColumnNamesToId.put(column.getClusterKeyId(), column.getName());
+                    }
                 }
                 sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
+                // show cluster keys
+                if (!clusterKeysColumnNamesToId.isEmpty()) {
+                    sb.append("\n").append("CLUSTER BY (`");
+                    sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
+                }
             }
 
             if (specificVersion != -1) {
@@ -3372,18 +3395,7 @@ public class Env {
             sb.append("\nPROPERTIES (\n");
             sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, false).toString());
-            sb.append("\n)");
-        } else if (table.getType() == TableType.ICEBERG) {
-            IcebergTable icebergTable = (IcebergTable) table;
-
-            addTableComment(icebergTable, sb);
-
-            // properties
-            sb.append("\nPROPERTIES (\n");
-            sb.append("\"iceberg.database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
-            sb.append("\"iceberg.table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
-            sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(), " = ", true, true, false).toString());
+            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.JDBC) {
             JdbcTable jdbcTable = (JdbcTable) table;
@@ -3771,10 +3783,6 @@ public class Env {
         return tabletLoadIndexRecorderMgr;
     }
 
-    public IcebergTableCreationRecordMgr getIcebergTableCreationRecordMgr() {
-        return getInternalCatalog().getIcebergTableCreationRecordMgr();
-    }
-
     public MasterTaskExecutor getPendingLoadTaskScheduler() {
         return pendingLoadTaskScheduler;
     }
@@ -3938,15 +3946,22 @@ public class Env {
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties,
                                                 boolean isKeysRequired) throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
+        Map<Integer, Column> clusterColumns = new TreeMap<>();
         for (Column column : columns) {
             if (column.isKey()) {
                 indexColumns.add(column);
             }
+            if (column.isClusterKey()) {
+                clusterColumns.put(column.getClusterKeyId(), column);
+            }
         }
-        LOG.debug("index column size: {}", indexColumns.size());
+        LOG.debug("index column size: {}, cluster column size: {}", indexColumns.size(), clusterColumns.size());
         if (isKeysRequired) {
             Preconditions.checkArgument(indexColumns.size() > 0);
         }
+        // sort by cluster keys for mow if set, otherwise by index columns
+        List<Column> sortKeyColumns = clusterColumns.isEmpty() ? indexColumns
+                : clusterColumns.values().stream().collect(Collectors.toList());
 
         // figure out shortKeyColumnCount
         short shortKeyColumnCount = (short) -1;
@@ -3961,12 +3976,12 @@ public class Env {
                 throw new DdlException("Invalid short key: " + shortKeyColumnCount);
             }
 
-            if (shortKeyColumnCount > indexColumns.size()) {
-                throw new DdlException("Short key is too large. should less than: " + indexColumns.size());
+            if (shortKeyColumnCount > sortKeyColumns.size()) {
+                throw new DdlException("Short key is too large. should less than: " + sortKeyColumns.size());
             }
 
             for (int pos = 0; pos < shortKeyColumnCount; pos++) {
-                if (indexColumns.get(pos).getDataType() == PrimitiveType.VARCHAR && pos != shortKeyColumnCount - 1) {
+                if (sortKeyColumns.get(pos).getDataType() == PrimitiveType.VARCHAR && pos != shortKeyColumnCount - 1) {
                     throw new DdlException("Varchar should not in the middle of short keys.");
                 }
             }
@@ -3981,9 +3996,9 @@ public class Env {
              */
             shortKeyColumnCount = 0;
             int shortKeySizeByte = 0;
-            int maxShortKeyColumnCount = Math.min(indexColumns.size(), FeConstants.shortkey_max_column_count);
+            int maxShortKeyColumnCount = Math.min(sortKeyColumns.size(), FeConstants.shortkey_max_column_count);
             for (int i = 0; i < maxShortKeyColumnCount; i++) {
-                Column column = indexColumns.get(i);
+                Column column = sortKeyColumns.get(i);
                 shortKeySizeByte += column.getOlapColumnIndexSize();
                 if (shortKeySizeByte > FeConstants.shortkey_maxsize_bytes) {
                     if (column.getDataType().isCharFamily()) {
@@ -4006,6 +4021,18 @@ public class Env {
 
         } // end calc shortKeyColumnCount
 
+        if (clusterColumns.size() > 0 && shortKeyColumnCount < clusterColumns.size()) {
+            boolean sameKey = true;
+            for (int i = 0; i < shortKeyColumnCount; i++) {
+                if (!clusterColumns.get(i).getName().equals(indexColumns.get(i).getName())) {
+                    sameKey = false;
+                    break;
+                }
+            }
+            if (sameKey) {
+                throw new DdlException(shortKeyColumnCount + " short keys is a part of unique keys");
+            }
+        }
         return shortKeyColumnCount;
     }
 
@@ -4063,8 +4090,12 @@ public class Env {
         getBackupHandler().cancel(stmt);
     }
 
-    // entry of rename table operation
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+        renameTable(db, table, tableRenameClause.getNewTableName());
+    }
+
+    // entry of rename table operation
+    public void renameTable(Database db, Table table, String newTableName) throws DdlException {
         db.writeLockOrDdlException();
         try {
             table.writeLockOrDdlException();
@@ -4075,7 +4106,6 @@ public class Env {
                 }
 
                 String oldTableName = table.getName();
-                String newTableName = tableRenameClause.getNewTableName();
                 if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
                     newTableName = newTableName.toLowerCase();
                 }
@@ -5249,7 +5279,8 @@ public class Env {
         long dbId = replaceTempPartitionLog.getDbId();
         long tableId = replaceTempPartitionLog.getTblId();
         Database db = getInternalCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db
+                .getTableOrMetaException(tableId, Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW));
         olapTable.writeLock();
         try {
             olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
@@ -5763,5 +5794,29 @@ public class Env {
 
     public StatisticsAutoCollector getStatisticsAutoCollector() {
         return statisticsAutoCollector;
+    }
+
+    public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo(), MTMVAlterOpType.ALTER_REFRESH_INFO);
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVProperty(AlterMTMVPropertyInfo info) {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), MTMVAlterOpType.ALTER_PROPERTY);
+        alter.setMvProperties(info.getProperties());
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) {
+        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_STATUS);
+        alter.setStatus(status);
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation) {
+        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ADD_TASK);
+        alter.setTask(task);
+        alter.setRelation(relation);
+        this.alter.processAlterMTMV(alter, false);
     }
 }

@@ -57,6 +57,12 @@ static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 struct BasicSharedState {
     Dependency* source_dep;
     Dependency* sink_dep;
+
+    std::atomic<int> ref_count = 0;
+
+    void ref() { ref_count++; }
+    virtual Status close(RuntimeState* state) { return Status::OK(); }
+    virtual ~BasicSharedState() = default;
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
@@ -110,16 +116,6 @@ public:
     virtual void block() { _ready = false; }
 
 protected:
-    bool _should_log(uint64_t cur_time) {
-        if (cur_time < SLOW_DEPENDENCY_THRESHOLD) {
-            return false;
-        }
-        if ((cur_time - _last_log_time) < TIME_UNIT_DEPENDENCY_LOG) {
-            return false;
-        }
-        _last_log_time = cur_time;
-        return true;
-    }
     void _add_block_task(PipelineXTask* task);
     bool _is_cancelled() const {
         return push_to_blocking_queue() ? false : _query_ctx->is_cancelled();
@@ -134,10 +130,8 @@ protected:
 
     std::shared_ptr<BasicSharedState> _shared_state {nullptr};
     MonotonicStopWatch _watcher;
-    std::weak_ptr<Dependency> _parent;
     std::list<std::shared_ptr<Dependency>> _children;
 
-    uint64_t _last_log_time = 0;
     std::mutex _task_lock;
     std::vector<PipelineXTask*> _blocked_task;
 };
@@ -249,11 +243,25 @@ public:
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
-    virtual ~AggSharedState() = default;
+    ~AggSharedState() override = default;
     void init_spill_partition_helper(size_t spill_partition_count_bits) {
         spill_partition_helper =
                 std::make_unique<vectorized::SpillPartitionHelper>(spill_partition_count_bits);
     }
+    Status close(RuntimeState* state) override {
+        if (ref_count.fetch_sub(1) == 1) {
+            for (auto* aggregate_evaluator : aggregate_evaluators) {
+                aggregate_evaluator->close(state);
+            }
+            if (probe_expr_ctxs.empty()) {
+                _close_without_key();
+            } else {
+                _close_with_serialized_key();
+            }
+        }
+        return Status::OK();
+    }
+
     vectorized::AggregatedDataVariantsUPtr agg_data;
     std::unique_ptr<vectorized::AggregateDataContainer> aggregate_data_container;
     vectorized::AggSpillContext spill_context;
@@ -280,6 +288,49 @@ public:
     };
     MemoryRecord mem_usage_record;
     std::unique_ptr<MemTracker> mem_tracker = std::make_unique<MemTracker>("AggregateOperator");
+    bool agg_data_created_without_key = false;
+
+private:
+    void _release_tracker() {
+        mem_tracker->release(mem_usage_record.used_in_state + mem_usage_record.used_in_arena);
+    }
+    void _close_with_serialized_key() {
+        std::visit(
+                [&](auto&& agg_method) -> void {
+                    auto& data = *agg_method.hash_table;
+                    data.for_each_mapped([&](auto& mapped) {
+                        if (mapped) {
+                            static_cast<void>(_destroy_agg_status(mapped));
+                            mapped = nullptr;
+                        }
+                    });
+                    if (data.has_null_key_data()) {
+                        auto st = _destroy_agg_status(
+                                data.template get_null_key_data<vectorized::AggregateDataPtr>());
+                        if (!st) {
+                            throw Exception(st.code(), st.to_string());
+                        }
+                    }
+                },
+                agg_data->method_variant);
+        _release_tracker();
+    }
+    void _close_without_key() {
+        //because prepare maybe failed, and couldn't create agg data.
+        //but finally call close to destory agg data, if agg data has bitmapValue
+        //will be core dump, it's not initialized
+        if (agg_data_created_without_key) {
+            static_cast<void>(_destroy_agg_status(agg_data->without_key));
+            agg_data_created_without_key = false;
+        }
+        _release_tracker();
+    }
+    Status _destroy_agg_status(vectorized::AggregateDataPtr data) {
+        for (int i = 0; i < aggregate_evaluators.size(); ++i) {
+            aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
+        }
+        return Status::OK();
+    }
 };
 
 struct SortSharedState : public BasicSharedState {

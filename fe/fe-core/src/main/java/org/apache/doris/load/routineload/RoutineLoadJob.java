@@ -809,15 +809,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                         .add("current_error_rows", this.jobStatistic.currentErrorRows)
                         .add("max_error_num", maxErrorNum)
                         .add("max_filter_ratio", maxFilterRatio)
-                        .add("msg", "current error rows is more than max error rows "
-                            + "or the filter ratio is more than the max, begin to pause job")
+                        .add("msg", "current error rows is more than max_error_number "
+                            + "or the max_filter_ratio is more than value set, begin to pause job")
                         .build());
                 // if this is a replay thread, the update state should already be replayed by OP_CHANGE_ROUTINE_LOAD_JOB
                 if (!isReplay) {
                     // remove all of task in jobs and change job state to paused
                     updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                            "current error rows is more than max error num "
-                            + "or the filter ratio is more than the max"), isReplay);
+                            "current error rows is more than max_error_number "
+                            + "or the max_filter_ratio is more than the value set"), isReplay);
                 }
             }
 
@@ -843,14 +843,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     .add("current_error_rows", this.jobStatistic.currentErrorRows)
                     .add("max_error_num", maxErrorNum)
                     .add("max_filter_ratio", maxFilterRatio)
-                    .add("msg", "current error rows is more than max error rows "
-                            + "or the filter ratio is more than the max, begin to pause job")
+                    .add("msg", "current error rows is more than max_error_number "
+                            + "or the max_filter_ratio is more than the max, begin to pause job")
                     .build());
             if (!isReplay) {
                 // remove all of task in jobs and change job state to paused
                 updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                        "current error rows is more than max error num "
-                            + "or the filter ratio is more than the max"), isReplay);
+                        "current error rows is more than max_error_number "
+                            + "or the max_filter_ratio is more than the value set"), isReplay);
             }
             // reset currentTotalNum and currentErrorNum
             this.jobStatistic.currentErrorRows = 0;

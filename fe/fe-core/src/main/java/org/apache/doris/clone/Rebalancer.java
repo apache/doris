@@ -25,8 +25,12 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Table;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -46,6 +50,7 @@ import java.util.Map;
  * 2. If you want to make sure the move is succeed, you can assume that it's succeed when getToDeleteReplicaId called.
  */
 public abstract class Rebalancer {
+    private static final Logger LOG = LogManager.getLogger(Rebalancer.class);
     // When Rebalancer init, the statisticMap is usually empty. So it's no need to be an arg.
     // Only use updateLoadStatistic() to load stats.
     protected Map<Tag, LoadStatisticForTag> statisticMap = Maps.newHashMap();
@@ -54,6 +59,14 @@ public abstract class Rebalancer {
     protected SystemInfoService infoService;
     // be id -> end time of prio
     protected Map<Long, Long> prioBackends = Maps.newConcurrentMap();
+
+    // tag -> (medium, timestamp)
+    private Table<Tag, TStorageMedium, Long> lastPickTimeTable = HashBasedTable.create();
+
+    // for ut
+    public Table<Tag, TStorageMedium, Long> getLastPickTimeTable() {
+        return lastPickTimeTable;
+    }
 
     public Rebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
@@ -66,7 +79,12 @@ public abstract class Rebalancer {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
         for (Map.Entry<Tag, LoadStatisticForTag> entry : statisticMap.entrySet()) {
             for (TStorageMedium medium : TStorageMedium.values()) {
-                alternativeTablets.addAll(selectAlternativeTabletsForCluster(entry.getValue(), medium));
+                List<TabletSchedCtx> candidates =
+                        selectAlternativeTabletsForCluster(entry.getValue(), medium);
+                alternativeTablets.addAll(candidates);
+                if (!candidates.isEmpty()) {
+                    lastPickTimeTable.put(entry.getKey(), medium, System.currentTimeMillis());
+                }
             }
         }
         return alternativeTablets;
@@ -76,6 +94,14 @@ public abstract class Rebalancer {
     // later(when createBalanceTask called).
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             LoadStatisticForTag clusterStat, TStorageMedium medium);
+
+    // 5mins
+    protected boolean unPickOverLongTime(Tag tag, TStorageMedium medium) {
+        Long lastPickTime = lastPickTimeTable.get(tag, medium);
+        Long now = System.currentTimeMillis();
+        LOG.debug("tag={}, medium={}, lastPickTime={}, now={}", tag, medium, lastPickTime, now);
+        return lastPickTime == null || now - lastPickTime >= 5 * 60 * 1000L;
+    }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
             throws SchedException {
