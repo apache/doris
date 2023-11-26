@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_group_commit_and_wal_back_pressure", "p0") {
+suite("test_group_commit_and_wal_back_pressure", "p2") {
 
     def tableName = "test_group_commit_and_wal_back_pressure"
     sql """ DROP TABLE IF EXISTS ${tableName}1 """
