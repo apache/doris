@@ -508,8 +508,8 @@ private:
     struct SamplingCounterInfo {
         Counter* src_counter = nullptr; // the counter to be sampled
         SampleFn sample_fn;
-        int64_t total_sampled_value;    // sum of all sampled values;
-        int64_t num_sampled;            // number of samples taken
+        int64_t total_sampled_value; // sum of all sampled values;
+        int64_t num_sampled;         // number of samples taken
     };
 
     struct BucketCountersInfo {

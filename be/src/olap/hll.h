@@ -359,9 +359,9 @@ public:
     void parse();
 
 private:
-    char* _buf_ref = nullptr;       // set
-    int _buf_len;                   // set len
-    HllDataType _set_type;          //set type
+    char* _buf_ref = nullptr; // set
+    int _buf_len;             // set len
+    HllDataType _set_type;    //set type
     char* _full_value_position = nullptr;
     uint64_t* _explicit_value = nullptr;
     ExplicitLengthValueType _explicit_num;
