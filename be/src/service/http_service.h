@@ -49,7 +49,7 @@ private:
     std::unique_ptr<EvHttpServer> _ev_http_server = nullptr;
     std::unique_ptr<WebPageHandler> _web_page_handler = nullptr;
 
-    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group  = nullptr;
+    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group = nullptr;
 
     bool stopped = false;
 };

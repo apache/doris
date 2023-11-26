@@ -65,7 +65,7 @@ public:
 
 private:
     doris::io::FileWriter* _file_writer = nullptr; // not owned
-    int64_t _cur_pos = 0;                // current write position
+    int64_t _cur_pos = 0;                          // current write position
     bool _is_closed = false;
     int64_t _written_len = 0;
     const std::string _name;
