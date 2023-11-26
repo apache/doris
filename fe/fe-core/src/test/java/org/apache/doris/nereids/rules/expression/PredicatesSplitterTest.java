@@ -45,6 +45,14 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
                 "a = b",
                 "a > 7 and 10 > d",
                 "c = d or a = 10");
+        assetEquals("a = b and c + d = e and a > 7 and 10 > d",
+                "a = b",
+                "a > 7 and 10 > d",
+                "c + d = e");
+        assetEquals("a = b and c + d = e or a > 7 and 10 > d",
+                "",
+                "",
+                "a = b and c + d = e or a > 7 and 10 > d");
     }
 
     private void assetEquals(String expression,
@@ -67,7 +75,7 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
             Expression rangeExpression = replaceUnboundSlot(PARSER.parseExpression(expectedRangeExpr), mem);
             Assertions.assertEquals(rangeExpression, splitPredicate.getRangePredicate());
         } else {
-            Assertions.assertNull(splitPredicate.getResidualPredicate());
+            Assertions.assertNull(splitPredicate.getRangePredicate());
         }
 
         if (!StringUtils.isEmpty(expectedResidualExpr)) {

@@ -36,6 +36,7 @@ import java.util.List;
 /**
  * Split the expression to equal, range and residual predicate.
  * Should instance when used.
+ * TODO support complex predicate split
  */
 public class PredicatesSplitter {
 
@@ -66,6 +67,8 @@ public class PredicatesSplitter {
                 if (leftArgOnlyContainsColumnRef && rightArgOnlyContainsColumnRef) {
                     equalPredicates.add(comparisonPredicate);
                     return null;
+                } else {
+                    residualPredicates.add(comparisonPredicate);
                 }
             } else if ((leftArgOnlyContainsColumnRef && rightArg instanceof Literal)
                     || (rightArgOnlyContainsColumnRef && leftArg instanceof Literal)) {

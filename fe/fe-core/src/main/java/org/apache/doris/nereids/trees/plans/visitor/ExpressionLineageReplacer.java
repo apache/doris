@@ -75,6 +75,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
 
     /**
      * The Collector for target named expressions
+     * TODO Collect named expression by targetTypes, tableIdentifiers
      */
     public static class NamedExpressionCollector
             extends DefaultExpressionVisitor<Void, ExpressionReplaceContext> {
