@@ -136,7 +136,7 @@ public class BDBEnvironment {
         environmentConfig.setCachePercent(MEMORY_CACHE_PERCENT);
         environmentConfig.setLockTimeout(Config.bdbje_lock_timeout_second, TimeUnit.SECONDS);
         environmentConfig.setConfigParam(EnvironmentConfig.RESERVED_DISK,
-               String.valueOf(Config.bdbje_reserved_disk_bytes));
+                String.valueOf(Config.bdbje_reserved_disk_bytes));
         environmentConfig.setConfigParam(EnvironmentConfig.FREE_DISK,
                 String.valueOf(Config.bdbje_free_disk_bytes));
 
