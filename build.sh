@@ -48,6 +48,7 @@ Usage: $0 <options>
      --spark-dpp            build Spark DPP application. Default ON.
      --hive-udf             build Hive UDF library for Spark Load. Default ON.
      --be-java-extensions   build Backend java extensions. Default ON.
+     --update-submodule     update git submodule
      --clean                clean and build target
      --output               specify the output directory
      -j                     build Backend parallel
@@ -123,6 +124,7 @@ if ! OPTS="$(getopt \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
+    -l 'update-submodule' \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
@@ -144,6 +146,7 @@ BUILD_INDEX_TOOL='OFF'
 BUILD_SPARK_DPP=0
 BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
+UPDATE_SUBMODULE=0
 CLEAN=0
 HELP=0
 PARAMETER_COUNT="$#"
@@ -202,6 +205,10 @@ else
             ;;
         --be-java-extensions)
             BUILD_BE_JAVA_EXTENSIONS=1
+            shift
+            ;;
+        --update-submodule)
+            UPDATE_SUBMODULE=1
             shift
             ;;
         --clean)
@@ -293,8 +300,11 @@ update_submodule() {
     fi
 }
 
-update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+echo "UPDATE_SUBMODULE ${UPDATE_SUBMODULE}"
+if [[ "${UPDATE_SUBMODULE}" -eq 1 ]]; then
+    update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+fi
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
     clean_gensrc
