@@ -1,6 +1,6 @@
 ---
 {
-    "title": "CREATE-MULTI-TABLE-MATERIALIZED-VIEW",
+    "title": "ALTER-MULTI-TABLE-MATERIALIZED-VIEW",
     "language": "zh-CN"
 }
 ---
