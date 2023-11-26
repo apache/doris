@@ -361,10 +361,18 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 }
                 // append filtered data
                 Status st = (pulsar_pipe.get()->*append_data)(row, row_len);
-                if (st.ok()) {
-                    append_all = append_all && true;
-                } else {
-                    append_all = append_all && false;
+                if (!st.ok()) {
+                    append_all = false;
+                    // failed to append this msg, we must stop
+                    LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id << ", errmsg=" << st.to_string();
+                    eos = true;
+                    {
+                        std::unique_lock<std::mutex> lock(_mutex);
+                        if (result_st.ok()) {
+                            result_st = st;
+                        }
+                    }
+                    break;
                 }
             }
             if (append_all) {
@@ -373,16 +381,6 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 left_bytes -= len;
                 ack_offset[partition] = msg_id;
                 VLOG(3) << "consume partition" << partition << " - " << msg_id;
-            } else {
-                // failed to append this msg, we must stop
-                LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id << ", errmsg=" << st.to_string();
-                eos = true;
-                {
-                    std::unique_lock<std::mutex> lock(_mutex);
-                    if (result_st.ok()) {
-                        result_st = st;
-                    }
-                }
             }
             delete msg;
         } else {
@@ -467,7 +465,7 @@ std::vector<const char*> PulsarDataConsumerGroup::convert_rows(const char* data)
     rapidjson::Document source;
     if(!source.Parse(data).HasParseError()) {
         if (source.HasMember("events") && source["events"].IsArray()) {
-            const rapidjson::Value& array = doc["events"];
+            const rapidjson::Value& array = source["events"];
             size_t len = array.Size();
             for(size_t i = 0; i < len; i++) {
                 rapidjson::Document destination;
@@ -485,7 +483,7 @@ std::vector<const char*> PulsarDataConsumerGroup::convert_rows(const char* data)
                 }
                 rapidjson::StringBuffer buffer;
                 rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-                doc.Accept(writer);
+                destination.Accept(writer);
                 targets.push_back(buffer.GetString());
             }
         } else {
