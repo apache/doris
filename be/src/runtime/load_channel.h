@@ -121,8 +121,8 @@ private:
     UniqueId _load_id;
 
     SpinLock _profile_serialize_lock;
-    std::unique_ptr<RuntimeProfile> _profile;
-    RuntimeProfile* _self_profile;
+    std::unique_ptr<RuntimeProfile> _profile = nullptr;
+    RuntimeProfile* _self_profile = nullptr;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _add_batch_timer = nullptr;

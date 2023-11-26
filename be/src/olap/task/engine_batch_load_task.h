@@ -71,7 +71,7 @@ private:
     std::vector<TTabletInfo>* _tablet_infos;
     std::string _remote_file_path;
     std::string _local_file_path;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker = nullptr;
 }; // class EngineBatchLoadTask
 } // namespace doris
 #endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H

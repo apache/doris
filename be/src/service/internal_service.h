@@ -252,7 +252,7 @@ private:
                                        google::protobuf::Closure* done);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     // every brpc service request should put into thread pool
     // the reason see issue #16634
@@ -261,7 +261,7 @@ private:
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
 
-    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
+    std::unique_ptr<LoadStreamMgr> _load_stream_mgr = nullptr;
 };
 
 } // namespace doris

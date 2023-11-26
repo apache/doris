@@ -89,12 +89,12 @@ private:
 
     const std::string _table_name;
 
-    std::shared_ptr<SchemaScannerCommonParam> _common_scanner_param;
+    std::shared_ptr<SchemaScannerCommonParam> _common_scanner_param = nullptr;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
 
     // Descriptor of dest tuples
-    const TupleDescriptor* _dest_tuple_desc;
+    const TupleDescriptor* _dest_tuple_desc = nullptr;
     // Tuple index in tuple row.
     int _tuple_idx;
     // slot num need to fill in and return

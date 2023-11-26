@@ -333,7 +333,7 @@ protected:
     std::string _load_info;
     std::string _name;
 
-    std::shared_ptr<MemTracker> _node_channel_tracker;
+    std::shared_ptr<MemTracker> _node_channel_tracker = nullptr;
 
     TupleDescriptor* _tuple_desc = nullptr;
     NodeInfo _node_info;
@@ -359,7 +359,7 @@ protected:
 
     bool _eos_is_produced {false}; // only for restricting producer behaviors
 
-    std::unique_ptr<RowDescriptor> _row_desc;
+    std::unique_ptr<RowDescriptor> _row_desc = nullptr;
     int _batch_size = 0;
 
     // limit _pending_batches size
@@ -394,15 +394,15 @@ protected:
     std::mutex _closed_lock;
     bool _is_closed = false;
 
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
     // rows number received per tablet, tablet_id -> rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
     // rows number filtered per tablet, tablet_id -> filtered_rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_filtered_rows;
 
     // build a _cur_mutable_block and push into _pending_blocks. when not building, this block is empty.
-    std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
-    std::shared_ptr<PTabletWriterAddBlockRequest> _cur_add_block_request;
+    std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block = nullptr;
+    std::shared_ptr<PTabletWriterAddBlockRequest> _cur_add_block_request = nullptr;
 
     using AddBlockReq = std::pair<std::unique_ptr<vectorized::MutableBlock>,
                                   std::shared_ptr<PTabletWriterAddBlockRequest>>;
@@ -476,7 +476,7 @@ private:
     friend class VTabletWriter;
     friend class VRowDistribution;
 
-    VTabletWriter* _parent;
+    VTabletWriter* _parent = nullptr;
     int64_t _index_id;
     vectorized::VExprContextSPtr _where_clause;
 
@@ -500,7 +500,7 @@ private:
     std::unordered_map<int64_t, std::string> _failed_channels_msgs;
     Status _intolerable_failure_status = Status::OK();
 
-    std::unique_ptr<MemTracker> _index_channel_tracker;
+    std::unique_ptr<MemTracker> _index_channel_tracker = nullptr;
     // rows num received by DeltaWriter per tablet, tablet_id -> <node_Id, rows_num>
     // used to verify whether the rows num received by different replicas is consistent
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_received_rows;
@@ -564,9 +564,9 @@ private:
 
     TDataSink _t_sink;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     bthread_t _sender_thread = 0;
 
@@ -588,25 +588,25 @@ private:
     bool _is_high_priority = false;
 
     // TODO(zc): think about cache this data
-    std::shared_ptr<OlapTableSchemaParam> _schema;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
     OlapTableLocationParam* _location = nullptr;
     bool _write_single_replica = false;
     OlapTableLocationParam* _slave_location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
 
-    std::unique_ptr<OlapTabletFinder> _tablet_finder;
+    std::unique_ptr<OlapTabletFinder> _tablet_finder = nullptr;
 
     // index_channel
     std::mutex _stop_check_channel;
     std::vector<std::shared_ptr<IndexChannel>> _channels;
     std::unordered_map<int64_t, std::shared_ptr<IndexChannel>> _index_id_to_channel;
 
-    std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
+    std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token = nullptr;
 
     // support only one partition column now
     std::vector<std::vector<TStringLiteral>> _partitions_need_create;
 
-    std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
+    std::unique_ptr<OlapTableBlockConvertor> _block_convertor = nullptr;
     // Stats for this
     int64_t _send_data_ns = 0;
     int64_t _number_input_rows = 0;

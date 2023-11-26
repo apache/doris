@@ -149,7 +149,7 @@ private:
     }
     bool is_filter() const override { return true; }
 
-    std::shared_ptr<BloomFilterFuncBase> _filter;
+    std::shared_ptr<BloomFilterFuncBase> _filter = nullptr;
     SpecificFilter* _specific_filter; // owned by _filter
     mutable bool _always_true = false;
     mutable bool _has_calculate_filter = false;

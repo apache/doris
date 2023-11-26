@@ -55,8 +55,8 @@ class NewOlapScanner : public VScanner {
 
 public:
     struct Params {
-        RuntimeState* state;
-        RuntimeProfile* profile;
+        RuntimeState* state = nullptr;
+        RuntimeProfile* profile = nullptr;
         std::vector<OlapScanRange*> key_ranges;
         BaseTabletSPtr tablet;
         int64_t version;
@@ -97,7 +97,7 @@ private:
     std::vector<OlapScanRange*> _key_ranges;
 
     TabletReader::ReaderParams _tablet_reader_params;
-    std::unique_ptr<TabletReader> _tablet_reader;
+    std::unique_ptr<TabletReader> _tablet_reader = nullptr;
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;

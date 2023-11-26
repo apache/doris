@@ -94,7 +94,7 @@ public:
     std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
     std::vector<MergeSortCursorImpl>& get_cursors() { return cursors_; }
 
-    std::unique_ptr<Block> unsorted_block_;
+    std::unique_ptr<Block> unsorted_block_ = nullptr;
 
 private:
     int _calc_spill_blocks_to_merge() const;
@@ -124,12 +124,12 @@ private:
     std::deque<int64_t> spilled_sorted_block_streams_;
     std::vector<BlockSpillReaderUPtr> spilled_block_readers_;
     Block merge_sorted_block_;
-    std::unique_ptr<VSortedRunMerger> merger_;
+    std::unique_ptr<VSortedRunMerger> merger_ = nullptr;
 
-    RuntimeProfile* profile_;
-    RuntimeProfile* block_spill_profile_;
-    RuntimeProfile::Counter* spilled_block_count_;
-    RuntimeProfile::Counter* spilled_original_block_size_;
+    RuntimeProfile* profile_ = nullptr;
+    RuntimeProfile* block_spill_profile_ = nullptr;
+    RuntimeProfile::Counter* spilled_block_count_ = nullptr;
+    RuntimeProfile::Counter* spilled_original_block_size_ = nullptr;
 };
 
 class Sorter {
@@ -172,7 +172,7 @@ protected:
     VSortExecExprs& _vsort_exec_exprs;
     int _limit;
     int64_t _offset;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     std::vector<bool>& _is_asc_order;
     std::vector<bool>& _nulls_first;
 
@@ -211,7 +211,7 @@ private:
 
     Status _do_sort();
 
-    std::unique_ptr<MergeSorterState> _state;
+    std::unique_ptr<MergeSorterState> _state = nullptr;
 
     static constexpr size_t INITIAL_BUFFERED_BLOCK_SIZE = 1024 * 1024;
     static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;

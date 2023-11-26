@@ -51,7 +51,7 @@ private:
 
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
     RuntimeProfile::Counter* _distribute_timer = nullptr;
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
     std::vector<size_t> _partition_rows_histogram;
 };
 
@@ -105,7 +105,7 @@ private:
     friend class LocalExchangeSinkLocalState;
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
 };
 
 } // namespace doris::pipeline

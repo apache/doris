@@ -63,7 +63,7 @@ class MultiCastDataStreamSinkLocalState final
     std::string id_name() override;
 
 private:
-    std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;
+    std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer = nullptr;
 };
 
 class MultiCastDataStreamSinkOperatorX final

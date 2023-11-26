@@ -64,7 +64,7 @@ public:
 private:
     Status _do_sort(Block* block);
 
-    std::unique_ptr<MergeSorterState> _state;
+    std::unique_ptr<MergeSorterState> _state = nullptr;
     const RowDescriptor& _row_desc;
 };
 

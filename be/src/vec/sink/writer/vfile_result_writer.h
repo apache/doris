@@ -97,13 +97,13 @@ private:
     Status _delete_dir();
 
     RuntimeState* _state; // not owned, set when init
-    const ResultFileOptions* _file_opts;
+    const ResultFileOptions* _file_opts = nullptr;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
-    std::unique_ptr<doris::io::FileWriter> _file_writer_impl;
+    std::unique_ptr<doris::io::FileWriter> _file_writer_impl = nullptr;
     // Used to buffer the export data of plain text
     // TODO(cmy): I simply use a stringstrteam to buffer the data, to avoid calling
     // file writer's write() for every single row.
@@ -137,7 +137,7 @@ private:
     bool _is_result_sent = false;
     RowDescriptor _output_row_descriptor;
     // convert block to parquet/orc/csv fomrat
-    std::unique_ptr<VFileFormatTransformer> _vfile_writer;
+    std::unique_ptr<VFileFormatTransformer> _vfile_writer = nullptr;
 
     std::string_view _header_type;
     std::string_view _header;

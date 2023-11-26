@@ -85,7 +85,7 @@ protected:
     CacheType _type;
     std::list<CachePolicy*>::iterator _it;
 
-    std::unique_ptr<RuntimeProfile> _profile;
+    std::unique_ptr<RuntimeProfile> _profile = nullptr;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;
     RuntimeProfile::Counter* _prune_all_number_counter = nullptr;
     // Reset before each gc

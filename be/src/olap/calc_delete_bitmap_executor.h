@@ -60,7 +60,7 @@ public:
     void cancel() { _thread_token->shutdown(); }
 
 private:
-    std::unique_ptr<ThreadPoolToken> _thread_token;
+    std::unique_ptr<ThreadPoolToken> _thread_token = nullptr;
 
     std::shared_mutex _lock;
     // Records the current status of the calc delete bitmap job.
@@ -81,7 +81,7 @@ public:
     std::unique_ptr<CalcDeleteBitmapToken> create_token();
 
 private:
-    std::unique_ptr<ThreadPool> _thread_pool;
+    std::unique_ptr<ThreadPool> _thread_pool = nullptr;
 };
 
 } // namespace doris

@@ -148,7 +148,7 @@ public:
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
 private:
-    std::shared_ptr<EncloseCsvLineReaderContext> _text_line_reader_ctx;
+    std::shared_ptr<EncloseCsvLineReaderContext> _text_line_reader_ctx = nullptr;
 };
 
 class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFieldSplitter> {
@@ -230,9 +230,9 @@ private:
     // and the line is skipped as unqualified row, and the process should continue.
     Status _validate_line(const Slice& line, bool* success);
 
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
-    ScannerCounter* _counter;
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
+    ScannerCounter* _counter = nullptr;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
     io::FileSystemProperties _system_properties;
@@ -251,11 +251,11 @@ private:
     // True if this is a load task
     bool _is_load = false;
 
-    std::shared_ptr<io::FileSystem> _file_system;
+    std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<LineReader> _line_reader;
+    std::unique_ptr<LineReader> _line_reader = nullptr;
     bool _line_reader_eof;
-    std::unique_ptr<Decompressor> _decompressor;
+    std::unique_ptr<Decompressor> _decompressor = nullptr;
 
     TFileFormatType::type _file_format_type;
     bool _is_proto_format;
@@ -283,11 +283,11 @@ private:
     // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes
     bool _not_trim_enclose = true;
 
-    io::IOContext* _io_ctx;
+    io::IOContext* _io_ctx = nullptr;
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
-    std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
+    std::unique_ptr<LineFieldSplitterIf> _fields_splitter = nullptr;
     TTextSerdeType::type _text_serde_type;
     std::vector<int> _use_nullable_string_opt;
 };

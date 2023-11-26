@@ -223,7 +223,7 @@ public:
     };
 
     struct CacheValue : public LRUCacheValueBase {
-        std::shared_ptr<roaring::Roaring> bitmap;
+        std::shared_ptr<roaring::Roaring> bitmap = nullptr;
     };
 
     // Create global instance of this class

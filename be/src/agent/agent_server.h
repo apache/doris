@@ -61,38 +61,38 @@ private:
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
 
-    std::unique_ptr<TaskWorkerPool> _create_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _drop_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _push_load_workers;
-    std::unique_ptr<TaskWorkerPool> _publish_version_workers;
-    std::unique_ptr<TaskWorkerPool> _clear_transaction_task_workers;
-    std::unique_ptr<TaskWorkerPool> _push_delete_workers;
-    std::unique_ptr<TaskWorkerPool> _alter_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _alter_inverted_index_workers;
-    std::unique_ptr<TaskWorkerPool> _push_cooldown_conf_workers;
-    std::unique_ptr<TaskWorkerPool> _clone_workers;
-    std::unique_ptr<TaskWorkerPool> _storage_medium_migrate_workers;
-    std::unique_ptr<TaskWorkerPool> _check_consistency_workers;
+    std::unique_ptr<TaskWorkerPool> _create_tablet_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _drop_tablet_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _push_load_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _publish_version_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _clear_transaction_task_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _push_delete_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _alter_tablet_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _alter_inverted_index_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _push_cooldown_conf_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _clone_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _storage_medium_migrate_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _check_consistency_workers = nullptr;
 
     // These 3 worker-pool do not accept tasks from FE.
     // It is self triggered periodically and reports to Fe master
-    std::unique_ptr<TaskWorkerPool> _report_task_workers;
-    std::unique_ptr<TaskWorkerPool> _report_disk_state_workers;
-    std::unique_ptr<TaskWorkerPool> _report_tablet_workers;
+    std::unique_ptr<TaskWorkerPool> _report_task_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _report_disk_state_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _report_tablet_workers = nullptr;
 
-    std::unique_ptr<TaskWorkerPool> _upload_workers;
-    std::unique_ptr<TaskWorkerPool> _download_workers;
-    std::unique_ptr<TaskWorkerPool> _make_snapshot_workers;
-    std::unique_ptr<TaskWorkerPool> _release_snapshot_workers;
-    std::unique_ptr<TaskWorkerPool> _move_dir_workers;
-    std::unique_ptr<TaskWorkerPool> _recover_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _update_tablet_meta_info_workers;
+    std::unique_ptr<TaskWorkerPool> _upload_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _download_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _make_snapshot_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _release_snapshot_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _move_dir_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _recover_tablet_workers = nullptr;
+    std::unique_ptr<TaskWorkerPool> _update_tablet_meta_info_workers = nullptr;
 
-    std::unique_ptr<TaskWorkerPool> _submit_table_compaction_workers;
+    std::unique_ptr<TaskWorkerPool> _submit_table_compaction_workers = nullptr;
 
-    std::unique_ptr<TaskWorkerPool> _push_storage_policy_workers;
-    std::unique_ptr<TopicSubscriber> _topic_subscriber;
-    std::unique_ptr<TaskWorkerPool> _gc_binlog_workers;
+    std::unique_ptr<TaskWorkerPool> _push_storage_policy_workers = nullptr;
+    std::unique_ptr<TopicSubscriber> _topic_subscriber = nullptr;
+    std::unique_ptr<TaskWorkerPool> _gc_binlog_workers = nullptr;
 };
 
 } // end namespace doris

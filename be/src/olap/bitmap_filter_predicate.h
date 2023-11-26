@@ -97,7 +97,7 @@ private:
         return "BitmapFilterColumnPredicate(" + type_to_string(T) + ")";
     }
 
-    std::shared_ptr<BitmapFilterFuncBase> _filter;
+    std::shared_ptr<BitmapFilterFuncBase> _filter = nullptr;
     SpecificFilter* _specific_filter; // owned by _filter
 
     int get_filter_id() const override { return _filter->get_filter_id(); }

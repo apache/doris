@@ -64,7 +64,7 @@ public:
     void set_written_len(int64_t written_len);
 
 private:
-    doris::io::FileWriter* _file_writer; // not owned
+    doris::io::FileWriter* _file_writer = nullptr; // not owned
     int64_t _cur_pos = 0;                // current write position
     bool _is_closed = false;
     int64_t _written_len = 0;
@@ -91,12 +91,12 @@ public:
 private:
     std::unique_ptr<orc::ColumnVectorBatch> _create_row_batch(size_t sz);
 
-    doris::io::FileWriter* _file_writer;
-    std::unique_ptr<orc::OutputStream> _output_stream;
-    std::unique_ptr<orc::WriterOptions> _write_options;
+    doris::io::FileWriter* _file_writer = nullptr;
+    std::unique_ptr<orc::OutputStream> _output_stream = nullptr;
+    std::unique_ptr<orc::WriterOptions> _write_options = nullptr;
     const std::string& _schema_str;
-    std::unique_ptr<orc::Type> _schema;
-    std::unique_ptr<orc::Writer> _writer;
+    std::unique_ptr<orc::Type> _schema = nullptr;
+    std::unique_ptr<orc::Writer> _writer = nullptr;
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer

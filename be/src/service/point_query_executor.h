@@ -95,8 +95,8 @@ public:
 
 private:
     // caching TupleDescriptor, output_expr, etc...
-    std::unique_ptr<RuntimeState> _runtime_state;
-    DescriptorTbl* _desc_tbl;
+    std::unique_ptr<RuntimeState> _runtime_state = nullptr;
+    DescriptorTbl* _desc_tbl = nullptr;
     std::mutex _block_mutex;
     // prevent from allocte too many tmp blocks
     std::vector<std::unique_ptr<vectorized::Block>> _block_pool;
@@ -302,11 +302,11 @@ private:
         std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)> _rowset_ptr;
     };
 
-    PTabletKeyLookupResponse* _response;
+    PTabletKeyLookupResponse* _response = nullptr;
     TabletSharedPtr _tablet;
     std::vector<RowReadContext> _row_read_ctxs;
-    std::shared_ptr<Reusable> _reusable;
-    std::unique_ptr<vectorized::Block> _result_block;
+    std::shared_ptr<Reusable> _reusable = nullptr;
+    std::unique_ptr<vectorized::Block> _result_block = nullptr;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
 };

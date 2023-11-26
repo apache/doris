@@ -45,7 +45,7 @@ public:
 
 private:
     int _cur_child_id;
-    std::shared_ptr<DataQueue> _data_queue;
+    std::shared_ptr<DataQueue> _data_queue = nullptr;
 };
 
 class UnionSinkOperator final : public StreamingOperator<UnionSinkOperatorBuilder> {
@@ -62,8 +62,8 @@ public:
 
 private:
     int _cur_child_id;
-    std::shared_ptr<DataQueue> _data_queue;
-    std::unique_ptr<vectorized::Block> _output_block;
+    std::shared_ptr<DataQueue> _data_queue = nullptr;
+    std::unique_ptr<vectorized::Block> _output_block = nullptr;
 };
 
 class UnionSinkDependency final : public Dependency {
@@ -87,7 +87,7 @@ public:
     using Parent = UnionSinkOperatorX;
 
 private:
-    std::unique_ptr<vectorized::Block> _output_block;
+    std::unique_ptr<vectorized::Block> _output_block = nullptr;
 
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.

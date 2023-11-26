@@ -64,7 +64,7 @@ public:
                                   TabletSharedPtr& tablet, DataDir** dest_store);
 
 private:
-    std::unique_ptr<ThreadPool> _migration_thread_pool;
+    std::unique_ptr<ThreadPool> _migration_thread_pool = nullptr;
 
     struct MigrationTask {
         MigrationTask(int64_t tablet_id, int32_t schema_hash)

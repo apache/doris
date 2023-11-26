@@ -149,7 +149,7 @@ private:
     RowsetId _rowset_id;
     TabletSchemaSPtr _tablet_schema;
 
-    std::unique_ptr<PrimaryKeyIndexMetaPB> _pk_index_meta;
+    std::unique_ptr<PrimaryKeyIndexMetaPB> _pk_index_meta = nullptr;
     PagePointerPB _sk_index_page;
 
     // map column unique id ---> column reader
@@ -165,11 +165,11 @@ private:
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder
-    std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
+    std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder = nullptr;
     // primary key index reader
-    std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
+    std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader = nullptr;
     // Segment may be destructed after StorageEngine, in order to exit gracefully.
-    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
+    std::shared_ptr<MemTracker> _segment_meta_mem_tracker = nullptr;
     std::mutex _open_lock;
 };
 

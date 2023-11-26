@@ -34,7 +34,7 @@ public:
     std::vector<size_t> get_index() { return _column_index; }
 
 private:
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
     std::string _wal_path;
     std::string _path_split = "/";
     int64_t _wal_id;

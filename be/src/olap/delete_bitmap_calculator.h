@@ -76,7 +76,7 @@ public:
 private:
     Status _next_batch(size_t row_id);
 
-    std::unique_ptr<segment_v2::IndexedColumnIterator> _iter;
+    std::unique_ptr<segment_v2::IndexedColumnIterator> _iter = nullptr;
     vectorized::DataTypePtr _index_type;
     vectorized::MutableColumnPtr _index_column;
     size_t _block_size {0};
@@ -106,7 +106,7 @@ private:
     std::vector<MergeIndexDeleteBitmapCalculatorContext> _contexts;
     MergeIndexDeleteBitmapCalculatorContext::Comparator _comparator {0, 0};
     RowsetId _rowset_id;
-    std::unique_ptr<Heap> _heap;
+    std::unique_ptr<Heap> _heap = nullptr;
     std::string _last_key;
     size_t _seq_col_length;
     size_t _rowid_length;

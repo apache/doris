@@ -237,12 +237,12 @@ private:
     int _skip_rows;
     Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
-    Parent* _parent;
+    Parent* _parent = nullptr;
     int _batch_size;
     uint8_t _offset;
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
 
-    ProfileCounter* _build_side_compute_hash_timer;
+    ProfileCounter* _build_side_compute_hash_timer = nullptr;
 };
 
 template <typename RowRefListType>
@@ -427,47 +427,47 @@ private:
     DataTypes _left_table_data_types;
     std::vector<std::string> _right_table_column_names;
 
-    RuntimeProfile::Counter* _build_table_timer;
-    RuntimeProfile::Counter* _build_expr_call_timer;
-    RuntimeProfile::Counter* _build_table_insert_timer;
-    RuntimeProfile::Counter* _build_table_expanse_timer;
-    RuntimeProfile::Counter* _build_table_convert_timer;
-    RuntimeProfile::Counter* _probe_expr_call_timer;
-    RuntimeProfile::Counter* _probe_next_timer;
-    RuntimeProfile::Counter* _build_buckets_counter;
-    RuntimeProfile::Counter* _build_buckets_fill_counter;
-    RuntimeProfile::Counter* _search_hashtable_timer;
-    RuntimeProfile::Counter* _build_side_output_timer;
-    RuntimeProfile::Counter* _probe_side_output_timer;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer;
-    RuntimeProfile::Counter* _build_side_compute_hash_timer;
-    RuntimeProfile::Counter* _build_side_merge_block_timer;
-    RuntimeProfile::Counter* _build_runtime_filter_timer;
+    RuntimeProfile::Counter* _build_table_timer = nullptr;
+    RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
+    RuntimeProfile::Counter* _build_table_insert_timer = nullptr;
+    RuntimeProfile::Counter* _build_table_expanse_timer = nullptr;
+    RuntimeProfile::Counter* _build_table_convert_timer = nullptr;
+    RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
+    RuntimeProfile::Counter* _probe_next_timer = nullptr;
+    RuntimeProfile::Counter* _build_buckets_counter = nullptr;
+    RuntimeProfile::Counter* _build_buckets_fill_counter = nullptr;
+    RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _build_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _build_side_compute_hash_timer = nullptr;
+    RuntimeProfile::Counter* _build_side_merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _build_runtime_filter_timer = nullptr;
 
-    RuntimeProfile::Counter* _build_collisions_counter;
+    RuntimeProfile::Counter* _build_collisions_counter = nullptr;
 
-    RuntimeProfile::Counter* _open_timer;
-    RuntimeProfile::Counter* _allocate_resource_timer;
-    RuntimeProfile::Counter* _process_other_join_conjunct_timer;
+    RuntimeProfile::Counter* _open_timer = nullptr;
+    RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
+    RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _build_blocks_memory_usage;
-    RuntimeProfile::Counter* _hash_table_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
 
-    std::shared_ptr<Arena> _arena;
+    std::shared_ptr<Arena> _arena = nullptr;
 
     // maybe share hash table with other fragment instances
-    std::shared_ptr<HashTableVariants> _hash_table_variants;
+    std::shared_ptr<HashTableVariants> _hash_table_variants = nullptr;
 
-    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
+    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants = nullptr;
 
     // for full/right outer join
     HashTableIteratorVariants _outer_join_pull_visited_iter;
     HashTableIteratorVariants _probe_row_match_iter;
 
-    std::shared_ptr<std::vector<Block>> _build_blocks;
+    std::shared_ptr<std::vector<Block>> _build_blocks = nullptr;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;

@@ -124,7 +124,7 @@ private:
     // A thread of query/load will only wait once during execution.
     bool _wait_gc = false;
 
-    std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
+    std::shared_ptr<MemTrackerLimiter> _limiter_tracker = nullptr;
     MemTrackerLimiter* _limiter_tracker_raw = nullptr;
     std::vector<MemTracker*> _consumer_tracker_stack;
 

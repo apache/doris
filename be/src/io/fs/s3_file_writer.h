@@ -66,7 +66,7 @@ private:
     std::string _key;
     bool _aborted = false;
 
-    std::shared_ptr<Aws::S3::S3Client> _client;
+    std::shared_ptr<Aws::S3::S3Client> _client = nullptr;
     std::string _upload_id;
     size_t _index_offset {0};
 
@@ -76,7 +76,7 @@ private:
     std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
     IFileCache::Key _cache_key;
-    IFileCache* _cache;
+    IFileCache* _cache = nullptr;
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
@@ -84,7 +84,7 @@ private:
     Status _st;
     size_t _bytes_written = 0;
 
-    std::shared_ptr<FileBuffer> _pending_buf;
+    std::shared_ptr<FileBuffer> _pending_buf = nullptr;
     int64_t _expiration_time;
     bool _is_cold_data;
     bool _write_file_cache;

@@ -55,8 +55,8 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
-    Dependency* source_dep;
-    Dependency* sink_dep;
+    Dependency* source_dep = nullptr;
+    Dependency* sink_dep = nullptr;
 
     std::atomic<int> ref_count = 0;
 
@@ -126,9 +126,9 @@ protected:
     const std::string _name;
     const bool _is_write_dependency;
     std::atomic<bool> _ready;
-    const QueryContext* _query_ctx;
+    const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state {nullptr};
+    std::shared_ptr<BasicSharedState> _shared_state = nullptr;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 
@@ -183,11 +183,11 @@ public:
 private:
     bool _call_ready {};
     bool _call_timeout {};
-    std::shared_ptr<RuntimeFilterDependency> _parent;
+    std::shared_ptr<RuntimeFilterDependency> _parent = nullptr;
     std::mutex _lock;
     const int64_t _registration_time;
     const int32_t _wait_time_ms;
-    IRuntimeFilter* _runtime_filter;
+    IRuntimeFilter* _runtime_filter = nullptr;
 };
 
 class RuntimeFilterDependency final : public Dependency {
@@ -205,7 +205,7 @@ public:
 
 protected:
     std::atomic_int _filters;
-    std::shared_ptr<std::atomic_bool> _blocked_by_rf;
+    std::shared_ptr<std::atomic_bool> _blocked_by_rf = nullptr;
 };
 
 class AndDependency final : public Dependency {
@@ -262,17 +262,17 @@ public:
         return Status::OK();
     }
 
-    vectorized::AggregatedDataVariantsUPtr agg_data;
+    vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<vectorized::AggregateDataContainer> aggregate_data_container;
     vectorized::AggSpillContext spill_context;
     vectorized::ArenaUPtr agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
-    std::unique_ptr<vectorized::SpillPartitionHelper> spill_partition_helper;
+    std::unique_ptr<vectorized::SpillPartitionHelper> spill_partition_helper = nullptr;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
-    std::unique_ptr<vectorized::Arena> agg_profile_arena;
+    std::unique_ptr<vectorized::Arena> agg_profile_arena = nullptr;
     std::unique_ptr<DataQueue> data_queue = nullptr;
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
@@ -335,7 +335,7 @@ private:
 
 struct SortSharedState : public BasicSharedState {
 public:
-    std::unique_ptr<vectorized::Sorter> sorter;
+    std::unique_ptr<vectorized::Sorter> sorter = nullptr;
 };
 
 struct UnionSharedState : public BasicSharedState {
@@ -445,7 +445,7 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<vectorized::HashTableVariants> hash_table_variants; // the real data HERE.
+    std::unique_ptr<vectorized::HashTableVariants> hash_table_variants = nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     /// init in both upstream side.

@@ -40,7 +40,7 @@ public:
 
 private:
     ExecEnv* _exec_env;
-    std::unique_ptr<brpc::Server> _server;
+    std::unique_ptr<brpc::Server> _server = nullptr;
 };
 
 } // namespace doris

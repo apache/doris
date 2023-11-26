@@ -123,12 +123,12 @@ private:
     bool _is_closed = false;
     Status _cancel_status;
     WriteRequest _req;
-    std::shared_ptr<RowsetWriter> _rowset_writer;
-    std::unique_ptr<MemTable> _mem_table;
+    std::shared_ptr<RowsetWriter> _rowset_writer = nullptr;
+    std::unique_ptr<MemTable> _mem_table = nullptr;
     TabletSchemaSPtr _tablet_schema;
     bool _unique_key_mow = false;
 
-    std::unique_ptr<FlushToken> _flush_token;
+    std::unique_ptr<FlushToken> _flush_token = nullptr;
     std::vector<std::shared_ptr<MemTracker>> _mem_table_insert_trackers;
     std::vector<std::shared_ptr<MemTracker>> _mem_table_flush_trackers;
     SpinLock _mem_table_tracker_lock;
@@ -144,7 +144,7 @@ private:
 
     MonotonicStopWatch _lock_watch;
 
-    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info = nullptr;
 };
 
 } // namespace doris

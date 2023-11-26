@@ -92,9 +92,9 @@ struct RowsetWriterContext {
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     BaseTabletSPtr tablet = nullptr;
 
-    std::shared_ptr<MowContext> mow_context;
-    std::shared_ptr<FileWriterCreator> file_writer_creator;
-    std::shared_ptr<SegmentCollector> segment_collector;
+    std::shared_ptr<MowContext> mow_context = nullptr;
+    std::shared_ptr<FileWriterCreator> file_writer_creator = nullptr;
+    std::shared_ptr<SegmentCollector> segment_collector = nullptr;
 
     /// begin file cache opts
     bool write_file_cache = false;
@@ -105,12 +105,12 @@ struct RowsetWriterContext {
     // segcompaction for this RowsetWriter, disable it for some transient writers
     bool enable_segcompaction = true;
 
-    std::shared_ptr<PartialUpdateInfo> partial_update_info;
+    std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr;
 
     bool is_transient_rowset_writer = false;
     // In semi-structure senario tablet_schema will be updated concurrently,
     // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
-    std::shared_ptr<std::mutex> schema_lock;
+    std::shared_ptr<std::mutex> schema_lock = nullptr;
 };
 
 } // namespace doris

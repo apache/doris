@@ -282,11 +282,11 @@ private:
     std::vector<std::string> _column_names;
     bool _is_table_schema = false;
 
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
-    RuntimeProfile::Counter* _open_scanner_time;
-    RuntimeProfile::Counter* _java_scan_time;
-    RuntimeProfile::Counter* _fill_block_time;
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _open_scanner_time = nullptr;
+    RuntimeProfile::Counter* _java_scan_time = nullptr;
+    RuntimeProfile::Counter* _fill_block_time = nullptr;
     std::map<std::string, RuntimeProfile::Counter*> _scanner_profile;
 
     size_t _has_read = 0;

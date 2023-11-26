@@ -524,7 +524,7 @@ protected:
     }
 
 private:
-    std::shared_ptr<IFunction> function;
+    std::shared_ptr<IFunction> function = nullptr;
 };
 
 /*
@@ -597,7 +597,7 @@ public:
     }
 
 private:
-    std::shared_ptr<IFunction> function;
+    std::shared_ptr<IFunction> function = nullptr;
     DataTypes arguments;
     DataTypePtr return_type;
 };
@@ -661,7 +661,7 @@ protected:
     }
 
 private:
-    std::shared_ptr<IFunction> function;
+    std::shared_ptr<IFunction> function = nullptr;
 };
 
 using FunctionPtr = std::shared_ptr<IFunction>;

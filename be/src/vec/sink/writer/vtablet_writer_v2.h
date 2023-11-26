@@ -147,10 +147,10 @@ private:
 
     Status _cancel(Status status);
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 
     TDataSink _t_sink;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     // unique load id
     PUniqueId _load_id;
@@ -175,13 +175,13 @@ private:
     bool _write_file_cache = false;
 
     // TODO(zc): think about cache this data
-    std::shared_ptr<OlapTableSchemaParam> _schema;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
     OlapTableLocationParam* _location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
 
-    std::unique_ptr<OlapTabletFinder> _tablet_finder;
+    std::unique_ptr<OlapTabletFinder> _tablet_finder = nullptr;
 
-    std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
+    std::unique_ptr<OlapTableBlockConvertor> _block_convertor = nullptr;
 
     // Stats for this
     int64_t _send_data_ns = 0;
@@ -224,7 +224,7 @@ private:
             _streams_for_node;
 
     size_t _stream_index = 0;
-    std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
+    std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet = nullptr;
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.

@@ -153,7 +153,7 @@ private:
     protected:
         const TabletSchema& _schema;
         IteratorRowRef _ref;
-        std::vector<uint32_t>* _compare_columns;
+        std::vector<uint32_t>* _compare_columns = nullptr;
     };
 
     // Compare row cursors between multiple merge elements,
@@ -259,7 +259,7 @@ private:
 
         RowsetReaderSharedPtr _rs_reader;
         TabletReader* _reader = nullptr;
-        std::shared_ptr<Block> _block;
+        std::shared_ptr<Block> _block = nullptr;
 
         int _current;
         BlockView _block_view;
@@ -312,7 +312,7 @@ private:
         std::list<std::unique_ptr<LevelIterator>> _children;
         // point to the Level0Iterator containing the next output row.
         // null when VCollectIterator hasn't been initialized or reaches EOF.
-        std::unique_ptr<LevelIterator> _cur_child;
+        std::unique_ptr<LevelIterator> _cur_child = nullptr;
         TabletReader* _reader = nullptr;
 
         // when `_merge == true`, rowset reader returns ordered rows and VCollectIterator uses a priority queue to merge
@@ -326,12 +326,12 @@ private:
 
         bool _skip_same;
         // used when `_merge == true`
-        std::unique_ptr<MergeHeap> _heap;
+        std::unique_ptr<MergeHeap> _heap = nullptr;
 
         std::vector<RowLocation> _block_row_locations;
     };
 
-    std::unique_ptr<LevelIterator> _inner_iter;
+    std::unique_ptr<LevelIterator> _inner_iter = nullptr;
 
     // Each LevelIterator corresponds to a rowset reader,
     // it will be cleared after '_inner_iter' has been initialized.

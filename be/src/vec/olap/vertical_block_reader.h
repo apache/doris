@@ -94,7 +94,7 @@ private:
 
 private:
     size_t _id;
-    std::shared_ptr<RowwiseIterator> _vcollect_iter;
+    std::shared_ptr<RowwiseIterator> _vcollect_iter = nullptr;
     IteratorRowRef _next_row {{}, -1, false};
 
     bool _eof = false;

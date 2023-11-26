@@ -145,7 +145,7 @@ protected:
     // It is shared with PlanFragmentExecutor and will be called in two different
     // threads. But their calls are all at different time, there is no problem of
     // multithreading access.
-    std::shared_ptr<QueryStatistics> _query_statistics;
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 class PipBufferControlBlock : public BufferControlBlock {
@@ -175,7 +175,7 @@ private:
     void _update_batch_queue_empty() override;
 
     std::atomic_bool _batch_queue_empty {false};
-    std::shared_ptr<pipeline::ResultSinkDependency> _result_sink_dependency {nullptr};
+    std::shared_ptr<pipeline::ResultSinkDependency> _result_sink_dependency = nullptr;
 };
 
 } // namespace doris

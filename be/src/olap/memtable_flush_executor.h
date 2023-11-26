@@ -82,7 +82,7 @@ private:
 
     Status _do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size);
 
-    std::unique_ptr<ThreadPoolToken> _flush_token;
+    std::unique_ptr<ThreadPoolToken> _flush_token = nullptr;
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
@@ -91,7 +91,7 @@ private:
 
     FlushStatistic _stats;
 
-    RowsetWriter* _rowset_writer;
+    RowsetWriter* _rowset_writer = nullptr;
 
     MemTableStat _memtable_stat;
 };
@@ -125,8 +125,8 @@ private:
     void _register_metrics();
     static void _deregister_metrics();
 
-    std::unique_ptr<ThreadPool> _flush_pool;
-    std::unique_ptr<ThreadPool> _high_prio_flush_pool;
+    std::unique_ptr<ThreadPool> _flush_pool = nullptr;
+    std::unique_ptr<ThreadPool> _high_prio_flush_pool = nullptr;
 };
 
 } // namespace doris

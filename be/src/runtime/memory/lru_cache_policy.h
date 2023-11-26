@@ -94,7 +94,7 @@ public:
     Cache* get() { return _cache.get(); }
 
 protected:
-    std::unique_ptr<Cache> _cache;
+    std::unique_ptr<Cache> _cache = nullptr;
 };
 
 } // namespace doris

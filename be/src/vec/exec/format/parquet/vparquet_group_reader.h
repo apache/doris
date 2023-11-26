@@ -196,8 +196,8 @@ private:
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
     int64_t _remaining_rows;
-    cctz::time_zone* _ctz;
-    io::IOContext* _io_ctx;
+    cctz::time_zone* _ctz = nullptr;
+    io::IOContext* _io_ctx = nullptr;
     PositionDeleteContext _position_delete_ctx;
     // merge the row ranges generated from page index and position delete.
     std::vector<RowRange> _read_ranges;
@@ -208,17 +208,17 @@ private:
     size_t _cached_filtered_rows = 0;
     std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr = nullptr;
     int64_t _total_read_rows = 0;
-    const TupleDescriptor* _tuple_descriptor;
-    const RowDescriptor* _row_descriptor;
-    const std::unordered_map<std::string, int>* _col_name_to_slot_id;
+    const TupleDescriptor* _tuple_descriptor = nullptr;
+    const RowDescriptor* _row_descriptor = nullptr;
+    const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     VExprContextSPtrs _not_single_slot_filter_conjuncts;
-    const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
+    const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
-    RuntimeState* _state;
-    std::shared_ptr<ObjectPool> _obj_pool;
+    RuntimeState* _state = nullptr;
+    std::shared_ptr<ObjectPool> _obj_pool = nullptr;
     bool _is_row_group_filtered = false;
 };
 } // namespace doris::vectorized

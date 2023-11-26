@@ -269,7 +269,7 @@ private:
     bool _part_contains(VOlapTablePartition* part, BlockRowWithIndicator key) const;
 
     // this partition only valid in this schema
-    std::shared_ptr<OlapTableSchemaParam> _schema;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
     TOlapTablePartitionParam _t_param;
 
     const std::vector<SlotDescriptor*>& _slots;
@@ -279,13 +279,13 @@ private:
 
     ObjectPool _obj_pool;
     vectorized::Block _partition_block;
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
     std::vector<VOlapTablePartition*> _partitions;
     // For all partition value rows saved in this map, indicator is false. whenever we use a value to find in it, the param is true.
     // so that we can distinguish which column index to use (origin slots or transformed slots).
     std::unique_ptr<
             std::map<BlockRowWithIndicator, VOlapTablePartition*, VOlapTablePartKeyComparator>>
-            _partitions_map;
+            _partitions_map = nullptr;
 
     bool _is_in_partition = false;
     uint32_t _mem_usage = 0;

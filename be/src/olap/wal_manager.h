@@ -71,7 +71,7 @@ public:
     Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::shared_mutex _lock;
     scoped_refptr<Thread> _replay_thread;
     CountDownLatch _stop_background_threads_latch;
@@ -81,7 +81,7 @@ private:
     std::shared_mutex _wal_status_lock;
     std::unordered_map<int64_t, std::string> _wal_path_map;
     std::unordered_map<int64_t, std::shared_ptr<WalWriter>> _wal_id_to_writer_map;
-    std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
+    std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes = nullptr;
     std::unordered_map<int64_t, std::unordered_map<int64_t, WAL_STATUS>> _wal_status_queues;
     std::atomic<bool> _stop;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;

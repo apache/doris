@@ -149,22 +149,22 @@ private:
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
-    DataDir* _data_dir;
+    DataDir* _data_dir = nullptr;
     VerticalSegmentWriterOptions _opts;
 
     // Not owned. owned by RowsetWriter
-    io::FileWriter* _file_writer;
+    io::FileWriter* _file_writer = nullptr;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;
     size_t _num_short_key_columns;
     size_t _inverted_index_file_size;
-    std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
-    std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
+    std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder = nullptr;
+    std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder = nullptr;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
 
-    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
+    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor = nullptr;
     // used for building short key index or primary key index during vectorized write.
     std::vector<const KeyCoder*> _key_coders;
     const KeyCoder* _seq_coder = nullptr;
@@ -184,7 +184,7 @@ private:
     faststring _min_key;
     faststring _max_key;
 
-    std::shared_ptr<MowContext> _mow_context;
+    std::shared_ptr<MowContext> _mow_context = nullptr;
     // group every rowset-segment row id to speed up reader
     PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;

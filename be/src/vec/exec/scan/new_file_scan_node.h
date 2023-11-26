@@ -64,7 +64,7 @@ private:
     // 1. iceberg delete file
     // 2. parquet file meta
     // KVCache<std::string> _kv_cache;
-    std::unique_ptr<ShardedKVCache> _kv_cache;
+    std::unique_ptr<ShardedKVCache> _kv_cache = nullptr;
 
     std::string _table_name;
 };

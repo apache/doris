@@ -119,7 +119,7 @@ private:
 private:
     /// TODO: replace atomic_load/store() on shared_ptr (which is deprecated as of C++20) by C++20 std::atomic<std::shared_ptr>.
     /// Clang 15 currently does not support it.
-    std::shared_ptr<const DebugPointMap> _debug_points;
+    std::shared_ptr<const DebugPointMap> _debug_points = nullptr;
 };
 
 } // namespace doris

@@ -88,14 +88,14 @@ public:
 private:
     AtomicWrapper<int32_t> _ref_count;
     PBlock pblock;
-    pipeline::BroadcastDependency* _dep;
+    pipeline::BroadcastDependency* _dep = nullptr;
 };
 } // namespace vectorized
 
 namespace pipeline {
 template <typename Parent>
 struct TransmitInfo {
-    vectorized::PipChannel<Parent>* channel;
+    vectorized::PipChannel<Parent>* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
     Status exec_status;
@@ -103,8 +103,8 @@ struct TransmitInfo {
 
 template <typename Parent>
 struct BroadcastTransmitInfo {
-    vectorized::PipChannel<Parent>* channel;
-    vectorized::BroadcastPBlockHolder* block_holder;
+    vectorized::PipChannel<Parent>* channel = nullptr;
+    vectorized::BroadcastPBlockHolder* block_holder = nullptr;
     bool eos;
 };
 
@@ -164,7 +164,7 @@ private:
     std::function<void(const InstanceLoId&, const bool&, const Response&, const int64_t&)> _suc_fn;
     InstanceLoId _id;
     bool _eos;
-    vectorized::BroadcastPBlockHolder* _data;
+    vectorized::BroadcastPBlockHolder* _data = nullptr;
 };
 
 struct ExchangeRpcContext {
@@ -234,7 +234,7 @@ private:
     int _sender_id;
     int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
-    QueryContext* _context;
+    QueryContext* _context = nullptr;
 
     Status _send_rpc(InstanceLoId);
     // must hold the _instance_to_package_queue_mutex[id] mutex to opera

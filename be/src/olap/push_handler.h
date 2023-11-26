@@ -113,7 +113,7 @@ private:
     bool _ready;
     bool _eof;
     int _next_range;
-    vectorized::Block* _src_block_ptr;
+    vectorized::Block* _src_block_ptr = nullptr;
     vectorized::Block _src_block;
     const TDescriptorTable& _t_desc_tbl;
     std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
@@ -125,20 +125,20 @@ private:
     std::unordered_map<int, int> _dest_slot_to_src_slot_index;
 
     std::vector<SlotDescriptor*> _src_slot_descs;
-    std::unique_ptr<RowDescriptor> _row_desc;
-    const TupleDescriptor* _dest_tuple_desc;
+    std::unique_ptr<RowDescriptor> _row_desc = nullptr;
+    const TupleDescriptor* _dest_tuple_desc = nullptr;
 
-    std::unique_ptr<RuntimeState> _runtime_state;
-    RuntimeProfile* _runtime_profile;
-    std::unique_ptr<vectorized::GenericReader> _cur_reader;
+    std::unique_ptr<RuntimeState> _runtime_state = nullptr;
+    RuntimeProfile* _runtime_profile = nullptr;
+    std::unique_ptr<vectorized::GenericReader> _cur_reader = nullptr;
     bool _cur_reader_eof;
     const TBrokerScanRangeParams& _params;
     const std::vector<TBrokerRangeDesc>& _ranges;
     TFileScanRangeParams _file_params;
     std::vector<TFileRangeDesc> _file_ranges;
 
-    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
-    std::unique_ptr<io::IOContext> _io_ctx;
+    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics = nullptr;
+    std::unique_ptr<io::IOContext> _io_ctx = nullptr;
 
     // col names from _slot_descs
     std::vector<std::string> _all_col_names;
@@ -152,7 +152,7 @@ private:
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // row desc for default exprs
-    std::unique_ptr<RowDescriptor> _default_val_row_desc;
+    std::unique_ptr<RowDescriptor> _default_val_row_desc = nullptr;
     const TupleDescriptor* _real_tuple_desc = nullptr;
 
     // Not used, just for placeholding

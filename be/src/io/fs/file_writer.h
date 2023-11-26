@@ -72,7 +72,7 @@ public:
 protected:
     Path _path;
     size_t _bytes_appended = 0;
-    std::shared_ptr<FileSystem> _fs;
+    std::shared_ptr<FileSystem> _fs = nullptr;
     bool _closed = false;
     bool _opened = false;
 };

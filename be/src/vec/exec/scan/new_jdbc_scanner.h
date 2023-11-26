@@ -79,11 +79,11 @@ private:
     // SQL
     std::string _query_string;
     // Descriptor of tuples read from JDBC table.
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
     // the sql query database type: like mysql, PG...
     TOdbcTableType::type _table_type;
     // Scanner of JDBC.
-    std::unique_ptr<JdbcConnector> _jdbc_connector;
+    std::unique_ptr<JdbcConnector> _jdbc_connector = nullptr;
     JdbcConnectorParam _jdbc_param;
 };
 } // namespace vectorized

@@ -58,7 +58,7 @@ public:
     Status close(RuntimeState* state) override;
 
 private:
-    std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer;
+    std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer = nullptr;
     int _dest_node_id = -1;
     RuntimeState* _state = nullptr;
     int _mult_cast_id = -1;
@@ -199,7 +199,7 @@ private:
     friend class vectorized::PipChannel<ExchangeSinkLocalState>;
     friend class vectorized::BlockSerializer<ExchangeSinkLocalState>;
 
-    std::unique_ptr<ExchangeSinkBuffer<ExchangeSinkLocalState>> _sink_buffer;
+    std::unique_ptr<ExchangeSinkBuffer<ExchangeSinkLocalState>> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _compress_timer = nullptr;
     RuntimeProfile::Counter* _brpc_send_timer = nullptr;
@@ -234,7 +234,7 @@ private:
     std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
     std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
     std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
     int _partition_count;
 };
 
@@ -285,7 +285,7 @@ private:
     const std::vector<TPlanFragmentDestination> _dests;
     const bool _send_query_statistics_with_every_batch;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
     // Identifier of the destination plan node.
     const PlanNodeId _dest_node_id;
 

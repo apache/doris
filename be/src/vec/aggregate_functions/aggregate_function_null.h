@@ -35,7 +35,7 @@ namespace doris::vectorized {
 template <typename NestFunction, bool result_is_nullable, typename Derived>
 class AggregateFunctionNullBaseInline : public IAggregateFunctionHelper<Derived> {
 protected:
-    std::unique_ptr<NestFunction> nested_function;
+    std::unique_ptr<NestFunction> nested_function = nullptr;
     size_t prefix_size;
 
     /** In addition to data for nested aggregate function, we keep a flag

@@ -183,26 +183,26 @@ protected:
 
     PipelinePtr _root_pipeline;
 
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
+    std::unique_ptr<RuntimeProfile> _runtime_profile = nullptr;
     bool _is_report_success = false;
 
-    std::unique_ptr<RuntimeState> _runtime_state;
+    std::unique_ptr<RuntimeState> _runtime_state = nullptr;
 
     ExecNode* _root_plan = nullptr; // lives in _runtime_state->obj_pool()
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
-    std::unique_ptr<DataSink> _sink;
+    std::unique_ptr<DataSink> _sink = nullptr;
     std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 
-    std::shared_ptr<QueryContext> _query_ctx;
+    std::shared_ptr<QueryContext> _query_ctx = nullptr;
 
     taskgroup::TaskGroupPipelineTaskEntity* _task_group_entity = nullptr;
 
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler = nullptr;
 
     MonotonicStopWatch _fragment_watcher;
-    RuntimeProfile::Counter* _start_timer;
-    RuntimeProfile::Counter* _prepare_timer;
+    RuntimeProfile::Counter* _start_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     bool _is_fragment_instance_closed = false;
@@ -218,7 +218,7 @@ protected:
     // profile reporting-related
     report_status_callback _report_status_cb;
 
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
 
 private:
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);

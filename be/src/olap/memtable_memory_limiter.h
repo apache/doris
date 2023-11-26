@@ -61,7 +61,7 @@ private:
     std::condition_variable _wait_flush_cond;
     int64_t _mem_usage = 0;
 
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker = nullptr;
     int64_t _load_hard_mem_limit = -1;
     int64_t _load_soft_mem_limit = -1;
     bool _soft_reduce_mem_in_progress = false;

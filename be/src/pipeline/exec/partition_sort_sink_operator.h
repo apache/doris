@@ -78,15 +78,15 @@ private:
     std::vector<vectorized::PartitionDataPtr> _value_places;
     int _num_partition = 0;
     std::vector<const vectorized::IColumn*> _partition_columns;
-    std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool;
+    std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data = nullptr;
+    std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
     int _partition_exprs_num = 0;
 
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _emplace_key_timer;
-    RuntimeProfile::Counter* _selector_block_timer;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _emplace_key_timer = nullptr;
+    RuntimeProfile::Counter* _selector_block_timer = nullptr;
 
-    RuntimeProfile::Counter* _hash_table_size_counter;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     void _init_hash_method();
 };
 
@@ -108,7 +108,7 @@ public:
 
 private:
     friend class PartitionSortSinkLocalState;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     const RowDescriptor _row_descriptor;
     int64_t _limit = -1;
     int _partition_exprs_num = 0;

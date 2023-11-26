@@ -538,7 +538,7 @@ private:
         }
     }
 
-    std::shared_ptr<HybridSetBase> _values;
+    std::shared_ptr<HybridSetBase> _values = nullptr;
     mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<vectorized::UInt8>>
             _segment_id_to_value_in_dict_flags;
     T _min_value;

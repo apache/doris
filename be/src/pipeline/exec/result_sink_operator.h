@@ -70,9 +70,9 @@ private:
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
-    std::shared_ptr<BufferControlBlock> _sender;
-    std::shared_ptr<ResultWriter> _writer;
-    std::shared_ptr<ResultSinkDependency> _result_sink_dependency;
+    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::shared_ptr<ResultWriter> _writer = nullptr;
+    std::shared_ptr<ResultSinkDependency> _result_sink_dependency = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
     RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };
@@ -93,7 +93,7 @@ private:
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+    std::unique_ptr<vectorized::ResultFileOptions> _file_opts = nullptr;
 
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;

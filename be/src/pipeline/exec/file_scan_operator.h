@@ -62,7 +62,7 @@ private:
     // 1. iceberg delete file
     // 2. parquet file meta
     // KVCache<std::string> _kv_cache;
-    std::unique_ptr<vectorized::ShardedKVCache> _kv_cache;
+    std::unique_ptr<vectorized::ShardedKVCache> _kv_cache = nullptr;
     TupleId _output_tuple_id = -1;
 };
 

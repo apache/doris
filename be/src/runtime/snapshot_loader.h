@@ -107,12 +107,12 @@ private:
     Status _list_with_checksum(const std::string& dir, std::map<std::string, FileStat>* md5_files);
 
 private:
-    ExecEnv* _env;
+    ExecEnv* _env = nullptr;
     int64_t _job_id;
     int64_t _task_id;
     const TNetworkAddress _broker_addr;
     const std::map<std::string, std::string> _prop;
-    std::shared_ptr<io::RemoteFileSystem> _remote_fs;
+    std::shared_ptr<io::RemoteFileSystem> _remote_fs = nullptr;
 };
 
 } // end namespace doris

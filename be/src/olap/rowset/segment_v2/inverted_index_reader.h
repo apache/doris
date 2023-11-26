@@ -180,10 +180,10 @@ public:
 
 class InvertedIndexVisitor : public lucene::util::bkd::bkd_reader::intersect_visitor {
 private:
-    roaring::Roaring* _hits;
+    roaring::Roaring* _hits = nullptr;
     uint32_t _num_hits;
     bool _only_count;
-    lucene::util::bkd::bkd_reader* _reader;
+    lucene::util::bkd::bkd_reader* _reader = nullptr;
     InvertedIndexQueryType _query_type;
 
 public:
@@ -261,7 +261,7 @@ public:
 private:
     const TypeInfo* _type_info {};
     const KeyCoder* _value_key_coder {};
-    std::unique_ptr<DorisCompoundReader> _compoundReader;
+    std::unique_ptr<DorisCompoundReader> _compoundReader = nullptr;
 };
 
 class InvertedIndexIterator {
@@ -289,7 +289,7 @@ public:
 private:
     OlapReaderStatistics* _stats = nullptr;
     RuntimeState* _runtime_state = nullptr;
-    std::shared_ptr<InvertedIndexReader> _reader;
+    std::shared_ptr<InvertedIndexReader> _reader = nullptr;
 };
 
 } // namespace segment_v2

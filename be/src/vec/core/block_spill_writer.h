@@ -70,7 +70,7 @@ private:
     size_t batch_size_;
     size_t max_sub_block_size_ = 0;
     std::string file_path_;
-    std::unique_ptr<doris::io::FileWriter> file_writer_;
+    std::unique_ptr<doris::io::FileWriter> file_writer_ = nullptr;
 
     size_t written_blocks_ = 0;
     size_t total_written_bytes_ = 0;
@@ -80,10 +80,10 @@ private:
     Block tmp_block_;
 
     RuntimeProfile* profile_ = nullptr;
-    RuntimeProfile::Counter* write_bytes_counter_;
-    RuntimeProfile::Counter* serialize_timer_;
-    RuntimeProfile::Counter* write_timer_;
-    RuntimeProfile::Counter* write_blocks_num_;
+    RuntimeProfile::Counter* write_bytes_counter_ = nullptr;
+    RuntimeProfile::Counter* serialize_timer_ = nullptr;
+    RuntimeProfile::Counter* write_timer_ = nullptr;
+    RuntimeProfile::Counter* write_blocks_num_ = nullptr;
 };
 
 using BlockSpillWriterUPtr = std::unique_ptr<BlockSpillWriter>;

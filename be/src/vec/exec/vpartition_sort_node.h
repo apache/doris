@@ -203,8 +203,8 @@ private:
     Status get_sorted_block(RuntimeState* state, Block* output_block, bool* eos);
 
     // hash table
-    std::unique_ptr<PartitionedHashMapVariants> _partitioned_data;
-    std::unique_ptr<Arena> _agg_arena_pool;
+    std::unique_ptr<PartitionedHashMapVariants> _partitioned_data = nullptr;
+    std::unique_ptr<Arena> _agg_arena_pool = nullptr;
     // partition by k1,k2
     int _partition_exprs_num = 0;
     VExprContextSPtrs _partition_expr_ctxs;
@@ -227,13 +227,13 @@ private:
     std::mutex _buffer_mutex;
     TPartTopNPhase::type _topn_phase;
 
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _emplace_key_timer;
-    RuntimeProfile::Counter* _partition_sort_timer;
-    RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _selector_block_timer;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _emplace_key_timer = nullptr;
+    RuntimeProfile::Counter* _partition_sort_timer = nullptr;
+    RuntimeProfile::Counter* _get_sorted_timer = nullptr;
+    RuntimeProfile::Counter* _selector_block_timer = nullptr;
 
-    RuntimeProfile::Counter* _hash_table_size_counter;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     //only for profile record
     std::vector<int> partition_profile_output_rows;
 };

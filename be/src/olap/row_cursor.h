@@ -128,7 +128,7 @@ private:
 
     Status _init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& scan_keys);
 
-    std::unique_ptr<Schema> _schema;
+    std::unique_ptr<Schema> _schema = nullptr;
 
     char* _fixed_buf = nullptr; // point to fixed buf
     size_t _fixed_len;
@@ -137,7 +137,7 @@ private:
     char* _variable_buf = nullptr;
     size_t _variable_len;
     size_t _string_field_count;
-    char** _long_text_buf;
+    char** _long_text_buf = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };

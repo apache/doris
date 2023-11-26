@@ -60,7 +60,7 @@ public:
     void set_written_len(int64_t written_len);
 
 private:
-    doris::io::FileWriter* _file_writer; // not owned
+    doris::io::FileWriter* _file_writer = nullptr; // not owned
     int64_t _cur_pos = 0;                // current write position
     bool _is_closed = false;
     int64_t _written_len = 0;
@@ -111,11 +111,11 @@ private:
     Status _parse_schema();
     arrow::Status _open_file_writer();
 
-    std::shared_ptr<ParquetOutputStream> _outstream;
-    std::shared_ptr<parquet::WriterProperties> _parquet_writer_properties;
-    std::shared_ptr<parquet::ArrowWriterProperties> _arrow_properties;
-    std::unique_ptr<parquet::arrow::FileWriter> _writer;
-    std::shared_ptr<arrow::Schema> _arrow_schema;
+    std::shared_ptr<ParquetOutputStream> _outstream = nullptr;
+    std::shared_ptr<parquet::WriterProperties> _parquet_writer_properties = nullptr;
+    std::shared_ptr<parquet::ArrowWriterProperties> _arrow_properties = nullptr;
+    std::unique_ptr<parquet::arrow::FileWriter> _writer = nullptr;
+    std::shared_ptr<arrow::Schema> _arrow_schema = nullptr;
 
     const std::vector<TParquetSchema>& _parquet_schemas;
     const TParquetCompressionType::type& _compression_type;

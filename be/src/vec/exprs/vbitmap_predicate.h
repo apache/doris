@@ -71,7 +71,7 @@ public:
     }
 
 private:
-    std::shared_ptr<BitmapFilterFuncBase> _filter;
+    std::shared_ptr<BitmapFilterFuncBase> _filter = nullptr;
     std::string _expr_name;
 };
 } // namespace doris::vectorized

@@ -130,7 +130,7 @@ private:
         zone_map->pass_all = false;
     }
 
-    Field* _field;
+    Field* _field = nullptr;
     // memory will be managed by Arena
     ZoneMap _page_zone_map;
     ZoneMap _segment_zone_map;
@@ -165,7 +165,7 @@ private:
     DorisCallOnce<Status> _load_once;
     // TODO: yyq, we shoud remove file_reader from here.
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<IndexedColumnMetaPB> _page_zone_maps_meta;
+    std::unique_ptr<IndexedColumnMetaPB> _page_zone_maps_meta = nullptr;
     std::vector<ZoneMapPB> _page_zone_maps;
 };
 

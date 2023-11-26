@@ -142,12 +142,12 @@ protected:
     void _generate_read_ranges(int64_t start_index, int64_t end_index,
                                std::list<RowRange>& read_ranges);
 
-    FieldSchema* _field_schema;
+    FieldSchema* _field_schema = nullptr;
     // When scalar column is the child of nested column, we should turn off the filtering by page index and lazy read.
     bool _nested_column = false;
     const std::vector<RowRange>& _row_ranges;
-    cctz::time_zone* _ctz;
-    io::IOContext* _io_ctx;
+    cctz::time_zone* _ctz = nullptr;
+    io::IOContext* _io_ctx = nullptr;
     int64_t _current_row_index = 0;
     int _row_range_index = 0;
     int64_t _decode_null_map_time = 0;
@@ -179,8 +179,8 @@ public:
 
 private:
     tparquet::ColumnChunk _chunk_meta;
-    std::unique_ptr<io::BufferedFileStreamReader> _stream_reader;
-    std::unique_ptr<ColumnChunkReader> _chunk_reader;
+    std::unique_ptr<io::BufferedFileStreamReader> _stream_reader = nullptr;
+    std::unique_ptr<ColumnChunkReader> _chunk_reader = nullptr;
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
 

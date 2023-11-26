@@ -226,8 +226,8 @@ protected:
 
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
-    std::unique_ptr<AgentUtils> _agent_utils;
-    ExecEnv* _env;
+    std::unique_ptr<AgentUtils> _agent_utils = nullptr;
+    ExecEnv* _env = nullptr;
 
     // Protect task queue
     std::mutex _worker_thread_lock;
@@ -235,14 +235,14 @@ protected:
     CountDownLatch _stop_background_threads_latch;
     bool _is_work;
     ThreadModel _thread_model;
-    std::unique_ptr<ThreadPool> _thread_pool;
+    std::unique_ptr<ThreadPool> _thread_pool = nullptr;
     // Only meaningful when _thread_model is MULTI_THREADS
     std::deque<TAgentTaskRequest> _tasks;
     // Only meaningful when _thread_model is SINGLE_THREAD
     std::atomic<bool> _is_doing_work;
 
-    std::shared_ptr<MetricEntity> _metric_entity;
-    UIntGauge* agent_task_queue_size;
+    std::shared_ptr<MetricEntity> _metric_entity = nullptr;
+    UIntGauge* agent_task_queue_size = nullptr;
 
     // Always 1 when _thread_model is SINGLE_THREAD
     uint32_t _worker_count;

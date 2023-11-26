@@ -102,20 +102,20 @@ private:
     // and put it to the _scheduling_map.
     // If any scanner finish, it will take ctx from and put it to pending queue again.
     std::atomic_uint _queue_idx = {0};
-    BlockingQueue<ScannerContext*>** _pending_queues;
+    BlockingQueue<ScannerContext*>** _pending_queues = nullptr;
 
     // scheduling thread pool
-    std::unique_ptr<ThreadPool> _scheduler_pool;
+    std::unique_ptr<ThreadPool> _scheduler_pool = nullptr;
     // execution thread pool
     // _local_scan_thread_pool is for local scan task(typically, olap scanner)
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
     // _limited_scan_thread_pool is a special pool for queries with resource limit
-    std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
-    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
-    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
+    std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool = nullptr;
+    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _limited_scan_thread_pool = nullptr;
 
-    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
-    std::unique_ptr<ThreadPool> _group_local_scan_thread_pool;
+    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue = nullptr;
+    std::unique_ptr<ThreadPool> _group_local_scan_thread_pool = nullptr;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
@@ -132,7 +132,7 @@ struct SimplifiedScanTask {
     }
 
     std::function<void()> scan_func;
-    vectorized::ScannerContext* scanner_context;
+    vectorized::ScannerContext* scanner_context = nullptr;
 };
 
 // used for cpu hard limit
@@ -183,10 +183,10 @@ private:
         }
     }
 
-    std::unique_ptr<ThreadPool> _scan_thread_pool;
-    std::unique_ptr<BlockingQueue<SimplifiedScanTask>> _scan_task_queue;
+    std::unique_ptr<ThreadPool> _scan_thread_pool = nullptr;
+    std::unique_ptr<BlockingQueue<SimplifiedScanTask>> _scan_task_queue = nullptr;
     std::atomic<bool> _is_stop;
-    CgroupCpuCtl* _cgroup_cpu_ctl;
+    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
     std::string _wg_name;
 };
 

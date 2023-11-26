@@ -182,18 +182,18 @@ private:
     Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
                                 bool* valid);
 
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
-    ScannerCounter* _counter;
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
+    ScannerCounter* _counter = nullptr;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
     io::FileSystemProperties _system_properties;
     io::FileDescription _file_description;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
-    std::shared_ptr<io::FileSystem> _file_system;
+    std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<LineReader> _line_reader;
+    std::unique_ptr<LineReader> _line_reader = nullptr;
     bool _reader_eof;
 
     // When we fetch range doesn't start from 0 will always skip the first line
@@ -226,15 +226,15 @@ private:
     rapidjson::Value* _json_doc; // _json_doc equals _final_json_doc iff not set `json_root`
     std::unordered_map<std::string, int> _name_map;
 
-    bool* _scanner_eof;
+    bool* _scanner_eof = nullptr;
 
     size_t _current_offset;
 
-    io::IOContext* _io_ctx;
+    io::IOContext* _io_ctx = nullptr;
 
-    RuntimeProfile::Counter* _bytes_read_counter;
-    RuntimeProfile::Counter* _read_timer;
-    RuntimeProfile::Counter* _file_read_timer;
+    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _read_timer = nullptr;
+    RuntimeProfile::Counter* _file_read_timer = nullptr;
 
     // ======SIMD JSON======
     // name mapping

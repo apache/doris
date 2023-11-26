@@ -155,9 +155,9 @@ public:
     Status update_status(Status status);
 
 private:
-    ExecEnv* _exec_env; // not owned
-    ExecNode* _plan;    // lives in _runtime_state->obj_pool()
-    std::shared_ptr<QueryContext> _query_ctx;
+    ExecEnv* _exec_env = nullptr; // not owned
+    ExecNode* _plan = nullptr;    // lives in _runtime_state->obj_pool()
+    std::shared_ptr<QueryContext> _query_ctx = nullptr;
     // Id of this instance
     TUniqueId _fragment_instance_id;
     int _fragment_id;
@@ -206,19 +206,19 @@ private:
 
     // note that RuntimeState should be constructed before and destructed after `_sink' and `_row_batch',
     // therefore we declare it before `_sink' and `_row_batch'
-    std::unique_ptr<RuntimeState> _runtime_state;
+    std::unique_ptr<RuntimeState> _runtime_state = nullptr;
     // Output sink for rows sent to this fragment. May not be set, in which case rows are
     // returned via get_next's row batch
     // Created in prepare (if required), owned by this object.
-    std::unique_ptr<DataSink> _sink;
+    std::unique_ptr<DataSink> _sink = nullptr;
 
     // Number of rows returned by this fragment
-    RuntimeProfile::Counter* _rows_produced_counter;
+    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
 
     // Number of blocks returned by this fragment
-    RuntimeProfile::Counter* _blocks_produced_counter;
+    RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    RuntimeProfile::Counter* _fragment_cpu_timer;
+    RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
@@ -233,7 +233,7 @@ private:
     // It is shared with BufferControlBlock and will be called in two different
     // threads. But their calls are all at different time, there is no problem of
     // multithreaded access.
-    std::shared_ptr<QueryStatistics> _query_statistics;
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
     bool _collect_query_statistics_with_every_batch;
 
     // Record the cancel information when calling the cancel() method, return it to FE
@@ -242,7 +242,7 @@ private:
 
     bool _group_commit = false;
 
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 

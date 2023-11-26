@@ -49,8 +49,8 @@ struct ReportStatusRequest {
     bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile;
-    RuntimeProfile* load_channel_profile;
+    RuntimeProfile* profile = nullptr;
+    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -199,7 +199,7 @@ public:
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
 public:
-    DescriptorTbl* desc_tbl;
+    DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
     std::string group;
@@ -217,7 +217,7 @@ public:
     int timeout_second;
     ObjectPool obj_pool;
     // MemTracker that is shared by all fragment instances running on this host.
-    std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker = nullptr;
 
     std::vector<TUniqueId> fragment_instance_ids;
     std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
@@ -229,7 +229,7 @@ public:
 
 private:
     TUniqueId _query_id;
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
@@ -237,7 +237,7 @@ private:
     // And will be shared by all instances of this query.
     // So that we can control the max thread that a query can be used to execute.
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token;
+    std::unique_ptr<ThreadPoolToken> _thread_token = nullptr;
 
     std::mutex _start_lock;
     std::condition_variable _start_cond;
@@ -246,12 +246,12 @@ private:
     std::atomic<bool> _ready_to_execute {false};
     std::atomic<bool> _is_cancelled {false};
 
-    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
-    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
+    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller = nullptr;
+    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller = nullptr;
     vectorized::RuntimePredicate _runtime_predicate;
 
     taskgroup::TaskGroupPtr _task_group;
-    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
+    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr = nullptr;
     const TQueryOptions _query_options;
 
     std::mutex _exec_status_lock;
@@ -261,7 +261,7 @@ private:
 
     pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
-    std::unique_ptr<pipeline::Dependency> _execution_dependency;
+    std::unique_ptr<pipeline::Dependency> _execution_dependency = nullptr;
 };
 
 } // namespace doris

@@ -58,10 +58,10 @@ private:
     std::unordered_map<int64_t, std::unique_ptr<SegIdMapping>> _segids_mapping;
     std::atomic<uint32_t> _next_segid;
     bthread::Mutex _lock;
-    std::shared_ptr<Status> _failed_st;
+    std::shared_ptr<Status> _failed_st = nullptr;
     PUniqueId _load_id;
     int64_t _txn_id;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
@@ -90,9 +90,9 @@ private:
     bthread::Mutex _lock;
     PUniqueId _load_id;
     int64_t _txn_id;
-    std::shared_ptr<OlapTableSchemaParam> _schema;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
     std::unordered_map<int64_t, int64_t> _tablet_partitions;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
@@ -152,9 +152,9 @@ private:
     bthread::Mutex _lock;
     std::unordered_map<int64_t, int32_t> _open_streams;
     int64_t _txn_id = 0;
-    std::shared_ptr<OlapTableSchemaParam> _schema;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
     bool _enable_profile = false;
-    std::unique_ptr<RuntimeProfile> _profile;
+    std::unique_ptr<RuntimeProfile> _profile = nullptr;
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;

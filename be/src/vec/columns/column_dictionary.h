@@ -539,7 +539,7 @@ public:
     private:
         StringRef::Comparator _comparator;
         // dict code -> dict value
-        std::unique_ptr<DictContainer> _dict_data;
+        std::unique_ptr<DictContainer> _dict_data = nullptr;
         std::vector<T> _code_convert_table;
         // hash value of origin string , used for bloom filter
         // It's a trade-off of space for performance

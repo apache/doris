@@ -45,8 +45,8 @@ public:
     arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* out) override;
 
 private:
-    std::shared_ptr<QueryStatement> statement_;
-    std::shared_ptr<arrow::Schema> schema_;
+    std::shared_ptr<QueryStatement> statement_ = nullptr;
+    std::shared_ptr<arrow::Schema> schema_ = nullptr;
 
     ArrowFlightBatchReader(std::shared_ptr<QueryStatement> statement,
                            std::shared_ptr<arrow::Schema> schema);

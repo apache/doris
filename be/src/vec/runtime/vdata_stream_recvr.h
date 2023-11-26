@@ -135,10 +135,10 @@ private:
     friend struct BlockSupplierSortCursorImpl;
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
-    VDataStreamMgr* _mgr;
+    VDataStreamMgr* _mgr = nullptr;
 
 #ifdef USE_MEM_TRACKER
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
     TUniqueId _query_id;
 #endif
 
@@ -154,40 +154,40 @@ private:
     bool _is_merging;
     bool _is_closed;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
 
-    std::unique_ptr<VSortedRunMerger> _merger;
+    std::unique_ptr<VSortedRunMerger> _merger = nullptr;
 
     ObjectPool _sender_queue_pool;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
 
-    RuntimeProfile::Counter* _bytes_received_counter;
-    RuntimeProfile::Counter* _local_bytes_received_counter;
-    RuntimeProfile::Counter* _deserialize_row_batch_timer;
-    RuntimeProfile::Counter* _first_batch_wait_total_timer;
-    RuntimeProfile::Counter* _buffer_full_total_timer;
-    RuntimeProfile::Counter* _data_arrival_timer;
-    RuntimeProfile::Counter* _decompress_timer;
-    RuntimeProfile::Counter* _decompress_bytes;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _bytes_received_counter = nullptr;
+    RuntimeProfile::Counter* _local_bytes_received_counter = nullptr;
+    RuntimeProfile::Counter* _deserialize_row_batch_timer = nullptr;
+    RuntimeProfile::Counter* _first_batch_wait_total_timer = nullptr;
+    RuntimeProfile::Counter* _buffer_full_total_timer = nullptr;
+    RuntimeProfile::Counter* _data_arrival_timer = nullptr;
+    RuntimeProfile::Counter* _decompress_timer = nullptr;
+    RuntimeProfile::Counter* _decompress_bytes = nullptr;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
     std::atomic<int64_t> _blocks_memory_usage_current_value = 0;
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
     // Number of rows received
-    RuntimeProfile::Counter* _rows_produced_counter;
+    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
     // Number of blocks received
-    RuntimeProfile::Counter* _blocks_produced_counter;
+    RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
+    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr = nullptr;
 
     bool _enable_pipeline;
     std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
             _sender_to_local_channel_dependency;
 
-    std::shared_ptr<bool> _mem_available;
+    std::shared_ptr<bool> _mem_available = nullptr;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -238,7 +238,7 @@ protected:
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
     // Not managed by this class
-    VDataStreamRecvr* _recvr;
+    VDataStreamRecvr* _recvr = nullptr;
     std::mutex _lock;
     bool _is_cancelled;
     Status _cancel_status;
@@ -256,7 +256,7 @@ protected:
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
     std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency;
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency = nullptr;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {

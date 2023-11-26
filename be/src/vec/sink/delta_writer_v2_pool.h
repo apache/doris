@@ -87,7 +87,7 @@ private:
     UniqueId _load_id;
     TabletToDeltaWriterV2Map _map;
     std::atomic<int> _use_cnt;
-    DeltaWriterV2Pool* _pool;
+    DeltaWriterV2Pool* _pool = nullptr;
 };
 
 class DeltaWriterV2Pool {

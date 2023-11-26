@@ -104,7 +104,7 @@ private:
 
 protected:
     // the root tracker for this compaction
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker = nullptr;
 
     TabletSharedPtr _tablet;
 
@@ -117,7 +117,7 @@ protected:
 
     RowsetSharedPtr _output_rowset;
     PendingRowsetGuard _pending_rs_guard;
-    std::unique_ptr<RowsetWriter> _output_rs_writer;
+    std::unique_ptr<RowsetWriter> _output_rs_writer = nullptr;
 
     enum CompactionState { INITED = 0, SUCCESS = 1 };
     CompactionState _state;
@@ -128,7 +128,7 @@ protected:
     RowIdConversion _rowid_conversion;
     TabletSchemaSPtr _cur_tablet_schema;
 
-    std::unique_ptr<RuntimeProfile> _profile;
+    std::unique_ptr<RuntimeProfile> _profile = nullptr;
     bool _allow_delete_in_cumu_compaction = false;
 
     RuntimeProfile::Counter* _input_rowsets_data_size_counter = nullptr;

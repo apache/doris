@@ -160,7 +160,7 @@ protected:
     size_t _max_file_segment_size = 0;
     size_t _max_query_cache_size = 0;
     // metrics
-    std::shared_ptr<bvar::Status<size_t>> _cur_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _cur_size_metrics = nullptr;
 
     bool _is_initialized = false;
 

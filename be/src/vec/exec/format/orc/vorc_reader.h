@@ -191,16 +191,16 @@ public:
 
 private:
     struct OrcProfile {
-        RuntimeProfile::Counter* read_time;
-        RuntimeProfile::Counter* read_calls;
-        RuntimeProfile::Counter* read_bytes;
+        RuntimeProfile::Counter* read_time = nullptr;
+        RuntimeProfile::Counter* read_calls = nullptr;
+        RuntimeProfile::Counter* read_bytes = nullptr;
         RuntimeProfile::Counter* column_read_time;
-        RuntimeProfile::Counter* get_batch_time;
-        RuntimeProfile::Counter* create_reader_time;
-        RuntimeProfile::Counter* init_column_time;
-        RuntimeProfile::Counter* set_fill_column_time;
-        RuntimeProfile::Counter* decode_value_time;
-        RuntimeProfile::Counter* decode_null_map_time;
+        RuntimeProfile::Counter* get_batch_time = nullptr;
+        RuntimeProfile::Counter* create_reader_time = nullptr;
+        RuntimeProfile::Counter* init_column_time = nullptr;
+        RuntimeProfile::Counter* set_fill_column_time = nullptr;
+        RuntimeProfile::Counter* decode_value_time = nullptr;
+        RuntimeProfile::Counter* decode_null_map_time = nullptr;
     };
 
     class ORCFilterImpl : public orc::ORCFilter {
@@ -213,7 +213,7 @@ private:
         }
 
     private:
-        OrcReader* orcReader;
+        OrcReader* orcReader = nullptr;
     };
 
     class StringDictFilterImpl : public orc::StringDictFilter {
@@ -235,7 +235,7 @@ private:
         }
 
     private:
-        OrcReader* _orc_reader;
+        OrcReader* _orc_reader = nullptr;
     };
 
     // Create inner orc file,
@@ -514,20 +514,20 @@ private:
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
-    std::unique_ptr<ORCFileInputStream> _file_input_stream;
+    std::unique_ptr<ORCFileInputStream> _file_input_stream = nullptr;
     Statistics _statistics;
     OrcProfile _orc_profile;
 
-    std::unique_ptr<orc::ColumnVectorBatch> _batch;
-    std::unique_ptr<orc::Reader> _reader;
-    std::unique_ptr<orc::RowReader> _row_reader;
-    std::unique_ptr<ORCFilterImpl> _orc_filter;
+    std::unique_ptr<orc::ColumnVectorBatch> _batch = nullptr;
+    std::unique_ptr<orc::Reader> _reader = nullptr;
+    std::unique_ptr<orc::RowReader> _row_reader = nullptr;
+    std::unique_ptr<ORCFilterImpl> _orc_filter = nullptr;
     orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
 
-    std::shared_ptr<io::FileSystem> _file_system;
+    std::shared_ptr<io::FileSystem> _file_system = nullptr;
 
-    io::IOContext* _io_ctx;
+    io::IOContext* _io_ctx = nullptr;
     bool _enable_lazy_mat = true;
 
     std::vector<DecimalScaleParams> _decimal_scale_params;
@@ -540,17 +540,17 @@ private:
     const TransactionalHiveReader::AcidRowIDSet* _delete_rows = nullptr;
     std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr = nullptr;
 
-    const TupleDescriptor* _tuple_descriptor;
-    const RowDescriptor* _row_descriptor;
+    const TupleDescriptor* _tuple_descriptor = nullptr;
+    const RowDescriptor* _row_descriptor = nullptr;
     VExprContextSPtrs _not_single_slot_filter_conjuncts;
-    const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
+    const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
-    std::shared_ptr<ObjectPool> _obj_pool;
-    std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
+    std::shared_ptr<ObjectPool> _obj_pool = nullptr;
+    std::unique_ptr<orc::StringDictFilter> _string_dict_filter = nullptr;
     bool _is_dict_cols_converted;
     bool _has_complex_type = false;
 };
@@ -585,9 +585,9 @@ private:
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
     // Owned by OrcReader
-    OrcReader::Statistics* _statistics;
-    const io::IOContext* _io_ctx;
-    RuntimeProfile* _profile;
+    OrcReader::Statistics* _statistics = nullptr;
+    const io::IOContext* _io_ctx = nullptr;
+    RuntimeProfile* _profile = nullptr;
 };
 
 } // namespace doris::vectorized

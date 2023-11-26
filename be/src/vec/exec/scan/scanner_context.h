@@ -188,12 +188,12 @@ protected:
 
     void _set_scanner_done();
 
-    RuntimeState* _state;
-    VScanNode* _parent;
-    pipeline::ScanLocalStateBase* _local_state;
+    RuntimeState* _state = nullptr;
+    VScanNode* _parent = nullptr;
+    pipeline::ScanLocalStateBase* _local_state = nullptr;
 
     // the comment of same fields in VScanNode
-    const TupleDescriptor* _output_tuple_desc;
+    const TupleDescriptor* _output_tuple_desc = nullptr;
 
     // _transfer_lock is used to protect the critical section
     // where the ScanNode and ScannerScheduler interact.
@@ -273,7 +273,7 @@ protected:
 
     const int _num_parallel_instances;
 
-    std::shared_ptr<RuntimeProfile> _scanner_profile;
+    std::shared_ptr<RuntimeProfile> _scanner_profile = nullptr;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;

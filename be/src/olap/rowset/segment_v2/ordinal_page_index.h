@@ -58,7 +58,7 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(OrdinalIndexWriter);
-    std::unique_ptr<IndexPageBuilder> _page_builder;
+    std::unique_ptr<IndexPageBuilder> _page_builder = nullptr;
     PagePointer _last_pp;
 };
 
@@ -100,7 +100,7 @@ private:
     io::FileReaderSPtr _file_reader;
     DorisCallOnce<Status> _load_once;
 
-    std::unique_ptr<OrdinalIndexPB> _meta_pb;
+    std::unique_ptr<OrdinalIndexPB> _meta_pb = nullptr;
 
     // total number of values (including NULLs) in the indexed column,
     // equals to 1 + 'last ordinal of last data pages'
@@ -131,7 +131,7 @@ public:
     ordinal_t last_ordinal() const { return _index->get_last_ordinal(_cur_idx); }
 
 private:
-    OrdinalIndexReader* _index;
+    OrdinalIndexReader* _index = nullptr;
     int32_t _cur_idx;
 };
 

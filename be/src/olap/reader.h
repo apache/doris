@@ -138,7 +138,7 @@ public:
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
-        DeleteBitmap* delete_bitmap {nullptr};
+        DeleteBitmap* delete_bitmap = nullptr;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
@@ -259,7 +259,7 @@ protected:
     const BaseTabletSPtr& tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
-    std::unique_ptr<vectorized::Arena> _predicate_arena;
+    std::unique_ptr<vectorized::Arena> _predicate_arena = nullptr;
     std::vector<uint32_t> _return_columns;
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys

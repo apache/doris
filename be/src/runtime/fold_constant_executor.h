@@ -56,8 +56,8 @@ private:
                             const vectorized::ColumnPtr column_ptr,
                             const vectorized::DataTypePtr column_type);
 
-    std::unique_ptr<RuntimeState> _runtime_state;
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<RuntimeState> _runtime_state = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
     RuntimeProfile* _runtime_profile = nullptr;
     ObjectPool _pool;
     TUniqueId _query_id;

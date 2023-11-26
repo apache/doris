@@ -200,7 +200,7 @@ struct UploadFileBuffer final : public FileBuffer {
 
 private:
     std::function<void(UploadFileBuffer&)> _upload_to_remote = nullptr;
-    std::shared_ptr<std::iostream> _stream_ptr; // point to _buffer.get_data()
+    std::shared_ptr<std::iostream> _stream_ptr = nullptr; // point to _buffer.get_data()
 
     bool _is_cache_allocated {false};
     FileBlocksHolderPtr _holder;

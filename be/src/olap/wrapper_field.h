@@ -100,7 +100,7 @@ private:
     size_t _length;
     size_t _var_length;
     // Memory for string type field.
-    std::unique_ptr<char[]> _string_content;
+    std::unique_ptr<char[]> _string_content = nullptr;
 };
 
 } // namespace doris

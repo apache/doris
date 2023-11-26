@@ -74,7 +74,7 @@ struct LikeSearchState {
     doris::StringSearch substring_pattern;
 
     /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
-    std::unique_ptr<re2::RE2> regex;
+    std::unique_ptr<re2::RE2> regex = nullptr;
 
     template <typename Deleter, Deleter deleter>
     struct HyperscanDeleter {

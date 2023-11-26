@@ -46,16 +46,16 @@ public:
     static void reload();
 
     struct Symbol {
-        const void* address_begin;
-        const void* address_end;
-        const char* name;
+        const void* address_begin = nullptr;
+        const void* address_end = nullptr;
+        const char* name = nullptr;
     };
 
     struct Object {
-        const void* address_begin;
-        const void* address_end;
+        const void* address_begin = nullptr;
+        const void* address_end = nullptr;
         std::string name;
-        std::shared_ptr<Elf> elf;
+        std::shared_ptr<Elf> elf = nullptr;
     };
 
     /// Address in virtual memory should be passed. These addresses include offset where the object is loaded in memory.

@@ -107,18 +107,18 @@ private:
     WriteRequest _req;
     BaseTabletSPtr _tablet;
     RowsetSharedPtr _rowset;
-    std::shared_ptr<RowsetWriter> _rowset_writer;
+    std::shared_ptr<RowsetWriter> _rowset_writer = nullptr;
     PendingRowsetGuard _pending_rs_guard;
     TabletSchemaSPtr _tablet_schema;
 
     std::mutex _lock;
 
     DeleteBitmapPtr _delete_bitmap;
-    std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
+    std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token = nullptr;
     // current rowset_ids, used to do diff in publish_version
     RowsetIdUnorderedSet _rowset_ids;
 
-    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info = nullptr;
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _build_rowset_timer = nullptr;

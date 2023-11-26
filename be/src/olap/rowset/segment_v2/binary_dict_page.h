@@ -83,9 +83,9 @@ private:
     PageBuilderOptions _options;
     bool _finished;
 
-    std::unique_ptr<PageBuilder> _data_page_builder;
+    std::unique_ptr<PageBuilder> _data_page_builder = nullptr;
 
-    std::unique_ptr<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>> _dict_builder;
+    std::unique_ptr<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>> _dict_builder = nullptr;
 
     EncodingTypePB _encoding_type;
     struct HashOfSlice {
@@ -132,7 +132,7 @@ public:
 private:
     Slice _data;
     PageDecoderOptions _options;
-    std::unique_ptr<PageDecoder> _data_page_decoder;
+    std::unique_ptr<PageDecoder> _data_page_decoder = nullptr;
     BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
     BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;

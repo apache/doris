@@ -48,10 +48,10 @@ struct MethodBase {
     using Iterator = typename HashMap::iterator;
     using HashMapType = HashMap;
 
-    std::shared_ptr<HashMap> hash_table;
+    std::shared_ptr<HashMap> hash_table = nullptr;
     Iterator iterator;
     bool inited_iterator = false;
-    Key* keys;
+    Key* keys = nullptr;
     Arena arena;
     std::vector<size_t> hash_values;
 

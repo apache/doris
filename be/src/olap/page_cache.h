@@ -65,7 +65,7 @@ public:
     }
 
 private:
-    char* _data;
+    char* _data = nullptr;
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
     size_t _size;
     size_t _capacity = 0;

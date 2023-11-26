@@ -50,7 +50,7 @@ public:
     bool is_source() const override { return false; }
 
 private:
-    std::shared_ptr<DataQueue> _data_queue;
+    std::shared_ptr<DataQueue> _data_queue = nullptr;
 };
 
 class DistinctStreamingAggSinkOperator final
@@ -71,7 +71,7 @@ public:
 
 private:
     int64_t _output_distinct_rows = 0;
-    std::shared_ptr<DataQueue> _data_queue;
+    std::shared_ptr<DataQueue> _data_queue = nullptr;
     std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
 };
 

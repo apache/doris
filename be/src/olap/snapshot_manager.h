@@ -97,7 +97,7 @@ private:
     std::mutex _snapshot_mutex;
     uint64_t _snapshot_base_id;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 }; // SnapshotManager
 
 } // namespace doris

@@ -151,7 +151,7 @@ private:
     // Create a node containing the given intervals, recursively splitting down the tree.
     static node_type* CreateNode(const IntervalVector& intervals);
 
-    node_type* root_;
+    node_type* root_ = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(IntervalTree);
 };

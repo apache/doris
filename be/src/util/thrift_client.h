@@ -75,9 +75,9 @@ protected:
     int _port;
 
     // All shared pointers, because Thrift requires them to be
-    std::shared_ptr<apache::thrift::transport::TSocket> _socket;
-    std::shared_ptr<apache::thrift::transport::TTransport> _transport;
-    std::shared_ptr<apache::thrift::protocol::TBinaryProtocol> _protocol;
+    std::shared_ptr<apache::thrift::transport::TSocket> _socket = nullptr;
+    std::shared_ptr<apache::thrift::transport::TTransport> _transport = nullptr;
+    std::shared_ptr<apache::thrift::protocol::TBinaryProtocol> _protocol = nullptr;
 };
 
 // Utility client to a Thrift server. The parameter type is the
@@ -93,7 +93,7 @@ public:
     InterfaceType* iface() { return _iface.get(); }
 
 private:
-    std::shared_ptr<InterfaceType> _iface;
+    std::shared_ptr<InterfaceType> _iface = nullptr;
 };
 
 template <class InterfaceType>

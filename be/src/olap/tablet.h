@@ -612,7 +612,7 @@ public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
 private:
-    DataDir* _data_dir;
+    DataDir* _data_dir = nullptr;
     TimestampedVersionTracker _timestamped_version_tracker;
 
     DorisCallOnce<Status> _init_once;
@@ -663,13 +663,13 @@ private:
     std::string _last_base_compaction_status;
 
     // cumulative compaction policy
-    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy = nullptr;
     std::string_view _cumulative_compaction_type;
 
-    std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
-    std::shared_ptr<BaseCompaction> _base_compaction;
-    std::shared_ptr<FullCompaction> _full_compaction;
-    std::shared_ptr<SingleReplicaCompaction> _single_replica_compaction;
+    std::shared_ptr<CumulativeCompaction> _cumulative_compaction = nullptr;
+    std::shared_ptr<BaseCompaction> _base_compaction = nullptr;
+    std::shared_ptr<FullCompaction> _full_compaction = nullptr;
+    std::shared_ptr<SingleReplicaCompaction> _single_replica_compaction = nullptr;
 
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction
     std::atomic<bool> _is_clone_occurred;

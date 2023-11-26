@@ -207,7 +207,7 @@ private:
         return "passnull predicate for " + _nested->debug_string();
     }
 
-    std::unique_ptr<ColumnPredicate> _nested;
+    std::unique_ptr<ColumnPredicate> _nested = nullptr;
 };
 
 } //namespace doris

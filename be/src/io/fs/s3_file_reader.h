@@ -60,7 +60,7 @@ private:
 
     std::string _bucket;
     std::string _key;
-    std::shared_ptr<S3FileSystem> _fs;
+    std::shared_ptr<S3FileSystem> _fs = nullptr;
 
     std::atomic<bool> _closed = false;
 };

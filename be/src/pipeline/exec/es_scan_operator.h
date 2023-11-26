@@ -55,18 +55,18 @@ private:
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
     std::vector<std::unique_ptr<TEsScanRange>> _scan_ranges;
-    std::unique_ptr<RuntimeProfile> _es_profile;
+    std::unique_ptr<RuntimeProfile> _es_profile = nullptr;
     // FIXME: non-static data member '_rows_read_counter' of 'EsScanLocalState' shadows member inherited from type 'ScanLocalStateBase'
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
-    RuntimeProfile::Counter* _rows_read_counter;
+    RuntimeProfile::Counter* _rows_read_counter = nullptr;
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-    RuntimeProfile::Counter* _read_timer;
-    RuntimeProfile::Counter* _materialize_timer;
+    RuntimeProfile::Counter* _read_timer = nullptr;
+    RuntimeProfile::Counter* _materialize_timer = nullptr;
 };
 
 class EsScanOperatorX final : public ScanOperatorX<EsScanLocalState> {
@@ -81,7 +81,7 @@ private:
     friend class EsScanLocalState;
 
     TupleId _tuple_id;
-    TupleDescriptor* _tuple_desc;
+    TupleDescriptor* _tuple_desc = nullptr;
 
     std::map<std::string, std::string> _properties;
     std::map<std::string, std::string> _fields_context;

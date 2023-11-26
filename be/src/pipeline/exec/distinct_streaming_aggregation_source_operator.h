@@ -47,7 +47,7 @@ public:
     OperatorPtr build_operator() override;
 
 private:
-    std::shared_ptr<DataQueue> _data_queue;
+    std::shared_ptr<DataQueue> _data_queue = nullptr;
 };
 
 class DistinctStreamingAggSourceOperator final
@@ -61,7 +61,7 @@ public:
 
 private:
     int64_t rows_have_returned = 0;
-    std::shared_ptr<DataQueue> _data_queue;
+    std::shared_ptr<DataQueue> _data_queue = nullptr;
 };
 
 class DistinctStreamingAggSourceOperatorX final : public AggSourceOperatorX {

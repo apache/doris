@@ -115,7 +115,7 @@ extern bthread_key_t btls_key;
 
 // Is true after ThreadContext construction.
 inline thread_local bool pthread_context_ptr_init = false;
-inline thread_local constinit ThreadContext* thread_context_ptr;
+inline thread_local constinit ThreadContext* thread_context_ptr = nullptr;
 // use mem hook to consume thread mem tracker.
 inline thread_local bool use_mem_hook = false;
 
@@ -169,7 +169,7 @@ public:
     // intermediate state during the copy construction of shared_ptr. Shared_ptr is not equal
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
-    std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
+    std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr = nullptr;
     [[nodiscard]] MemTrackerLimiter* thread_mem_tracker() const {
         return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
     }
@@ -291,7 +291,7 @@ public:
     }
 
 private:
-    int64_t* _scope_mem;
+    int64_t* _scope_mem = nullptr;
 };
 
 class AttachTask {
@@ -319,7 +319,7 @@ public:
     }
 
 private:
-    std::shared_ptr<MemTrackerLimiter> _old_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _old_mem_tracker = nullptr;
 };
 
 class AddThreadMemTrackerConsumer {

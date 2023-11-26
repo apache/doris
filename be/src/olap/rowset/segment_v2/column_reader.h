@@ -238,14 +238,14 @@ private:
             nullptr; // initialized in init(), used for create PageDecoder
 
     // meta for various column indexes (null if the index is absent)
-    std::unique_ptr<ZoneMapPB> _segment_zone_map;
+    std::unique_ptr<ZoneMapPB> _segment_zone_map = nullptr;
 
     mutable std::mutex _load_index_lock;
-    std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
-    std::unique_ptr<OrdinalIndexReader> _ordinal_index;
-    std::unique_ptr<BitmapIndexReader> _bitmap_index;
-    std::shared_ptr<InvertedIndexReader> _inverted_index;
-    std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
+    std::unique_ptr<ZoneMapIndexReader> _zone_map_index = nullptr;
+    std::unique_ptr<OrdinalIndexReader> _ordinal_index = nullptr;
+    std::unique_ptr<BitmapIndexReader> _bitmap_index = nullptr;
+    std::shared_ptr<InvertedIndexReader> _inverted_index = nullptr;
+    std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index = nullptr;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 
@@ -363,10 +363,10 @@ private:
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
 
-    ColumnReader* _reader;
+    ColumnReader* _reader = nullptr;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()
-    BlockCompressionCodec* _compress_codec;
+    BlockCompressionCodec* _compress_codec = nullptr;
 
     // 1. The _page represents current page.
     // 2. We define an operation is one seek and following read,
@@ -374,7 +374,7 @@ private:
     ParsedPage _page;
 
     // keep dict page decoder
-    std::unique_ptr<PageDecoder> _dict_decoder;
+    std::unique_ptr<PageDecoder> _dict_decoder = nullptr;
 
     // keep dict page handle to avoid released
     PageHandle _dict_page_handle;
@@ -388,7 +388,7 @@ private:
 
     bool _is_all_dict_encoding = false;
 
-    std::unique_ptr<StringRef[]> _dict_word_info;
+    std::unique_ptr<StringRef[]> _dict_word_info = nullptr;
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -429,7 +429,7 @@ public:
                               vectorized::ColumnArray::ColumnOffsets& column_offsets);
 
 private:
-    std::unique_ptr<FileColumnIterator> _offset_iterator;
+    std::unique_ptr<FileColumnIterator> _offset_iterator = nullptr;
 };
 
 // This iterator is used to read map value column
@@ -464,11 +464,11 @@ public:
     }
 
 private:
-    ColumnReader* _map_reader;
-    std::unique_ptr<ColumnIterator> _null_iterator;
-    std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator; //OffsetFileIterator
-    std::unique_ptr<ColumnIterator> _key_iterator;
-    std::unique_ptr<ColumnIterator> _val_iterator;
+    ColumnReader* _map_reader = nullptr;
+    std::unique_ptr<ColumnIterator> _null_iterator = nullptr;
+    std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator = nullptr; //OffsetFileIterator
+    std::unique_ptr<ColumnIterator> _key_iterator = nullptr;
+    std::unique_ptr<ColumnIterator> _val_iterator = nullptr;
 };
 
 class StructFileColumnIterator final : public ColumnIterator {
@@ -502,8 +502,8 @@ public:
     }
 
 private:
-    ColumnReader* _struct_reader;
-    std::unique_ptr<ColumnIterator> _null_iterator;
+    ColumnReader* _struct_reader = nullptr;
+    std::unique_ptr<ColumnIterator> _null_iterator = nullptr;
     std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
 };
 
@@ -537,10 +537,10 @@ public:
     }
 
 private:
-    ColumnReader* _array_reader;
-    std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
-    std::unique_ptr<ColumnIterator> _null_iterator;
-    std::unique_ptr<ColumnIterator> _item_iterator;
+    ColumnReader* _array_reader = nullptr;
+    std::unique_ptr<OffsetFileColumnIterator> _offset_iterator = nullptr;
+    std::unique_ptr<ColumnIterator> _null_iterator = nullptr;
+    std::unique_ptr<ColumnIterator> _item_iterator = nullptr;
 
     Status _seek_by_offsets(ordinal_t ord);
 };

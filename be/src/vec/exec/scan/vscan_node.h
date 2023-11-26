@@ -259,7 +259,7 @@ protected:
 
     // Each scan node will generates a ScannerContext to manage all Scanners.
     // See comments of ScannerContext for more details
-    std::shared_ptr<ScannerContext> _scanner_ctx;
+    std::shared_ptr<ScannerContext> _scanner_ctx = nullptr;
 
     // indicate this scan node has no more data to return
     bool _eos = false;
@@ -309,18 +309,18 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
-    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
+    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller = nullptr;
     bool _should_create_scanner = false;
     int _context_queue_id = -1;
 
-    std::shared_ptr<RuntimeProfile> _scanner_profile;
+    std::shared_ptr<RuntimeProfile> _scanner_profile = nullptr;
 
     // rows read from the scanner (including those discarded by (pre)filters)
-    RuntimeProfile::Counter* _rows_read_counter;
-    RuntimeProfile::Counter* _byte_read_counter;
+    RuntimeProfile::Counter* _rows_read_counter = nullptr;
+    RuntimeProfile::Counter* _byte_read_counter = nullptr;
     // Wall based aggregate read throughput [rows/sec]
-    RuntimeProfile::Counter* _total_throughput_counter;
-    RuntimeProfile::Counter* _num_scanners;
+    RuntimeProfile::Counter* _total_throughput_counter = nullptr;
+    RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _get_next_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -346,9 +346,9 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
     std::vector<int> _col_distribute_ids;

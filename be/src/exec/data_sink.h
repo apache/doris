@@ -125,7 +125,7 @@ protected:
     RuntimeProfile* _profile = nullptr; // Allocated from _pool
 
     // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;

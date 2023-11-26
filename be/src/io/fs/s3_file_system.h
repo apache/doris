@@ -121,8 +121,8 @@ private:
     S3Conf _s3_conf;
     // TODO(cyx): We can use std::atomic<std::shared_ptr> since c++20.
     mutable std::mutex _client_mu;
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    std::shared_ptr<Aws::Utils::Threading::PooledThreadExecutor> _executor;
+    std::shared_ptr<Aws::S3::S3Client> _client = nullptr;
+    std::shared_ptr<Aws::Utils::Threading::PooledThreadExecutor> _executor = nullptr;
 };
 
 } // namespace io

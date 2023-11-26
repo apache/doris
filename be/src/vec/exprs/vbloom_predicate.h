@@ -54,7 +54,7 @@ public:
     std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const override { return _filter; }
 
 private:
-    std::shared_ptr<BloomFilterFuncBase> _filter;
+    std::shared_ptr<BloomFilterFuncBase> _filter = nullptr;
     std::string _expr_name;
     int _be_exec_version;
 };

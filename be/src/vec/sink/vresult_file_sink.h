@@ -69,15 +69,15 @@ public:
 
 private:
     // set file options when sink type is FILE
-    std::unique_ptr<ResultFileOptions> _file_opts;
+    std::unique_ptr<ResultFileOptions> _file_opts = nullptr;
     TStorageBackendType::type _storage_type;
 
     // Owned by the RuntimeState.
     RowDescriptor _output_row_descriptor;
 
     std::unique_ptr<Block> _output_block = nullptr;
-    std::shared_ptr<BufferControlBlock> _sender;
-    std::unique_ptr<VDataStreamSender> _stream_sender;
+    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::unique_ptr<VDataStreamSender> _stream_sender = nullptr;
     int _buf_size = 1024; // Allocated from _pool
     bool _is_top_sink = true;
     std::string _header;

@@ -209,13 +209,13 @@ private:
     DependencyMap _upstream_dependency;
     std::map<int, DependencySPtr> _source_dependency;
     std::vector<DependencySPtr> _downstream_dependency;
-    std::shared_ptr<LocalExchangeSharedState> _local_exchange_state;
+    std::shared_ptr<LocalExchangeSharedState> _local_exchange_state = nullptr;
     int _task_idx;
     bool _dry_run = false;
 
-    Dependency* _blocked_dep {nullptr};
+    Dependency* _blocked_dep = nullptr;
 
-    Dependency* _execution_dep {nullptr};
+    Dependency* _execution_dep = nullptr;
 
     std::atomic<bool> _use_blocking_queue {true};
     std::atomic<bool> _finished {false};

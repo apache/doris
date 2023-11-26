@@ -178,8 +178,8 @@ public:
     TFileCompressType::type compress_type = TFileCompressType::UNKNOWN;
     bool group_commit = false;
 
-    std::shared_ptr<MessageBodySink> body_sink;
-    std::shared_ptr<io::StreamLoadPipe> pipe;
+    std::shared_ptr<MessageBodySink> body_sink = nullptr;
+    std::shared_ptr<io::StreamLoadPipe> pipe = nullptr;
 
     ByteBufferPtr schema_buffer = ByteBuffer::allocate(config::stream_tvf_buffer_size);
 
@@ -213,7 +213,7 @@ public:
     // should be RUNNING or FINISHED
     std::string existing_job_status = "";
 
-    std::unique_ptr<KafkaLoadInfo> kafka_info;
+    std::unique_ptr<KafkaLoadInfo> kafka_info = nullptr;
 
     // consumer_id is used for data consumer cache key.
     // to identified a specified data consumer.
@@ -235,7 +235,7 @@ public:
     ExecEnv* exec_env() { return _exec_env; }
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 };
 
 } // namespace doris

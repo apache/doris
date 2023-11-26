@@ -207,7 +207,7 @@ private:
     uint64_t _output_null_idx_build_side = 0;
     vectorized::VExprContextSPtrs _join_conjuncts;
 
-    RuntimeProfile::Counter* _loop_join_timer;
+    RuntimeProfile::Counter* _loop_join_timer = nullptr;
 };
 
 class NestedLoopJoinProbeOperatorX final

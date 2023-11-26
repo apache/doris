@@ -514,11 +514,11 @@ private:
     RuntimeProfile _profile;
     RuntimeProfile _load_channel_profile;
 
-    const DescriptorTbl* _desc_tbl;
-    std::shared_ptr<ObjectPool> _obj_pool;
+    const DescriptorTbl* _desc_tbl = nullptr;
+    std::shared_ptr<ObjectPool> _obj_pool = nullptr;
 
     // runtime filter
-    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
+    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr = nullptr;
 
     // Protects _data_stream_recvrs_pool
     std::mutex _data_stream_recvrs_lock;
@@ -528,7 +528,7 @@ private:
     // Receivers depend on the descriptor table and we need to guarantee that their control
     // blocks are removed from the data stream manager before the objects in the
     // descriptor table are destroyed.
-    std::unique_ptr<ObjectPool> _data_stream_recvrs_pool;
+    std::unique_ptr<ObjectPool> _data_stream_recvrs_pool = nullptr;
 
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;

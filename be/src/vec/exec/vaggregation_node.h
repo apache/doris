@@ -252,7 +252,7 @@ public:
         using Container =
                 std::conditional_t<IsConst, const AggregateDataContainer, AggregateDataContainer>;
 
-        Container* container;
+        Container* container = nullptr;
         uint32_t index;
         uint32_t sub_container_index;
         uint32_t index_in_sub_container;
@@ -339,7 +339,7 @@ private:
     std::vector<char*> _key_containers;
     std::vector<AggregateDataPtr> _value_containers;
     AggregateDataPtr _current_agg_data;
-    char* _current_keys;
+    char* _current_keys = nullptr;
     size_t _size_of_key {};
     size_t _size_of_aggregate_states {};
     uint32_t _index_in_sub_container {};
@@ -354,7 +354,7 @@ struct AggSpillContext {
     /// stream ids of writers/readers
     std::vector<int64_t> stream_ids;
     std::vector<BlockSpillReaderUPtr> readers;
-    RuntimeProfile* runtime_profile;
+    RuntimeProfile* runtime_profile = nullptr;
 
     size_t read_cursor {};
 
@@ -419,11 +419,11 @@ protected:
     // left / full join will change the key nullable make output/input solt
     // nullable diff. so we need make nullable of it.
     std::vector<size_t> _make_nullable_keys;
-    RuntimeProfile::Counter* _hash_table_compute_timer;
-    RuntimeProfile::Counter* _hash_table_emplace_timer;
-    RuntimeProfile::Counter* _hash_table_input_counter;
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _expr_timer;
+    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
 
 private:
     friend class pipeline::AggSinkOperator;
@@ -436,15 +436,15 @@ private:
 
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;
-    TupleDescriptor* _intermediate_tuple_desc;
+    TupleDescriptor* _intermediate_tuple_desc = nullptr;
 
     TupleId _output_tuple_id;
-    TupleDescriptor* _output_tuple_desc;
+    TupleDescriptor* _output_tuple_desc = nullptr;
 
     bool _needs_finalize;
     bool _is_merge;
     bool _is_first_phase;
-    std::unique_ptr<Arena> _agg_profile_arena;
+    std::unique_ptr<Arena> _agg_profile_arena = nullptr;
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
@@ -456,23 +456,23 @@ private:
     size_t _partitioned_threshold = 0;
 
     AggSpillContext _spill_context;
-    std::unique_ptr<SpillPartitionHelper> _spill_partition_helper;
+    std::unique_ptr<SpillPartitionHelper> _spill_partition_helper = nullptr;
 
-    RuntimeProfile::Counter* _build_table_convert_timer;
-    RuntimeProfile::Counter* _serialize_key_timer;
-    RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _get_results_timer;
-    RuntimeProfile::Counter* _serialize_data_timer;
-    RuntimeProfile::Counter* _serialize_result_timer;
-    RuntimeProfile::Counter* _deserialize_data_timer;
-    RuntimeProfile::Counter* _hash_table_iterate_timer;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer;
-    RuntimeProfile::Counter* _streaming_agg_timer;
-    RuntimeProfile::Counter* _hash_table_size_counter;
-    RuntimeProfile::Counter* _max_row_size_counter;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _hash_table_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage;
+    RuntimeProfile::Counter* _build_table_convert_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
+    RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _get_results_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_result_timer = nullptr;
+    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
+    RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _max_row_size_counter = nullptr;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_expand_hash_table = true;
     bool _should_limit_output = false;
@@ -482,7 +482,7 @@ private:
     PODArray<AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
     std::vector<AggregateDataPtr> _values;
-    std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
+    std::unique_ptr<AggregateDataContainer> _aggregate_data_container = nullptr;
 
     void _release_self_resource(RuntimeState* state);
     /// Return true if we should keep expanding hash tables in the preagg. If false,

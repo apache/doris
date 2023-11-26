@@ -69,13 +69,13 @@ private:
     TupleId _tuple_id;
 
     // Descriptor of dest tuples
-    const TupleDescriptor* _dest_tuple_desc;
+    const TupleDescriptor* _dest_tuple_desc = nullptr;
     // Tuple index in tuple row.
     int _tuple_idx;
     // slot num need to fill in and return
     int _slot_num;
     // Jni helper for scanning an schema table.
-    std::unique_ptr<SchemaScanner> _schema_scanner;
+    std::unique_ptr<SchemaScanner> _schema_scanner = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

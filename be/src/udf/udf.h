@@ -156,7 +156,7 @@ private:
 
     // We use the query's runtime state to report errors and warnings. nullptr for test
     // contexts.
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
 
     // Empty if there's no error
     std::string _error_msg;
@@ -165,8 +165,8 @@ private:
     int64_t _num_warnings;
 
     /// The function state accessed via FunctionContext::Get/SetFunctionState()
-    std::shared_ptr<void> _thread_local_fn_state;
-    std::shared_ptr<void> _fragment_local_fn_state;
+    std::shared_ptr<void> _thread_local_fn_state = nullptr;
+    std::shared_ptr<void> _fragment_local_fn_state = nullptr;
 
     // Type descriptor for the return type of the function.
     doris::TypeDescriptor _return_type;

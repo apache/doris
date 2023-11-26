@@ -36,7 +36,7 @@ public:
 
 private:
     RuntimeState* _state = nullptr;
-    std::unique_ptr<doris::FunctionContext> _fn_ctx;
+    std::unique_ptr<doris::FunctionContext> _fn_ctx = nullptr;
 };
 
 } // namespace doris

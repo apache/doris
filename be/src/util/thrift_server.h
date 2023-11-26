@@ -125,14 +125,14 @@ private:
     const std::string _name;
 
     // Thread that runs the TNonblockingServer::serve loop
-    std::unique_ptr<std::thread> _server_thread;
+    std::unique_ptr<std::thread> _server_thread = nullptr;
 
     // Thrift housekeeping
-    std::unique_ptr<apache::thrift::server::TServer> _server;
-    std::shared_ptr<apache::thrift::TProcessor> _processor;
+    std::unique_ptr<apache::thrift::server::TServer> _server = nullptr;
+    std::shared_ptr<apache::thrift::TProcessor> _processor = nullptr;
 
     // If not nullptr, called when session events happen. Not owned by us.
-    SessionHandlerIf* _session_handler;
+    SessionHandlerIf* _session_handler = nullptr;
 
     // Protects _session_keys
     std::mutex _session_keys_lock;
@@ -148,11 +148,11 @@ private:
 
     friend class ThriftServerEventProcessor;
 
-    std::shared_ptr<MetricEntity> _thrift_server_metric_entity;
+    std::shared_ptr<MetricEntity> _thrift_server_metric_entity = nullptr;
     // Number of currently active connections
-    IntGauge* thrift_current_connections;
+    IntGauge* thrift_current_connections = nullptr;
     // Total connections made over the lifetime of this server
-    IntCounter* thrift_connections_total;
+    IntCounter* thrift_connections_total = nullptr;
 };
 
 } // namespace doris

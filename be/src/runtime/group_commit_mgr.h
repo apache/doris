@@ -76,9 +76,9 @@ private:
 
     Status _status = Status::OK();
     // memory consumption of all tables' load block queues, used for back pressure.
-    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
+    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes = nullptr;
     // memory consumption of one load block queue, used for correctness check.
-    std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes;
+    std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes = nullptr;
     // group commit interval in ms, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
     int64_t _group_commit_interval_ms;
 };
@@ -108,8 +108,8 @@ private:
                                      int64_t txn_id, const TUniqueId& instance_id, Status& status,
                                      bool prepare_failed, RuntimeState* state);
 
-    ExecEnv* _exec_env;
-    ThreadPool* _thread_pool;
+    ExecEnv* _exec_env = nullptr;
+    ThreadPool* _thread_pool = nullptr;
     int64_t _db_id;
     int64_t _table_id;
     std::mutex _lock;
@@ -118,7 +118,7 @@ private:
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _need_plan_fragment = false;
     // memory consumption of all tables' load block queues, used for back pressure.
-    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
+    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes = nullptr;
 };
 
 class GroupCommitMgr {
@@ -136,14 +136,14 @@ public:
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     std::mutex _lock;
     // TODO remove table when unused
     std::unordered_map<int64_t, std::shared_ptr<GroupCommitTable>> _table_map;
-    std::unique_ptr<doris::ThreadPool> _thread_pool;
+    std::unique_ptr<doris::ThreadPool> _thread_pool = nullptr;
     // memory consumption of all tables' load block queues, used for back pressure.
-    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
+    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes = nullptr;
 };
 
 } // namespace doris

@@ -93,10 +93,10 @@ public:
     TaskQueue* task_queue() const { return _task_queue.get(); }
 
 private:
-    std::unique_ptr<ThreadPool> _fix_thread_pool;
-    std::shared_ptr<TaskQueue> _task_queue;
+    std::unique_ptr<ThreadPool> _fix_thread_pool = nullptr;
+    std::shared_ptr<TaskQueue> _task_queue = nullptr;
     std::vector<std::unique_ptr<std::atomic<bool>>> _markers;
-    std::shared_ptr<BlockedTaskScheduler> _blocked_task_scheduler;
+    std::shared_ptr<BlockedTaskScheduler> _blocked_task_scheduler = nullptr;
     std::atomic<bool> _shutdown;
     std::string _name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;

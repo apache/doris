@@ -91,7 +91,7 @@ private:
     struct evhttp_request* _ev_req = nullptr;
     HttpHandler* _handler = nullptr;
 
-    std::shared_ptr<void> _handler_ctx;
+    std::shared_ptr<void> _handler_ctx = nullptr;
     std::string _request_body;
 };
 

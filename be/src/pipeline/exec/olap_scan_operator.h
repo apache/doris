@@ -94,7 +94,7 @@ private:
     // If column id in this set, indicate that we need to read data after index filtering
     std::set<int32_t> _maybe_read_column_ids;
 
-    std::unique_ptr<RuntimeProfile> _segment_profile;
+    std::unique_ptr<RuntimeProfile> _segment_profile = nullptr;
 
     RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
 

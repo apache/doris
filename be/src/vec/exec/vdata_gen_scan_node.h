@@ -55,13 +55,13 @@ public:
                            const std::vector<TScanRangeParams>& scan_ranges) override;
 
 protected:
-    std::shared_ptr<VDataGenFunctionInf> _table_func;
+    std::shared_ptr<VDataGenFunctionInf> _table_func = nullptr;
     bool _is_init;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
 
     // Descriptor of tuples generated
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };

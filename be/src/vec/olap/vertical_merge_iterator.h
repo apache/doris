@@ -223,7 +223,7 @@ private:
     size_t _cur_batch_num = 0;
 
     // used to store data load from iterator->next_batch(Block*)
-    std::shared_ptr<Block> _block;
+    std::shared_ptr<Block> _block = nullptr;
     // used to store data still on block view
     std::list<std::shared_ptr<Block>> _block_list;
     // use to identify whether it's first block load from RowwiseIterator
@@ -344,7 +344,7 @@ private:
 
     const Schema* _schema = nullptr;
 
-    std::unique_ptr<VerticalMergeIteratorContext> _cur_iter_ctx;
+    std::unique_ptr<VerticalMergeIteratorContext> _cur_iter_ctx = nullptr;
     int _block_row_max = 0;
     KeysType _keys_type;
     int32_t _seq_col_idx = -1;

@@ -53,7 +53,7 @@ struct RuntimeFilterBuild {
     Status operator()(RuntimeState* state);
 
 private:
-    Parent* _parent;
+    Parent* _parent = nullptr;
 };
 
 // Node for nested loop joins.
@@ -274,7 +274,7 @@ private:
     std::stack<uint16_t> _build_offset_stack;
     std::stack<uint16_t> _probe_offset_stack;
     VExprContextSPtrs _join_conjuncts;
-    RuntimeProfile::Counter* _loop_join_timer;
+    RuntimeProfile::Counter* _loop_join_timer = nullptr;
     template <typename Parent>
     friend struct RuntimeFilterBuild;
 };

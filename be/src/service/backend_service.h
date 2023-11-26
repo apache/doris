@@ -143,9 +143,9 @@ public:
 
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
-    ExecEnv* _exec_env;
-    std::unique_ptr<AgentServer> _agent_server;
-    std::unique_ptr<ThreadPool> _ingest_binlog_workers;
+    ExecEnv* _exec_env = nullptr;
+    std::unique_ptr<AgentServer> _agent_server = nullptr;
+    std::unique_ptr<ThreadPool> _ingest_binlog_workers = nullptr;
 };
 
 } // namespace doris

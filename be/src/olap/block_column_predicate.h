@@ -126,7 +126,7 @@ public:
     }
 
 private:
-    const ColumnPredicate* _predicate;
+    const ColumnPredicate* _predicate = nullptr;
 };
 
 class MutilColumnBlockPredicate : public BlockColumnPredicate {

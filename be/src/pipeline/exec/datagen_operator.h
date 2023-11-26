@@ -63,7 +63,7 @@ public:
 
 private:
     friend class DataGenSourceOperatorX;
-    std::shared_ptr<vectorized::VDataGenFunctionInf> _table_func;
+    std::shared_ptr<vectorized::VDataGenFunctionInf> _table_func = nullptr;
 };
 
 class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {
@@ -84,7 +84,7 @@ private:
     TupleId _tuple_id;
 
     // Descriptor of tuples generated
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };

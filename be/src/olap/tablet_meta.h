@@ -288,7 +288,7 @@ private:
     // which can avoid the merging cost in read stage, and accelerate the aggregation
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
-    std::shared_ptr<DeleteBitmap> _delete_bitmap;
+    std::shared_ptr<DeleteBitmap> _delete_bitmap = nullptr;
 
     // binlog config
     BinlogConfig _binlog_config {};
@@ -488,7 +488,7 @@ public:
     };
 
 private:
-    mutable std::shared_ptr<AggCache> _agg_cache;
+    mutable std::shared_ptr<AggCache> _agg_cache = nullptr;
     int64_t _tablet_id;
 };
 

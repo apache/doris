@@ -53,19 +53,19 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     int _tuple_desc_id = -1;
-    std::shared_ptr<OlapTableSchemaParam> _schema;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
 
     RuntimeState* _state = nullptr;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
     // this is tuple descriptor of destination OLAP table
     TupleDescriptor* _output_tuple_desc = nullptr;
-    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor;
+    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor = nullptr;
 
     int64_t _db_id;
     int64_t _table_id;
     int64_t _base_schema_version = 0;
     UniqueId _load_id;
-    std::shared_ptr<LoadBlockQueue> _load_block_queue;
+    std::shared_ptr<LoadBlockQueue> _load_block_queue = nullptr;
     std::vector<std::shared_ptr<vectorized::FutureBlock>> _future_blocks;
 };
 

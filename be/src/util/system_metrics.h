@@ -97,14 +97,14 @@ private:
     static const char* _s_hook_name;
 
     std::map<std::string, CpuMetrics*> _cpu_metrics;
-    std::unique_ptr<MemoryMetrics> _memory_metrics;
+    std::unique_ptr<MemoryMetrics> _memory_metrics = nullptr;
     std::map<std::string, DiskMetrics*> _disk_metrics;
     std::map<std::string, NetworkMetrics*> _network_metrics;
-    std::unique_ptr<FileDescriptorMetrics> _fd_metrics;
-    std::unique_ptr<LoadAverageMetrics> _load_average_metrics;
+    std::unique_ptr<FileDescriptorMetrics> _fd_metrics = nullptr;
+    std::unique_ptr<LoadAverageMetrics> _load_average_metrics = nullptr;
     int _proc_net_dev_version = 0;
-    std::unique_ptr<SnmpMetrics> _snmp_metrics;
-    std::unique_ptr<ProcMetrics> _proc_metrics;
+    std::unique_ptr<SnmpMetrics> _snmp_metrics = nullptr;
+    std::unique_ptr<ProcMetrics> _proc_metrics = nullptr;
 
     std::vector<std::string> _cpu_names;
     char* _line_ptr = nullptr;
@@ -112,9 +112,9 @@ private:
     MetricRegistry* _registry = nullptr;
     std::shared_ptr<MetricEntity> _server_entity = nullptr;
 
-    IntGauge* max_disk_io_util_percent;
-    IntGauge* max_network_send_bytes_rate;
-    IntGauge* max_network_receive_bytes_rate;
+    IntGauge* max_disk_io_util_percent = nullptr;
+    IntGauge* max_network_send_bytes_rate = nullptr;
+    IntGauge* max_network_receive_bytes_rate = nullptr;
 };
 
 } // namespace doris

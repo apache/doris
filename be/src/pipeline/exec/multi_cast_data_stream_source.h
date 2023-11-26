@@ -52,7 +52,7 @@ public:
 
 private:
     const int _consumer_id;
-    std::shared_ptr<MultiCastDataStreamer> _multi_cast_data_streamer;
+    std::shared_ptr<MultiCastDataStreamer> _multi_cast_data_streamer = nullptr;
     TDataStreamSink _t_data_stream_sink;
 };
 
@@ -85,7 +85,7 @@ public:
 
 private:
     const int _consumer_id;
-    std::shared_ptr<MultiCastDataStreamer> _multi_cast_data_streamer;
+    std::shared_ptr<MultiCastDataStreamer> _multi_cast_data_streamer = nullptr;
     const TDataStreamSink _t_data_stream_sink;
 
     vectorized::VExprContextSPtrs _output_expr_contexts;

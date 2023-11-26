@@ -92,13 +92,13 @@ protected:
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
 protected:
-    const TFileScanRangeParams* _params;
+    const TFileScanRangeParams* _params = nullptr;
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
 
-    std::unique_ptr<GenericReader> _cur_reader;
+    std::unique_ptr<GenericReader> _cur_reader = nullptr;
     bool _cur_reader_eof;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs
@@ -139,12 +139,12 @@ protected:
 
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
-    std::unique_ptr<RowDescriptor> _src_row_desc;
-    std::unique_ptr<RowDescriptor> _dest_row_desc;
+    std::unique_ptr<RowDescriptor> _src_row_desc = nullptr;
+    std::unique_ptr<RowDescriptor> _dest_row_desc = nullptr;
     // row desc for default exprs
-    std::unique_ptr<RowDescriptor> _default_val_row_desc;
+    std::unique_ptr<RowDescriptor> _default_val_row_desc = nullptr;
     // owned by scan node
-    ShardedKVCache* _kv_cache;
+    ShardedKVCache* _kv_cache = nullptr;
 
     bool _scanner_eof = false;
     int _rows = 0;
@@ -154,13 +154,13 @@ protected:
     bool _strict_mode;
 
     bool _src_block_init = false;
-    Block* _src_block_ptr;
+    Block* _src_block_ptr = nullptr;
     Block _src_block;
 
     VExprContextSPtrs _push_down_conjuncts;
 
-    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
-    std::unique_ptr<io::IOContext> _io_ctx;
+    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics = nullptr;
+    std::unique_ptr<io::IOContext> _io_ctx = nullptr;
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
@@ -178,7 +178,7 @@ private:
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
-    const std::unordered_map<std::string, int>* _col_name_to_slot_id;
+    const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     // single slot filter conjuncts
     std::unordered_map<int, VExprContextSPtrs> _slot_id_to_filter_conjuncts;
     // not single(zero or multi) slot filter conjuncts
