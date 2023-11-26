@@ -29,7 +29,7 @@ public class UnsetVariableStmt extends StatementBase {
     // variables to restore
     private String variable = null;
 
-    private boolean applyToAll;
+    private boolean applyToAll = false;
 
     public UnsetVariableStmt(SetType setType, String varName) {
         this.setType = setType;
