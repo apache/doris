@@ -235,7 +235,7 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    _build_tablet_node_mapping();
+    RETURN_IF_ERROR(_build_tablet_node_mapping());
     RETURN_IF_ERROR(_open_streams(_backend_id));
     RETURN_IF_ERROR(_init_row_distribution());
 
@@ -274,13 +274,17 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id,
     return Status::OK();
 }
 
-void VTabletWriterV2::_build_tablet_node_mapping() {
+Status VTabletWriterV2::_build_tablet_node_mapping() {
     std::unordered_set<int64_t> known_indexes;
     for (const auto& partition : _vpartition->get_partitions()) {
         for (const auto& index : partition->indexes) {
             for (const auto& tablet_id : index.tablets) {
-                auto nodes = _location->find_tablet(tablet_id)->node_ids;
-                for (auto& node : nodes) {
+                auto tablet_location = _location->find_tablet(tablet_id);
+                if (tablet_location == nullptr) {
+                    return Status::InternalError("unknown tablet location, tablet id = {}",
+                                                 tablet_id);
+                }
+                for (auto& node : tablet_location->node_ids) {
                     PTabletID tablet;
                     tablet.set_partition_id(partition->id);
                     tablet.set_index_id(index.index_id);
@@ -295,6 +299,7 @@ void VTabletWriterV2::_build_tablet_node_mapping() {
             }
         }
     }
+    return Status::OK();
 }
 
 void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
