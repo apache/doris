@@ -1502,8 +1502,8 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
     return Status::OK();
 }
 
-Status NewJsonReader::_set_empty_row(size_t* size, bool* eof, bool* is_empty_row) {
-    if (size == 0 || *eof) {
+Status NewJsonReader::_judge_empty_row(size_t size, bool eof, bool* is_empty_row) {
+    if (size == 0 || eof) {
         *is_empty_row = true;
         return Status::OK();
     }
@@ -1593,7 +1593,7 @@ Status NewJsonReader::_get_json_value(size_t* size, bool* eof, simdjson::error_c
                        "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
         return return_quality_error(error_msg, std::string((char*)_json_str, *size));
     }
-    RETURN_IF_ERROR(_set_empty_row(size, eof, is_empty_row));
+    RETURN_IF_ERROR(_judge_empty_row(*size, *eof, is_empty_row));
     return Status::OK();
 }
 

@@ -145,7 +145,7 @@ private:
                                 simdjson::error_code* error);
     Status _get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
                            bool* is_empty_row);
-    Status _set_empty_row(size_t* size, bool* eof, bool* is_empty_row);
+    Status _judge_empty_row(size_t size, bool eof, bool* is_empty_row);
 
     Status _simdjson_handle_simple_json(RuntimeState* state, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
