@@ -470,7 +470,7 @@ std::vector<const char*> PulsarDataConsumerGroup::convert_rows(const char* data)
             for(size_t i = 0; i < len; i++) {
                 rapidjson::Document destination;
                 destination.SetObject();
-                const rapidjson::Value& object = array[i];
+                rapidjson::Value& object = const_cast<rapidjson::Value&>(array[i]);
                 rapidjson::Value eventName("event", destination.GetAllocator());
                 destination.AddMember(eventName, object, destination.GetAllocator());
                 for (auto& member : source.GetObject()) {
