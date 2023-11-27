@@ -208,9 +208,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     auto* fragment_context = this;
 
-    LOG_INFO("Preparing instance {}, backend_num {}",
-             PrintInstanceStandardInfo(_query_id, local_params.fragment_instance_id),
-             local_params.backend_num);
+    LOG_INFO("Preparing instance {}|{}, backend_num {}", print_id(_query_id),
+             print_id(local_params.fragment_instance_id), local_params.backend_num);
 
     // 1. init _runtime_state
     _runtime_state = RuntimeState::create_unique(
@@ -754,9 +753,8 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
-        std::stringstream msg;
-        msg << "query " << print_id(_query_id) << " closed since prepare failed";
-        WARN_IF_ERROR(task->close(Status::OK()), msg.str());
+        WARN_IF_ERROR(task->close(Status::OK()),
+                      fmt::format("Query {} closed since prepare failed", print_id(_query_id)));
         close_a_pipeline();
     }
 }
