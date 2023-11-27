@@ -17,6 +17,7 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 
+#include <condition_variable>
 #include <memory>
 
 #include "common/config.h"
@@ -85,5 +86,6 @@ private:
     std::unordered_map<int64_t, std::unordered_map<int64_t, WAL_STATUS>> _wal_status_queues;
     std::atomic<bool> _stop;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
+    std::shared_ptr<std::condition_variable> _cv;
 };
 } // namespace doris

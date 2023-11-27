@@ -41,6 +41,7 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
         : _exec_env(exec_env), _stop_background_threads_latch(1), _stop(false) {
     doris::vectorized::WalReader::string_split(wal_dir_list, ",", _wal_dirs);
     _all_wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
+    _cv = std::make_shared<std::condition_variable>();
 }
 
 WalManager::~WalManager() {
@@ -199,7 +200,7 @@ Status WalManager::create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>&
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(base_path));
     }
     LOG(INFO) << "create wal " << wal_path;
-    wal_writer = std::make_shared<WalWriter>(wal_path, _all_wal_disk_bytes);
+    wal_writer = std::make_shared<WalWriter>(wal_path, _all_wal_disk_bytes, _cv);
     RETURN_IF_ERROR(wal_writer->init());
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
@@ -207,6 +208,7 @@ Status WalManager::create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>&
     }
     return Status::OK();
 }
+
 Status WalManager::scan_wals(const std::string& wal_path) {
     size_t count = 0;
     bool exists = true;
@@ -336,13 +338,11 @@ Status WalManager::delete_wal(int64_t wal_id) {
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
         if (_wal_id_to_writer_map.find(wal_id) != _wal_id_to_writer_map.end()) {
-            _all_wal_disk_bytes->store(
-                    _all_wal_disk_bytes->fetch_sub(_wal_id_to_writer_map[wal_id]->disk_bytes(),
-                                                   std::memory_order_relaxed),
-                    std::memory_order_relaxed);
-            _wal_id_to_writer_map[wal_id]->cv.notify_one();
+            _all_wal_disk_bytes->fetch_sub(_wal_id_to_writer_map[wal_id]->disk_bytes(),
+                                           std::memory_order_relaxed);
+            _cv->notify_one();
             std::string wal_path = _wal_path_map[wal_id];
-            LOG(INFO) << "wal delete file=" << wal_path << ", this file disk usage is"
+            LOG(INFO) << "wal delete file=" << wal_path << ", this file disk usage is "
                       << _wal_id_to_writer_map[wal_id]->disk_bytes()
                       << " ,after deleting it, all wals disk usage is "
                       << _all_wal_disk_bytes->load(std::memory_order_relaxed);
