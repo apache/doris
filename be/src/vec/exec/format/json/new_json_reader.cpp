@@ -775,7 +775,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
         RETURN_IF_ERROR(_append_error_msg(objectValue,
                                           "All fields is null, this is a invalid row. "
                                           "Column names:[{}], jsonpaths:{}, please check column "
-                                          "names and jsonpaths or check data quality",
+                                          "names and jsonpaths",
                                           col_names, valid));
         return Status::OK();
     }
@@ -1328,7 +1328,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "All fields is null, this is a invalid row. "
                                           "Column names:[{}], jsonpaths:{}, please check column "
-                                          "names and jsonpaths or check data quality",
+                                          "names and jsonpaths",
                                           col_names, valid));
         return Status::OK();
     }
@@ -1635,7 +1635,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "All fields is null, this is a invalid row. "
                                           "Column names:[{}], jsonpaths:{}, please check column "
-                                          "names and jsonpaths or check data quality",
+                                          "names and jsonpaths",
                                           col_names, valid));
         return Status::OK();
     }
