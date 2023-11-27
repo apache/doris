@@ -1231,6 +1231,10 @@ public enum ErrorCode {
         return sqlState;
     }
 
+    public String getErrorMsg() {
+        return errorMsg;
+    }
+
     public String formatErrorMsg(Object... args) {
         try {
             return String.format(errorMsg, args);
