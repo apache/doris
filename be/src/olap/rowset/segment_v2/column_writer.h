@@ -34,6 +34,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h"  // for OwnedSlice
+#include "runtime/memory/mem_tracker.h"
 
 namespace doris {
 
@@ -89,7 +90,8 @@ public:
                          io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer);
 
     explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable)
-            : _field(std::move(field)), _is_nullable(is_nullable) {}
+            : _field(std::move(field)),
+              _is_nullable(is_nullable) {}
 
     virtual ~ColumnWriter() = default;
 
@@ -211,6 +213,8 @@ public:
     friend class OffsetColumnWriter;
 
 private:
+    std::shared_ptr<MemTracker> _mem_tracker;
+
     std::unique_ptr<PageBuilder> _page_builder;
 
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;

@@ -430,6 +430,9 @@ Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num
 ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
                                        std::unique_ptr<Field> field, io::FileWriter* file_writer)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()),
+          _mem_tracker(new MemTracker(fmt::format("ColWriter::Field={}:Path={}",
+                                                  get_field()->unique_id(),
+                                                  file_writer->path().c_str()))),
           _opts(opts),
           _file_writer(file_writer),
           _data_size(0) {
@@ -503,6 +506,8 @@ Status ScalarColumnWriter::init() {
 }
 
 Status ScalarColumnWriter::append_nulls(size_t num_rows) {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    LOG(INFO) << "before append data: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
     if (_opts.need_zone_map) {
@@ -517,6 +522,7 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_nulls(num_rows);
     }
+    LOG(INFO) << "after append data: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     return Status::OK();
 }
 
@@ -524,6 +530,8 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
 // num_rows must be written before return. And ptr will be modified
 // to next data should be written
 Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    LOG(INFO) << "before append data: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     size_t remaining = num_rows;
     while (remaining > 0) {
         size_t num_written = remaining;
@@ -535,6 +543,7 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
             RETURN_IF_ERROR(finish_current_page());
         }
     }
+    LOG(INFO) << "after append data: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     return Status::OK();
 }
 
@@ -596,10 +605,14 @@ Status ScalarColumnWriter::finish() {
 }
 
 Status ScalarColumnWriter::write_data() {
+    LOG(INFO) << "before write data: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     for (auto& page : _pages) {
         RETURN_IF_ERROR(_write_data_page(page.get()));
     }
+    LOG(INFO) << "after write data page: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     _pages.clear();
+    LOG(INFO) << "after clear pages: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     // write column dict
     if (_encoding_info->encoding() == DICT_ENCODING) {
         OwnedSlice dict_body;
@@ -616,7 +629,9 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
+    LOG(INFO) << "before reset page builder: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     _page_builder.reset();
+    LOG(INFO) << "after write data: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     return Status::OK();
 }
 
