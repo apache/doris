@@ -47,6 +47,7 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     _db_id = table_sink.db_id;
     _table_id = table_sink.table_id;
     _base_schema_version = table_sink.base_schema_version;
+    _load_id = table_sink.load_id;
     return Status::OK();
 }
 
@@ -155,8 +156,8 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
             std::make_shared<doris::vectorized::FutureBlock>();
     future_block->swap(*(output_block.get()));
     TUniqueId load_id;
-    load_id.__set_hi(load_id.hi);
-    load_id.__set_lo(load_id.lo);
+    load_id.__set_hi(_load_id.hi);
+    load_id.__set_lo(_load_id.lo);
     future_block->set_info(_base_schema_version, load_id);
     if (_load_block_queue == nullptr) {
         RETURN_IF_ERROR(state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
