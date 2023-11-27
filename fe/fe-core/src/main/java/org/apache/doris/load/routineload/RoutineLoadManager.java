@@ -719,10 +719,10 @@ public class RoutineLoadManager implements Writable {
             if (job != null) {
                 unprotectedRemoveJobFromDb(job);
             }
-            LOG.info("replay remove routine load job: {}", operation.getId());
         } finally {
             writeUnlock();
         }
+        LOG.info("replay remove routine load job: {}", operation.getId());
     }
 
     private void unprotectedRemoveJobFromDb(RoutineLoadJob routineLoadJob) {
