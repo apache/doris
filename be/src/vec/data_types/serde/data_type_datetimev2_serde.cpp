@@ -26,10 +26,11 @@
 #include "vec/io/io_helper.h"
 
 enum {
-DIVISOR_FOR_SECOND = 1,
-DIVISOR_FOR_MILLI = 1000,
-DIVISOR_FOR_MICRO = 1000000,
-DIVISOR_FOR_NANO = 1000000000};
+    DIVISOR_FOR_SECOND = 1,
+    DIVISOR_FOR_MILLI = 1000,
+    DIVISOR_FOR_MICRO = 1000000,
+    DIVISOR_FOR_NANO = 1000000000
+};
 
 namespace doris {
 namespace vectorized {
