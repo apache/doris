@@ -319,7 +319,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
     } else if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
                          JoinOpType == TJoinOp::RIGHT_ANTI_JOIN) {
-        LOG(WARNING) << output_block->dump_data();
         for (int i = 0; i < row_count; ++i) {
             visited[_build_indexs[i]] |= filter_column_ptr[i];
         }

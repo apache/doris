@@ -320,13 +320,11 @@ public:
 
     void pre_build_idxs(std::vector<uint32>& bucksets, const uint8_t* null_map) {
         if (null_map) {
-            for (uint32_t i = 0; i < bucksets.size(); i++) {
-                bucksets[i] = null_map[i] ? bucket_size : first[bucksets[i]];
-            }
-        } else {
-            for (uint32_t i = 0; i < bucksets.size(); i++) {
-                bucksets[i] = first[bucksets[i]];
-            }
+            first[bucket_size] = bucket_size; // distinguish between not matched and null
+        }
+
+        for (uint32_t i = 0; i < bucksets.size(); i++) {
+            bucksets[i] = first[bucksets[i]];
         }
     }
 

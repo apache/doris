@@ -568,7 +568,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     if (source_state == SourceState::FINISHED) {
         // Since the comparison of null values is meaningless, null aware left anti join should not output null
         // when the build side is not empty.
-        if (!local_state._shared_state->build_block &&
+        if (local_state._shared_state->build_block &&
             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             local_state._shared_state->probe_ignore_null = true;
         }
