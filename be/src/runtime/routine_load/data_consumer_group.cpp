@@ -379,8 +379,8 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                     }
                     break;
                 } else {
+                    received_rows++;
                     left_bytes -= row_len;
-                    eos = true;
                 }
             }
             //delete
@@ -388,12 +388,13 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 delete[] ptr;
             }
             rows.clear();
+            LOG(INFO) << "clear rows size : " << rows.size();
             if (append_all) {
                 received_rows++;
                 // len of receive origin message from pulsar
                 left_bytes -= len;
                 ack_offset[partition] = msg_id;
-                VLOG(3) << "consume partition" << partition << " - " << msg_id;
+                LOG(INFO) << "consume partition" << partition << " - " << msg_id;
             }
             delete msg;
         } else {
