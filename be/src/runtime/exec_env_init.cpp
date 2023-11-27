@@ -609,11 +609,14 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_task_group_manager);
     SAFE_DELETE(_pipeline_task_group_scheduler);
+    LOG_INFO("Pipeline task group scheduler destoried.");
     SAFE_DELETE(_pipeline_task_scheduler);
+    LOG_INFO("Pipeline task scheduler destoried.");
     SAFE_DELETE(_file_cache_factory);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
+    LOG_INFO("Send report thread pool destoried.");
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);

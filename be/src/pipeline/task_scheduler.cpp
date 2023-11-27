@@ -62,7 +62,6 @@ Status BlockedTaskScheduler::start(std::string sche_name) {
 }
 
 void BlockedTaskScheduler::shutdown() {
-    LOG(INFO) << "Start shutdown BlockedTaskScheduler";
     if (!this->_shutdown) {
         this->_shutdown = true;
         if (_thread) {
@@ -70,6 +69,8 @@ void BlockedTaskScheduler::shutdown() {
             _thread->join();
         }
     }
+
+    LOG_INFO("BlockedTaskScheduler shutdown");
 }
 
 Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
@@ -202,8 +203,9 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
 }
 
 TaskScheduler::~TaskScheduler() {
+    // TODO(zhiqiang): Should rm this function call, keep it here only because lack of confidence.
     stop();
-    LOG(INFO) << "Task scheduler " << _name << " shutdown";
+    LOG_INFO("Task scheduler {} destoried", _name);
 }
 
 Status TaskScheduler::start() {
@@ -406,6 +408,8 @@ void TaskScheduler::stop() {
             _fix_thread_pool->wait();
         }
     }
+
+    LOG_INFO("Tash scheduler {} stopped", _name);
 }
 
 } // namespace doris::pipeline
