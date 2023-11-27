@@ -555,6 +555,24 @@ public class PropertyConverterTest extends TestWithFeService {
     }
 
     @Test
+    public void testUnknownCatalogPropertiesConverter() throws Exception {
+        String query = "create catalog hms_unknown properties (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'unknown.endpoint' = 'unknown',\n"
+                + "    'unknown.access_key' = 'akk',\n"
+                + "    'unknown.secret_key' = 'skk'\n"
+                + ");";
+        CreateCatalogStmt analyzedStmt = createStmt(query);
+        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_unknown");
+        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
+        Assertions.assertEquals(properties.size(), 11);
+
+        Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
+        Assertions.assertEquals(hdProps.size(), 20);
+    }
+
+    @Test
     public void testS3PropertiesConvertor() {
         // 1. AWS
         Map<String, String> origProp = Maps.newHashMap();

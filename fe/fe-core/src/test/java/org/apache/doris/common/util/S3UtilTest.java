@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.FileSystemType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -25,7 +27,7 @@ import java.util.Map;
 
 public class S3UtilTest {
     @Test
-    public void testLocationConvert() throws Exception {
+    public void testLocationConvert() {
         String loc;
         loc = S3Util.convertToS3IfNecessary("hdfs://dir/file.path", new HashMap<>());
         Assertions.assertTrue(loc.startsWith("hdfs://"));
@@ -63,6 +65,7 @@ public class S3UtilTest {
         Map<String, String> rangeProps = new HashMap<>();
         loc = S3Util.toScanRangeLocation("hdfs://dir/file.path", rangeProps).toString();
         Assertions.assertTrue(loc.startsWith("hdfs://"));
+        Assertions.assertEquals(FileSystemFactory.getFSIdentity(loc, null).first, FileSystemType.DFS);
 
         Map<String, String> props = new HashMap<>();
         props.put("dfs.nameservices", "ns");
@@ -76,17 +79,25 @@ public class S3UtilTest {
 
         loc = S3Util.toScanRangeLocation("oss://test.com", rangeProps).toString();
         Assertions.assertTrue(loc.startsWith("s3://"));
+        Assertions.assertEquals(FileSystemFactory.getFSIdentity(loc, null).first, FileSystemType.S3);
 
         loc = S3Util.toScanRangeLocation("oss://test.oss-dls.aliyuncs.com/path", rangeProps).toString();
         Assertions.assertTrue(loc.startsWith("oss://test.oss-dls.aliyuncs"));
+        Assertions.assertEquals(FileSystemFactory.getFSIdentity(loc, null).first, FileSystemType.DFS);
 
         loc = S3Util.toScanRangeLocation("cos://test.com", rangeProps).toString();
         Assertions.assertTrue(loc.startsWith("s3://"));
+        Assertions.assertEquals(FileSystemFactory.getFSIdentity(loc, null).first, FileSystemType.S3);
 
         loc = S3Util.toScanRangeLocation("cosn://test.com", rangeProps).toString();
         Assertions.assertTrue(loc.startsWith("cosn://"));
+        Assertions.assertEquals(FileSystemFactory.getFSIdentity(loc, null).first, FileSystemType.OFS);
 
         loc = S3Util.toScanRangeLocation("obs://test.com", rangeProps).toString();
         Assertions.assertTrue(loc.startsWith("s3://"));
+        Assertions.assertEquals(FileSystemFactory.getFSIdentity(loc, null).first, FileSystemType.S3);
+
+        loc = S3Util.toScanRangeLocation("unknown://test.com", rangeProps).toString();
+        Assertions.assertTrue(loc.startsWith("unknown://"));
     }
 }
