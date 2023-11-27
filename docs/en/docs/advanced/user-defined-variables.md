@@ -24,10 +24,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# User-Defined Variables
-
-<version since="2.0.0">
-</version>
 
 User-defined variables refer to values that users can store in custom variables using SQL statements, and these variables can be referenced by other SQL statements. This approach facilitates value passing and simplifies SQL writing.
 

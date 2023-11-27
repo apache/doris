@@ -24,10 +24,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 用户自定义变量
-
-<version since="2.0.0">
-</version>
 
 自定义变量指的是用户可以根据自身需求通过SQL语句将值存储在自定义的变量中，然后该变量可以被其他SQL语句引用。通过这种方式既可以实现值的传递，又可以简化SQL的编写。
 
