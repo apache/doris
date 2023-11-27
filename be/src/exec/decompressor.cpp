@@ -345,8 +345,19 @@ Status Lz4BlockDecompressor::init() {
 // hadoop-lz4 uses a block compression scheme based on LZ4. According to the Hadoop document
 // (BlockCompressorStream. Java and BlockDecompressorStream. Java), is divided into several
 // large chunk of input data. Each block contains the original length of the current block of
-// large data, followed by one or more small data blocks prefixed by the compressed length of the current small data block.
-// todo (cyw):
+// large data chunk, followed by one or more small data blocks prefixed by the compressed length of
+// the current small data block.
+// example:
+//
+// A large data chunk be divided into three small block  :
+// OriginDate:                 | small block1 | small block2 | small block3 |
+// CompressDate:   <A [B1 compress(small block1) ] [B2 compress(small block1) ] [B3 compress(small block1)]>
+//
+// A : original length of the current block of large data chunk. sizeof(A) = 4 bytes.
+// A = length(small block1) + length(small block2) + length(small block3)
+// Bx : length of  small data block bx. sizeof(Bx) = 4 bytes.
+// Bx = length(compress(small blockx))
+//
 // the hadoop lz4codec source code can be found here:
 // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
 //
@@ -359,33 +370,32 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
     auto* output_ptr = output;
 
     while (input_len > 0) {
-        auto outer_block_input_ptr = input_ptr;
-        auto outer_block_output_ptr = output_ptr;
+        //if faild ,  fall back to large block begin
+        auto large_block_input_ptr = input_ptr;
+        auto large_block_output_ptr = output_ptr;
 
         if (input_len < sizeof(uint32_t)) {
             return Status::InvalidArgument(strings::Substitute(
                     "fail to do hadoop-lz4 decompress, input_len=$0", input_len));
         }
 
-        uint32_t decompressed_outer_block_len = BigEndian::Load32(input_ptr);
-        //会生成多少内容
+        uint32_t remaining_decompressed_large_block_len = BigEndian::Load32(input_ptr);
 
         input_ptr += sizeof(uint32_t);
         input_len -= sizeof(uint32_t);
 
         std::size_t remaining_output_len = output_max_len - *decompressed_len;
-        // output_ptr  还剩多少 = 原来有多少 - 解压了多少
 
-        if (remaining_output_len < decompressed_outer_block_len) {
+        if (remaining_output_len < remaining_decompressed_large_block_len) {
             // Need more output buffer
-            *more_output_bytes = decompressed_outer_block_len - remaining_output_len;
-            input_ptr = outer_block_input_ptr;
-            output_ptr = outer_block_output_ptr;
+            *more_output_bytes = remaining_decompressed_large_block_len - remaining_output_len;
+            input_ptr = large_block_input_ptr;
+            output_ptr = large_block_output_ptr;
 
             break;
         }
 
-        std::size_t outer_block_decompressed_len = 0;
+        std::size_t decompressed_large_block_len = 0;
         do {
             // Check that input length should not be negative.
             if (input_len < sizeof(uint32_t)) {
@@ -394,46 +404,46 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
             }
 
             // Read the length of the next lz4 compressed block.
-            size_t compressed_len = BigEndian::Load32(input_ptr);
+            size_t compressed_small_block_len = BigEndian::Load32(input_ptr);
 
             input_ptr += sizeof(uint32_t);
             input_len -= sizeof(uint32_t);
 
-            if (compressed_len == 0) {
+            if (compressed_small_block_len == 0) {
                 continue;
             }
 
-            if (compressed_len > input_len) {
-                //need more input
-                *more_input_bytes = compressed_len - input_len;
+            if (compressed_small_block_len > input_len) {
+                // Need more input buffer
+                *more_input_bytes = compressed_small_block_len - input_len;
                 break;
             }
 
             // Decompress this block.
-            auto decompressed_inner_block_len = LZ4_decompress_safe(
+            auto decompressed_small_block_len = LZ4_decompress_safe(
                     reinterpret_cast<const char*>(input_ptr), reinterpret_cast<char*>(output_ptr),
-                    compressed_len, remaining_output_len);
-            if (decompressed_inner_block_len < 0) {
+                    compressed_small_block_len, remaining_output_len);
+            if (decompressed_small_block_len < 0) {
                 return Status::InvalidArgument("fail to do LZ4 decompress, error = {}",
-                                               LZ4F_getErrorName(decompressed_inner_block_len));
+                                               LZ4F_getErrorName(decompressed_small_block_len));
             }
-            input_ptr += compressed_len;
-            input_len -= compressed_len;
+            input_ptr += compressed_small_block_len;
+            input_len -= compressed_small_block_len;
 
-            output_ptr += decompressed_inner_block_len;
-            decompressed_outer_block_len -= decompressed_inner_block_len;
-            outer_block_decompressed_len += decompressed_inner_block_len;
+            output_ptr += decompressed_small_block_len;
+            remaining_decompressed_large_block_len -= decompressed_small_block_len;
+            decompressed_large_block_len += decompressed_small_block_len;
 
-        } while (decompressed_outer_block_len > 0);
+        } while (remaining_decompressed_large_block_len > 0);
 
         if (*more_input_bytes != 0) {
-            //if faild ,  fall back to outer block begin
-            input_ptr = outer_block_input_ptr;
-            output_ptr = outer_block_output_ptr;
+            // Need more input buffer
+            input_ptr = large_block_input_ptr;
+            output_ptr = large_block_output_ptr;
             break;
         }
 
-        *decompressed_len += outer_block_decompressed_len;
+        *decompressed_len += decompressed_large_block_len;
     }
     *input_bytes_read += (input_ptr - input);
     // If no more input and output need, means this is the end of a compressed block
