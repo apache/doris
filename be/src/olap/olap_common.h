@@ -336,6 +336,9 @@ struct OlapReaderStatistics {
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
     int64_t block_conditions_filtered_ns = 0;
+    int64_t block_conditions_filtered_bf_ns = 0;
+    int64_t block_conditions_filtered_zonemap_ns = 0;
+    int64_t block_conditions_filtered_dict_ns = 0;
 
     int64_t index_load_ns = 0;
 

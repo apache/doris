@@ -125,6 +125,9 @@ Status NewOlapScanNode::_init_profile() {
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
     _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
+    _block_conditions_filtered_bf_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredBloomFilterTime");
+    _block_conditions_filtered_zonemap_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapTime");
+    _block_conditions_filtered_dict_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredDictTime");
 
     _rows_vec_cond_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);

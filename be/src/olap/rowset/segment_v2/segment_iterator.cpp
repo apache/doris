@@ -497,80 +497,91 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         cids.insert(entry.first);
     }
 
-    // first filter data by bloom filter index
-    // bloom filter index only use CondColumn
-    RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
-    for (auto& cid : cids) {
-        // get row ranges by bf index of this column,
-        RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
-        DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-        RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
-                _opts.col_id_to_predicates.at(cid).get(), &column_bf_row_ranges));
-        RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
-    }
+    size_t pre_size = 0;
 
-    size_t pre_size = condition_row_ranges->count();
-    RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
-    _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
-
-    RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
-    // second filter data by zone map
-    for (auto& cid : cids) {
-        // get row ranges by zone map of this column,
-        RowRanges column_row_ranges = RowRanges::create_single(num_rows());
-        DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-        RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
-                _opts.col_id_to_predicates.at(cid).get(),
-                _opts.del_predicates_for_zone_map.count(cid) > 0
-                        ? &(_opts.del_predicates_for_zone_map.at(cid))
-                        : nullptr,
-                &column_row_ranges));
-        // intersect different columns's row ranges to get final row ranges by zone map
-        RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
-                                       &zone_map_row_ranges);
-    }
-
-    std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
-    if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_ctx();
-        runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
-        if (runtime_predicate) {
-            AndBlockColumnPredicate and_predicate;
-            auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
-            and_predicate.add_column_predicate(single_predicate);
-
-            RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
-            RETURN_IF_ERROR(
-                    _column_iterators[runtime_predicate->column_id()]->get_row_ranges_by_zone_map(
-                            &and_predicate, nullptr, &column_rp_row_ranges));
-
-            // intersect different columns's row ranges to get final row ranges by zone map
-            RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
-                                           &zone_map_row_ranges);
-        }
-    }
-
-    pre_size = condition_row_ranges->count();
-    RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
-                                   condition_row_ranges);
-    _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
-
-    /// Low cardinality optimization is currently not very stable, so to prevent data corruption,
-    /// we are temporarily disabling its use in data compaction.
-    if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
-        RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
-        for (auto cid : cids) {
-            RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_bf_ns);
+        // first filter data by bloom filter index
+        // bloom filter index only use CondColumn
+        RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
+        for (auto& cid : cids) {
+            // get row ranges by bf index of this column,
+            RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-            RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_dict(
-                    _opts.col_id_to_predicates.at(cid).get(), &tmp_row_ranges));
-            RowRanges::ranges_intersection(dict_row_ranges, tmp_row_ranges, &dict_row_ranges);
+            RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
+                    _opts.col_id_to_predicates.at(cid).get(), &column_bf_row_ranges));
+            RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
         }
 
         pre_size = condition_row_ranges->count();
-        RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
-                                       condition_row_ranges);
-        _opts.stats->rows_dict_filtered += (pre_size - condition_row_ranges->count());
+        RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
+        _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
+    }
+
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_zonemap_ns);
+        RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
+        // second filter data by zone map
+        for (auto& cid : cids) {
+            // get row ranges by zone map of this column,
+            RowRanges column_row_ranges = RowRanges::create_single(num_rows());
+            DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+            RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
+                    _opts.col_id_to_predicates.at(cid).get(),
+                    _opts.del_predicates_for_zone_map.count(cid) > 0
+                            ? &(_opts.del_predicates_for_zone_map.at(cid))
+                            : nullptr,
+                    &column_row_ranges));
+            // intersect different columns's row ranges to get final row ranges by zone map
+            RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
+                                        &zone_map_row_ranges);
+        }
+
+        std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
+        if (_opts.use_topn_opt) {
+            auto query_ctx = _opts.runtime_state->get_query_ctx();
+            runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
+            if (runtime_predicate) {
+                AndBlockColumnPredicate and_predicate;
+                auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
+                and_predicate.add_column_predicate(single_predicate);
+
+                RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
+                RETURN_IF_ERROR(
+                        _column_iterators[runtime_predicate->column_id()]->get_row_ranges_by_zone_map(
+                                &and_predicate, nullptr, &column_rp_row_ranges));
+
+                // intersect different columns's row ranges to get final row ranges by zone map
+                RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
+                                            &zone_map_row_ranges);
+            }
+        }
+
+        pre_size = condition_row_ranges->count();
+        RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
+                                    condition_row_ranges);
+        _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
+    }
+
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_dict_ns);
+        /// Low cardinality optimization is currently not very stable, so to prevent data corruption,
+        /// we are temporarily disabling its use in data compaction.
+        if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
+            RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
+            for (auto cid : cids) {
+                RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
+                DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+                RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_dict(
+                        _opts.col_id_to_predicates.at(cid).get(), &tmp_row_ranges));
+                RowRanges::ranges_intersection(dict_row_ranges, tmp_row_ranges, &dict_row_ranges);
+            }
+
+            pre_size = condition_row_ranges->count();
+            RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
+                                        condition_row_ranges);
+            _opts.stats->rows_dict_filtered += (pre_size - condition_row_ranges->count());
+        }
     }
 
     return Status::OK();
