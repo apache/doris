@@ -739,12 +739,14 @@ size_t PulsarDataConsumer::len_of_actual_data(const char* data) {
 std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
     std::vector<const char*> targets;
     rapidjson::Document source;
+    rapidjson::Document destination;
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     if(!source.Parse(data).HasParseError()) {
         if (source.HasMember("events") && source["events"].IsArray()) {
             const rapidjson::Value& array = source["events"];
             size_t len = array.Size();
             for(size_t i = 0; i < len; i++) {
-                rapidjson::Document destination;
                 destination.SetObject();
                 rapidjson::Value& object = const_cast<rapidjson::Value&>(array[i]);
                 rapidjson::Value eventName("event", destination.GetAllocator());
@@ -757,12 +759,10 @@ std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
                         destination.AddMember(keyName, sourceValue, destination.GetAllocator());
                     }
                 }
-                rapidjson::StringBuffer buffer;
-                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
                 destination.Accept(writer);
                 targets.push_back(buffer.GetString());
+                buffer.Clear();
                 destination.Clear();
-                rapidjson::Document().Swap(destination);
             }
         } else {
             targets.push_back(data);
@@ -770,6 +770,7 @@ std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
     } else {
         targets.push_back(data);
     }
+    rapidjson::Document().Swap(destination);
     source.Clear();
     rapidjson::Document().Swap(source);
     return targets;
