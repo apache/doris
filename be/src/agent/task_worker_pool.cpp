@@ -1512,8 +1512,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
                     if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
-                        int64_t published_count =
-                                tablet->published_count.fetch_add(1, std::memory_order_relaxed);
+                        tablet->published_count.fetch_add(1);
+                        int64_t published_count = tablet->published_count.load();
                         if (published_count % 10 == 0) {
                             auto st = _engine.submit_compaction_task(
                                     tablet, CompactionType::CUMULATIVE_COMPACTION, true);

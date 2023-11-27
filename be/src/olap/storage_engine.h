@@ -335,6 +335,10 @@ private:
 
     Status _persist_broken_paths();
 
+    bool _increase_low_priority_task_nums(DataDir* dir);
+
+    void _decrease_low_priority_task_nums(DataDir* dir);
+
 private:
     struct CompactionCandidate {
         CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
@@ -452,6 +456,9 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+
+    std::mutex _low_priority_task_nums_mutex;
+    std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
 
     std::mutex _peer_replica_infos_mutex;
     // key: tabletId

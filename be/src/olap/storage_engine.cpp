@@ -37,6 +37,7 @@
 #include <filesystem>
 #include <iterator>
 #include <list>
+#include <mutex>
 #include <new>
 #include <ostream>
 #include <random>
@@ -58,6 +59,7 @@
 #include "olap/data_dir.h"
 #include "olap/full_compaction.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
@@ -1422,6 +1424,26 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
+}
+
+bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
+    if (!config::enable_compaction_priority_scheduling) {
+        return false;
+    }
+    std::lock_guard l(_low_priority_task_nums_mutex);
+    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
+        _low_priority_task_nums[dir]++;
+        return true;
+    }
+    return false;
+}
+
+void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
+    if (config::enable_compaction_priority_scheduling) {
+        std::lock_guard l(_low_priority_task_nums_mutex);
+        _low_priority_task_nums[dir]--;
+        DCHECK(_low_priority_task_nums[dir] >= 0);
+    }
 }
 
 } // namespace doris

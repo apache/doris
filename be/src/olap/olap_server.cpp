@@ -918,6 +918,17 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
     int64_t permits = 0;
     Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
+    bool is_low_priority_task = [&]() {
+        // Can add more strategies to determine whether a task is a low priority task in the future
+        if (!config::enable_compaction_priority_scheduling) {
+            return false;
+        }
+        if (tablet->version_count() >=
+            (config::max_tablet_version_num * config::low_priority_tablet_version_num_ratio)) {
+            return false;
+        }
+        return !force;
+    }();
     if (st.ok() && permits > 0) {
         if (!force) {
             _permit_limiter.request(permits);
@@ -926,8 +937,18 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
-        auto st = thread_pool->submit_func([tablet, compaction_type, permits, this]() {
-            tablet->execute_compaction(compaction_type);
+        auto st = thread_pool->submit_func([tablet, compaction_type, permits, is_low_priority_task,
+                                            this]() {
+            if (is_low_priority_task && !_increase_low_priority_task_nums(tablet->data_dir())) {
+                VLOG_DEBUG << "skip low priority compaction task for tablet: "
+                          << tablet->tablet_id();
+                // Todo: push task back
+            } else {
+                tablet->execute_compaction(compaction_type);
+                if (is_low_priority_task) {
+                    _decrease_low_priority_task_nums(tablet->data_dir());
+                }
+            }
             _permit_limiter.release(permits);
             // reset compaction
             tablet->reset_compaction(compaction_type);
