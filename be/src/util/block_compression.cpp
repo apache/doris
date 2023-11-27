@@ -202,7 +202,9 @@ public:
                                             (uint8_t*)output->data, output->size, &decompressed_len,
                                             &stream_end, &more_input_bytes, &more_output_bytes);
         //try decompress use hadoopLz4 ,if failed fall back lz4.
-        return (st != Status::OK()) ? Lz4BlockCompression::decompress(input, output) : Status::OK();
+        return (st != Status::OK() || stream_end != true)
+                       ? Lz4BlockCompression::decompress(input, output)
+                       : Status::OK();
     }
 
 private:
