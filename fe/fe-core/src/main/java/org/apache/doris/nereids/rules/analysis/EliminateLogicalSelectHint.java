@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -54,10 +55,16 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 if (hintName.equalsIgnoreCase("SET_VAR")) {
                     setVar((SelectHintSetVar) hint.getValue(), ctx.statementContext);
                 } else if (hintName.equalsIgnoreCase("ORDERED")) {
-                    ConnectContext.get().getSessionVariable().setDisableJoinReorder(true);
+                    try {
+                        ctx.cascadesContext.getConnectContext().getSessionVariable()
+                                .disableNereidsJoinReorderOnce();
+                    } catch (DdlException e) {
+                        throw new RuntimeException(e);
+                    }
                     OrderedHint ordered = new OrderedHint("Ordered");
                     ordered.setStatus(Hint.HintStatus.SUCCESS);
                     ctx.cascadesContext.getHintMap().put("Ordered", ordered);
+                    ctx.statementContext.addHint(ordered);
                 } else if (hintName.equalsIgnoreCase("LEADING")) {
                     extractLeading((SelectHintLeading) hint.getValue(), ctx.cascadesContext,
                             ctx.statementContext, selectHintPlan.getHints());
