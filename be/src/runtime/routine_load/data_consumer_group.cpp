@@ -373,6 +373,8 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                         }
                     }
                     break;
+                } else {
+                    left_bytes -= row_len;
                 }
             }
             if (append_all) {
