@@ -17,7 +17,7 @@
 
 suite("test_backup_restore_keep_on_local", "backup_restore") {
     String repoName = "__keep_on_local__"
-    String dbName = "backup_restore_db"
+    String dbName = "backup_restore_keep_on_local_db"
     String tableName = "test_backup_restore_table"
 
     def syncer = getSyncer()
