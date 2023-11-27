@@ -1982,7 +1982,7 @@ public class Config extends ConfigBase {
      * OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
      */
     @ConfField
-    public static String bdbje_file_logging_level = "ALL";
+    public static String bdbje_file_logging_level = "INFO";
 
     /**
      * When holding lock time exceeds the threshold, need to report it.
