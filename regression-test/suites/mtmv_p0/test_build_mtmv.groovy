@@ -251,6 +251,111 @@ suite("test_build_mtmv") {
         log.info(e.getMessage())
     }
 
+    // now
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT now() as dd, ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+     // uuid
+     try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT uuid() as dd, ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+     // unix_timestamp
+     try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT unix_timestamp() as dd, ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // utc_timestamp
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT utc_timestamp() as dd, ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // CURDATE
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT CURDATE() as dd, ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // uuid_numeric
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT uuid_numeric() as dd, ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // current_time
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT current_time() as dd, ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
     // repeat cols
     try {
         sql """
