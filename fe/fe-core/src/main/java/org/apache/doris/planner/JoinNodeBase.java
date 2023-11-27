@@ -275,9 +275,6 @@ public abstract class JoinNodeBase extends PlanNode {
         SlotId firstMaterializedSlotId = null;
         for (TupleDescriptor tupleDescriptor : outputTupleDescList) {
             for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
-                if ((requiredSlotIdSet != null && requiredSlotIdSet.contains(slotDescriptor.getId()))) {
-                    slotDescriptor.setIsMaterialized(true);
-                }
                 if (slotDescriptor.isMaterialized()) {
                     if ((requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
                         outputSlotIds.add(slotDescriptor.getId());
