@@ -540,7 +540,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
 
         bool done = false;
         auto msg = std::make_unique<pulsar::Message>();
-        std::vector<const char*> rows;
+        std::vector<char*> rows;
         char* filter_data;
         // consume 1 message at a time
         consumer_watch.start();
@@ -554,7 +554,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                           << ", len: " << msg.get()->getLength();
                 //filter invalid prefix of json
                 filter_data =
-                    filter_invalid_prefix_of_json(static_cast<char*>(msg->getData()), msg.get()->getLength());
+                    filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()), msg.get()->getLength());
                 rows = convert_rows(filter_data);
                 for (char* row : rows) {
                     pulsar::MessageBuilder messageBuilder;
@@ -704,7 +704,7 @@ bool PulsarDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
     return true;
 }
 
-char* PulsarDataConsumer::filter_invalid_prefix_of_json(char* data, std::size_t size) {
+char* PulsarDataConsumer::filter_invalid_prefix_of_json(const char* data, std::size_t size) {
     // first index of '{'
     int first_left_curly_bracket_index  = -1;
     for (int i = 0; i < size; ++i) {
@@ -731,8 +731,8 @@ size_t PulsarDataConsumer::len_of_actual_data(char* data) {
     return length;
 }
 
-std::vector<const char*> PulsarDataConsumer::convert_rows(char* data) {
-    std::vector<const char*> targets;
+std::vector<char*> PulsarDataConsumer::convert_rows(char* data) {
+    std::vector<char*> targets;
     rapidjson::Document source;
     rapidjson::Document destination;
     rapidjson::StringBuffer buffer;

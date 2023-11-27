@@ -208,7 +208,7 @@ public:
 
     const std::string& get_partition();
 
-    const char* filter_invalid_prefix_of_json(char* data, std::size_t size);
+    char* filter_invalid_prefix_of_json(const char* data, std::size_t size);
 
     size_t len_of_actual_data(char* data);
 
