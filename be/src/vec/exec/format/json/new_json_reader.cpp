@@ -727,6 +727,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 
     int ctx_idx = 0;
     bool has_valid_value = false;
+    string col_names;
     for (auto* slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -735,6 +736,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
         int dest_index = ctx_idx++;
         auto* column_ptr = block.get_by_position(dest_index).column->assume_mutable().get();
         rapidjson::Value::ConstMemberIterator it = objectValue.MemberEnd();
+        col_names.append(slot_desc->col_name() + ", ");
 
         if (_fuzzy_parse) {
             auto idx_it = _name_map.find(slot_desc->col_name());
@@ -768,8 +770,10 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
         }
-        RETURN_IF_ERROR(_append_error_msg(objectValue, "All fields is null, this is a invalid row.",
-                                          "", valid));
+        RETURN_IF_ERROR(_append_error_msg(objectValue,
+                                          "All fields is null, this is a invalid row. "
+                                          "Table column names:[{}], please check columns mapping",
+                                          col_names, valid));
         return Status::OK();
     }
     *valid = true;
@@ -1293,6 +1297,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
     _seen_columns.assign(block.columns(), false);
     size_t cur_row_count = block.rows();
     bool has_valid_value = false;
+    string col_names;
     // iterate through object, simdjson::ondemond will parsing on the fly
     size_t key_index = 0;
     for (auto field : *value) {
@@ -1304,6 +1309,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             continue;
         }
         simdjson::ondemand::value val = field.value();
+        col_names.append(slot_descs[column_index]->col_name() + ", ");
         auto* column_ptr = block.get_by_position(column_index).column->assume_mutable().get();
         RETURN_IF_ERROR(
                 _simdjson_write_data_to_column(val, slot_descs[column_index], column_ptr, valid));
@@ -1314,8 +1320,10 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         has_valid_value = true;
     }
     if (!has_valid_value) {
-        RETURN_IF_ERROR(
-                _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
+        RETURN_IF_ERROR(_append_error_msg(value,
+                                          "All fields is null, this is a invalid row. "
+                                          "Table column  names:[{}], please check columns mapping",
+                                          col_names, valid));
         return Status::OK();
     }
 
@@ -1578,6 +1586,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Block& block, bool* valid) {
     // write by jsonpath
     bool has_valid_value = false;
+    string col_names;
     for (size_t i = 0; i < slot_descs.size(); i++) {
         auto* slot_desc = slot_descs[i];
         if (!slot_desc->is_materialized()) {
@@ -1586,6 +1595,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
         simdjson::ondemand::value json_value;
         Status st;
+        col_names.append(slot_descs[i]->col_name() + ", ");
         if (i < _parsed_jsonpaths.size()) {
             st = JsonFunctions::extract_from_object(*value, _parsed_jsonpaths[i], &json_value);
             if (!st.ok() && !st.is<DATA_QUALITY_ERROR>()) {
@@ -1614,8 +1624,10 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
         }
-        RETURN_IF_ERROR(
-                _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
+        RETURN_IF_ERROR(_append_error_msg(value,
+                                          "All fields is null, this is a invalid row. "
+                                          "Table column names:[{}], please check columns mapping",
+                                          col_names, valid));
         return Status::OK();
     }
     *valid = true;
