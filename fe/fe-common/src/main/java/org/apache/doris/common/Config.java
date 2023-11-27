@@ -236,10 +236,16 @@ public class Config extends ConfigBase {
                     + "If there are many ReplicaWriteException in FE WARN log, you can try to increase this value"})
     public static int bdbje_replica_ack_timeout_second = 10;
 
+    @ConfField(description = {"在HA模式下，BDBJE 中保留的预留空间字节数的期望上限。非 HA 模式下无效",
+            "The desired upper limit on the number of bytes of reserved space to retain "
+                    + "in a replicated JE Environment. "
+                    + "This parameter is ignored in a non-replicated JE Environment."})
+    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+
     @ConfField(description = {"BDBJE 所需的空闲磁盘空间大小。如果空闲磁盘空间小于这个值，则BDBJE将无法写入。",
             "Amount of free disk space required by BDBJE. "
                     + "If the free disk space is less than this value, BDBJE will not be able to write."})
-    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+    public static int bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
     @ConfField(masterOnly = true, description = {"心跳线程池的线程数",
             "Num of thread to handle heartbeat events"})
