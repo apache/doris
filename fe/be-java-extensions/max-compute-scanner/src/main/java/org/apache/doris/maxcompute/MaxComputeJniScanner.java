@@ -171,14 +171,14 @@ public class MaxComputeJniScanner extends JniScanner {
             partitionColumns = session.getSchema().getPartitionColumns().stream()
                     .map(Column::getName)
                     .collect(Collectors.toSet());
-            List<Column> maxComputeColumns = new ArrayList<>(readColumns);
-            maxComputeColumns.removeIf(e -> partitionColumns.contains(e.getName()));
-            if (maxComputeColumns.isEmpty() && !partitionColumns.isEmpty()) {
+            List<Column> pushDownColumns = new ArrayList<>(readColumns);
+            pushDownColumns.removeIf(e -> partitionColumns.contains(e.getName()));
+            if (pushDownColumns.isEmpty() && !partitionColumns.isEmpty()) {
                 // query columns required non-null, when query partition table
-                maxComputeColumns.add(session.getSchema().getColumn(0));
+                pushDownColumns.add(session.getSchema().getColumn(0));
             }
             arrowAllocator = new RootAllocator(Integer.MAX_VALUE);
-            curReader = session.openArrowRecordReader(start, totalRows, maxComputeColumns, arrowAllocator);
+            curReader = session.openArrowRecordReader(start, totalRows, pushDownColumns, arrowAllocator);
             remainBatchRows = totalRows;
         } catch (TunnelException e) {
             if (retryCount > 0 && e.getErrorMsg().contains("TableModified")) {

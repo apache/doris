@@ -79,6 +79,7 @@ public class MaxComputeExternalTable extends ExternalTable {
 
     public long getTotalRows() throws TunnelException {
         // use for non-partitioned table
+        // partition table will read the entire partition on FE so get total rows is unnecessary.
         makeSureInitialized();
         MaxComputeMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMaxComputeMetadataCache(catalog.getId());
@@ -119,6 +120,12 @@ public class MaxComputeExternalTable extends ExternalTable {
                 });
     }
 
+    /**
+     * parse all values from partitionPath to a single list.
+     * @param partitionColumns  partitionColumns can contain the part1,part2,part3...
+     * @param partitionPath partitionPath format is like the 'part1=123/part2=abc/part3=1bc'
+     * @return all values of partitionPath
+     */
     private static List<String> parsePartitionValues(List<String> partitionColumns, String partitionPath) {
         String[] partitionFragments = partitionPath.split("/");
         if (partitionFragments.length != partitionColumns.size()) {
