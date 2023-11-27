@@ -167,6 +167,8 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
             static_cast<const arrow::DecimalType*>(arrow_array->type().get());
     const auto arrow_scale = arrow_decimal_type->scale();
     auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
+    // Decimal<Int128> for decimalv2
+    // Decimal<Int128I> for deicmalv3
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         // TODO check precision
         for (size_t value_i = start; value_i < end; ++value_i) {
@@ -190,13 +192,13 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
             }
             column_data.emplace_back(value);
         }
-    } else if constexpr (std::is_same_v<T, Decimal64> || std::is_same_v<T, Decimal32>) {
+    } else if constexpr (std::is_same_v<T, Decimal128I> || std::is_same_v<T, Decimal64> ||
+                         std::is_same_v<T, Decimal32>) {
         for (size_t value_i = start; value_i < end; ++value_i) {
             column_data.emplace_back(*reinterpret_cast<const T*>(concrete_array->Value(value_i)));
         }
     } else {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "read_column_from_arrow with type " + column.get_name());
+        LOG(WARNING) << "Unsuppoted convertion to decimal from " << column.get_name();
     }
 }
 
