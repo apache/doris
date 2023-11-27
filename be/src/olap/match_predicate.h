@@ -50,6 +50,8 @@ public:
 
     const std::string& get_value() const { return _value; }
 
+    bool support_zonemap() const override { return false; }
+
     //evaluate predicate on Bitmap
     virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* roaring) const override {
