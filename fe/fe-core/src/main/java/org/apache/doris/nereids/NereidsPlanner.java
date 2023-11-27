@@ -259,6 +259,10 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getTables() != null) {
             cascadesContext.setTables(statementContext.getConnectContext().getTables());
         }
+        if (statementContext.getConnectContext().getSessionVariable().isEnableMaterializedViewRewrite()) {
+            // TODO Pre handle materialized view to materializationContext and
+            //  call cascadesContext.addMaterializationContext() to add it
+        }
     }
 
     private void analyze() {
