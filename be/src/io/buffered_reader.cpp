@@ -132,8 +132,15 @@ Status BufferedReader::_read_once(int64_t position, int64_t nbytes, int64_t* byt
             return Status::OK();
         }
     }
+
     int64_t len = std::min(_buffer_limit - position, nbytes);
     int64_t off = position - _buffer_offset;
+    if (_buffer == nullptr || out == nullptr || off + len > _buffer_size) {
+        return Status::BufferAllocFailed(
+                "BufferedReader copy argument invaild: _buffer:{},\
+                        out:{},_buffer_size:{},off:{},len:{}",
+                _buffer, out, _buffer_size, off, len);
+    }
     memcpy(out, _buffer + off, len);
     *bytes_read = len;
     _cur_offset = position + *bytes_read;
