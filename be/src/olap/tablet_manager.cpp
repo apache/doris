@@ -814,8 +814,8 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     }
 
     if (tablet_meta->tablet_state() == TABLET_SHUTDOWN) {
-        LOG(INFO) << "fail to load tablet because it is to be deleted. tablet_id=" << tablet_id
-                  << " schema_hash=" << schema_hash << ", path=" << data_dir->path();
+        VLOG_NOTICE << "fail to load tablet because it is to be deleted. tablet_id=" << tablet_id
+                    << " schema_hash=" << schema_hash << ", path=" << data_dir->path();
         {
             std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(_shutdown_tablets_lock);
             _shutdown_tablets.push_back(tablet);
