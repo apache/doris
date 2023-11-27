@@ -17,6 +17,8 @@
 
 package org.apache.doris.avro;
 
+import org.apache.doris.avro.AvroFileCache.AvroFileCacheKey;
+import org.apache.doris.avro.AvroFileCache.AvroFileMeta;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
@@ -25,6 +27,8 @@ import org.apache.doris.thrift.TFileType;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.mapred.AvroWrapper;
+import org.apache.avro.mapred.Pair;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.common.JavaUtils;
 import org.apache.hadoop.hive.serde.serdeConstants;
@@ -33,14 +37,17 @@ import org.apache.hadoop.hive.serde2.Deserializer;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
+import org.apache.hadoop.io.NullWritable;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class AvroJNIScanner extends JniScanner {
@@ -50,9 +57,11 @@ public class AvroJNIScanner extends JniScanner {
     private final String uri;
     private final Map<String, String> requiredParams;
     private final Integer fetchSize;
+    private final ClassLoader classLoader;
     private int[] requiredColumnIds;
     private String[] columnTypes;
     private String[] requiredFields;
+    private Set<String> requiredFieldSet;
     private ColumnType[] requiredTypes;
     private AvroReader avroReader;
     private final boolean isGetTableSchema;
@@ -61,6 +70,10 @@ public class AvroJNIScanner extends JniScanner {
     private StructField[] structFields;
     private ObjectInspector[] fieldInspectors;
     private String serde;
+    private AvroFileCacheKey avroFileCacheKey;
+    private AvroFileMeta avroFileMeta;
+    private AvroWrapper<Pair<Integer, Long>> inputPair;
+    private NullWritable ignore;
 
     /**
      * Call by JNI for get table data or get table schema
@@ -69,6 +82,7 @@ public class AvroJNIScanner extends JniScanner {
      * @param requiredParams required params
      */
     public AvroJNIScanner(int fetchSize, Map<String, String> requiredParams) {
+        this.classLoader = this.getClass().getClassLoader();
         this.requiredParams = requiredParams;
         this.fetchSize = fetchSize;
         this.isGetTableSchema = Boolean.parseBoolean(requiredParams.get(AvroProperties.IS_GET_TABLE_SCHEMA));
@@ -79,14 +93,17 @@ public class AvroJNIScanner extends JniScanner {
                     .split(AvroProperties.COLUMNS_TYPE_DELIMITER);
             this.requiredFields = requiredParams.get(AvroProperties.REQUIRED_FIELDS)
                     .split(AvroProperties.FIELDS_DELIMITER);
+            this.requiredFieldSet = new HashSet<>(Arrays.asList(requiredFields));
             this.requiredTypes = new ColumnType[requiredFields.length];
             this.serde = requiredParams.get(AvroProperties.HIVE_SERDE);
             this.structFields = new StructField[requiredFields.length];
             this.fieldInspectors = new ObjectInspector[requiredFields.length];
+            this.inputPair = new AvroWrapper<>(null);
+            this.ignore = NullWritable.get();
         }
     }
 
-    private void init() throws Exception {
+    private void initFieldInspector() throws Exception {
         requiredColumnIds = new int[requiredFields.length];
         for (int i = 0; i < requiredFields.length; i++) {
             ColumnType columnType = ColumnType.parseType(requiredFields[i], columnTypes[i]);
@@ -127,14 +144,7 @@ public class AvroJNIScanner extends JniScanner {
 
     @Override
     public void open() throws IOException {
-        try {
-            if (!isGetTableSchema) {
-                init();
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to init avro scanner. ", e);
-            throw new IOException(e);
-        }
+        Thread.currentThread().setContextClassLoader(classLoader);
         switch (fileType) {
             case FILE_HDFS:
                 this.avroReader = new HDFSFileReader(uri);
@@ -150,9 +160,24 @@ public class AvroJNIScanner extends JniScanner {
                 LOG.warn("Unsupported " + fileType.name() + " file type.");
                 throw new IOException("Unsupported " + fileType.name() + " file type.");
         }
-        this.avroReader.open(new Configuration());
         if (!isGetTableSchema) {
+            initDataReader();
+        }
+        this.avroReader.open(avroFileMeta, isGetTableSchema);
+    }
+
+    private void initDataReader() {
+        try {
+            avroFileCacheKey = new AvroFileCacheKey(fileType.name(), uri);
+            avroFileMeta = AvroFileCache.getAvroFileMeta(avroFileCacheKey);
+            avroFileMeta.setRequiredFields(requiredFieldSet);
+            initFieldInspector();
             initTableInfo(requiredTypes, requiredFields, new ScanPredicate[0], fetchSize);
+        } catch (Exception e) {
+            LOG.warn("Failed to init avro scanner. ", e);
+            throw new RuntimeException(e);
+        } finally {
+            AvroFileCache.invalidateFileCache(avroFileCacheKey);
         }
     }
 
@@ -167,7 +192,7 @@ public class AvroJNIScanner extends JniScanner {
     protected int getNext() throws IOException {
         int numRows = 0;
         for (; numRows < getBatchSize(); numRows++) {
-            if (!avroReader.hasNext()) {
+            if (!avroReader.hasNext(inputPair, ignore)) {
                 break;
             }
             GenericRecord rowRecord = (GenericRecord) avroReader.getNext();
@@ -187,6 +212,18 @@ public class AvroJNIScanner extends JniScanner {
     @Override
     protected TableSchema parseTableSchema() throws UnsupportedOperationException {
         Schema schema = avroReader.getSchema();
+        addFileMeta2Cache(schema);
         return AvroTypeUtils.parseTableSchema(schema);
+    }
+
+    /**
+     * Cache avro file metadata in order to push down the projection of the actual read data.
+     *
+     * @param schema avro file schema
+     */
+    private void addFileMeta2Cache(Schema schema) {
+        AvroFileMeta avroFileMeta = new AvroFileMeta(schema.toString());
+        AvroFileCacheKey avroFileCacheKey = new AvroFileCacheKey(fileType.name(), uri);
+        AvroFileCache.addFileMeta(avroFileCacheKey, avroFileMeta);
     }
 }
