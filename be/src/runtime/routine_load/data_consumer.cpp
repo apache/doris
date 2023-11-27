@@ -562,12 +562,11 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                     pulsar::MessageBuilder messageBuilder;
                     size_t row_len = len_of_actual_data(row);
                     messageBuilder.setContent(row, row_len);
-                    messageBuilder.setProperty("messageId",msg.get()->getMessageId());
                     messageBuilder.setProperty("topicName",msg.get()->getTopicName());
                     pulsar::Message new_msg = messageBuilder.build();
 
-                    const std::string partition = new_msg.getProperty("topicName");
-                    const pulsar::MessageId msg_id = new_msg.getProperty("messageId");
+                    std::string partition = new_msg.getProperty("topicName");
+                    pulsar::MessageId msg_id = new_msg.getMessageId();
                     std::size_t msg_len = new_msg.getLength();
                     LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
                               << ", partition: " << partition << ", message id: " << msg_id
