@@ -408,10 +408,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
     private void restore(Repository repository, Database db, RestoreStmt stmt) throws DdlException {
         BackupJobInfo jobInfo;
         if (stmt.isLocal()) {
-            if (stmt.getJobInfo() == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "restore from the local repo via SQL call is not supported");
-            }
             String jobInfoString = new String(stmt.getJobInfo());
             jobInfo = BackupJobInfo.genFromJson(jobInfoString);
 
