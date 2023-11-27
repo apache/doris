@@ -58,7 +58,7 @@ public:
     virtual Status init_row_filters(const TFileRangeDesc& range) = 0;
 
 protected:
-    std::string _table_format;                                    // hudi, iceberg
+    std::string _table_format;                          // hudi, iceberg
     std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
 };
 

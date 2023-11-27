@@ -241,7 +241,7 @@ private:
     std::unique_ptr<ZoneMapPB> _segment_zone_map;
 
     mutable std::mutex _load_index_lock;
-    std::unique_ptr<ZoneMapIndexReader> _zone_map_index
+    std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::shared_ptr<InvertedIndexReader> _inverted_index;
@@ -539,7 +539,7 @@ public:
 private:
     ColumnReader* _array_reader = nullptr;
     std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
-    std::unique_ptr<ColumnIterator> _null_iterator
+    std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
 
     Status _seek_by_offsets(ordinal_t ord);

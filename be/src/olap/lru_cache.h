@@ -434,7 +434,7 @@ private:
     std::atomic<uint64_t> _last_id;
     size_t _total_capacity;
 
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     std::shared_ptr<MetricEntity> _entity;
     IntGauge* cache_capacity = nullptr;
     IntGauge* cache_usage = nullptr;

@@ -256,7 +256,7 @@ private:
     BlockCompressionCodec* _compress_codec;
 
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
-    std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder
+    std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
     std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
