@@ -34,7 +34,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -193,7 +192,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                         colName, FeNameFormat.getColumnNameRegex());
             }
-            if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
+            if (StatisticsUtil.isUnsupportedType(column.getType())) {
                 containsUnsupportedTytpe = true;
             }
         }
