@@ -20,10 +20,6 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <librdkafka/rdkafkacpp.h>
-#include <rapidjson/document.h>
-#include <rapidjson/encodings.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
 
 #include <algorithm>
 // IWYU pragma: no_include <bits/chrono.h>
@@ -542,8 +538,6 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
             break;
         }
 
-        const char* filter_data;
-        std::vector<const char*> rows;
         bool done = false;
         auto msg = std::make_unique<pulsar::Message>();
         // consume 1 message at a time
@@ -552,6 +546,11 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         consumer_watch.stop();
         switch (res) {
         case pulsar::ResultOk:
+            if (msg.get()->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
+                LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
+                          << ", message id: " << msg.get()->getMessageId()
+                          << ", len: " << msg.get()->getLength();
+            }
             if (msg.get()->getDataAsString().find('{') == std::string::npos) {
                 // ignore msg with length 0.
                 // put empty msg into queue will cause the load process shutting down.
@@ -561,38 +560,6 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 // queue is shutdown
                 done = true;
             } else {
-                filter_data =
-                    filter_invalid_prefix_of_json(static_cast<const char*>(msg.get()->getData()),
-                        msg.get()->getLength());
-//                rows = convert_rows(filter_data);
-                LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
-                          << ", message id: " << msg.get()->getMessageId()
-                          << ", len: " << msg.get()->getLength();
-//                for (const char* row : rows) {
-//                    pulsar::MessageBuilder messageBuilder;
-//                    size_t row_len = len_of_actual_data(row);
-//                    messageBuilder.setContent(row, row_len);
-//                    messageBuilder.setProperty("topicName",msg.get()->getTopicName());
-//                    messageBuilder.setProperty("messageId","-1");
-//                    pulsar::Message new_msg = messageBuilder.build();
-//
-//                    std::string partition = new_msg.getProperty("topicName");
-//                    new_msg.setMessageId(msg.get()->getMessageId());
-//                    pulsar::MessageId msg_id = new_msg.getMessageId();
-//                    std::size_t msg_len = new_msg.getLength();
-//                    LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
-//                              << ", partition: " << partition << ", message id: " << msg_id
-//                              << ", len: " << msg_len << ", filter_len: " << row_len << ", size: " << rows.size()
-//                              << ", bool messageId: " << new_msg.hasProperty("messageId")
-//                              << ", bool topicName: " << new_msg.hasProperty("topicName");
-//                }
-//                //delete
-//                for (const char* ptr : rows) {
-//                    delete[] ptr;
-//                }
-                delete[] filter_data;
-//                rows.clear();
-                LOG(INFO) << "free pulsar message";
                 ++put_rows;
                 msg.release(); // release the ownership, msg will be deleted after being processed
             }
@@ -707,73 +674,6 @@ bool PulsarDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
     }
 
     return true;
-}
-
-const char* PulsarDataConsumer::filter_invalid_prefix_of_json(const char* data, std::size_t size) {
-    // first index of '{'
-    int first_left_curly_bracket_index  = -1;
-    for (int i = 0; i < size; ++i) {
-        if (first_left_curly_bracket_index == -1 && data[i] == '{') {
-            first_left_curly_bracket_index = i;
-            if ( i+1 < size && data[i+1] == '{') {
-                first_left_curly_bracket_index = i + 1;
-            }
-            break;
-        }
-    }
-    if (first_left_curly_bracket_index >= 0) {
-        return data + first_left_curly_bracket_index;
-    } else {
-        return data;
-    }
-}
-
-size_t PulsarDataConsumer::len_of_actual_data(const char* data) {
-    size_t length = 0;
-    while (data[length] != '\0') {
-        ++length;
-    }
-    return length;
-}
-
-std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
-    std::vector<const char*> targets;
-    rapidjson::Document source;
-    rapidjson::Document destination;
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    if(!source.Parse(data).HasParseError()) {
-        if (source.HasMember("events") && source["events"].IsArray()) {
-            const rapidjson::Value& array = source["events"];
-            size_t len = array.Size();
-            for(size_t i = 0; i < len; i++) {
-                destination.SetObject();
-                rapidjson::Value& object = const_cast<rapidjson::Value&>(array[i]);
-                rapidjson::Value eventName("event", destination.GetAllocator());
-                destination.AddMember(eventName, object, destination.GetAllocator());
-                for (auto& member : source.GetObject()) {
-                    const char* key = member.name.GetString();
-                    if (std::strcmp(key, "events") != 0) {
-                        rapidjson::Value keyName(key, destination.GetAllocator());
-                        rapidjson::Value& sourceValue = source[key];
-                        destination.AddMember(keyName, sourceValue, destination.GetAllocator());
-                    }
-                }
-                destination.Accept(writer);
-                targets.push_back(buffer.GetString());
-                buffer.Clear();
-                destination.Clear();
-            }
-        } else {
-            targets.push_back(data);
-        }
-    } else {
-        targets.push_back(data);
-    }
-    rapidjson::Document().Swap(destination);
-    source.Clear();
-    rapidjson::Document().Swap(source);
-    return targets;
 }
 
 } // end namespace doris

@@ -23,10 +23,6 @@
 #include <ostream>
 #include <string>
 #include <utility>
-#include <rapidjson/document.h>
-#include <rapidjson/encodings.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
 
 #include "common/logging.h"
 #include "librdkafka/rdkafkacpp.h"
@@ -448,41 +444,5 @@ size_t PulsarDataConsumerGroup::len_of_actual_data(const char* data) {
     }
     return length;
 }
-
-std::vector<const char*> PulsarDataConsumerGroup::convert_rows(const char* data) {
-    std::vector<const char*> targets;
-    rapidjson::Document source;
-    if(!source.Parse(data).HasParseError()) {
-        if (source.HasMember("events") && source["events"].IsArray()) {
-            const rapidjson::Value& array = source["events"];
-            size_t len = array.Size();
-            for(size_t i = 0; i < len; i++) {
-                rapidjson::Document destination;
-                destination.SetObject();
-                rapidjson::Value& object = const_cast<rapidjson::Value&>(array[i]);
-                rapidjson::Value eventName("event", destination.GetAllocator());
-                destination.AddMember(eventName, object, destination.GetAllocator());
-                for (auto& member : source.GetObject()) {
-                    const char* key = member.name.GetString();
-                    if (std::strcmp(key, "events") != 0) {
-                        rapidjson::Value keyName(key, destination.GetAllocator());
-                        rapidjson::Value& sourceValue = source[key];
-                        destination.AddMember(keyName, sourceValue, destination.GetAllocator());
-                    }
-                }
-                rapidjson::StringBuffer buffer;
-                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-                destination.Accept(writer);
-                targets.push_back(buffer.GetString());
-            }
-        } else {
-            targets.push_back(data);
-        }
-    } else {
-        targets.push_back(data);
-    }
-    return targets;
-}
-
 
 } // namespace doris
