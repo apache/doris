@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.minidump;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.cost.Cost;
@@ -172,7 +173,7 @@ public class NereidsTracer {
     public static void init() {
         NereidsTracer.shouldLog = true;
         startTime = TimeUtils.getStartTimeMs();
-        TRACE_PATH = Optional.ofNullable(TRACE_PATH).orElse(System.getenv("DORIS_HOME") + "/log/nereids_trace");
+        TRACE_PATH = Optional.ofNullable(TRACE_PATH).orElse(Config.nereids_trace_log_dir);
         new File(TRACE_PATH).mkdirs();
     }
 }

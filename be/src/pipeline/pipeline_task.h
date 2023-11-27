@@ -104,6 +104,16 @@ inline const char* get_state_name(PipelineTaskState idx) {
     __builtin_unreachable();
 }
 
+inline bool is_final_state(PipelineTaskState idx) {
+    switch (idx) {
+    case PipelineTaskState::FINISHED:
+    case PipelineTaskState::CANCELED:
+        return true;
+    default:
+        return false;
+    }
+}
+
 class TaskQueue;
 class PriorityTaskQueue;
 
@@ -133,7 +143,7 @@ public:
         _wait_worker_watcher.start();
     }
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
-    PipelineTaskState get_state() { return _cur_state; }
+    PipelineTaskState get_state() const { return _cur_state; }
     void set_state(PipelineTaskState state);
 
     virtual bool is_pending_finish() {
@@ -154,6 +164,7 @@ public:
     }
 
     virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
+    virtual bool push_blocked_task_to_queue() const { return true; }
 
     virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
@@ -161,7 +172,7 @@ public:
 
     virtual bool sink_can_write() { return _sink->can_write() || _pipeline->_always_can_write; }
 
-    virtual Status finalize();
+    virtual void finalize() {}
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
@@ -182,9 +193,7 @@ public:
         _previous_schedule_id = id;
     }
 
-    virtual void release_dependency() {}
-
-    bool has_dependency();
+    virtual bool has_dependency();
 
     OperatorPtr get_root() { return _root; }
 
@@ -251,6 +260,11 @@ public:
 
     void set_parent_profile(RuntimeProfile* profile) { _parent_profile = profile; }
 
+    virtual bool is_pipelineX() const { return false; }
+
+    bool is_running() { return _running.load(); }
+    void set_running(bool running) { _running = running; }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -299,7 +313,6 @@ protected:
     RuntimeProfile::Counter* _get_block_timer;
     RuntimeProfile::Counter* _get_block_counter;
     RuntimeProfile::Counter* _sink_timer;
-    RuntimeProfile::Counter* _finalize_timer;
     RuntimeProfile::Counter* _close_timer;
     RuntimeProfile::Counter* _block_counts;
     RuntimeProfile::Counter* _block_by_source_counts;
@@ -359,5 +372,7 @@ private:
     OperatorPtr _source;
     OperatorPtr _root;
     OperatorPtr _sink;
+
+    std::atomic<bool> _running {false};
 };
 } // namespace doris::pipeline

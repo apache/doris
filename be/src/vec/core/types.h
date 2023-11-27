@@ -226,6 +226,26 @@ struct TypeName<QuantileState> {
     static const char* get() { return "QuantileState"; }
 };
 
+template <>
+struct TypeName<DecimalV2Value> {
+    static const char* get() { return "decimalv2"; }
+};
+
+template <>
+struct TypeName<VecDateTimeValue> {
+    static const char* get() { return "Datetime"; }
+};
+
+template <>
+struct TypeName<DateV2Value<DateV2ValueType>> {
+    static const char* get() { return "DateV2"; }
+};
+
+template <>
+struct TypeName<DateV2Value<DateTimeV2ValueType>> {
+    static const char* get() { return "DatetimeV2"; }
+};
+
 template <typename T>
 struct TypeId;
 template <>
@@ -366,6 +386,10 @@ struct Decimal {
         DecimalV2Value decimal_value;
         decimal_value.assign_from_double(value_);
         return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));
+    }
+
+    static Decimal from_int_frac(T integer, T fraction, int scale) {
+        return Decimal(integer * int_exp10(scale) + fraction);
     }
 
     template <typename U>

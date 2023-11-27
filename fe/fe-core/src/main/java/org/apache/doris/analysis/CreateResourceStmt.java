@@ -94,9 +94,9 @@ public class CreateResourceStmt extends DdlStmt {
         if (resourceType == ResourceType.SPARK && !isExternal) {
             throw new AnalysisException("Spark is external resource");
         }
-        if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_table) {
+        if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_mysql_broker_table) {
             throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
-                + "`enable_odbc_table=true` in fe.conf to enable ODBC again.");
+                    + "`enable_odbc_table=true` in fe.conf to enable ODBC again.");
         }
     }
 
@@ -108,7 +108,12 @@ public class CreateResourceStmt extends DdlStmt {
             sb.append("EXTERNAL ");
         }
         sb.append("RESOURCE '").append(resourceName).append("' ");
-        sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
+        sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false, true)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

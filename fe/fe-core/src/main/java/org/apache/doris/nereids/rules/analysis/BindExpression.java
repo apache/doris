@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
@@ -445,6 +446,12 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalCTEAnchor<Plan, Plan> cteAnchor = sort.child();
                     return bindSort(sort, cteAnchor, ctx.cascadesContext);
                 })
+            ), RuleType.BINDING_SORT_SLOT.build(
+                logicalSort(logicalOneRowRelation()).thenApply(ctx -> {
+                    LogicalSort<LogicalOneRowRelation> sort = ctx.root;
+                    LogicalOneRowRelation oneRowRelation = sort.child();
+                    return bindSort(sort, oneRowRelation, ctx.cascadesContext);
+                })
             ),
             RuleType.BINDING_SORT_SET_OPERATION_SLOT.build(
                 logicalSort(logicalSetOperation()).thenApply(ctx -> {
@@ -581,8 +588,15 @@ public class BindExpression implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_RESULT_SINK.build(
-                unboundResultSink().then(sink -> {
-
+                unboundResultSink().thenApply(ctx -> {
+                    LogicalSink<Plan> sink = ctx.root;
+                    if (ctx.connectContext.getState().isQuery()) {
+                        List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+                                .map(NamedExpression.class::cast)
+                                .collect(ImmutableList.toImmutableList());
+                        return new LogicalResultSink<>(outputExprs, sink.child());
+                    }
+                    // Should infer column name for expression when query command
                     final ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
                             ImmutableListMultimap.builder();
                     List<Slot> childOutput = sink.child().getOutput();

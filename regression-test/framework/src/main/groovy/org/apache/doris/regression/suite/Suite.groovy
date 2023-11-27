@@ -266,6 +266,12 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    List<List<Object>> insert_into_sql(String sqlStr, int num) {
+        logger.info("insert into " + num + " records")
+        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        return result
+    }
+
     def sql_return_maparray(String sqlStr) {
         logger.info("Execute sql: ${sqlStr}".toString())
         def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
@@ -760,6 +766,47 @@ class Suite implements GroovyInterceptable {
 
     DebugPoint GetDebugPoint() {
         return debugPoint
+    }
+
+    void waitingMTMVTaskFinished(String jobName) {
+        Thread.sleep(2000);
+        String showTasks = "SHOW MTMV JOB TASKS FOR ${jobName}"
+        List<List<String>> showTaskMetaResult = sql_meta(showTasks)
+        logger.info("showTaskMetaResult: " + showTaskMetaResult.toString())
+        int index = showTaskMetaResult.indexOf(['Status', 'CHAR'])
+        logger.info("index: " + index)
+        String status = "PENDING"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(index)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("SUCCESS", status)
+    }
+
+    String getJobName(String dbName, String mtmvName) {
+        String showMTMV = "select * from mtmvs('database'='${dbName}') where Name = '${mtmvName}'";
+	    logger.info(showMTMV)
+        List<List<String>> showTaskMetaResult = sql_meta(showMTMV)
+        logger.info("showTaskMetaResult: " + showTaskMetaResult.toString())
+        int index = showTaskMetaResult.indexOf(['JobName', 'TINYTEXT'])
+        logger.info("index: " + index)
+        List<List<Object>> result = sql(showMTMV)
+        logger.info("result: " + result.toString())
+        if (result.isEmpty()) {
+            Assert.fail();
+        }
+        return result.last().get(index);
     }
 }
 

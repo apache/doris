@@ -36,6 +36,7 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Sets;
@@ -281,6 +282,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 0;
     }
 
+    public long getCacheRowCount() {
+        return 0;
+    }
+
     @Override
     public long getAvgRowLength() {
         return 0;
@@ -387,9 +392,18 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        // TODO: Find a way to decide if this external table need to be reanalyzed.
-        // For now, simply return true for all external tables.
-        return true;
+        if (tblStats == null) {
+            return true;
+        }
+        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+                .stream()
+                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                .map(Column::getName)
+                .collect(Collectors.toSet()))) {
+            return true;
+        }
+        return System.currentTimeMillis()
+            - tblStats.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
     }
 
     @Override
@@ -397,7 +411,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         HashSet<String> partitions = Sets.newHashSet();
         // TODO: Find a way to collect external table partitions that need to be analyzed.
         partitions.add("Dummy Partition");
-        return getBaseSchema().stream().collect(Collectors.toMap(Column::getName, k -> partitions));
+        return getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                .collect(Collectors.toMap(Column::getName, k -> partitions));
     }
 
     @Override

@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 
 #include <string>
 
@@ -334,7 +335,7 @@ Status RuntimeState::check_query_state(const std::string& msg) {
     //
     // If the thread MemTrackerLimiter exceeds the limit, an error status is returned.
     // Usually used after SCOPED_ATTACH_TASK, during query execution.
-    if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
+    if (is_thread_context_init() && thread_context()->thread_mem_tracker()->limit_exceeded() &&
         !config::enable_query_memory_overcommit) {
         auto failed_msg =
                 fmt::format("{}, {}", msg,
@@ -424,13 +425,15 @@ int64_t RuntimeState::get_load_mem_limit() {
     }
 }
 
-void RuntimeState::resize_op_id_to_local_state(int size) {
-    _op_id_to_local_state.resize(size);
-    _op_id_to_sink_local_state.resize(size);
+void RuntimeState::resize_op_id_to_local_state(int operator_size, int sink_size) {
+    _op_id_to_local_state.resize(operator_size);
+    _op_id_to_sink_local_state.resize(sink_size);
 }
 
 void RuntimeState::emplace_local_state(
         int id, std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
+    DCHECK(id < _op_id_to_local_state.size());
+    DCHECK(!_op_id_to_local_state[id]);
     _op_id_to_local_state[id] = std::move(state);
 }
 
@@ -451,6 +454,8 @@ Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
 
 void RuntimeState::emplace_sink_local_state(
         int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
+    DCHECK(id < _op_id_to_sink_local_state.size());
+    DCHECK(!_op_id_to_sink_local_state[id]);
     _op_id_to_sink_local_state[id] = std::move(state);
 }
 

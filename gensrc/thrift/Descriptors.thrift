@@ -41,6 +41,7 @@ struct TColumn {
     16: optional string aggregation
     17: optional bool result_is_nullable
     18: optional bool is_auto_increment = false;
+    19: optional i32 cluster_key_id = -1
 }
 
 struct TSlotDescriptor {
@@ -178,7 +179,7 @@ struct TOlapTablePartition {
     9: optional bool is_mutable = true
     // only used in List Partition
     10: optional bool is_default_partition;
-    // only used in load_to_single_tablet
+    // only used in random distribution scenario to make data distributed even 
     11: optional i64 load_tablet_idx
 }
 

@@ -20,6 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.SetVar.SetVarType;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
@@ -258,7 +260,7 @@ public class VariableMgr {
             throw new DdlException(ErrorCode.ERR_VARIABLE_IS_READONLY.formatErrorMsg(setVar.getVariable()));
         }
         if (setVar.getType() == SetType.GLOBAL && (flag & SESSION_ONLY) != 0) {
-            throw new DdlException(ErrorCode.ERR_GLOBAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
+            throw new DdlException(ErrorCode.ERR_LOCAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
         }
         if (setVar.getType() != SetType.GLOBAL && (flag & GLOBAL) != 0) {
             throw new DdlException(ErrorCode.ERR_GLOBAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
@@ -646,6 +648,33 @@ public class VariableMgr {
             result.put(varAttr.varType().getPrefix() + entry.getKey(), varContext);
         }
         return ImmutableMap.copyOf(result);
+    }
+
+    public static void setAllVarsToDefaultValue(SessionVariable sessionVariable, SetType setType)
+            throws DdlException {
+        for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+            VarContext varCtx = entry.getValue();
+
+            SetType newSetType = null;
+            // some variables are GLOBAL only or SESSION only
+            if ((varCtx.getFlag() & GLOBAL) != 0) {
+                newSetType = SetType.GLOBAL;
+            } else if ((varCtx.getFlag() & SESSION_ONLY) != 0) {
+                newSetType = SetType.SESSION;
+            }
+
+            SetVar setVar = new SetVar(newSetType != null ? newSetType : setType, entry.getKey(),
+                    new StringLiteral(varCtx.defaultValue), SetVarType.SET_SESSION_VAR);
+            //skip read only variables
+            if ((varCtx.getFlag() & READ_ONLY) == 0) {
+                setVar(sessionVariable, setVar);
+            }
+        }
+    }
+
+    public static String getDefaultValue(String key) {
+        VarContext varContext = ctxByDisplayVarName.get(key);
+        return varContext == null ? null : varContext.defaultValue;
     }
 
     // Dump all fields. Used for `show variables`

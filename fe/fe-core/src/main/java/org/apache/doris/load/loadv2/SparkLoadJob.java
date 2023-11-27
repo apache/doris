@@ -757,7 +757,7 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     @Override
-    protected String getResourceName() {
+    public String getResourceName() {
         return sparkResource.getName();
     }
 

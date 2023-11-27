@@ -631,6 +631,7 @@ terminal String
     KW_UNION,
     KW_UNIQUE,
     KW_UNLOCK,
+    KW_UNSET,
     KW_UNSIGNED,
     KW_UPDATE,
     KW_USE,
@@ -639,6 +640,7 @@ terminal String
     KW_VALUE,
     KW_VALUES,
     KW_VARCHAR,
+    KW_VARIABLE,
     KW_VARIABLES,
     KW_VERBOSE,
     KW_VERSION,
@@ -683,7 +685,7 @@ nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
-    describe_stmt, alter_stmt,
+    describe_stmt, alter_stmt, unset_var_stmt,
     create_job_stmt,pause_job_stmt,resume_job_stmt,stop_job_stmt,show_job_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
@@ -849,6 +851,7 @@ nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
+nonterminal List<String> opt_cluster_keys;
 nonterminal Long opt_id;
 
 nonterminal PartitionKeyDesc partition_key_desc;
@@ -1108,6 +1111,8 @@ stmt ::=
     {: RESULT = use; :}
     | set_stmt:set
     {: RESULT = set; :}
+    | unset_var_stmt:stmt
+    {: RESULT = stmt; :}
     | kill_stmt:kill
     {: RESULT = kill; :}
     | kill_analysis_job_stmt: k
@@ -1809,11 +1814,6 @@ create_stmt ::=
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
-    :}
-    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_ENGINE EQUAL ident:engineName
-          properties:properties opt_comment:tableComment
-    {:
-       RESULT = new CreateTableStmt(ifNotExists, isExternal, name, engineName, properties, tableComment);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             opt_col_list:columns
@@ -2553,17 +2553,17 @@ resource_desc ::=
 create_job_stmt ::=
      KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,"RECURRING",null,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.RECURRING,null,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
         RESULT = stmt;
     :}
-    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+/*  support in future  | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,"STREAMING",atTime,null,null,null,null,comment,executeSql);
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.STREAMING,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
-    :}    
+    :}   */ 
     | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,"ONE_TIME",atTime,null,null,null,null,comment,executeSql);
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.ONE_TIME,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}
     ;                           
@@ -2595,16 +2595,28 @@ resume_job_stmt ::=
 show_job_stmt ::=
     KW_SHOW KW_JOBS
     {:
-        RESULT = new ShowJobStmt(null,null,null);
+        RESULT = new ShowJobStmt(null,null);
+    :}
+    | KW_SHOW KW_MTMV KW_JOBS
+    {:
+        RESULT = new ShowJobStmt(null,org.apache.doris.job.common.JobType.MTMV);
+    :}
+    | KW_SHOW KW_MTMV KW_JOB KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
     :}
     | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobStmt(null,jobLabel,null);
-    :}
+        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.INSERT);
+    :}    
     | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobTaskStmt(null,jobLabel);
+        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.INSERT);
     :}    
+    | KW_SHOW KW_MTMV KW_JOB KW_TASKS KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
+    :}       
     ;
 pause_job_stmt ::=
     KW_PAUSE KW_JOB KW_FOR job_label:jobLabel
@@ -2978,10 +2990,6 @@ drop_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
     :}
-    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists table_name:mvName
-    {:
-        RESULT = new DropMaterializedViewStmt(ifExists, mvName);
-    :}
     | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
     {:
         RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
@@ -3185,13 +3193,25 @@ opt_keys ::=
     :}
     /* unique_keys */
     | KW_UNIQUE KW_KEY LPAREN ident_list:keys RPAREN
+    opt_cluster_keys:cluster_keys
     {:
-        RESULT = new KeysDesc(KeysType.UNIQUE_KEYS, keys);
+        RESULT = new KeysDesc(KeysType.UNIQUE_KEYS, keys, cluster_keys);
     :}
     /* agg_keys */
     | KW_AGGREGATE KW_KEY LPAREN ident_list:keys RPAREN
     {:
         RESULT = new KeysDesc(KeysType.AGG_KEYS, keys);
+    :}
+    ;
+
+opt_cluster_keys ::=
+    /* Empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_CLUSTER KW_BY LPAREN ident_list:keys RPAREN
+    {:
+        RESULT = keys;
     :}
     ;
 
@@ -4916,6 +4936,18 @@ set_stmt ::=
     | KW_SET KW_PROPERTY opt_user:user user_property_list:property_list
     {:
         RESULT = new SetUserPropertyStmt(user, property_list);
+    :}
+    ;
+
+// Unset variable statement
+unset_var_stmt ::=
+    KW_UNSET opt_var_type:type KW_VARIABLE variable_name:variable
+    {:
+        RESULT = new UnsetVariableStmt(type, variable);
+    :}
+    | KW_UNSET opt_var_type:type KW_VARIABLE KW_ALL
+    {:
+        RESULT = new UnsetVariableStmt(type, true);
     :}
     ;
 
@@ -7685,6 +7717,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_USER:id
     {: RESULT = id; :}
+    | KW_VARIABLE:id
+    {: RESULT = id; :}
     | KW_VARIABLES:id
     {: RESULT = id; :}
     | KW_VALUE:id
@@ -7790,6 +7824,8 @@ keyword ::=
     | KW_PERCENT:id
     {: RESULT = id; :}
     | KW_CRON:id
+    {: RESULT = id; :}
+    | KW_UNSET:id
     {: RESULT = id; :}
     ;
 

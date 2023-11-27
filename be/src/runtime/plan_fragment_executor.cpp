@@ -20,6 +20,7 @@
 
 #include "runtime/plan_fragment_executor.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -100,7 +101,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
 PlanFragmentExecutor::~PlanFragmentExecutor() {
     if (_runtime_state != nullptr) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_ATTACH_TASK(_runtime_state.get());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         close();
         _runtime_state.reset();
     } else {
@@ -214,6 +215,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_num_per_fragment_instances(params.num_senders);
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
+    _runtime_state->set_num_local_sink(request.num_local_sink);
 
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
@@ -255,9 +257,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->query_mem_tracker()->limit();
-    LOG_INFO("PlanFragmentExecutor::open {}, mem_limit {}",
-             PrintInstanceStandardInfo(_query_ctx->query_id(), _fragment_instance_id),
-             PrettyPrinter::print(mem_limit, TUnit::BYTES));
+    LOG_INFO("PlanFragmentExecutor::open {}|{}, mem_limit {}", print_id(_query_ctx->query_id()),
+             print_id(_fragment_instance_id), PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -326,7 +327,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         auto handle_group_commit = [&]() {
             if (UNLIKELY(_group_commit && !st.ok() && block != nullptr)) {
                 auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
-                std::unique_lock<doris::Mutex> l(*(future_block->lock));
+                std::unique_lock<std::mutex> l(*(future_block->lock));
                 if (!future_block->is_handled()) {
                     future_block->set_result(st, 0, 0);
                     future_block->cv->notify_all();
@@ -349,11 +350,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 
             if (!eos || block->rows() > 0) {
                 st = _sink->send(runtime_state(), block.get());
-                //TODO: Asynchronisation need refactor this
-                if (st.is<NEED_SEND_AGAIN>()) { // created partition, do it again.
-                    st = _sink->send(runtime_state(), block.get());
-                    DCHECK(!st.is<NEED_SEND_AGAIN>());
-                }
                 handle_group_commit();
                 if (st.is<END_OF_FILE>()) {
                     break;

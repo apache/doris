@@ -319,6 +319,10 @@ public:
 
     int total_load_streams() const { return _total_load_streams; }
 
+    void set_num_local_sink(int num_local_sink) { _num_local_sink = num_local_sink; }
+
+    int num_local_sink() const { return _num_local_sink; }
+
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
@@ -327,6 +331,11 @@ public:
 
     int32_t runtime_filter_wait_time_ms() const {
         return _query_options.runtime_filter_wait_time_ms;
+    }
+
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
     }
 
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
@@ -491,7 +500,7 @@ public:
 
     Result<SinkLocalState*> get_sink_local_state_result(int id);
 
-    void resize_op_id_to_local_state(int size);
+    void resize_op_id_to_local_state(int operator_size, int sink_size);
 
 private:
     Status create_error_log_file();
@@ -553,6 +562,7 @@ private:
     int _num_per_fragment_instances = 0;
     int _load_stream_per_node = 0;
     int _total_load_streams = 0;
+    int _num_local_sink = 0;
 
     // The backend id on which this fragment instance runs
     int64_t _backend_id = -1;
