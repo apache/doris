@@ -46,6 +46,9 @@ public class OptimizeGroupExpressionJob extends Job {
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         List<Rule> implementationRules = getRuleSet().getImplementationRules();
         List<Rule> explorationRules = getExplorationRules();
+        if (context.getCascadesContext().getConnectContext().getSessionVariable().isEnableMaterializedViewRewrite()) {
+            explorationRules.addAll(getRuleSet().getMaterializedViewRules());
+        }
 
         for (Rule rule : explorationRules) {
             if (rule.isInvalid(disableRules, groupExpression)) {

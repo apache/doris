@@ -22,6 +22,7 @@ import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -75,6 +76,8 @@ public class Group {
     private PhysicalProperties chosenProperties;
 
     private int chosenGroupExpressionId = -1;
+
+    private Optional<StructInfo> structInfo = Optional.empty();
 
     /**
      * Constructor for Group.
@@ -537,5 +540,13 @@ public class Group {
         };
 
         return TreeStringUtils.treeString(this, toString, getChildren, getExtraPlans, displayExtraPlan);
+    }
+
+    public Optional<StructInfo> getStructInfo() {
+        return structInfo;
+    }
+
+    public void setStructInfo(StructInfo structInfo) {
+        this.structInfo = Optional.ofNullable(structInfo);
     }
 }
