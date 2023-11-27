@@ -318,9 +318,15 @@ public:
 
     bool has_null_key() { return _has_null_key; }
 
-    void pre_build_idxs(std::vector<uint32>& bucksets) {
-        for (uint32_t i = 0; i < bucksets.size(); i++) {
-            bucksets[i] = first[bucksets[i]];
+    void pre_build_idxs(std::vector<uint32>& bucksets, const uint8_t* null_map) {
+        if (null_map) {
+            for (uint32_t i = 0; i < bucksets.size(); i++) {
+                bucksets[i] = null_map[i] ? bucket_size : first[bucksets[i]];
+            }
+        } else {
+            for (uint32_t i = 0; i < bucksets.size(); i++) {
+                bucksets[i] = first[bucksets[i]];
+            }
         }
     }
 
@@ -335,14 +341,14 @@ private:
         const auto batch_size = max_batch_size;
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
-            auto build_idx = build_idx_map[probe_idx];
+            auto build_idx = build_idx_map[probe_idx] == bucket_size ? 0 : build_idx_map[probe_idx];
 
             while (build_idx && keys[probe_idx] != build_keys[build_idx]) {
                 build_idx = next[build_idx];
             }
 
             if constexpr (!with_other_conjuncts) {
-                if (!build_idx_map[probe_idx]) {
+                if (build_idx_map[probe_idx] == bucket_size) {
                     // mark result as null when probe row is null
                     mark_column->insert_null();
                 } else {
@@ -389,7 +395,7 @@ private:
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
             if constexpr (need_judge_null) {
-                if (!build_idx_map[probe_idx]) {
+                if (build_idx_map[probe_idx] == bucket_size) {
                     probe_idx++;
                     continue;
                 }
@@ -420,7 +426,9 @@ private:
                 if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
                               JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
                     if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
-                        build_idxs[matched_cnt++] = build_idx;
+                        probe_idxs[matched_cnt] = probe_idx;
+                        build_idxs[matched_cnt] = build_idx;
+                        matched_cnt++;
                     }
                 } else if (keys[probe_idx] == build_keys[build_idx]) {
                     build_idxs[matched_cnt] = build_idx;

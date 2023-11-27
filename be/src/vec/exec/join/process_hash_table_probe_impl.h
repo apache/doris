@@ -125,7 +125,7 @@ template <int JoinOpType, typename Parent>
 template <typename HashTableType>
 typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_probe_side(
         HashTableType& hash_table_ctx, size_t probe_rows, bool with_other_join_conjuncts,
-        const uint8_t* null_map) {
+        const uint8_t* null_map, bool need_judge_null) {
     // may over batch size 1 for some outer join case
     _probe_indexs.resize(_batch_size + 1);
     _build_indexs.resize(_batch_size + 1);
@@ -135,7 +135,8 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
         hash_table_ctx.reset();
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
                                             false, hash_table_ctx.hash_table->get_bucket_size());
-        hash_table_ctx.hash_table->pre_build_idxs(hash_table_ctx.bucket_nums);
+        hash_table_ctx.hash_table->pre_build_idxs(hash_table_ctx.bucket_nums,
+                                                  need_judge_null ? null_map : nullptr);
     }
     return typename HashTableType::State(_parent->_probe_columns);
 }
@@ -156,8 +157,13 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     auto& build_index = _parent->_build_index;
     auto last_probe_index = probe_index;
 
-    _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts,
-                                    need_null_map_for_probe ? null_map->data() : nullptr);
+    _init_probe_side<HashTableType>(
+            hash_table_ctx, probe_rows, with_other_conjuncts,
+            need_null_map_for_probe ? null_map->data() : nullptr,
+            need_null_map_for_probe && ignore_null &&
+                    (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
+                     JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
+                     JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN || is_mark_join));
 
     auto& mcol = mutable_block.mutable_columns();
 
@@ -313,6 +319,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
     } else if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
                          JoinOpType == TJoinOp::RIGHT_ANTI_JOIN) {
+        LOG(WARNING) << output_block->dump_data();
         for (int i = 0; i < row_count; ++i) {
             visited[_build_indexs[i]] |= filter_column_ptr[i];
         }
