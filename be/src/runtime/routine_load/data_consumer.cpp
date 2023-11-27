@@ -761,6 +761,7 @@ std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
                 rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
                 destination.Accept(writer);
                 targets.push_back(buffer.GetString());
+                delete destination;
             }
         } else {
             targets.push_back(data);
@@ -768,6 +769,7 @@ std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
     } else {
         targets.push_back(data);
     }
+    delete source;
     return targets;
 }
 
