@@ -559,11 +559,9 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 pulsar::Message* new_msg = new pulsar::Message(messageBuilder.build());
                 new_msg->setMessageId(msg.get()->getMessageId());
 
-                if (new_msg->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
-                    LOG(INFO) << "receive pulsar message: " << new_msg->getDataAsString()
-                              << ", message id: " << new_msg->getMessageId()
-                              << ", len: " << new_msg->getLength();
-                }
+                LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
+                          << ", message id: " << msg.get()->getMessageId()
+                          << ", len: " << msg.get()->getLength();
                 if (new_msg->getDataAsString().find("{\"") == std::string::npos) {
                     // ignore msg with length 0.
                     // put empty msg into queue will cause the load process shutting down.
@@ -575,7 +573,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 } else {
                     ++put_rows;
                     delete msg.get();
-                    msg.release(); // release the ownership, msg will be deleted after being processed
+//                    msg.release(); // release the ownership, msg will be deleted after being processed
                 }
                 ++received_rows;
             }

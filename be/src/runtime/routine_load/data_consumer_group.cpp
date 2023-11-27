@@ -348,7 +348,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 // len of receive origin message from pulsar
                 left_bytes -= len;
                 ack_offset[partition] = msg_id;
-                VLOG(3) << "consume partition" << partition << " - " << msg_id;
+                LOG(INFO) << "consume partition" << partition << " - " << msg_id;
             } else {
                 // failed to append this msg, we must stop
                 LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id << ", errmsg=" << st.to_string();
