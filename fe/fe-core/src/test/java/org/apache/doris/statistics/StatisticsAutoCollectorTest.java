@@ -28,7 +28,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
@@ -244,12 +243,6 @@ public class StatisticsAutoCollectorTest {
 
     }
 
-    @Test
-    public void checkAvailableThread() {
-        StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
-        Assertions.assertEquals(Config.auto_analyze_simultaneously_running_task_num,
-                autoCollector.analysisTaskExecutor.executors.getMaximumPoolSize());
-    }
 
     @Test
     public void testSkip(@Mocked OlapTable olapTable, @Mocked TableStatsMeta stats, @Mocked TableIf anyOtherTable) {

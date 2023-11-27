@@ -58,7 +58,6 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     @Override
     protected void collect() {
         if (!StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
-            analysisTaskExecutor.clear();
             return;
         }
         if (StatisticsUtil.enableAutoAnalyze()) {
@@ -69,21 +68,30 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private void analyzeAll() {
         Set<CatalogIf> catalogs = Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog();
+        // Internal catalog first.
+        analyzeCtl(Env.getCurrentEnv().getInternalCatalog());
         for (CatalogIf ctl : catalogs) {
-            if (!ctl.enableAutoAnalyze()) {
+            if (ctl.isInternalCatalog()) {
                 continue;
             }
-            Collection<DatabaseIf> dbs = ctl.getAllDbs();
-            for (DatabaseIf<TableIf> databaseIf : dbs) {
-                if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
-                    continue;
-                }
-                try {
-                    analyzeDb(databaseIf);
-                } catch (Throwable t) {
-                    LOG.warn("Failed to analyze database {}.{}", ctl.getName(), databaseIf.getFullName(), t);
-                    continue;
-                }
+            analyzeCtl(ctl);
+        }
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    protected void analyzeCtl(CatalogIf ctl) {
+        if (!ctl.enableAutoAnalyze()) {
+            return;
+        }
+        Collection<DatabaseIf> dbs = ctl.getAllDbs();
+        for (DatabaseIf<TableIf> databaseIf : dbs) {
+            if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
+                continue;
+            }
+            try {
+                analyzeDb(databaseIf);
+            } catch (Throwable t) {
+                LOG.warn("Failed to analyze database {}.{}", ctl.getName(), databaseIf.getFullName(), t);
             }
         }
     }

@@ -170,9 +170,14 @@ public abstract class BaseAnalysisTask {
     }
 
     public void execute() {
-        prepareExecution();
-        executeWithRetry();
-        afterExecution();
+        try {
+            prepareExecution();
+            executeWithRetry();
+            afterExecution();
+        } catch (Exception e) {
+            job.taskFailed(this, e.getMessage());
+            throw new RuntimeException(e);
+        }
     }
 
     protected void prepareExecution() {
@@ -194,7 +199,6 @@ public abstract class BaseAnalysisTask {
                 }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
                 if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
-                    job.taskFailed(this, t.getMessage());
                     throw new RuntimeException(t);
                 }
                 StatisticsUtil.sleep(TimeUnit.SECONDS.toMillis(2 ^ retriedTimes) * 10);
