@@ -100,6 +100,13 @@ private:
     const int _batch_size;
 };
 
+struct ShufflePModChannelIds {
+    template <typename HashValueType>
+    HashValueType operator()(HashValueType l, int32_t r) {
+        return (l % r + r) % r;
+    }
+};
+
 class Channel {
 public:
     friend class pipeline::ExchangeSinkBuffer;

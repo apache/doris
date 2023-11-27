@@ -200,6 +200,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
+import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -556,7 +557,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         // TODO(cmy): determine the needCheckColumnPriv param
-        ScanNode scanNode;
+        FileQueryScanNode scanNode;
+        DataPartition dataPartition = DataPartition.RANDOM;
         if (table instanceof HMSExternalTable) {
             switch (((HMSExternalTable) table).getDlaType()) {
                 case ICEBERG:
@@ -683,8 +685,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 )
         );
         context.getTopnFilterContext().translateTarget(fileScan, scanNode, context);
-        // Create PlanFragment
+        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
+        if (fileScan.getDistributionSpec() instanceof DistributionSpecHash) {
+            DistributionSpecHash distributionSpecHash = (DistributionSpecHash) fileScan.getDistributionSpec();
+            List<Expr> partitionExprs = distributionSpecHash.getOrderedShuffledColumns().stream()
+                .map(context::findSlotRef).collect(Collectors.toList());
+            dataPartition = new DataPartition(TPartitionType.HASH_PARTITIONED,
+                partitionExprs, scanNode.getHashType());
+        }
+        // Create PlanFragment
         PlanFragment planFragment = createPlanFragment(scanNode, dataPartition, fileScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), fileScan);
@@ -2604,7 +2614,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private DataPartition toDataPartition(DistributionSpec distributionSpec,
-            List<ExprId> childOutputIds, PlanTranslatorContext context) {
+                                          List<ExprId> childOutputIds, PlanTranslatorContext context) {
         if (distributionSpec instanceof DistributionSpecAny
                 || distributionSpec instanceof DistributionSpecStorageAny
                 || distributionSpec instanceof DistributionSpecExecutionAny) {
@@ -2631,8 +2641,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
             }
             TPartitionType partitionType;
+            THashType hashType = THashType.XXHASH64;
             switch (distributionSpecHash.getShuffleType()) {
                 case STORAGE_BUCKETED:
+                    switch (distributionSpecHash.getShuffleFunction()) {
+                        case STORAGE_BUCKET_SPARK_MURMUR32:
+                            hashType = THashType.SPARK_MURMUR32;
+                            break;
+                        case STORAGE_BUCKET_CRC32:
+                            hashType = THashType.CRC32;
+                            break;
+                        case STORAGE_BUCKET_XXHASH64:
+                        default:
+                            break;
+                    }
                     partitionType = TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
                     break;
                 case EXECUTION_BUCKETED:
@@ -2643,7 +2665,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     throw new RuntimeException("Do not support shuffle type: "
                             + distributionSpecHash.getShuffleType());
             }
-            return new DataPartition(partitionType, partitionExprs);
+            return new DataPartition(partitionType, partitionExprs, hashType);
         } else if (distributionSpec instanceof DistributionSpecTabletIdShuffle) {
             return DataPartition.TABLET_ID;
         } else if (distributionSpec instanceof DistributionSpecTableSinkHashPartitioned) {

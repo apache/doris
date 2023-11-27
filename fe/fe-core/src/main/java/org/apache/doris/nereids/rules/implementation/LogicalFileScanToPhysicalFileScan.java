@@ -17,12 +17,28 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.properties.DistributionSpecAny;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.StorageBucketHashType;
+import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 
+import com.google.common.collect.Lists;
+
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -36,12 +52,42 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
                     fileScan.getRelationId(),
                     fileScan.getTable(),
                     fileScan.getQualifier(),
-                    DistributionSpecAny.INSTANCE,
+                    convertDistribution(fileScan),
                     Optional.empty(),
                     fileScan.getLogicalProperties(),
                     fileScan.getSelectedPartitions(),
                     fileScan.getTableSample(),
                     fileScan.getTableSnapshot())
         ).toRule(RuleType.LOGICAL_FILE_SCAN_TO_PHYSICAL_FILE_SCAN_RULE);
+    }
+
+    private DistributionSpec convertDistribution(LogicalFileScan fileScan) {
+        TableIf table = fileScan.getTable();
+        if (!(table instanceof HMSExternalTable)) {
+            return DistributionSpecStorageAny.INSTANCE;
+        }
+
+        HMSExternalTable hmsExternalTable = (HMSExternalTable) table;
+        DistributionInfo distributionInfo = hmsExternalTable.getDefaultDistributionInfo();
+        if (distributionInfo instanceof HashDistributionInfo) {
+            HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+            List<Slot> output = fileScan.getOutput();
+            List<ExprId> hashColumns = Lists.newArrayList();
+            for (Slot slot : output) {
+                for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                    if (((SlotReference) slot).getColumn().get().equals(column)) {
+                        hashColumns.add(slot.getExprId());
+                    }
+                }
+            }
+            StorageBucketHashType function = StorageBucketHashType.STORAGE_BUCKET_CRC32;
+            if (hmsExternalTable.isBucketedTable()) {
+                function = StorageBucketHashType.STORAGE_BUCKET_SPARK_MURMUR32;
+            }
+            return new DistributionSpecHash(hashColumns, DistributionSpecHash.ShuffleType.NATURAL,
+                fileScan.getTable().getId(), -1, Collections.emptySet(), function);
+        }
+
+        return DistributionSpecStorageAny.INSTANCE;
     }
 }
