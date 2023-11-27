@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.ArrayList;
@@ -27,6 +28,9 @@ import java.util.List;
  * HyperGraph Node.
  */
 public class StructInfoNode extends AbstractNode {
+
+    private List<HyperGraph> graphs = new ArrayList<>();
+
     public StructInfoNode(int index, Plan plan, List<Edge> edges) {
         super(plan, index, edges);
     }
@@ -34,4 +38,18 @@ public class StructInfoNode extends AbstractNode {
     public StructInfoNode(int index, Plan plan) {
         this(index, plan, new ArrayList<>());
     }
+
+    public StructInfoNode(int index, List<HyperGraph> graphs) {
+        this(index, graphs.get(0).getNode(0).getPlan(), new ArrayList<>());
+        this.graphs = graphs;
+    }
+
+    public boolean needToFlat() {
+        return !graphs.isEmpty();
+    }
+
+    public List<HyperGraph> getGraphs() {
+        return graphs;
+    }
+
 }
