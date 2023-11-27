@@ -1120,7 +1120,6 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
-<<<<<<< HEAD
 // Whether flatten nested arrays in variant column
 // Notice: TEST ONLY
 DECLARE_mBool(enable_flatten_nested_for_variant);
@@ -1128,8 +1127,6 @@ DECLARE_mBool(enable_flatten_nested_for_variant);
 // Notice: TEST ONLY
 DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
 DECLARE_mInt64(threshold_rows_to_estimate_sparse_column);
-=======
->>>>>>> upstream-apache/branch-2.0
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // rowid conversion correctness check when compaction for mow table

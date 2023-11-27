@@ -2172,7 +2172,7 @@ public:
 
     // Return how many bytes are required to serialize this bitmap.
     // See BitmapTypeCode for the serialized format.
-    size_t getSizeInBytes() const {
+    size_t getSizeInBytes() {
         size_t res = 0;
         switch (_type) {
         case EMPTY:

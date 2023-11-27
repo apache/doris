@@ -1105,19 +1105,6 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
-// Dir of default timezone files
-DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
-
-// the max package bytes be thrift server can receive
-// avoid accepting error or too large package causing OOM,default 20000000(20M)
-DEFINE_Int32(be_thrift_max_pkg_bytes, "20000000");
-
-// Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
-DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
-
-// Download binlog rate limit, unit is KB/s, 0 means no limit
-DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
-
 DEFINE_mInt64(threshold_rows_to_estimate_sparse_column, "1000");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
