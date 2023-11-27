@@ -322,21 +322,24 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                                int totalInstanceNumber) {
         double penalty = 1.0;
         for (Expression conj : physicalHashJoin.getHashJoinConjuncts()) {
-            EqualTo eq = (EqualTo) JoinUtils.swapEqualToForChildrenOrder(
-                    (EqualTo) conj, physicalHashJoin.left().getOutputSet());
-            ColumnStatistic leftColStats = probeStats.findColumnStatistics(eq.left());
-            if (leftColStats != null && !leftColStats.isUnKnown()) {
-                if (leftColStats.ndv < beNumber) {
-                    penalty = Math.max(totalInstanceNumber / Math.max(1.0, leftColStats.ndv), penalty);
-                    break;
+            // TODO: NullSafeEqualTo need refactor
+            if (conj instanceof EqualTo) {
+                EqualTo eq = (EqualTo) JoinUtils.swapEqualToForChildrenOrder(
+                        (EqualTo) conj, physicalHashJoin.left().getOutputSet());
+                ColumnStatistic leftColStats = probeStats.findColumnStatistics(eq.left());
+                if (leftColStats != null && !leftColStats.isUnKnown()) {
+                    if (leftColStats.ndv < beNumber) {
+                        penalty = Math.max(totalInstanceNumber / Math.max(1.0, leftColStats.ndv), penalty);
+                        break;
+                    }
                 }
-            }
 
-            ColumnStatistic rightColStats = buildStats.findColumnStatistics(eq.right());
-            if (rightColStats != null && !rightColStats.isUnKnown()) {
-                if (rightColStats.ndv < beNumber) {
-                    penalty = Math.max(totalInstanceNumber / Math.max(1.0, rightColStats.ndv), penalty);
-                    break;
+                ColumnStatistic rightColStats = buildStats.findColumnStatistics(eq.right());
+                if (rightColStats != null && !rightColStats.isUnKnown()) {
+                    if (rightColStats.ndv < beNumber) {
+                        penalty = Math.max(totalInstanceNumber / Math.max(1.0, rightColStats.ndv), penalty);
+                        break;
+                    }
                 }
             }
         }
