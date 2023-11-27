@@ -426,9 +426,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif
 
-    LOG_INFO("Instance {} executing",
-             PrintInstanceStandardInfo(fragment_executor->query_id(),
-                                       fragment_executor->fragment_instance_id()));
+    VLOG_DEBUG << fmt::format("Instance {}|{} executing", print_id(fragment_executor->query_id()),
+                              print_id(fragment_executor->fragment_instance_id()));
 
     Status st = fragment_executor->execute();
     if (!st.ok()) {
@@ -448,9 +447,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
 
-        LOG_INFO("Instance {} finished",
-                 PrintInstanceStandardInfo(fragment_executor->query_id(),
-                                           fragment_executor->fragment_instance_id()));
+        LOG_INFO("Instance {} finished", print_id(fragment_executor->fragment_instance_id()));
+
         if (all_done && query_ctx) {
             _query_ctx_map.erase(query_ctx->query_id());
             LOG_INFO("Query {} finished", print_id(query_ctx->query_id()));
@@ -1081,7 +1079,7 @@ void FragmentMgr::cancel_worker() {
             }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
-                    LOG_INFO("Query {} is timeout", print_id(it->first));
+                    LOG_WARNING("Query {} is timeout", print_id(it->first));
                     it = _query_ctx_map.erase(it);
                 } else {
                     ++it;

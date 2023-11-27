@@ -20,6 +20,7 @@
 
 #include "runtime/plan_fragment_executor.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -256,9 +257,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->query_mem_tracker()->limit();
-    LOG_INFO("PlanFragmentExecutor::open {}, mem_limit {}",
-             PrintInstanceStandardInfo(_query_ctx->query_id(), _fragment_instance_id),
-             PrettyPrinter::print(mem_limit, TUnit::BYTES));
+    LOG_INFO("PlanFragmentExecutor::open {}|{}, mem_limit {}", print_id(_query_ctx->query_id()),
+             print_id(_fragment_instance_id), PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
