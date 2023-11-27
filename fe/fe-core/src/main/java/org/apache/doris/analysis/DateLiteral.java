@@ -1094,25 +1094,17 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public LocalDateTime getTimeFormatter() {
-        TemporalAccessor accessor;
         if (type.equals(Type.DATE) || type.equals(Type.DATEV2)) {
-            accessor = DATE_FORMATTER.parse(getStringValue());
+            return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, 0, 0, 0);
         } else if (type.isDatetimeV2()) {
-            accessor = DATE_TIME_FORMATTER_TO_MICRO_SECOND.parse(getStringValue());
+            return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, (int) this.hour,
+                    (int) this.minute,
+                    (int) this.second, (int) this.microsecond * 1000);
         } else {
-            accessor = DATE_TIME_FORMATTER.parse(getStringValue());
+            return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, (int) this.hour,
+                    (int) this.minute,
+                    (int) this.second);
         }
-        final int year = accessor.get(ChronoField.YEAR);
-        final int month = accessor.get(ChronoField.MONTH_OF_YEAR);
-        final int dayOfMonth = accessor.get(ChronoField.DAY_OF_MONTH);
-        final int hour = getOrDefault(accessor, ChronoField.HOUR_OF_DAY, 0);
-        final int minute = getOrDefault(accessor, ChronoField.MINUTE_OF_HOUR, 0);
-        final int second = getOrDefault(accessor, ChronoField.SECOND_OF_MINUTE, 0);
-        final int microSeconds = getOrDefault(accessor, ChronoField.MICRO_OF_SECOND, 0);
-
-        // LocalDateTime of(int year, int month, int dayOfMonth, int hour, int minute,
-        // int second, int nanoOfSecond)
-        return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, microSeconds * 1000);
     }
 
     public DateLiteral plusYears(long year) throws AnalysisException {
