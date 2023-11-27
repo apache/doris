@@ -540,8 +540,8 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
 
         bool done = false;
         auto msg = std::make_unique<pulsar::Message>();
-        std::vector<char*> rows;
-        char* filter_data;
+        std::vector<const char*> rows;
+        std::string filter_data;
         // consume 1 message at a time
         consumer_watch.start();
         pulsar::Result res = _p_consumer.receive(*(msg.get()), 30000 /* timeout, ms */);
@@ -553,31 +553,32 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                           << ", message id: " << msg.get()->getMessageId()
                           << ", len: " << msg.get()->getLength();
                 //filter invalid prefix of json
-                filter_data =
-                    filter_invalid_prefix_of_json(static_cast<char*>(msg->getData()), msg.get()->getLength());
-                rows = convert_rows(filter_data);
-                for (char* row : rows) {
+                filter_data = substring_prefix_json(msg.get()->getDataAsString());
+                rows = convert_rows(filter_data.c_str());
+                for (const char* row : rows) {
                     pulsar::MessageBuilder messageBuilder;
                     size_t row_len = len_of_actual_data(row);
                     messageBuilder.setContent(row, row_len);
                     messageBuilder.setProperty("topicName",msg.get()->getTopicName());
                     pulsar::Message new_msg = messageBuilder.build();
-                    std::string partition = new_msg.getProperty("topicName");
                     new_msg.setMessageId(msg.get()->getMessageId());
+
+                    std::string partition = new_msg.getProperty("topicName");
                     pulsar::MessageId msg_id = new_msg.getMessageId();
                     std::size_t msg_len = new_msg.getLength();
-                    LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
+
+                    LOG(INFO) << "get pulsar message: " << new_msg.getDataAsString()
                               << ", partition: " << partition << ", message id: " << msg_id
                               << ", len: " << msg_len << ", filter_len: " << row_len
                               << ", size: " << rows.size()
                               << ", bool topicName: " << new_msg.hasProperty("topicName")
                               << ", value topicName: " << new_msg.getProperty("topicName");
+                   delete new_msg;
                 }
-                for (char* row : rows) {
+                for (const char* row : rows) {
                     delete[] row;
                 }
                 rows.clear();
-                delete[] filter_data;
             }
             if (msg.get()->getDataAsString().find("{\"") == std::string::npos) {
                 // ignore msg with length 0.
@@ -704,26 +705,19 @@ bool PulsarDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
     return true;
 }
 
-char* PulsarDataConsumer::filter_invalid_prefix_of_json(char* data, std::size_t size) {
-    // first index of '{'
-    int first_left_curly_bracket_index  = -1;
-    for (int i = 0; i < size; ++i) {
-        if (first_left_curly_bracket_index == -1 && data[i] == '{') {
-            first_left_curly_bracket_index = i;
-            if ( i+1 < size && data[i+1] == '{') {
-                first_left_curly_bracket_index = i + 1;
-            }
-            break;
-        }
-    }
-    if (first_left_curly_bracket_index >= 0) {
-        return data + first_left_curly_bracket_index;
+std::string PulsarDataConsumer::substring_prefix_json(std::string data) {
+    // 找到以 "{" 开头的位置
+    size_t startPos = data.find("{\"");
+
+    // 如果找到了，则截取并返回子字符串
+    if (startPos != std::string::npos) {
+        return data.substr(startPos);
     } else {
         return data;
     }
 }
 
-size_t PulsarDataConsumer::len_of_actual_data(char* data) {
+size_t PulsarDataConsumer::len_of_actual_data(const char* data) {
     size_t length = 0;
     while (data[length] != '\0') {
         ++length;
@@ -731,7 +725,7 @@ size_t PulsarDataConsumer::len_of_actual_data(char* data) {
     return length;
 }
 
-std::vector<char*> PulsarDataConsumer::convert_rows(char* data) {
+std::vector<char*> PulsarDataConsumer::convert_rows(const char* data) {
     std::vector<char*> targets;
     rapidjson::Document source;
     rapidjson::Document destination;
