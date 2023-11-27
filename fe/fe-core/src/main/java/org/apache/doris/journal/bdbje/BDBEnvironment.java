@@ -59,6 +59,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 /* this class contains the reference to bdb environment.
@@ -139,6 +140,8 @@ public class BDBEnvironment {
                 String.valueOf(Config.bdbje_reserved_disk_bytes));
 
         if (BDBJE_LOG_LEVEL.contains(Config.bdbje_file_logging_level)) {
+            java.util.logging.Logger parent = java.util.logging.Logger.getLogger("com.sleepycat.je");
+            parent.setLevel(Level.parse(Config.bdbje_file_logging_level));
             environmentConfig.setConfigParam(EnvironmentConfig.FILE_LOGGING_LEVEL, Config.bdbje_file_logging_level);
         } else {
             LOG.warn("bdbje_file_logging_level invalid value: {}, will not take effort, use default",
