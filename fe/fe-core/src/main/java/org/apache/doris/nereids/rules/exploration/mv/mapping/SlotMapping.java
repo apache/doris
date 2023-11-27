@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.BiMap;
@@ -31,18 +32,19 @@ import javax.annotation.Nullable;
  */
 public class SlotMapping extends Mapping {
 
-    private final BiMap<MappedSlot, MappedSlot> relationSlotMap;
+    private final BiMap<MappedSlot, MappedSlot> slotMapping;
 
-    public SlotMapping(BiMap<MappedSlot, MappedSlot> relationSlotMap) {
-        this.relationSlotMap = relationSlotMap;
+    public SlotMapping(BiMap<MappedSlot, MappedSlot> slotMapping) {
+        this.slotMapping = slotMapping;
     }
 
-    public BiMap<MappedSlot, MappedSlot> getRelationSlotMap() {
-        return relationSlotMap;
+    public BiMap<MappedSlot, MappedSlot> getSlotBiMap() {
+        return slotMapping;
     }
 
     public SlotMapping inverse() {
-        return SlotMapping.of(relationSlotMap.inverse());
+        return slotMapping == null
+                ? SlotMapping.of(HashBiMap.create()) : SlotMapping.of(slotMapping.inverse());
     }
 
     public static SlotMapping of(BiMap<MappedSlot, MappedSlot> relationSlotMap) {
@@ -71,5 +73,12 @@ public class SlotMapping extends Mapping {
             }
         }
         return SlotMapping.of(relationSlotMap);
+    }
+
+    /**
+     * SlotMapping, getSlotMap
+     */
+    public Map<? extends Expression, ? extends Expression> getSlotMap() {
+        return (Map) this.getSlotBiMap();
     }
 }

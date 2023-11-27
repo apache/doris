@@ -143,8 +143,9 @@ public abstract class AbstractMaterializedViewRule {
                 targetTopExpressions, targetStructInfo.getOriginalPlan(), Sets.newHashSet(), Sets.newHashSet());
         SlotMapping sourceToTargetSlotMapping = SlotMapping.generate(sourceToTargetMapping);
         // mv sql plan expressions transform to query based
-        List<? extends Expression> queryBasedExpressions = ExpressionUtils.permute(shuttledTargetExpressions,
-                sourceToTargetSlotMapping.inverse());
+        List<? extends Expression> queryBasedExpressions = ExpressionUtils.replace(
+                shuttledTargetExpressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
+                sourceToTargetSlotMapping.inverse().getSlotMap());
         // mv sql query based expression and index mapping
         ExpressionIndexMapping.generate(queryBasedExpressions);
         // TODO visit source expression and replace the expression with expressionIndexMapping
