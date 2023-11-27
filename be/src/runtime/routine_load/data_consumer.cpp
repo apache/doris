@@ -704,7 +704,7 @@ bool PulsarDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
     return true;
 }
 
-char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(char* data, std::size_t size) {
+char* PulsarDataConsumer::filter_invalid_prefix_of_json(char* data, std::size_t size) {
     // first index of '{'
     int first_left_curly_bracket_index  = -1;
     for (int i = 0; i < size; ++i) {
@@ -723,7 +723,7 @@ char* PulsarDataConsumerGroup::filter_invalid_prefix_of_json(char* data, std::si
     }
 }
 
-size_t PulsarDataConsumerGroup::len_of_actual_data(char* data) {
+size_t PulsarDataConsumer::len_of_actual_data(char* data) {
     size_t length = 0;
     while (data[length] != '\0') {
         ++length;
@@ -759,9 +759,9 @@ std::vector<const char*> PulsarDataConsumer::convert_rows(char* data) {
                 destination.Accept(writer);
 
                 size_t buffer_size = buffer.GetSize();
-                char* dest_string = new char[bufferSize + 1];
-                std::memcpy(dest_string, buffer.GetString(), bufferSize);
-                dest_string[bufferSize] = '\0';
+                char* dest_string = new char[buffer_size + 1];
+                std::memcpy(dest_string, buffer.GetString(), buffer_size);
+                dest_string[buffer_size] = '\0';
                 targets.push_back(dest_string);
 
                 destination.RemoveAllMembers();
