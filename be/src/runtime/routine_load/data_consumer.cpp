@@ -564,14 +564,17 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                     size_t row_len = len_of_actual_data(row);
                     messageBuilder.setContent(row, row_len);
                     messageBuilder.setProperty("topicName",msg.get()->getTopicName());
+                    messageBuilder.setProperty("messageId","-1");
                     pulsar::Message new_msg = messageBuilder.build();
 
                     std::string partition = new_msg.getProperty("topicName");
+                    new_msg.setMessageId(msg.get()->getMessageId());
                     pulsar::MessageId msg_id = new_msg.getMessageId();
                     std::size_t msg_len = new_msg.getLength();
                     LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
                               << ", partition: " << partition << ", message id: " << msg_id
-                              << ", len: " << msg_len << ", filter_len: " << row_len << ", size: " << rows.size();
+                              << ", len: " << msg_len << ", filter_len: " << row_len << ", size: " << rows.size()
+                              << ", bool: " << new_msg.hasProperty("messageId");
                 }
             }
 
@@ -580,8 +583,12 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 delete[] ptr;
             }
             rows.clear();
-
-            if (!queue->blocking_put(msg.get())) {
+            if (msg.get()->getDataAsString().find('{') == std::string::npos) {
+                // ignore msg with length 0.
+                // put empty msg into queue will cause the load process shutting down.
+                LOG(INFO) << "pass null message: " << msg.get()->getDataAsString();
+                break;
+            } else if (!queue->blocking_put(msg.get())) {
                 // queue is shutdown
                 done = true;
             } else {
