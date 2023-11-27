@@ -542,6 +542,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         auto msg = std::make_unique<pulsar::Message>();
         std::vector<const char*> rows;
         std::string filter_data;
+        pulsar::Message* new_msg;
         // consume 1 message at a time
         consumer_watch.start();
         pulsar::Result res = _p_consumer.receive(*(msg.get()), 30000 /* timeout, ms */);
@@ -556,7 +557,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 size_t row_len = len_of_actual_data(row);
                 messageBuilder.setContent(row, row_len);
                 messageBuilder.setProperty("topicName",msg.get()->getTopicName());
-                pulsar::Message* new_msg = new pulsar::Message(messageBuilder.build());
+                new_msg = new pulsar::Message(messageBuilder.build());
                 new_msg->setMessageId(msg.get()->getMessageId());
 
                 LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
@@ -567,7 +568,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                     // put empty msg into queue will cause the load process shutting down.
                     LOG(INFO) << "pass error message: " << new_msg->getDataAsString();
                     break;
-                } else if (!queue->blocking_put(new_msg)) {
+                } else if (!queue->blocking_put(&(*new_msg))) {
                     LOG(INFO) << "release message";
                     // queue is shutdown
                     done = true;
