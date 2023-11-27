@@ -172,11 +172,5 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Blo
     return b;
 }
 
-pipeline::Dependency* AsyncResultWriter::write_blocked_by(pipeline::PipelineXTask* task) {
-    std::lock_guard l(_m);
-    DCHECK(_dependency != nullptr);
-    return _dependency->is_blocked_by(task);
-}
-
 } // namespace vectorized
 } // namespace doris

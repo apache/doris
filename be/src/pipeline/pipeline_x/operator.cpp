@@ -529,11 +529,6 @@ Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Bl
 }
 
 template <typename Writer, typename Parent>
-Dependency* AsyncWriterSink<Writer, Parent>::write_blocked_by(PipelineXTask* task) {
-    return _writer->write_blocked_by(task);
-}
-
-template <typename Writer, typename Parent>
 Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();

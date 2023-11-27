@@ -500,7 +500,7 @@ public:
 
     Result<SinkLocalState*> get_sink_local_state_result(int id);
 
-    void resize_op_id_to_local_state(int size);
+    void resize_op_id_to_local_state(int operator_size, int sink_size);
 
 private:
     Status create_error_log_file();
