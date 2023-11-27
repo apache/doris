@@ -88,4 +88,36 @@ suite("query_on_specific_partition") {
     qt_sql """
         SELECT * FROM test_iot PARTITION p1;
     """
+
+    sql """
+            DROP TABLE IF EXISTS ut_p;
+        """
+
+    sql """
+        CREATE TABLE ut_p (
+            id BIGINT,
+            val BIGINT,
+            str VARCHAR(114)
+        ) unique KEY(`id`)
+        PARTITION BY RANGE(`id`)
+        (
+            PARTITION `p1` VALUES LESS THAN ('5'),
+            PARTITION `p2` VALUES LESS THAN ('10')
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 3
+        PROPERTIES (
+        "replication_num"="1"
+        );
+    """
+
+    sql """ALTER TABLE ut_p ADD TEMPORARY PARTITION tp1 VALUES [("15"), ("20"));"""
+
+    sql "INSERT INTO ut_p TEMPORARY PARTITION(tp1) values(16,1234, 't');"
+
+    sql "SET enable_fallback_to_original_planner=false"
+
+    qt_sql """select * from ut_p temporary partitions(tp1);"""
+
+
+    
 }
