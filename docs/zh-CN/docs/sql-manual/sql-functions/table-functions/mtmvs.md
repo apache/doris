@@ -57,7 +57,7 @@ mysql> desc function mtmvs("database"="db1");
 | RefreshInfo        | TEXT   | No   | false | NULL    | NONE  |
 | QuerySql           | TEXT   | No   | false | NULL    | NONE  |
 | EnvInfo            | TEXT   | No   | false | NULL    | NONE  |
-| MvPropertiesMvProperties       | TEXT   | No   | false | NULL    | NONE  |
+| MvProperties       | TEXT   | No   | false | NULL    | NONE  |
 +--------------------+--------+------+-------+---------+-------+
 10 rows in set (0.00 sec)
 ```
