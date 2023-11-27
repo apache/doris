@@ -218,6 +218,7 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     auto slots = _tuple_desc->slots();
 
     jobject map = _get_reader_params(block, env, column_size);
+    SCOPED_RAW_TIMER(&_jdbc_statistic._get_block_address_timer);
     long address =
             env->CallLongMethod(_executor_obj, _executor_get_block_address_id, batch_size, map);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
@@ -227,6 +228,7 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     for (size_t i = 0; i < column_size; ++i) {
         all_columns.push_back(i);
     }
+    SCOPED_RAW_TIMER(&_jdbc_statistic._fill_block_timer);
     Status fill_block_status = JniConnector::fill_block(block, all_columns, address);
     if (!fill_block_status) {
         return fill_block_status;
