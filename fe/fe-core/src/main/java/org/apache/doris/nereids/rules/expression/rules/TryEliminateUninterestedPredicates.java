@@ -109,7 +109,9 @@ public class TryEliminateUninterestedPredicates extends DefaultExpressionRewrite
     public Expression visitAnd(And and, Context parentContext) {
         Expression left = and.left();
         Context leftContext = new Context();
-        Expression newLeft = this.visit(left, leftContext);
+        // Expression newLeft = this.visit(left, leftContext);
+        Expression newLeft = left.accept(this, leftContext);
+
         if (leftContext.childrenContainsNonInterestedSlots) {
             newLeft = BooleanLiteral.TRUE;
         }

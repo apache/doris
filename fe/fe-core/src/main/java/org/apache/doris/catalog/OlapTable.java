@@ -90,7 +90,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -789,6 +788,7 @@ public class OlapTable extends Table {
         defaultDistributionInfo.markAutoBucket();
     }
 
+    @Override
     public Set<String> getDistributionColumnNames() {
         Set<String> distributionColumnNames = Sets.newHashSet();
         if (defaultDistributionInfo instanceof RandomDistributionInfo) {
@@ -965,6 +965,18 @@ public class OlapTable extends Table {
         return partition;
     }
 
+    // select the non-empty partition ids belonging to this table.
+    //
+    // ATTN: partitions not belonging to this table will be filtered.
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+        return partitionIds.stream()
+                .map(this::getPartition)
+                .filter(p -> p != null)
+                .filter(Partition::hasData)
+                .map(Partition::getId)
+                .collect(Collectors.toList());
+    }
+
     public int getPartitionNum() {
         return idToPartition.size();
     }
@@ -1071,6 +1083,14 @@ public class OlapTable extends Table {
         return null;
     }
 
+    public void setGroupCommitIntervalMs(int groupCommitInterValMs) {
+        getOrCreatTableProperty().setGroupCommitIntervalMs(groupCommitInterValMs);
+    }
+
+    public int getGroupCommitIntervalMs() {
+        return getOrCreatTableProperty().getGroupCommitIntervalMs();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -1142,6 +1162,7 @@ public class OlapTable extends Table {
         }
         if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
                 .stream()
+                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                 .map(Column::getName)
                 .collect(Collectors.toSet()))) {
             return true;
@@ -1158,16 +1179,20 @@ public class OlapTable extends Table {
         Set<String> allPartitions = table.getPartitionNames().stream().map(table::getPartition)
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
         if (tableStats == null) {
-            return table.getBaseSchema().stream().collect(Collectors.toMap(Column::getName, v -> allPartitions));
+            return table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                .collect(Collectors.toMap(Column::getName, v -> allPartitions));
         }
         Map<String, Set<String>> colToPart = new HashMap<>();
         for (Column col : table.getBaseSchema()) {
+            if (StatisticsUtil.isUnsupportedType(col.getType())) {
+                continue;
+            }
             long lastUpdateTime = tableStats.findColumnLastUpdateTime(col.getName());
             Set<String> partitions = table.getPartitionNames().stream()
                     .map(table::getPartition)
                     .filter(Partition::hasData)
                     .filter(partition ->
-                            partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
+                        partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
                     .collect(Collectors.toSet());
             colToPart.put(col.getName(), partitions);
         }
@@ -1181,6 +1206,11 @@ public class OlapTable extends Table {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
         }
         return rowCount;
+    }
+
+    @Override
+    public long getCacheRowCount() {
+        return getRowCount();
     }
 
     @Override
@@ -1282,14 +1312,7 @@ public class OlapTable extends Table {
 
     @Override
     public boolean isPartitioned() {
-        int numSegs = 0;
-        for (Partition part : getPartitions()) {
-            numSegs += part.getDistributionInfo().getBucketNum();
-            if (numSegs > 1) {
-                return true;
-            }
-        }
-        return false;
+        return !PartitionType.UNPARTITIONED.equals(partitionInfo.getType());
     }
 
     @Override
@@ -2373,11 +2396,10 @@ public class OlapTable extends Table {
         }
     }
 
-    @Override
     public boolean isDistributionColumn(String columnName) {
         Set<String> distributeColumns = getDistributionColumnNames()
                 .stream().map(String::toLowerCase).collect(Collectors.toSet());
-        return distributeColumns.contains(columnName.toLowerCase(Locale.ROOT));
+        return distributeColumns.contains(columnName.toLowerCase());
     }
 
     @Override

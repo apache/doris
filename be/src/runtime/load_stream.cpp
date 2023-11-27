@@ -18,6 +18,8 @@
 #include "runtime/load_stream.h"
 
 #include <brpc/stream.h>
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <olap/rowset/rowset_factory.h>
 #include <olap/rowset/rowset_meta.h>
 #include <olap/storage_engine.h>
@@ -306,8 +308,8 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
                         }
                     }
                     LOG(INFO) << "close load " << *this
-                              << ", failed_tablet_num=" << failed_tablet_ids->size()
-                              << ", success_tablet_num=" << success_tablet_ids->size();
+                              << ", success_tablet_num=" << success_tablet_ids->size()
+                              << ", failed_tablet_num=" << failed_tablet_ids->size();
                     std::unique_lock<bthread::Mutex> lock(mutex);
                     cond.notify_one();
                 });
@@ -324,7 +326,7 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
 void LoadStream::_report_result(StreamId stream, const Status& st,
                                 const std::vector<int64_t>& success_tablet_ids,
                                 const std::vector<int64_t>& failed_tablet_ids) {
-    LOG(INFO) << "report result, success tablet num " << success_tablet_ids.size()
+    LOG(INFO) << "report result " << *this << ", success tablet num " << success_tablet_ids.size()
               << ", failed tablet num " << failed_tablet_ids.size();
     butil::IOBuf buf;
     PWriteStreamSinkResponse response;
@@ -357,6 +359,32 @@ void LoadStream::_report_result(StreamId stream, const Status& st,
     // TODO: handle EAGAIN
     if (ret != 0) {
         LOG(INFO) << "stream write report status " << ret << ": " << std::strerror(ret);
+    }
+}
+
+void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
+    butil::IOBuf buf;
+    PWriteStreamSinkResponse response;
+    Status st = Status::OK();
+    for (const auto& req : hdr.tablets()) {
+        TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+        TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
+        if (tablet == nullptr) {
+            st = Status::NotFound("Tablet {} not found", req.tablet_id());
+            break;
+        }
+        auto resp = response.add_tablet_schemas();
+        resp->set_index_id(req.index_id());
+        resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
+        tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+    }
+    st.to_protobuf(response.mutable_status());
+
+    buf.append(response.SerializeAsString());
+    int ret = brpc::StreamWrite(stream, buf);
+    // TODO: handle EAGAIN
+    if (ret != 0) {
+        LOG(INFO) << "stream write report schema " << ret << ": " << std::strerror(ret);
     }
 }
 
@@ -430,9 +458,8 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
     if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
-        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid load id {}, expected {}",
-                                                               UniqueId(hdr.load_id()).to_string(),
-                                                               UniqueId(_load_id).to_string());
+        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "invalid load id {}, expected {}", print_id(hdr.load_id()), print_id(_load_id));
         _report_failure(id, st, hdr);
         return;
     }
@@ -458,11 +485,13 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     case PStreamHeader::CLOSE_LOAD: {
         std::vector<int64_t> success_tablet_ids;
         std::vector<int64_t> failed_tablet_ids;
-        std::vector<PTabletID> tablets_to_commit(hdr.tablets_to_commit().begin(),
-                                                 hdr.tablets_to_commit().end());
+        std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
         auto st = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablet_ids);
         _report_result(id, st, success_tablet_ids, failed_tablet_ids);
         brpc::StreamClose(id);
+    } break;
+    case PStreamHeader::GET_SCHEMA: {
+        _report_schema(id, hdr);
     } break;
     default:
         LOG(WARNING) << "unexpected stream message " << hdr.opcode();

@@ -51,12 +51,14 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
             profile(), p.is_merging(), p.sub_plan_query_statistics_recvr());
-    source_dependency = AndDependency::create_shared(_parent->operator_id());
+    source_dependency = AndDependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                     state->get_query_ctx());
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());
     for (size_t i = 0; i < queues.size(); i++) {
-        deps[i] = ExchangeDataDependency::create_shared(_parent->operator_id(), queues[i]);
+        deps[i] = ExchangeDataDependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                        state->get_query_ctx(), queues[i]);
         queues[i]->set_dependency(deps[i]);
         source_dependency->add_child(deps[i]);
     }
@@ -175,7 +177,7 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     }
     const auto& queues = stream_recvr->sender_queues();
     for (size_t i = 0; i < deps.size(); i++) {
-        COUNTER_SET(metrics[i], deps[i]->read_watcher_elapse_time());
+        COUNTER_SET(metrics[i], deps[i]->watcher_elapse_time());
     }
     if (stream_recvr != nullptr) {
         stream_recvr->close();

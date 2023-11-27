@@ -28,6 +28,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
@@ -367,6 +368,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -374,7 +376,6 @@ import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.scheduler.common.IntervalUnit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -491,9 +492,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 bucketNum, ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
+
         return new CreateMTMVCommand(new CreateMTMVInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts),
                 ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
-                ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null,
+                comment,
                 desc, properties, logicalPlan, querySql,
                 new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols)
@@ -512,8 +516,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public SimpleColumnDefinition visitSimpleColumnDef(SimpleColumnDefContext ctx) {
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         return new SimpleColumnDefinition(ctx.colName.getText().toLowerCase(),
-                ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null);
+                comment);
     }
 
     /**
@@ -986,22 +992,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             SelectClauseContext selectCtx = ctx.selectClause();
             LogicalPlan selectPlan;
+            LogicalPlan relation;
             if (ctx.fromClause() == null) {
                 SelectColumnClauseContext columnCtx = selectCtx.selectColumnClause();
                 if (columnCtx.EXCEPT() != null) {
                     throw new ParseException("select-except cannot be used in one row relation", selectCtx);
                 }
-                selectPlan = withOneRowRelation(columnCtx);
+                relation = withOneRowRelation(columnCtx);
             } else {
-                LogicalPlan relation = visitFromClause(ctx.fromClause());
-                selectPlan = withSelectQuerySpecification(
-                        ctx, relation,
-                        selectCtx,
-                        Optional.ofNullable(ctx.whereClause()),
-                        Optional.ofNullable(ctx.aggClause()),
-                        Optional.ofNullable(ctx.havingClause())
-                );
+                relation = visitFromClause(ctx.fromClause());
             }
+            selectPlan = withSelectQuerySpecification(
+                    ctx, relation,
+                    selectCtx,
+                    Optional.ofNullable(ctx.whereClause()),
+                    Optional.ofNullable(ctx.aggClause()),
+                    Optional.ofNullable(ctx.havingClause()));
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
@@ -1333,7 +1339,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit(), true);
+                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit());
             }
 
             if (right instanceof Interval) {
@@ -1346,7 +1352,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit(), false);
+                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit());
             }
 
             return ParserUtils.withOrigin(ctx, () -> {
@@ -1655,6 +1661,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private Expression processCast(Expression cast, DataType dataType) {
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
+            if (dataType.isVarcharType() && ((VarcharType) dataType).isWildcardVarchar()) {
+                return cast;
+            }
             List<Expression> args = ImmutableList.of(
                     cast,
                     new TinyIntLiteral((byte) 1),
@@ -1901,11 +1910,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * TODO remove this function after we refactor type coercion.
      */
     private List<Literal> typeCoercionItems(List<Literal> items) {
-        DataType dataType = new Array(items.toArray(new Literal[0])).expectedInputTypes().get(0);
+        Array array = new Array(items.toArray(new Literal[0]));
+        if (array.expectedInputTypes().isEmpty()) {
+            return ImmutableList.of();
+        }
+        DataType dataType = array.expectedInputTypes().get(0);
         return items.stream()
                 .map(item -> item.checkedCastTo(dataType))
                 .map(Literal.class::cast)
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -2148,6 +2161,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isNotNull = ctx.NOT() != null;
         String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
         Optional<DefaultValue> defaultValue = Optional.empty();
+        Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
             if (ctx.INTEGER_VALUE() != null) {
                 defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
@@ -2156,12 +2170,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else if (ctx.nullValue != null) {
                 defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
             } else if (ctx.CURRENT_TIMESTAMP() != null) {
-                if (ctx.precision == null) {
+                if (ctx.defaultValuePrecision == null) {
                     defaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
                 } else {
                     defaultValue = Optional.of(DefaultValue
-                            .currentTimeStampDefaultValueWithPrecision(Long.valueOf(ctx.precision.getText())));
+                            .currentTimeStampDefaultValueWithPrecision(
+                                    Long.valueOf(ctx.defaultValuePrecision.getText())));
                 }
+            }
+        }
+        if (ctx.UPDATE() != null) {
+            if (ctx.onUpdateValuePrecision == null) {
+                onUpdateDefaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
+            } else {
+                onUpdateDefaultValue = Optional.of(DefaultValue
+                        .currentTimeStampDefaultValueWithPrecision(
+                                Long.valueOf(ctx.onUpdateValuePrecision.getText())));
             }
         }
         AggregateType aggType = null;
@@ -2174,7 +2198,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         String comment = ctx.comment != null ? ctx.comment.getText() : "";
-        return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
+        return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue,
+                onUpdateDefaultValue, comment);
     }
 
     @Override
@@ -2886,7 +2911,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new TableSample(percent, true, seek);
         }
         SampleByRowsContext sampleByRowsContext = (SampleByRowsContext) sampleContext;
-        long rows = Long.parseLong(sampleByRowsContext.ROWS().getText());
+        long rows = Long.parseLong(sampleByRowsContext.INTEGER_VALUE().getText());
         return new TableSample(rows, false, seek);
     }
 
