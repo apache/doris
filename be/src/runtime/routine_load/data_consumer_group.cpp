@@ -355,7 +355,11 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
             bool append_all = true;
             for (const char* row : rows) {
                 size_t  row_len = len_of_actual_data(row);
-                if (rows_size > 5) {
+                if (rows_size > 1) {
+                    LOG(INFO) << "get pulsar message"
+                              << ", partition: " << partition << ", message id: " << msg_id
+                              << ", len: " << len << ", filter_len: " << row_len << ", size: " << rows_size;
+                } else if (rows_size > 5) {
                     LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
                               << ", partition: " << partition << ", message id: " << msg_id
                               << ", len: " << len << ", filter_len: " << row_len << ", size: " << rows_size;
@@ -376,6 +380,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                     break;
                 } else {
                     left_bytes -= row_len;
+                    eos = true;
                 }
             }
             //delete
