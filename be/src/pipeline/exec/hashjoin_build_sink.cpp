@@ -49,9 +49,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
-    if (p._is_broadcast_join && state->enable_share_hash_table_for_broadcast_join()) {
-        _shared_state->build_block = p._shared_hash_table_context->block;
-    }
+
     _shared_state->is_null_safe_eq_join = p._is_null_safe_eq_join;
     _shared_state->store_null_in_hash_table = p._store_null_in_hash_table;
     _build_expr_ctxs.resize(p._build_expr_ctxs.size());
@@ -508,6 +506,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                         _shared_hash_table_context);
             }
             _shared_hashtable_controller->signal(node_id());
+            _shared_hash_table_context->block = local_state._shared_state->build_block;
         }
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
@@ -534,6 +533,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 *local_state._shared_state->hash_table_variants,
                 *std::static_pointer_cast<vectorized::HashTableVariants>(
                         _shared_hash_table_context->hash_table_variants));
+
+        local_state._shared_state->build_block = _shared_hash_table_context->block;
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
             auto ret = std::visit(

@@ -265,7 +265,7 @@ void Block::erase(const String& name) {
 ColumnWithTypeAndName& Block::safe_get_by_position(size_t position) {
     if (position >= data.size()) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "invalid input position, position={}, data.size{}, names={}", position,
+                        "invalid input position, position={}, data.size={}, names={}", position,
                         data.size(), dump_names());
     }
     return data[position];
@@ -274,7 +274,7 @@ ColumnWithTypeAndName& Block::safe_get_by_position(size_t position) {
 const ColumnWithTypeAndName& Block::safe_get_by_position(size_t position) const {
     if (position >= data.size()) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "invalid input position, position={}, data.size{}, names={}", position,
+                        "invalid input position, position={}, data.size={}, names={}", position,
                         data.size(), dump_names());
     }
     return data[position];
