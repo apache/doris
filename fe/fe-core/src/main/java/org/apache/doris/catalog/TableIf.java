@@ -121,6 +121,10 @@ public interface TableIf {
 
     long getRowCount();
 
+    // Get the exact number of rows in the internal table;
+    // Get the number of cached rows or estimated rows in the external table, if not, return -1.
+    long getCacheRowCount();
+
     long getDataLength();
 
     long getAvgRowLength();
