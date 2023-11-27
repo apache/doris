@@ -48,9 +48,22 @@ public:
 
     int slot_id() const { return _slot_id; }
 
+    int32_t col_unique_id() const { return _col_unique_id; }
+
+    void set_col_unique_id(int32_t col_unique_id) { _col_unique_id = col_unique_id; }
+
+    void set_push_down_column_index(int32_t push_down_column_index) {
+        _push_down_column_index = push_down_column_index;
+    }
+
 private:
     int _slot_id;
-    int _column_id;
+    int _column_id;         // scan tuple/block column index
+    int32_t _col_unique_id; // column unique id, global unique
+    // segment iterator output batch/block column index.
+    // when reade unique mor/agg key table, all key columns will be read,
+    // which may lead to different column index from scan tuple/block.
+    int32_t _push_down_column_index;
     const std::string* _column_name;
 };
 } // namespace vectorized

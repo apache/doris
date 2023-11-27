@@ -87,6 +87,8 @@ protected:
 private:
     void _update_realtime_counters();
 
+    void _perfect_slot_column_id(const VExprSPtr& expr);
+
     Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
                                       const std::vector<TCondition>& filters,
                                       const FilterPredicates& filter_predicates,

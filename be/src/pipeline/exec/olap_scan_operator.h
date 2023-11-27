@@ -29,6 +29,7 @@
 
 namespace doris {
 class ExecNode;
+class VExpr;
 
 namespace vectorized {
 class NewOlapScanner;
@@ -74,7 +75,9 @@ private:
         return vectorized::VScanNode::PushDownType::ACCEPTABLE;
     }
 
-    bool _should_push_down_common_expr() override;
+    bool _all_slots_is_key_column(const vectorized::VExpr& expr) override;
+
+    bool _should_push_down_common_expr(const vectorized::VExpr& expr) override;
 
     bool _storage_no_merge() override;
 

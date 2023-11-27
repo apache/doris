@@ -176,6 +176,15 @@ public:
     const std::vector<int32_t>& unique_ids() const { return _unique_ids; }
     ColumnId column_id(size_t index) const { return _col_ids[index]; }
     int32_t unique_id(size_t index) const { return _unique_ids[index]; }
+    int32_t col_id_to_col_ids_index(int cid) const {
+        DCHECK(cid >= 0);
+        for (int index = 0; index < _col_ids.size(); index++) {
+            if (cid == _col_ids[index]) {
+                return index;
+            }
+        }
+        return -1;
+    }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _has_sequence_col; }
     int32_t rowid_col_idx() const { return _rowid_col_idx; }
@@ -190,6 +199,8 @@ private:
 
     void _copy_from(const Schema& other);
 
+    // All the columns of one table may exist in the _cols, but col_ids is only a subset.
+    // In segment interator, only include the columns that need to be read.
     // NOTE: The ColumnId here represents the sequential index number (starting from 0) of
     // a column in current row, not the unique id-identifier of each column
     std::vector<ColumnId> _col_ids;
