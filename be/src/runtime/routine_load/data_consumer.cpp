@@ -574,7 +574,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 } else {
                     LOG(INFO) << "start release message";
                     ++put_rows;
-                    delete &(msg.get());
+                    delete *msg.get();
                     msg.release(); // release the ownership, msg will be deleted after being processed
                     LOG(INFO) << "finish release message";
                 }
