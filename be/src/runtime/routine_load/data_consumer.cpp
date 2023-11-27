@@ -548,12 +548,13 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         consumer_watch.start();
         pulsar::Result res = _p_consumer.receive(*(msg.get()), 30000 /* timeout, ms */);
         consumer_watch.stop();
+        //parse json
+        const char* filter_data =
+            filter_invalid_prefix_of_json(static_cast<const char*>(msg.get()->getData()), msg.get()->getLength());
+        std::vector<const char*> rows = convert_rows(filter_data);
         switch (res) {
         case pulsar::ResultOk:
             //parse json
-            const char* filter_data =
-                filter_invalid_prefix_of_json(static_cast<const char*>(msg.get()->getData()), msg.get()->getLength());
-            std::vector<const char*> rows = convert_rows(filter_data);
             if (rows.size() > 1) {
                 LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
                           << ", message id: " << msg.get()->getMessageId()
