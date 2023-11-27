@@ -376,6 +376,18 @@ Is it a configuration item unique to the Master FE node: true
 
 Whether to enable the multi-tags function of a single BE
 
+#### `initial_root_password`
+
+Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. Subsequent `set password` operations for root user will overwrite the initial root password.
+
+Example: If you want to configure a plaintext password `root@123`. You can execute Doris SQL `select password('root@123')` to generate encrypted password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`.
+
+Default: empty string
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
+
 ### Service
 
 #### `query_port`

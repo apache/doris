@@ -55,6 +55,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.ldap.LdapUserInfo;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -70,6 +71,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1346,6 +1348,29 @@ public class Auth implements Writable {
                     false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
+        }
+    }
+
+    public void setInitialRootPassword(String initialRootPassword) {
+        // Skip set root password if `initial_root_password` set to empty string
+        if (StringUtils.isEmpty(initialRootPassword)) {
+            return;
+        }
+        byte[] scramble;
+        try {
+            scramble = MysqlPassword.checkPassword(initialRootPassword);
+        } catch (AnalysisException e) {
+            // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
+            LOG.warn("initial_root_password [{}] is not valid 2-staged SHA-1 encrypted, ignore it",
+                    initialRootPassword);
+            return;
+        }
+        UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
+        rootUser.setIsAnalyzed();
+        try {
+            setPasswordInternal(rootUser, scramble, null, false, false, false);
+        } catch (DdlException e) {
+            LOG.warn("Fail to set initial root password, ignore it", e);
         }
     }
 
