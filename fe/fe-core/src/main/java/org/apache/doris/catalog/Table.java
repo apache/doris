@@ -162,10 +162,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public boolean tryReadLock(long timeout, TimeUnit unit) {
         try {
+            Thread lastOwner = rwLock.getOwner();
             boolean res = this.rwLock.readLock().tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
-                LOG.warn("Failed to try table {}'s read lock. timeout {} {}. Current owner: {}",
-                        name, timeout, unit.name(), rwLock.getOwner());
+                LOG.warn("Failed to try table {}'s read lock. timeout {} {}. Last owner: {}, "
+                        + "current owner: {}, waiting threads: {}",
+                        name, timeout, unit.name(), lastOwner, lastOwner, rwLock.getOwner(), rwLock.getQueuedThreads());
             }
             return res;
         } catch (InterruptedException e) {
@@ -193,10 +195,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
+            Thread lastOwner = rwLock.getOwner();
             boolean res = this.rwLock.writeLock().tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
-                LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
-                        name, timeout, unit.name(), rwLock.getOwner());
+                LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Last owner: {}, "
+                        + "current owner: {}, waiting threads: {}",
+                        name, timeout, unit.name(), lastOwner, lastOwner, rwLock.getOwner(), rwLock.getQueuedThreads());
             }
             return res;
         } catch (InterruptedException e) {
