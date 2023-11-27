@@ -70,8 +70,7 @@ public class TransactionStateTest {
 
         // 2. Read objects from file
         DataInputStream in = new DataInputStream(new FileInputStream(file));
-        TransactionState readTransactionState = new TransactionState();
-        readTransactionState.readFields(in);
+        TransactionState readTransactionState = TransactionState.read(in);
 
         Assert.assertEquals(transactionState.getCoordinator().ip, readTransactionState.getCoordinator().ip);
         in.close();
