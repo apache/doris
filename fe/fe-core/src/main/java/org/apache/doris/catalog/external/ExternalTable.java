@@ -282,6 +282,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 0;
     }
 
+    public long getCacheRowCount() {
+        return 0;
+    }
+
     @Override
     public long getAvgRowLength() {
         return 0;
