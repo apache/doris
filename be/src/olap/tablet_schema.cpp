@@ -644,14 +644,14 @@ vectorized::DataTypePtr TabletColumn::get_vec_type() const {
     return vectorized::DataTypeFactory::instance().create_data_type(*this);
 }
 
-// escape '.' as '%2E'
+// escape '.' and '_'
 std::string escape_for_path_name(const std::string& s) {
     std::string res;
     const char* pos = s.data();
     const char* end = pos + s.size();
     while (pos != end) {
         unsigned char c = *pos;
-        if (c == '.') {
+        if (c == '.' || c == '_') {
             res += '%';
             res += vectorized::hex_digit_uppercase(c / 16);
             res += vectorized::hex_digit_uppercase(c % 16);
