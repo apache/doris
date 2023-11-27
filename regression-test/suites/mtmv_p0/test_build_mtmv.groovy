@@ -19,10 +19,12 @@ suite("test_build_mtmv") {
     def tableName = "t_test_create_mtmv_user"
     def tableNamePv = "t_test_create_mtmv_user_pv"
     def mvName = "multi_mv_test_create_mtmv"
+    def viewName = "multi_mv_test_create_view"
     def mvNameRenamed = "multi_mv_test_create_mtmv_renamed"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop table if exists `${tableNamePv}`"""
+    sql """drop view if exists `${viewName}`"""
 
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
@@ -54,6 +56,10 @@ suite("test_build_mtmv") {
         INSERT INTO ${tableNamePv} VALUES("2022-10-26",1,200),("2022-10-28",2,200),("2022-10-28",3,300);
     """
 
+    sql """
+        create view if not exists ${viewName} as select * from ${tableName};
+    """
+
     sql """drop materialized view if exists ${mvName};"""
     sql """drop materialized view if exists ${mvNameRenamed};"""
 
@@ -64,7 +70,10 @@ suite("test_build_mtmv") {
         BUILD DEFERRED REFRESH COMPLETE ON MANUAL
         COMMENT "comment1"
         DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1')
+        PROPERTIES (
+        'replication_num' = '1',
+        "grace_period"="333"
+        )
         AS
         SELECT id, username FROM ${tableName};
         """
@@ -72,18 +81,64 @@ suite("test_build_mtmv") {
     def showCreateTableResult = sql """show create table ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 10\nPROPERTIES"))
+
+    // if not exist
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW IF NOT EXISTS ${mvName}
+            BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * from ${tableName};
+        """
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        Assert.fail();
+    }
+
+    // not use `if not exist`
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * from ${mvName};
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
+    // not allow create mv use other mv
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvNameRenamed}
+            BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * from ${mvName};
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
 
-    // IMMEDIATE MANUAL
+    // IMMEDIATE MANUAL and use view
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS 
-        SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        SELECT * from ${viewName};
     """
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName
