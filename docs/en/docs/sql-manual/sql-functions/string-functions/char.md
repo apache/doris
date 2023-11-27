@@ -24,8 +24,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="2.0">
-
 ## function char
 ### description
 #### Syntax
