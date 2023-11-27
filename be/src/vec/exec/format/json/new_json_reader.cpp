@@ -1325,11 +1325,11 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         for (auto* slot_desc : slot_descs) {
             col_names.append(slot_desc->col_name() + ", ");
         }
-        RETURN_IF_ERROR(_append_error_msg(
-                value,
-                "All fields is null, this is a invalid row. "
-                "Table column names:[{}], please check columns mapping or data quality",
-                col_names, valid));
+        RETURN_IF_ERROR(_append_error_msg(value,
+                                          "All fields is null, this is a invalid row. "
+                                          "Column names:[{}], jsonpaths:{}, please check column "
+                                          "names and jsonpaths or check data quality",
+                                          col_names, valid));
         return Status::OK();
     }
 
@@ -1634,8 +1634,8 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         }
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "All fields is null, this is a invalid row. "
-                                          "Table column names:[{}], please check columns mapping "
-                                          "or data quality or data quality",
+                                          "Column names:[{}], jsonpaths:{}, please check column "
+                                          "names and jsonpaths or check data quality",
                                           col_names, valid));
         return Status::OK();
     }
