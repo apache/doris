@@ -212,7 +212,7 @@ public:
 
     size_t len_of_actual_data(const char* data);
 
-    std::vector<char*> convert_rows(const char* data);
+    std::vector<const char*> convert_rows(const char* data);
 private:
     std::string _service_url;
     std::string _topic;

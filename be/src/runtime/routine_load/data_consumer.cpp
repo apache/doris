@@ -573,7 +573,6 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                               << ", size: " << rows.size()
                               << ", bool topicName: " << new_msg.hasProperty("topicName")
                               << ", value topicName: " << new_msg.getProperty("topicName");
-                   delete new_msg;
                 }
                 for (const char* row : rows) {
                     delete[] row;
@@ -725,8 +724,8 @@ size_t PulsarDataConsumer::len_of_actual_data(const char* data) {
     return length;
 }
 
-std::vector<char*> PulsarDataConsumer::convert_rows(const char* data) {
-    std::vector<char*> targets;
+std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
+    std::vector<const char*> targets;
     rapidjson::Document source;
     rapidjson::Document destination;
     rapidjson::StringBuffer buffer;
