@@ -21,7 +21,6 @@ suite("test_backup_restore_keep_on_local", "backup_restore") {
     String tableName = "test_backup_restore_table"
 
     def syncer = getSyncer()
-    syncer.createS3Repository(repoName)
 
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
@@ -76,13 +75,6 @@ suite("test_backup_restore_keep_on_local", "backup_restore") {
         // Check the error message
         assertTrue(e.message.contains("not supported"))
     }
-
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
-
-    result = sql "SELECT * FROM ${dbName}.${tableName}"
-    assertEquals(result.size(), values.size());
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
