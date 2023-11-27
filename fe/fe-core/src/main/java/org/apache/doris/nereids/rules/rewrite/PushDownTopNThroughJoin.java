@@ -53,7 +53,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                             }
                             return topN.withChildren(newJoin);
                         })
-                        .toRule(RuleType.PUSH_TOP_N_THROUGH_JOIN),
+                        .toRule(RuleType.PUSH_DOWN_TOP_N_THROUGH_JOIN),
 
                 // topN -> project -> join
                 logicalTopN(logicalProject(logicalJoin()))
@@ -79,7 +79,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                                 return null;
                             }
                             return topN.withChildren(project.withChildren(newJoin));
-                        }).toRule(RuleType.PUSH_TOP_N_THROUGH_PROJECT_JOIN)
+                        }).toRule(RuleType.PUSH_DOWN_TOP_N_THROUGH_PROJECT_JOIN)
         );
     }
 
