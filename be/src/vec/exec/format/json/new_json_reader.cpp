@@ -770,10 +770,11 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
         }
-        RETURN_IF_ERROR(_append_error_msg(objectValue,
-                                          "All fields is null, this is a invalid row. "
-                                          "Table column names:[{}], please check columns mapping",
-                                          col_names, valid));
+        RETURN_IF_ERROR(_append_error_msg(
+                objectValue,
+                "All fields is null, this is a invalid row. "
+                "Table column names:[{}], please check columns mapping or data quality",
+                col_names, valid));
         return Status::OK();
     }
     *valid = true;
@@ -1320,10 +1321,11 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         has_valid_value = true;
     }
     if (!has_valid_value) {
-        RETURN_IF_ERROR(_append_error_msg(value,
-                                          "All fields is null, this is a invalid row. "
-                                          "Table column  names:[{}], please check columns mapping",
-                                          col_names, valid));
+        RETURN_IF_ERROR(_append_error_msg(
+                value,
+                "All fields is null, this is a invalid row. "
+                "Table column names:[{}], please check columns mapping or data quality",
+                col_names, valid));
         return Status::OK();
     }
 
@@ -1626,7 +1628,8 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         }
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "All fields is null, this is a invalid row. "
-                                          "Table column names:[{}], please check columns mapping",
+                                          "Table column names:[{}], please check columns mapping "
+                                          "or data quality or data quality",
                                           col_names, valid));
         return Status::OK();
     }
