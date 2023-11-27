@@ -123,6 +123,9 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                 throw new RuntimeException(String.format("fetch arrow flight schema failed, finstId: %s, errmsg: %s",
                         DebugUtil.printId(tid), status.getErrorMsg()));
             }
+            if (pResult.hasResultIp()) {
+                ctx.getResultFlightServerAddr().hostname = pResult.getResultIp().toStringUtf8();
+            }
             if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
                 RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
                 ArrowStreamReader arrowStreamReader = new ArrowStreamReader(
@@ -144,9 +147,6 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
             } else {
                 throw new RuntimeException(String.format("get empty arrow flight schema, finstId: %s",
                         DebugUtil.printId(tid)));
-            }
-            if (pResult.hasResultIp()) {
-                ctx.getResultFlightServerAddr().hostname = pResult.getResultIp().toStringUtf8();
             }
         } catch (RpcException e) {
             throw new RuntimeException(String.format(
