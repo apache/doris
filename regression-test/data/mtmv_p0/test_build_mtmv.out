@@ -50,6 +50,9 @@ lisi	300
 zhangsang	200
 
 -- !select --
+{grace_period=3333}
+
+-- !select --
 clz	200
 lisi	300
 zhangsang	200
