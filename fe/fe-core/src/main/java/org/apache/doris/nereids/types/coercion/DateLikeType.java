@@ -49,6 +49,9 @@ public abstract class DateLikeType extends PrimitiveType {
 
     @Override
     public double rangeLength(double high, double low) {
+        if (Double.isInfinite(high) || Double.isInfinite(low)) {
+            return Double.POSITIVE_INFINITY;
+        }
         Calendar to = toCalendar(high);
         Calendar from = toCalendar(low);
         return ChronoUnit.DAYS.between(from.toInstant(), to.toInstant());
