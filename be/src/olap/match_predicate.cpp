@@ -29,6 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
@@ -59,7 +60,8 @@ Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_typ
     roaring::Roaring roaring;
     auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
     TypeDescriptor column_desc = type->get_type_as_type_descriptor();
-    if (is_string_type(column_desc.type)) {
+    if (is_string_type(column_desc.type) ||
+        (column_desc.type == TYPE_ARRAY && is_string_type(column_desc.children[0].type))) {
         StringRef match_value;
         int32_t length = _value.length();
         char* buffer = const_cast<char*>(_value.c_str());

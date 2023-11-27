@@ -230,6 +230,13 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
     __builtin_unreachable();
 }
 
+TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
+                                const ExtraInfo& ext_info) {
+    TabletColumn result;
+    get_column_by_type(data_type, name, result, ext_info);
+    return result;
+}
+
 TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
                                    const ExtraInfo& ext_info, bool* changed) {
     TabletColumn result_column;
@@ -384,6 +391,21 @@ TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& sc
 
     inherit_tablet_index(output_schema);
     return output_schema;
+}
+
+Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+    try {
+        // Parse each variant column from raw string column
+        vectorized::schema_util::parse_variant_columns(block, variant_pos);
+        vectorized::schema_util::finalize_variant_columns(block, variant_pos,
+                                                          false /*not ingore sparse*/);
+        vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_pos);
+    } catch (const doris::Exception& e) {
+        // TODO more graceful, max_filter_ratio
+        LOG(WARNING) << "encounter execption " << e.to_string();
+        return Status::InternalError(e.to_string());
+    }
+    return Status::OK();
 }
 
 void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {

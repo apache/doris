@@ -75,16 +75,18 @@ struct ExtraInfo {
     int32_t parent_unique_id = -1;
     vectorized::PathInData path_info;
 };
-void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
-                        TabletColumn& column, const ExtraInfo& ext_info);
+
+TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
+                                const ExtraInfo& ext_info);
 
 TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
                                    const ExtraInfo& ext_info, bool* changed);
 
-// Two steps to parse variant columns into flatterned columns
+// thread steps to parse and encode variant columns into flatterned columns
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 2. encode sparse sub columns
+Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos);
 void parse_variant_columns(Block& block, const std::vector<int>& variant_pos);
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse = true);

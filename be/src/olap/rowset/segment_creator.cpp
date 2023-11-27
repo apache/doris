@@ -111,17 +111,8 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         return Status::OK();
     }
 
-    try {
-        // Parse each variant column from raw string column
-        vectorized::schema_util::parse_variant_columns(block, variant_column_pos);
-        vectorized::schema_util::finalize_variant_columns(block, variant_column_pos,
-                                                          false /*not ingore sparse*/);
-        vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_column_pos);
-    } catch (const doris::Exception& e) {
-        // TODO more graceful, max_filter_ratio
-        LOG(WARNING) << "encounter execption " << e.to_string();
-        return Status::InternalError(e.to_string());
-    }
+    RETURN_IF_ERROR(
+            vectorized::schema_util::parse_and_encode_variant_columns(block, variant_column_pos));
 
     // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
     //     static     extracted
@@ -139,13 +130,12 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
                 parent_variant.name_lower_case() + "." + column_entry_from_object->path.get_path();
         const vectorized::DataTypePtr& final_data_type_from_object =
                 column_entry_from_object->data.get_least_common_type();
-        TabletColumn tablet_column;
         vectorized::PathInDataBuilder full_path_builder;
         auto full_path = full_path_builder.append(parent_variant.name_lower_case(), false)
                                  .append(column_entry_from_object->path.get_parts(), false)
                                  .build();
-        vectorized::schema_util::get_column_by_type(
-                final_data_type_from_object, column_name, tablet_column,
+        TabletColumn tablet_column = vectorized::schema_util::get_column_by_type(
+                final_data_type_from_object, column_name,
                 vectorized::schema_util::ExtraInfo {.unique_id = parent_variant.unique_id(),
                                                     .parent_unique_id = parent_variant.unique_id(),
                                                     .path_info = full_path});
@@ -442,8 +432,7 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
     size_t row_offset = 0;
 
     if (_segment_flusher.need_buffering()) {
-        const static int MAX_BUFFER_SIZE = config::flushing_block_buffer_size_bytes; // 400M
-        if (_buffer_block.allocated_bytes() > MAX_BUFFER_SIZE) {
+        if (_buffer_block.allocated_bytes() > config::flushing_block_buffer_size_bytes) {
             vectorized::Block block = _buffer_block.to_block();
             RETURN_IF_ERROR(flush_single_block(&block));
         } else {

@@ -326,13 +326,13 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
             auto src_idx_path =
                     begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
                                         _context.rowset_dir, _context.rowset_id, seg_id, index_id,
-                                        index_info->get_escaped_index_suffix_path())
+                                        index_info->get_index_suffix())
                               : InvertedIndexDescriptor::local_inverted_index_path_segcompacted(
                                         _context.rowset_dir, _context.rowset_id, begin, end,
-                                        index_id, index_info->get_escaped_index_suffix_path());
+                                        index_id, index_info->get_index_suffix());
             auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
                     _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id,
-                    index_info->get_escaped_index_suffix_path());
+                    index_info->get_index_suffix());
             VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
                        << dst_idx_path;
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());

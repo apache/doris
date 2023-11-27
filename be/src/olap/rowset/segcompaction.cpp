@@ -139,8 +139,7 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
                 auto index_info = schema->get_inverted_index(column);
                 auto index_id = index_info->index_id();
                 auto idx_path = InvertedIndexDescriptor::inverted_index_file_path(
-                        ctx.rowset_dir, ctx.rowset_id, i, index_id,
-                        index_info->get_escaped_index_suffix_path());
+                        ctx.rowset_dir, ctx.rowset_id, i, index_id, index_info->get_index_suffix());
                 VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
                 RETURN_NOT_OK_STATUS_WITH_WARN(
                         fs->delete_file(idx_path),

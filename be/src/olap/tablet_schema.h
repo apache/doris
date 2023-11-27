@@ -212,7 +212,7 @@ public:
         return 0;
     }
 
-    const std::string& get_escaped_index_suffix_path() const { return _escaped_index_suffix_path; }
+    const std::string& get_index_suffix() const { return _escaped_index_suffix_path; }
 
     void set_escaped_escaped_index_suffix_path(const std::string& name);
 

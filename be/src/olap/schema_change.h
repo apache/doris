@@ -119,7 +119,7 @@ public:
                 _inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema));
         _add_filtered_rows(rowset_reader->filtered_rows());
 
-        // check row num changes
+        // Check row num changes
         if (!_check_row_nums(rowset_reader, *rowset_writer)) {
             return Status::Error<ErrorCode::ALTER_STATUS_ERR>("SchemaChange check row nums failed");
         }

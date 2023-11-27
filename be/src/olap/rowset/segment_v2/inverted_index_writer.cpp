@@ -118,7 +118,7 @@ public:
                 // open index searcher into cache
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                         _segment_file_name, _index_meta->index_id(),
-                        _index_meta->get_escaped_index_suffix_path());
+                        _index_meta->get_index_suffix());
                 static_cast<void>(InvertedIndexSearcherCache::instance()->insert(_fs, _directory,
                                                                                  index_file_name));
             }
@@ -141,7 +141,7 @@ public:
 
         auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                 _directory + "/" + _segment_file_name, _index_meta->index_id(),
-                _index_meta->get_escaped_index_suffix_path());
+                _index_meta->get_index_suffix());
 
         // LOG(INFO) << "inverted index path: " << index_path;
         bool exists = false;
@@ -432,8 +432,7 @@ public:
         std::filesystem::path dir(_directory);
         dir /= _segment_file_name;
         auto file_name = InvertedIndexDescriptor::get_index_file_name(
-                dir.string(), _index_meta->index_id(),
-                _index_meta->get_escaped_index_suffix_path());
+                dir.string(), _index_meta->index_id(), _index_meta->get_index_suffix());
         int64_t size = -1;
         auto st = _fs->file_size(file_name.c_str(), &size);
         if (!st.ok()) {
@@ -469,7 +468,7 @@ public:
             if constexpr (field_is_numeric_type(field_type)) {
                 auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                         _directory + "/" + _segment_file_name, _index_meta->index_id(),
-                        _index_meta->get_escaped_index_suffix_path());
+                        _index_meta->get_index_suffix());
                 dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
                 write_null_bitmap(null_bitmap_out, dir);
                 _bkd_writer->max_doc_ = _rid;

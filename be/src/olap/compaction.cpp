@@ -567,7 +567,7 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 std::string inverted_index_src_file_path =
                                         InvertedIndexDescriptor::get_index_file_name(
                                                 segment_file, index_meta->index_id(),
-                                                index_meta->get_escaped_index_suffix_path());
+                                                index_meta->get_index_suffix());
                                 bool exists = false;
                                 if (!fs->exists(inverted_index_src_file_path, &exists).ok()) {
                                     LOG(ERROR)
