@@ -806,11 +806,8 @@ void TabletSchema::update_index(const TabletColumn& col, TabletIndex index) {
     const std::string& suffix_path =
             !col.path_info().empty() ? escape_for_path_name(col.path_info().get_path()) : "";
     for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].get_index_suffix() != suffix_path) {
-            continue;
-        }
         for (int32_t id : _indexes[i].col_unique_ids()) {
-            if (id == col_unique_id) {
+            if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
                 _indexes[i] = index;
             }
         }
@@ -1132,11 +1129,8 @@ std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
             !col.path_info().empty() ? escape_for_path_name(col.path_info().get_path()) : "";
     // TODO use more efficient impl
     for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].get_index_suffix() != suffix_path) {
-            continue;
-        }
         for (int32_t id : _indexes[i].col_unique_ids()) {
-            if (id == col_unique_id) {
+            if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
                 indexes_for_column.push_back(&(_indexes[i]));
             }
         }
@@ -1151,10 +1145,9 @@ bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     const std::string& suffix_path =
             !col.path_info().empty() ? escape_for_path_name(col.path_info().get_path()) : "";
     for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::INVERTED &&
-            _indexes[i].get_index_suffix() == suffix_path) {
+        if (_indexes[i].index_type() == IndexType::INVERTED) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id) {
+                if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
                     return true;
                 }
             }
@@ -1179,10 +1172,10 @@ bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
 const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
                                                     const std::string& suffix_path) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::INVERTED &&
-            _indexes[i].get_index_suffix() == escape_for_path_name(suffix_path)) {
+        if (_indexes[i].index_type() == IndexType::INVERTED) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id) {
+                if (id == col_unique_id &&
+                    _indexes[i].get_index_suffix() == escape_for_path_name(suffix_path)) {
                     return &(_indexes[i]);
                 }
             }

@@ -1121,10 +1121,6 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
-// Buffer block size for flushing a single block
-// This config used for merging multiple blocks into a single block
-// and flush them once total, default 400M
-DEFINE_mInt32(flushing_block_buffer_size_bytes, "419430400");
 
 // clang-format off
 #ifdef BE_TEST

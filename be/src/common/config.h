@@ -1201,10 +1201,6 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 DECLARE_Int32(download_binlog_rate_limit_kbs);
 
 DECLARE_mInt32(buffered_reader_read_timeout_ms);
-// Buffer block size for flushing a single block
-// This config used for merging multiple blocks into a single block
-// and flush them once total
-DECLARE_mInt32(flushing_block_buffer_size_bytes);
 
 #ifdef BE_TEST
 // test s3
