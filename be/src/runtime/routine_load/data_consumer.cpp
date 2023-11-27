@@ -569,7 +569,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                     // put empty msg into queue will cause the load process shutting down.
                     LOG(INFO) << "pass error message: " << new_msg->getDataAsString();
                     break;
-                } else if (!queue->blocking_put(&new_msg)) {
+                } else if (!queue->blocking_put(new_msg)) {
                     // queue is shutdown
                     done = true;
                 } else {
@@ -582,6 +582,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 delete[] row;
             }
             rows.clear();
+            delete msg.get();
             break;
         case pulsar::ResultTimeout:
             // leave the status as OK, because this may happened
