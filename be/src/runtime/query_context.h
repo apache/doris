@@ -22,7 +22,6 @@
 
 #include <atomic>
 #include <memory>
-#include <sstream>
 #include <string>
 
 #include "common/config.h"
