@@ -68,7 +68,7 @@ struct CommitTabletTxnInfo {
     TPartitionId partition_id {0};
     DeleteBitmapPtr delete_bitmap;
     RowsetIdUnorderedSet rowset_ids;
-    std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr;
+    std::shared_ptr<PartialUpdateInfo> partial_update_info;
 };
 
 using CommitTabletTxnInfoVec = std::vector<CommitTabletTxnInfo>;

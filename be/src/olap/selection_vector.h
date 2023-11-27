@@ -100,7 +100,7 @@ private:
     // row capacity
     size_t _n_rows;
     size_t _n_bytes;
-    std::unique_ptr<uint8_t[]> _bitmap = nullptr;
+    std::unique_ptr<uint8_t[]> _bitmap;
     DISALLOW_COPY_AND_ASSIGN(SelectionVector);
 };
 

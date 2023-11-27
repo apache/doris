@@ -93,7 +93,7 @@ public:
     std::shared_ptr<BitmapValue> get_inner_bitmap() { return _bitmap_value; }
 
 private:
-    std::shared_ptr<BitmapValue> _bitmap_value = nullptr;
+    std::shared_ptr<BitmapValue> _bitmap_value;
 
     bool find(CppType data) const { return _not_in ^ (data >= 0 && _bitmap_value->contains(data)); }
 };

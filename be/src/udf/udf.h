@@ -165,8 +165,8 @@ private:
     int64_t _num_warnings;
 
     /// The function state accessed via FunctionContext::Get/SetFunctionState()
-    std::shared_ptr<void> _thread_local_fn_state = nullptr;
-    std::shared_ptr<void> _fragment_local_fn_state = nullptr;
+    std::shared_ptr<void> _thread_local_fn_state;
+    std::shared_ptr<void> _fragment_local_fn_state;
 
     // Type descriptor for the return type of the function.
     doris::TypeDescriptor _return_type;

@@ -133,9 +133,9 @@ protected:
     virtual Status _init_profile() = 0;
 
     std::atomic<bool> _opened {false};
-    std::shared_ptr<ScanDependency> _scan_dependency = nullptr;
+    std::shared_ptr<ScanDependency> _scan_dependency;
 
-    std::shared_ptr<RuntimeProfile> _scanner_profile = nullptr;
+    std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
@@ -348,7 +348,7 @@ protected:
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    std::shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
+    std::shared_ptr<vectorized::ScannerContext> _scanner_ctx;
 
     vectorized::FilterPredicates _filter_predicates {};
 

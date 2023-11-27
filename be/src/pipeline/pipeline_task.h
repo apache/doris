@@ -287,7 +287,7 @@ protected:
     uint32_t _schedule_time = 0;
     PipelineTaskState _cur_state;
     SourceState _data_state;
-    std::unique_ptr<doris::vectorized::Block> _block = nullptr;
+    std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context = nullptr;
     TaskQueue* _task_queue = nullptr;
 
@@ -305,7 +305,7 @@ protected:
     bool _try_close_flag = false;
 
     RuntimeProfile* _parent_profile = nullptr;
-    std::unique_ptr<RuntimeProfile> _task_profile = nullptr;
+    std::unique_ptr<RuntimeProfile> _task_profile;
     RuntimeProfile::Counter* _task_cpu_timer = nullptr;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -363,7 +363,7 @@ protected:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer = nullptr;
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
+    std::shared_ptr<QueryStatistics> _query_statistics;
     Status _collect_query_statistics();
     bool _collect_query_statistics_with_every_batch = false;
 

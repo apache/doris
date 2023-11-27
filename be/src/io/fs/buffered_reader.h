@@ -313,7 +313,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     size_t _whole_buffer_size;
     io::FileReader* _reader = nullptr;
     const IOContext* _io_ctx = nullptr;
-    std::unique_ptr<char[]> _buf = nullptr;
+    std::unique_ptr<char[]> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
     std::condition_variable _prefetched;
@@ -457,7 +457,7 @@ protected:
 private:
     Status _close_internal();
     io::FileReaderSPtr _reader;
-    std::unique_ptr<char[]> _data = nullptr;
+    std::unique_ptr<char[]> _data;
     size_t _size;
     bool _closed = false;
 };
@@ -506,7 +506,7 @@ public:
     std::string path() override { return _file->path(); }
 
 private:
-    std::unique_ptr<uint8_t[]> _buf = nullptr;
+    std::unique_ptr<uint8_t[]> _buf;
     io::FileReaderSPtr _file;
     uint64_t _file_start_offset;
     uint64_t _file_end_offset;

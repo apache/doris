@@ -96,7 +96,7 @@ protected:
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
 
-    std::unique_ptr<GenericReader> _cur_reader = nullptr;
+    std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
@@ -139,10 +139,10 @@ protected:
 
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
-    std::unique_ptr<RowDescriptor> _src_row_desc = nullptr;
-    std::unique_ptr<RowDescriptor> _dest_row_desc = nullptr;
+    std::unique_ptr<RowDescriptor> _src_row_desc;
+    std::unique_ptr<RowDescriptor> _dest_row_desc;
     // row desc for default exprs
-    std::unique_ptr<RowDescriptor> _default_val_row_desc = nullptr;
+    std::unique_ptr<RowDescriptor> _default_val_row_desc;
     // owned by scan node
     ShardedKVCache* _kv_cache = nullptr;
 
@@ -159,8 +159,8 @@ protected:
 
     VExprContextSPtrs _push_down_conjuncts;
 
-    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics = nullptr;
-    std::unique_ptr<io::IOContext> _io_ctx = nullptr;
+    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<io::IOContext> _io_ctx;
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;

@@ -124,7 +124,7 @@ private:
     bool _is_cancelled = false;
     WriteRequest _req;
     RowsetBuilder _rowset_builder;
-    std::shared_ptr<MemTableWriter> _memtable_writer = nullptr;
+    std::shared_ptr<MemTableWriter> _memtable_writer;
 
     std::mutex _lock;
 

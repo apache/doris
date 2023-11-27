@@ -261,7 +261,7 @@ private:
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
 
-    std::unique_ptr<LoadStreamMgr> _load_stream_mgr = nullptr;
+    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
 };
 
 } // namespace doris

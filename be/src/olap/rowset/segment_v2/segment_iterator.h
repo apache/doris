@@ -331,7 +331,7 @@ private:
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
-    std::shared_ptr<Segment> _segment = nullptr;
+    std::shared_ptr<Segment> _segment;
     SchemaSPtr _schema;
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
@@ -342,7 +342,7 @@ private:
     // "column_name+operator+value-> <in_compound_query, rowid_result>
     std::unordered_map<std::string, std::pair<bool, roaring::Roaring>> _rowid_result_for_index;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
-    std::unique_ptr<BitmapRangeIterator> _range_iter = nullptr;
+    std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
     rowid_t _cur_rowid;
     // members related to lazy materialization read
@@ -396,16 +396,16 @@ private:
     bool _enable_common_expr_pushdown = false;
     std::vector<vectorized::VExprSPtr> _remaining_conjunct_roots;
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
-    std::unique_ptr<ColumnPredicateInfo> _column_predicate_info = nullptr;
+    std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
     std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>
             _column_pred_in_remaining_vconjunct;
     std::set<ColumnId> _not_apply_index_pred;
 
-    std::shared_ptr<ColumnPredicate> _runtime_predicate = nullptr;
+    std::shared_ptr<ColumnPredicate> _runtime_predicate;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`
-    std::unique_ptr<Schema> _seek_schema = nullptr;
+    std::unique_ptr<Schema> _seek_schema;
     // used to binary search the rowid for a given key
     // only used in `_get_row_ranges_by_keys`
     vectorized::MutableColumns _seek_block;
@@ -425,7 +425,7 @@ private:
     uint16_t _selected_size;
     vector<uint16_t> _sel_rowid_idx;
 
-    std::unique_ptr<ObjectPool> _pool = nullptr;
+    std::unique_ptr<ObjectPool> _pool;
 
     // used to collect filter information.
     std::vector<ColumnPredicate*> _filter_info_id;

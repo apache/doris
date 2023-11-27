@@ -179,7 +179,7 @@ private:
 
 protected:
     RowsetWriterContext _context;
-    std::shared_ptr<RowsetMeta> _rowset_meta = nullptr;
+    std::shared_ptr<RowsetMeta> _rowset_meta;
 
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
@@ -222,7 +222,7 @@ protected:
 
     fmt::memory_buffer vlog_buffer;
 
-    std::shared_ptr<MowContext> _mow_context = nullptr;
+    std::shared_ptr<MowContext> _mow_context;
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;

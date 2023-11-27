@@ -423,13 +423,13 @@ private:
 
     std::mutex _engine_task_mutex;
 
-    std::unique_ptr<TabletManager> _tablet_manager = nullptr;
-    std::unique_ptr<TxnManager> _txn_manager = nullptr;
+    std::unique_ptr<TabletManager> _tablet_manager;
+    std::unique_ptr<TxnManager> _txn_manager;
 
-    std::unique_ptr<RowsetIdGenerator> _rowset_id_generator = nullptr;
+    std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
-    std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor = nullptr;
-    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor = nullptr;
+    std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
+    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
 
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
@@ -437,16 +437,16 @@ private:
 
     HeartbeatFlags* _heartbeat_flags = nullptr;
 
-    std::unique_ptr<ThreadPool> _base_compaction_thread_pool = nullptr;
-    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool = nullptr;
-    std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool = nullptr;
-    std::unique_ptr<ThreadPool> _seg_compaction_thread_pool = nullptr;
-    std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
-    std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
-    std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool = nullptr;
-    std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
+    std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 
@@ -477,7 +477,7 @@ private:
 
     scoped_refptr<Thread> _cache_file_cleaner_tasks_producer_thread;
 
-    std::unique_ptr<PriorityThreadPool> _cooldown_thread_pool = nullptr;
+    std::unique_ptr<PriorityThreadPool> _cooldown_thread_pool;
 
     std::mutex _running_cooldown_mutex;
     std::unordered_set<int64_t> _running_cooldown_tablets;

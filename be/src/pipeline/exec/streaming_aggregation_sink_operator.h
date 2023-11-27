@@ -47,7 +47,7 @@ public:
     bool is_source() const override { return false; }
 
 private:
-    std::shared_ptr<DataQueue> _data_queue = nullptr;
+    std::shared_ptr<DataQueue> _data_queue;
 };
 
 class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
@@ -69,7 +69,7 @@ private:
     RuntimeProfile::Counter* _queue_byte_size_counter = nullptr;
     RuntimeProfile::Counter* _queue_size_counter = nullptr;
 
-    std::shared_ptr<DataQueue> _data_queue = nullptr;
+    std::shared_ptr<DataQueue> _data_queue;
 };
 
 class StreamingAggSinkOperatorX;

@@ -59,7 +59,7 @@ public:
 
 protected:
     std::string _table_format;                                    // hudi, iceberg
-    std::unique_ptr<GenericReader> _file_format_reader = nullptr; // parquet, orc
+    std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
 };
 
 } // namespace doris::vectorized

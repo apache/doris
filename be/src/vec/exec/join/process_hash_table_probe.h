@@ -94,8 +94,8 @@ struct ProcessHashTableProbe {
 
     Parent* _parent = nullptr;
     const int _batch_size;
-    std::shared_ptr<std::vector<Block>> _build_blocks = nullptr;
-    std::unique_ptr<Arena> _arena = nullptr;
+    std::shared_ptr<std::vector<Block>> _build_blocks;
+    std::unique_ptr<Arena> _arena;
     std::vector<StringRef> _probe_keys;
 
     std::vector<uint32_t> _probe_indexs;
@@ -109,7 +109,7 @@ struct ProcessHashTableProbe {
 
     size_t _serialized_key_buffer_size {0};
     uint8_t* _serialized_key_buffer = nullptr;
-    std::unique_ptr<Arena> _serialize_key_arena = nullptr;
+    std::unique_ptr<Arena> _serialize_key_arena;
     std::vector<char> _probe_side_find_result;
 
     std::vector<bool*> _visited_map;

@@ -120,7 +120,7 @@ public:
 protected:
     const std::vector<TExpr>& _t_output_expr;
     VExprContextSPtrs _output_vexpr_ctxs;
-    std::unique_ptr<Writer> _writer = nullptr;
+    std::unique_ptr<Writer> _writer;
 };
 
 inline constexpr char VJDBC_TABLE_SINK_NAME[] = "VJdbcTableSink";

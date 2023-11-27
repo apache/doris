@@ -45,11 +45,11 @@ public:
 
     // controller has to be the same lifecycle with the closure, because brpc may use
     // it in any stage of the rpc.
-    std::shared_ptr<brpc::Controller> cntl_ = nullptr;
+    std::shared_ptr<brpc::Controller> cntl_;
     // We do not know if brpc will use request or response after brpc method returns.
     // So that we need keep a shared ptr here to ensure that brpc could use req/rep
     // at any stage.
-    std::shared_ptr<Response> response_ = nullptr;
+    std::shared_ptr<Response> response_;
 };
 
 // The closure will be deleted after callback.
@@ -95,12 +95,12 @@ public:
 
     // controller has to be the same lifecycle with the closure, because brpc may use
     // it in any stage of the rpc.
-    std::shared_ptr<brpc::Controller> cntl_ = nullptr;
+    std::shared_ptr<brpc::Controller> cntl_;
     // We do not know if brpc will use request or response after brpc method returns.
     // So that we need keep a shared ptr here to ensure that brpc could use req/rep
     // at any stage.
-    std::shared_ptr<Request> request_ = nullptr;
-    std::shared_ptr<ResponseType> response_ = nullptr;
+    std::shared_ptr<Request> request_;
+    std::shared_ptr<ResponseType> response_;
 
 private:
     // Use a weak ptr to keep the callback, so that the callback can be deleted if the main

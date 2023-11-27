@@ -71,13 +71,13 @@ private:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    std::unique_ptr<vectorized::Block> _output_block = nullptr;
-    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::unique_ptr<vectorized::Block> _output_block;
+    std::shared_ptr<BufferControlBlock> _sender;
 
     std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
     bool _only_local_exchange = false;
     vectorized::BlockSerializer<ResultFileSinkLocalState> _serializer;
-    std::unique_ptr<vectorized::BroadcastPBlockHolder> _block_holder = nullptr;
+    std::unique_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
     RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
     RuntimeProfile::Counter* _local_send_timer = nullptr;
     RuntimeProfile::Counter* _brpc_send_timer = nullptr;
@@ -116,7 +116,7 @@ private:
     bool _send_query_statistics_with_every_batch;
 
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts = nullptr;
+    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
     TStorageBackendType::type _storage_type;
 
     // Owned by the RuntimeState.

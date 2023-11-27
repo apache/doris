@@ -269,9 +269,9 @@ private:
 
     MetricRegistry _metric_registry;
 
-    std::unique_ptr<SystemMetrics> _system_metrics = nullptr;
+    std::unique_ptr<SystemMetrics> _system_metrics;
 
-    std::shared_ptr<MetricEntity> _server_metric_entity = nullptr;
+    std::shared_ptr<MetricEntity> _server_metric_entity;
 };
 
 }; // namespace doris

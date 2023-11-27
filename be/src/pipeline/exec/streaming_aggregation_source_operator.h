@@ -46,7 +46,7 @@ public:
     OperatorPtr build_operator() override;
 
 private:
-    std::shared_ptr<DataQueue> _data_queue = nullptr;
+    std::shared_ptr<DataQueue> _data_queue;
 };
 
 class StreamingAggSourceOperator final : public SourceOperator<StreamingAggSourceOperatorBuilder> {
@@ -57,7 +57,7 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 
 private:
-    std::shared_ptr<DataQueue> _data_queue = nullptr;
+    std::shared_ptr<DataQueue> _data_queue;
 };
 
 class StreamingAggSourceOperatorX final : public AggSourceOperatorX {

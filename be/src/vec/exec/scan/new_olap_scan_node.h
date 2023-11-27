@@ -118,7 +118,7 @@ private:
     std::set<int32_t> _maybe_read_column_ids;
 
 private:
-    std::unique_ptr<RuntimeProfile> _segment_profile = nullptr;
+    std::unique_ptr<RuntimeProfile> _segment_profile;
 
     RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
 

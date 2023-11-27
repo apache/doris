@@ -165,7 +165,7 @@ private:
     DorisCallOnce<Status> _load_once;
     // TODO: yyq, we shoud remove file_reader from here.
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<IndexedColumnMetaPB> _page_zone_maps_meta = nullptr;
+    std::unique_ptr<IndexedColumnMetaPB> _page_zone_maps_meta;
     std::vector<ZoneMapPB> _page_zone_maps;
 };
 

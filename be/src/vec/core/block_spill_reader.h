@@ -71,7 +71,7 @@ private:
     size_t block_count_ = 0;
     size_t read_block_index_ = 0;
     size_t max_sub_block_size_ = 0;
-    std::unique_ptr<char[]> read_buff_ = nullptr;
+    std::unique_ptr<char[]> read_buff_;
     std::vector<size_t> block_start_offsets_;
 
     RuntimeProfile* profile_ = nullptr;

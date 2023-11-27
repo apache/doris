@@ -89,7 +89,7 @@ private:
     PageBuilderOptions _options;
     size_t _count;
     bool _finished;
-    std::unique_ptr<ForEncoder<CppType>> _encoder = nullptr;
+    std::unique_ptr<ForEncoder<CppType>> _encoder;
     faststring _buf;
     CppType _first_val;
     CppType _last_val;
@@ -160,7 +160,7 @@ private:
     Slice _data;
     uint32_t _num_elements;
     size_t _cur_index;
-    std::unique_ptr<ForDecoder<CppType>> _decoder = nullptr;
+    std::unique_ptr<ForDecoder<CppType>> _decoder;
 };
 
 } // namespace segment_v2

@@ -56,7 +56,7 @@ private:
 
 private:
     ExecEnv* _exec_env;
-    std::shared_ptr<MetricEntity> _http_stream_entity = nullptr;
+    std::shared_ptr<MetricEntity> _http_stream_entity;
     IntCounter* http_stream_requests_total;
     IntCounter* http_stream_duration_ms;
     IntGauge* http_stream_current_processing;

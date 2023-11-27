@@ -58,7 +58,7 @@ private:
     Path _path;
     size_t _file_size;
     std::atomic<bool> _closed = false;
-    std::shared_ptr<LocalFileSystem> _fs = nullptr;
+    std::shared_ptr<LocalFileSystem> _fs;
 };
 
 } // namespace io

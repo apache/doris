@@ -179,8 +179,8 @@ public:
 
 private:
     tparquet::ColumnChunk _chunk_meta;
-    std::unique_ptr<io::BufferedFileStreamReader> _stream_reader = nullptr;
-    std::unique_ptr<ColumnChunkReader> _chunk_reader = nullptr;
+    std::unique_ptr<io::BufferedFileStreamReader> _stream_reader;
+    std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
 
@@ -214,7 +214,7 @@ public:
     void close() override {}
 
 private:
-    std::unique_ptr<ParquetColumnReader> _element_reader = nullptr;
+    std::unique_ptr<ParquetColumnReader> _element_reader;
 };
 
 class MapColumnReader : public ParquetColumnReader {
@@ -248,8 +248,8 @@ public:
     void close() override {}
 
 private:
-    std::unique_ptr<ParquetColumnReader> _key_reader = nullptr;
-    std::unique_ptr<ParquetColumnReader> _value_reader = nullptr;
+    std::unique_ptr<ParquetColumnReader> _key_reader;
+    std::unique_ptr<ParquetColumnReader> _value_reader;
 };
 
 class StructColumnReader : public ParquetColumnReader {

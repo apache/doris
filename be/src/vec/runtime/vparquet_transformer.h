@@ -111,11 +111,11 @@ private:
     Status _parse_schema();
     arrow::Status _open_file_writer();
 
-    std::shared_ptr<ParquetOutputStream> _outstream = nullptr;
-    std::shared_ptr<parquet::WriterProperties> _parquet_writer_properties = nullptr;
-    std::shared_ptr<parquet::ArrowWriterProperties> _arrow_properties = nullptr;
-    std::unique_ptr<parquet::arrow::FileWriter> _writer = nullptr;
-    std::shared_ptr<arrow::Schema> _arrow_schema = nullptr;
+    std::shared_ptr<ParquetOutputStream> _outstream;
+    std::shared_ptr<parquet::WriterProperties> _parquet_writer_properties;
+    std::shared_ptr<parquet::ArrowWriterProperties> _arrow_properties;
+    std::unique_ptr<parquet::arrow::FileWriter> _writer;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
 
     const std::vector<TParquetSchema>& _parquet_schemas;
     const TParquetCompressionType::type& _compression_type;

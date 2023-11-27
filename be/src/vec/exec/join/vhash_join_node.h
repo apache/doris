@@ -456,18 +456,18 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
 
-    std::shared_ptr<Arena> _arena = nullptr;
+    std::shared_ptr<Arena> _arena;
 
     // maybe share hash table with other fragment instances
-    std::shared_ptr<HashTableVariants> _hash_table_variants = nullptr;
+    std::shared_ptr<HashTableVariants> _hash_table_variants;
 
-    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants = nullptr;
+    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 
     // for full/right outer join
     HashTableIteratorVariants _outer_join_pull_visited_iter;
     HashTableIteratorVariants _probe_row_match_iter;
 
-    std::shared_ptr<std::vector<Block>> _build_blocks = nullptr;
+    std::shared_ptr<std::vector<Block>> _build_blocks;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;
@@ -483,8 +483,8 @@ private:
 
     bool _is_broadcast_join = false;
     bool _should_build_hash_table = true;
-    std::shared_ptr<SharedHashTableController> _shared_hashtable_controller = nullptr;
-    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots = nullptr;
+    std::shared_ptr<SharedHashTableController> _shared_hashtable_controller;
+    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;

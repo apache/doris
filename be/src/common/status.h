@@ -494,7 +494,7 @@ private:
         std::string _stack;
 #endif
     };
-    std::unique_ptr<ErrMsg> _err_msg = nullptr;
+    std::unique_ptr<ErrMsg> _err_msg;
 
     std::string code_as_string() const {
         return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))

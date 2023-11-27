@@ -76,7 +76,7 @@ private:
     const TupleDescriptor* _tuple_desc = nullptr;
 
     // Scanner of ODBC.
-    std::unique_ptr<ODBCConnector> _odbc_connector = nullptr;
+    std::unique_ptr<ODBCConnector> _odbc_connector;
     ODBCConnectorParam _odbc_param;
     // Helper class for converting text to other types;
     DataTypeSerDeSPtrs _text_serdes;

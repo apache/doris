@@ -125,11 +125,11 @@ private:
     const std::string _name;
 
     // Thread that runs the TNonblockingServer::serve loop
-    std::unique_ptr<std::thread> _server_thread = nullptr;
+    std::unique_ptr<std::thread> _server_thread;
 
     // Thrift housekeeping
-    std::unique_ptr<apache::thrift::server::TServer> _server = nullptr;
-    std::shared_ptr<apache::thrift::TProcessor> _processor = nullptr;
+    std::unique_ptr<apache::thrift::server::TServer> _server;
+    std::shared_ptr<apache::thrift::TProcessor> _processor;
 
     // If not nullptr, called when session events happen. Not owned by us.
     SessionHandlerIf* _session_handler = nullptr;
@@ -148,7 +148,7 @@ private:
 
     friend class ThriftServerEventProcessor;
 
-    std::shared_ptr<MetricEntity> _thrift_server_metric_entity = nullptr;
+    std::shared_ptr<MetricEntity> _thrift_server_metric_entity;
     // Number of currently active connections
     IntGauge* thrift_current_connections = nullptr;
     // Total connections made over the lifetime of this server

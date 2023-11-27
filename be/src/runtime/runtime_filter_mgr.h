@@ -108,7 +108,7 @@ private:
 
     RuntimeState* _state = nullptr;
     QueryContext* _query_ctx = nullptr;
-    std::unique_ptr<MemTracker> _tracker = nullptr;
+    std::unique_ptr<MemTracker> _tracker;
     ObjectPool _pool;
 
     TNetworkAddress _merge_addr;
@@ -147,7 +147,7 @@ public:
         std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
         IRuntimeFilter* filter = nullptr;
         std::unordered_set<UniqueId> arrive_id; // fragment_instance_id ?
-        std::shared_ptr<ObjectPool> pool = nullptr;
+        std::shared_ptr<ObjectPool> pool;
     };
 
 public:
@@ -168,7 +168,7 @@ private:
     UniqueId _fragment_instance_id;
     // protect _filter_map
     std::shared_mutex _filter_map_mutex;
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
+    std::shared_ptr<MemTracker> _mem_tracker;
     using CntlValwithLock =
             std::pair<std::shared_ptr<RuntimeFilterCntlVal>, std::unique_ptr<SpinLock>>;
     std::map<int, CntlValwithLock> _filter_map;

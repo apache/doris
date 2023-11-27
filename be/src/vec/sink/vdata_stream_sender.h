@@ -89,8 +89,8 @@ public:
     void set_is_local(bool is_local) { _is_local = is_local; }
 
 private:
-    Parent* _parent = nullptr;
-    std::unique_ptr<MutableBlock> _mutable_block = nullptr;
+    Parent* _parent;
+    std::unique_ptr<MutableBlock> _mutable_block;
 
     bool _is_local;
     const int _batch_size;
@@ -188,7 +188,7 @@ protected:
     std::vector<BroadcastPBlockHolder> _broadcast_pb_blocks;
     int _broadcast_pb_block_idx;
 
-    std::unique_ptr<PartitionerBase> _partitioner = nullptr;
+    std::unique_ptr<PartitionerBase> _partitioner;
     size_t _partition_count;
 
     std::vector<Channel<VDataStreamSender>*> _channels;
@@ -208,7 +208,7 @@ protected:
     RuntimeProfile::Counter* _memory_usage_counter {};
     RuntimeProfile::Counter* _peak_memory_usage_counter {};
 
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput = nullptr;
@@ -375,9 +375,9 @@ protected:
     PUniqueId _finst_id;
     PUniqueId _query_id;
     PBlock _pb_block;
-    std::shared_ptr<PTransmitDataParams> _brpc_request = nullptr;
-    std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
-    std::shared_ptr<DummyBrpcCallback<PTransmitDataResult>> _send_remote_block_callback = nullptr;
+    std::shared_ptr<PTransmitDataParams> _brpc_request;
+    std::shared_ptr<PBackendService_Stub> _brpc_stub;
+    std::shared_ptr<DummyBrpcCallback<PTransmitDataResult>> _send_remote_block_callback;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as query statistics transfer chain.
@@ -386,7 +386,7 @@ protected:
     RuntimeState* _state = nullptr;
 
     bool _is_local;
-    std::shared_ptr<VDataStreamRecvr> _local_recvr = nullptr;
+    std::shared_ptr<VDataStreamRecvr> _local_recvr;
     // serialized blocks for broadcasting; we need two so we can write
     // one while the other one is still being sent.
     // Which is for same reason as `_cur_pb_block`, `_pb_block1` and `_pb_block2`
@@ -559,8 +559,8 @@ private:
 
     pipeline::ExchangeSinkBuffer<Parent>* _buffer = nullptr;
     bool _eos_send = false;
-    std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> _send_callback = nullptr;
-    std::unique_ptr<PBlock> _pblock = nullptr;
+    std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> _send_callback;
+    std::unique_ptr<PBlock> _pblock;
 };
 
 } // namespace vectorized

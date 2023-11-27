@@ -69,7 +69,7 @@ public:
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
 
 private:
-    std::shared_ptr<HybridSetBase> _filter = nullptr;
+    std::shared_ptr<HybridSetBase> _filter;
     std::string _expr_name;
 };
 } // namespace doris::vectorized

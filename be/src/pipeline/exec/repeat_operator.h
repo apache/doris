@@ -63,11 +63,11 @@ private:
     friend class RepeatOperatorX;
     template <typename LocalStateType>
     friend class StatefulOperatorX;
-    std::unique_ptr<vectorized::Block> _child_block = nullptr;
+    std::unique_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
     bool _child_eos;
     int _repeat_id_idx;
-    std::unique_ptr<vectorized::Block> _intermediate_block = nullptr;
+    std::unique_ptr<vectorized::Block> _intermediate_block;
     vectorized::VExprContextSPtrs _expr_ctxs;
 };
 

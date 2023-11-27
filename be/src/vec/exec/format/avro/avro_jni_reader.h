@@ -92,7 +92,7 @@ private:
     const TFileScanRangeParams _params;
     const TFileRangeDesc _range;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
-    std::unique_ptr<JniConnector> _jni_connector = nullptr;
+    std::unique_ptr<JniConnector> _jni_connector;
 };
 
 } // namespace doris::vectorized

@@ -191,9 +191,9 @@ private:
     io::FileDescription _file_description;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
-    std::shared_ptr<io::FileSystem> _file_system = nullptr;
+    std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<LineReader> _line_reader = nullptr;
+    std::unique_ptr<LineReader> _line_reader;
     bool _reader_eof;
 
     // When we fetch range doesn't start from 0 will always skip the first line
@@ -258,7 +258,7 @@ private:
     // array_iter pointed to _array
     simdjson::ondemand::array_iterator _array_iter;
     simdjson::ondemand::array _array;
-    std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser = nullptr;
+    std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
 };

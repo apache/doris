@@ -45,10 +45,10 @@ namespace vectorized {
 class Arena;
 
 struct SharedRuntimeFilterContext {
-    std::shared_ptr<MinMaxFuncBase> minmax_func = nullptr;
-    std::shared_ptr<HybridSetBase> hybrid_set = nullptr;
-    std::shared_ptr<BloomFilterFuncBase> bloom_filter_func = nullptr;
-    std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func = nullptr;
+    std::shared_ptr<MinMaxFuncBase> minmax_func;
+    std::shared_ptr<HybridSetBase> hybrid_set;
+    std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
+    std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
 };
 
 struct SharedHashTableContext {
@@ -59,9 +59,9 @@ struct SharedHashTableContext {
               short_circuit_for_null_in_probe_side(false) {}
 
     Status status;
-    std::shared_ptr<Arena> arena = nullptr;
-    std::shared_ptr<void> hash_table_variants = nullptr;
-    std::shared_ptr<std::vector<Block>> blocks = nullptr;
+    std::shared_ptr<Arena> arena;
+    std::shared_ptr<void> hash_table_variants;
+    std::shared_ptr<std::vector<Block>> blocks;
     std::map<int, SharedRuntimeFilterContext> runtime_filters;
     bool signaled;
     bool short_circuit_for_null_in_probe_side;

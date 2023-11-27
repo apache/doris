@@ -92,11 +92,11 @@ private:
     std::unique_ptr<orc::ColumnVectorBatch> _create_row_batch(size_t sz);
 
     doris::io::FileWriter* _file_writer = nullptr;
-    std::unique_ptr<orc::OutputStream> _output_stream = nullptr;
-    std::unique_ptr<orc::WriterOptions> _write_options = nullptr;
+    std::unique_ptr<orc::OutputStream> _output_stream;
+    std::unique_ptr<orc::WriterOptions> _write_options;
     const std::string& _schema_str;
-    std::unique_ptr<orc::Type> _schema = nullptr;
-    std::unique_ptr<orc::Writer> _writer = nullptr;
+    std::unique_ptr<orc::Type> _schema;
+    std::unique_ptr<orc::Writer> _writer;
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer

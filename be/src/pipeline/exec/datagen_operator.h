@@ -63,7 +63,7 @@ public:
 
 private:
     friend class DataGenSourceOperatorX;
-    std::shared_ptr<vectorized::VDataGenFunctionInf> _table_func = nullptr;
+    std::shared_ptr<vectorized::VDataGenFunctionInf> _table_func;
 };
 
 class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {

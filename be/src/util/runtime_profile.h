@@ -427,7 +427,7 @@ public:
 private:
     // Pool for allocated counters. Usually owned by the creator of this
     // object, but occasionally allocated in the constructor.
-    std::unique_ptr<ObjectPool> _pool = nullptr;
+    std::unique_ptr<ObjectPool> _pool;
 
     // Pool for allocated counters. These counters are shared with some other objects.
     std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;

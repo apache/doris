@@ -128,7 +128,7 @@ private:
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
 
 private:
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValue>;
@@ -223,7 +223,7 @@ public:
     };
 
     struct CacheValue : public LRUCacheValueBase {
-        std::shared_ptr<roaring::Roaring> bitmap = nullptr;
+        std::shared_ptr<roaring::Roaring> bitmap;
     };
 
     // Create global instance of this class

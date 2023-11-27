@@ -76,9 +76,9 @@ private:
 
     Status _status = Status::OK();
     // memory consumption of all tables' load block queues, used for back pressure.
-    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes = nullptr;
+    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
     // memory consumption of one load block queue, used for correctness check.
-    std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes = nullptr;
+    std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes;
     // group commit interval in ms, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
     int64_t _group_commit_interval_ms;
 };
@@ -118,7 +118,7 @@ private:
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _need_plan_fragment = false;
     // memory consumption of all tables' load block queues, used for back pressure.
-    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes = nullptr;
+    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
 };
 
 class GroupCommitMgr {
@@ -141,9 +141,9 @@ private:
     std::mutex _lock;
     // TODO remove table when unused
     std::unordered_map<int64_t, std::shared_ptr<GroupCommitTable>> _table_map;
-    std::unique_ptr<doris::ThreadPool> _thread_pool = nullptr;
+    std::unique_ptr<doris::ThreadPool> _thread_pool;
     // memory consumption of all tables' load block queues, used for back pressure.
-    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes = nullptr;
+    std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
 };
 
 } // namespace doris

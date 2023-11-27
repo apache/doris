@@ -496,7 +496,7 @@ private:
 
     private:
         const ColumnString* _root_data_column;
-        std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor = nullptr;
+        std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
     };
 
 private:

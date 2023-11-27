@@ -61,8 +61,8 @@ private:
         std::string _msg;
         std::string _stack;
     };
-    std::unique_ptr<ErrMsg> _err_msg = nullptr;
-    std::unique_ptr<Exception> _nested_excption = nullptr;
+    std::unique_ptr<ErrMsg> _err_msg;
+    std::unique_ptr<Exception> _nested_excption;
     mutable std::string _cache_string;
 };
 

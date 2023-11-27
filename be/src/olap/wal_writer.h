@@ -58,7 +58,7 @@ private:
     std::string _file_name;
     io::FileWriterPtr _file_writer;
     std::atomic_size_t _disk_bytes;
-    std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes = nullptr;
+    std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
     std::mutex _mutex;
 };
 

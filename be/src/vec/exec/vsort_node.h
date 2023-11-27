@@ -95,7 +95,7 @@ private:
 
     bool _reuse_mem;
 
-    std::unique_ptr<Sorter> _sorter = nullptr;
+    std::unique_ptr<Sorter> _sorter;
 
     RuntimeProfile::Counter* _child_get_next_timer = nullptr;
     RuntimeProfile::Counter* _sink_timer = nullptr;

@@ -304,27 +304,27 @@ private:
     // In real time, `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`.
     // Ideally, all threads are expected to attach to the specified tracker, so that "all memory has its own ownership",
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
-    std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw = nullptr;
-    std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
     // page size not in cache, data page/index page/etc.
-    std::shared_ptr<MemTracker> _page_no_cache_mem_tracker = nullptr;
-    std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker = nullptr;
+    std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
+    std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
 
-    std::unique_ptr<ThreadPool> _send_batch_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 
     // Threadpool used to download cache from remote storage
-    std::unique_ptr<ThreadPool> _download_cache_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _download_cache_thread_pool;
     // Threadpool used to prefetch remote file for buffered reader
-    std::unique_ptr<ThreadPool> _buffered_reader_prefetch_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _buffered_reader_prefetch_thread_pool;
     // Threadpool used to upload local file to s3
-    std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
     // A token used to submit download cache task serially
-    std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token = nullptr;
+    std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
     // Pool used by fragment manager to send profile or status to FE coordinator
-    std::unique_ptr<ThreadPool> _send_report_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _send_report_thread_pool;
     // Pool used by join node to build hash table
-    std::unique_ptr<ThreadPool> _join_node_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // ThreadPoolToken -> buffer
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     FragmentMgr* _fragment_mgr = nullptr;
@@ -340,11 +340,11 @@ private:
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
     // TODO(zhiqiang): Do not use shared_ptr in exec_env, we can not control its life cycle.
-    std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr = nullptr;
+    std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
-    std::shared_ptr<StreamLoadExecutor> _stream_load_executor = nullptr;
+    std::shared_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
@@ -353,10 +353,10 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
-    std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter = nullptr;
-    std::unique_ptr<stream_load::LoadStreamStubPool> _load_stream_stub_pool = nullptr;
-    std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool = nullptr;
-    std::shared_ptr<WalManager> _wal_manager = nullptr;
+    std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
+    std::unique_ptr<stream_load::LoadStreamStubPool> _load_stream_stub_pool;
+    std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
+    std::shared_ptr<WalManager> _wal_manager;
 
     std::mutex _frontends_lock;
     std::map<TNetworkAddress, FrontendInfo> _frontends;
@@ -379,11 +379,11 @@ private:
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
 
     // used for query with group cpu hard limit
-    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler = nullptr;
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;
     // used for query without workload group
-    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _without_group_block_scheduler = nullptr;
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
     // used for query with workload group cpu soft limit
-    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler = nullptr;
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
 };
 
 template <>

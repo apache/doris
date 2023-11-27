@@ -261,7 +261,7 @@ protected:
     RowDescriptor _row_descriptor;
     vectorized::Block _origin_block;
 
-    std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
+    std::unique_ptr<RowDescriptor> _output_row_descriptor;
     vectorized::VExprContextSPtrs _projections;
 
     /// Resource information sent from the frontend.
@@ -270,11 +270,11 @@ protected:
     int64_t _limit; // -1: no limit
     int64_t _num_rows_returned;
 
-    std::unique_ptr<RuntimeProfile> _runtime_profile = nullptr;
+    std::unique_ptr<RuntimeProfile> _runtime_profile;
 
     // Record this node memory size. it is expected that artificial guarantees are accurate,
     // which will providea reference for operator memory.
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;

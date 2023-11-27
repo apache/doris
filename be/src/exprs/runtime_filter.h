@@ -465,7 +465,7 @@ protected:
 
     struct RPCContext;
 
-    std::shared_ptr<RPCContext> _rpc_context = nullptr;
+    std::shared_ptr<RPCContext> _rpc_context;
 
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
@@ -481,7 +481,7 @@ protected:
     std::string _name;
     // parent profile
     // only effect on consumer
-    std::unique_ptr<RuntimeProfile> _profile = nullptr;
+    std::unique_ptr<RuntimeProfile> _profile;
     bool _opt_remote_rf;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;

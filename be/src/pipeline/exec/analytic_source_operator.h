@@ -117,7 +117,7 @@ private:
     vectorized::BlockRowPos _order_by_start;
     vectorized::BlockRowPos _order_by_end;
     vectorized::BlockRowPos _partition_by_start;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
+    std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;

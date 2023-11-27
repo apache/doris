@@ -194,9 +194,9 @@ private:
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;
     // every job is a pool
-    std::unique_ptr<ThreadPool> _thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _thread_pool;
 
-    std::shared_ptr<MetricEntity> _entity = nullptr;
+    std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;

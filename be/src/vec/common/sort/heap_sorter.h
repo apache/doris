@@ -107,7 +107,7 @@ private:
 
     size_t _data_size;
     size_t _heap_size;
-    std::unique_ptr<SortingHeap> _heap = nullptr;
+    std::unique_ptr<SortingHeap> _heap;
     Block _return_block;
     int64_t _topn_filter_rows;
     bool _init_sort_descs;

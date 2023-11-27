@@ -68,7 +68,7 @@ struct SchemaScannerCommonParam {
 // scanner parameter from frontend
 struct SchemaScannerParam {
     std::shared_ptr<SchemaScannerCommonParam> common_param;
-    std::unique_ptr<RuntimeProfile> profile = nullptr;
+    std::unique_ptr<RuntimeProfile> profile;
 
     SchemaScannerParam() : common_param(new SchemaScannerCommonParam()) {}
 };

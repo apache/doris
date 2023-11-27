@@ -75,7 +75,7 @@ private:
     // slot num need to fill in and return
     int _slot_num;
     // Jni helper for scanning an schema table.
-    std::unique_ptr<SchemaScanner> _schema_scanner = nullptr;
+    std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 } // namespace vectorized
 } // namespace doris

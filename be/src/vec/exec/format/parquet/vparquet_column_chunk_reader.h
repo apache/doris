@@ -196,14 +196,14 @@ private:
     //    cctz::time_zone* _ctz;
     io::IOContext* _io_ctx = nullptr;
 
-    std::unique_ptr<PageReader> _page_reader = nullptr;
+    std::unique_ptr<PageReader> _page_reader;
     BlockCompressionCodec* _block_compress_codec = nullptr;
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
     uint32_t _remaining_num_values = 0;
     Slice _page_data;
-    std::unique_ptr<uint8_t[]> _decompress_buf = nullptr;
+    std::unique_ptr<uint8_t[]> _decompress_buf;
     size_t _decompress_buf_size = 0;
     Slice _v2_rep_levels;
     Slice _v2_def_levels;

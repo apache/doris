@@ -60,7 +60,7 @@ public:
 
 private:
     QuantileStateType _type = EMPTY;
-    std::shared_ptr<TDigest> _tdigest_ptr = nullptr;
+    std::shared_ptr<TDigest> _tdigest_ptr;
     double _single_data;
     std::vector<double> _explicit_data;
     float _compression;

@@ -245,8 +245,8 @@ protected:
     LoadStreamReplyHandler _handler {this};
 
     bthread::ConditionVariable _schema_cv;
-    std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index = nullptr;
-    std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index = nullptr;
+    std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
+    std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
 };
 
 } // namespace doris

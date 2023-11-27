@@ -83,7 +83,7 @@ private:
     // the sql query database type: like mysql, PG...
     TOdbcTableType::type _table_type;
     // Scanner of JDBC.
-    std::unique_ptr<JdbcConnector> _jdbc_connector = nullptr;
+    std::unique_ptr<JdbcConnector> _jdbc_connector;
     JdbcConnectorParam _jdbc_param;
 };
 } // namespace vectorized

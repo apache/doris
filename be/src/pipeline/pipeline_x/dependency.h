@@ -128,7 +128,7 @@ protected:
     std::atomic<bool> _ready;
     const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state = nullptr;
+    std::shared_ptr<BasicSharedState> _shared_state;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 
@@ -183,7 +183,7 @@ public:
 private:
     bool _call_ready {};
     bool _call_timeout {};
-    std::shared_ptr<RuntimeFilterDependency> _parent = nullptr;
+    std::shared_ptr<RuntimeFilterDependency> _parent;
     std::mutex _lock;
     const int64_t _registration_time;
     const int32_t _wait_time_ms;
@@ -205,7 +205,7 @@ public:
 
 protected:
     std::atomic_int _filters;
-    std::shared_ptr<std::atomic_bool> _blocked_by_rf = nullptr;
+    std::shared_ptr<std::atomic_bool> _blocked_by_rf;
 };
 
 class AndDependency final : public Dependency {
@@ -267,13 +267,13 @@ public:
     vectorized::AggSpillContext spill_context;
     vectorized::ArenaUPtr agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
-    std::unique_ptr<vectorized::SpillPartitionHelper> spill_partition_helper = nullptr;
+    std::unique_ptr<vectorized::SpillPartitionHelper> spill_partition_helper;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
-    std::unique_ptr<vectorized::Arena> agg_profile_arena = nullptr;
-    std::unique_ptr<DataQueue> data_queue = nullptr;
+    std::unique_ptr<vectorized::Arena> agg_profile_arena;
+    std::unique_ptr<DataQueue> data_queue;
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -335,7 +335,7 @@ private:
 
 struct SortSharedState : public BasicSharedState {
 public:
-    std::unique_ptr<vectorized::Sorter> sorter = nullptr;
+    std::unique_ptr<vectorized::Sorter> sorter;
 };
 
 struct UnionSharedState : public BasicSharedState {
@@ -398,7 +398,7 @@ struct HashJoinSharedState : public JoinSharedState {
             std::make_shared<vectorized::HashTableVariants>();
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks = nullptr;
+    std::shared_ptr<std::vector<vectorized::Block>> build_blocks;
     bool probe_ignore_null = false;
 };
 
@@ -416,7 +416,7 @@ public:
     std::queue<vectorized::Block> blocks_buffer;
     std::mutex buffer_mutex;
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
-    std::unique_ptr<vectorized::SortCursorCmp> previous_row = nullptr;
+    std::unique_ptr<vectorized::SortCursorCmp> previous_row;
 };
 
 class AsyncWriterDependency final : public Dependency {

@@ -59,7 +59,7 @@ public:
     const Schema& schema() const override { return _schema; }
 
 private:
-    std::shared_ptr<Segment> _segment = nullptr;
+    std::shared_ptr<Segment> _segment;
     const Schema& _schema;
     size_t _target_rows = 0;
     size_t _output_rows = 0;
@@ -177,7 +177,7 @@ private:
     size_t _cur_batch_num = 0;
 
     // used to store data load from iterator->next_batch(Block*)
-    std::shared_ptr<Block> _block = nullptr;
+    std::shared_ptr<Block> _block;
     // used to store data still on block view
     std::list<std::shared_ptr<Block>> _block_list;
     mutable std::vector<bool> _pre_ctx_same_bit;

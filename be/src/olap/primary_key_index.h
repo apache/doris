@@ -90,8 +90,8 @@ private:
 
     faststring _min_key;
     faststring _max_key;
-    std::unique_ptr<segment_v2::IndexedColumnWriter> _primary_key_index_builder = nullptr;
-    std::unique_ptr<segment_v2::BloomFilterIndexWriter> _bloom_filter_index_builder = nullptr;
+    std::unique_ptr<segment_v2::IndexedColumnWriter> _primary_key_index_builder;
+    std::unique_ptr<segment_v2::BloomFilterIndexWriter> _bloom_filter_index_builder;
 };
 
 class PrimaryKeyIndexReader {
@@ -140,8 +140,8 @@ public:
 private:
     bool _index_parsed;
     bool _bf_parsed;
-    std::unique_ptr<segment_v2::IndexedColumnReader> _index_reader = nullptr;
-    std::unique_ptr<segment_v2::BloomFilter> _bf = nullptr;
+    std::unique_ptr<segment_v2::IndexedColumnReader> _index_reader;
+    std::unique_ptr<segment_v2::BloomFilter> _bf;
 };
 
 } // namespace doris

@@ -109,7 +109,7 @@ private:
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
-    std::shared_ptr<BetaRowsetWriterV2> _rowset_writer = nullptr;
+    std::shared_ptr<BetaRowsetWriterV2> _rowset_writer;
     TabletSchemaSPtr _tablet_schema;
     bool _delta_written_success = false;
 
@@ -121,12 +121,12 @@ private:
     int64_t _write_memtable_time = 0;
     int64_t _close_wait_time = 0;
 
-    std::shared_ptr<MemTableWriter> _memtable_writer = nullptr;
+    std::shared_ptr<MemTableWriter> _memtable_writer;
     MonotonicStopWatch _lock_watch;
 
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 
-    std::shared_ptr<PartialUpdateInfo> _partial_update_info = nullptr;
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 };
 
 } // namespace doris

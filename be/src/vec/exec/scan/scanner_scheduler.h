@@ -105,17 +105,17 @@ private:
     BlockingQueue<ScannerContext*>** _pending_queues = nullptr;
 
     // scheduling thread pool
-    std::unique_ptr<ThreadPool> _scheduler_pool = nullptr;
+    std::unique_ptr<ThreadPool> _scheduler_pool;
     // execution thread pool
     // _local_scan_thread_pool is for local scan task(typically, olap scanner)
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
     // _limited_scan_thread_pool is a special pool for queries with resource limit
-    std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool = nullptr;
-    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool = nullptr;
-    std::unique_ptr<ThreadPool> _limited_scan_thread_pool = nullptr;
+    std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
+    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
+    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
-    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue = nullptr;
-    std::unique_ptr<ThreadPool> _group_local_scan_thread_pool = nullptr;
+    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
+    std::unique_ptr<ThreadPool> _group_local_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
@@ -183,8 +183,8 @@ private:
         }
     }
 
-    std::unique_ptr<ThreadPool> _scan_thread_pool = nullptr;
-    std::unique_ptr<BlockingQueue<SimplifiedScanTask>> _scan_task_queue = nullptr;
+    std::unique_ptr<ThreadPool> _scan_thread_pool;
+    std::unique_ptr<BlockingQueue<SimplifiedScanTask>> _scan_task_queue;
     std::atomic<bool> _is_stop;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
     std::string _wg_name;

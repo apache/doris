@@ -85,7 +85,7 @@ private:
     // otherwise _cache_data is valid, and data is belong to cache.
     bool _is_data_owner = false;
     DataPage* _data = nullptr;
-    std::shared_ptr<MemTracker> _page_tracker = nullptr;
+    std::shared_ptr<MemTracker> _page_tracker;
     PageCacheHandle _cache_data;
 
     // Don't allow copy and assign

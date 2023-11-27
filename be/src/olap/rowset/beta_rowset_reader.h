@@ -104,7 +104,7 @@ private:
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = nullptr;
 
-    std::unique_ptr<RowwiseIterator> _iterator = nullptr;
+    std::unique_ptr<RowwiseIterator> _iterator;
 
     // make sure this handle is initialized and valid before
     // reading data.

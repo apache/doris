@@ -290,7 +290,7 @@ protected:
     uint32_t _column_id;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
-    std::shared_ptr<PredicateParams> _predicate_params = nullptr;
+    std::shared_ptr<PredicateParams> _predicate_params;
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
 };

@@ -74,7 +74,7 @@ public:
     ~VAnalyticEvalNode() override = default;
     VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -173,7 +173,7 @@ private:
     size_t _total_size_of_aggregate_states = 0;
     /// The max align size for functions
     size_t _align_aggregate_states = 1;
-    std::unique_ptr<Arena> _agg_arena_pool = nullptr;
+    std::unique_ptr<Arena> _agg_arena_pool;
     AggregateDataPtr _fn_place_ptr;
 
     TTupleId _buffered_tuple_id = 0;

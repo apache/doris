@@ -168,7 +168,7 @@ private:
 };
 
 struct ExchangeRpcContext {
-    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> _send_callback = nullptr;
+    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> _send_callback;
     bool is_cancelled = false;
 };
 
@@ -248,8 +248,8 @@ private:
 
     std::atomic<int> _total_queue_size = 0;
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
-    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
-    std::shared_ptr<Dependency> _finish_dependency = nullptr;
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
+    std::shared_ptr<Dependency> _finish_dependency;
     QueryStatistics* _statistics = nullptr;
     std::atomic<bool> _should_stop {false};
 };

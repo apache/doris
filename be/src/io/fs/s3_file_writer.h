@@ -66,7 +66,7 @@ private:
     std::string _key;
     bool _aborted = false;
 
-    std::shared_ptr<Aws::S3::S3Client> _client = nullptr;
+    std::shared_ptr<Aws::S3::S3Client> _client;
     std::string _upload_id;
     size_t _index_offset {0};
 
@@ -84,7 +84,7 @@ private:
     Status _st;
     size_t _bytes_written = 0;
 
-    std::shared_ptr<FileBuffer> _pending_buf = nullptr;
+    std::shared_ptr<FileBuffer> _pending_buf;
     int64_t _expiration_time;
     bool _is_cold_data;
     bool _write_file_cache;

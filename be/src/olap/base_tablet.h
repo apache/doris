@@ -91,7 +91,7 @@ protected:
     std::string _tablet_path;
 
     // metrics of this tablet
-    std::shared_ptr<MetricEntity> _metric_entity = nullptr;
+    std::shared_ptr<MetricEntity> _metric_entity;
 
 public:
     IntCounter* query_scan_bytes = nullptr;

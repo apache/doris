@@ -120,7 +120,7 @@ private:
     vectorized::Arena _arena;
     uint64_t _bf_buffer_size;
     NgramTokenExtractor _token_extractor;
-    std::unique_ptr<BloomFilter> _bf = nullptr;
+    std::unique_ptr<BloomFilter> _bf;
     std::vector<std::unique_ptr<BloomFilter>> _bfs;
 };
 

@@ -262,7 +262,7 @@ private:
 
     // Client-provided task to be executed by this pool.
     struct Task {
-        std::shared_ptr<Runnable> runnable = nullptr;
+        std::shared_ptr<Runnable> runnable;
 
         // Time at which the entry was submitted to the pool.
         std::chrono::time_point<std::chrono::system_clock> submit_time;
@@ -376,7 +376,7 @@ private:
     boost::intrusive::list<IdleThread> _idle_threads; // NOLINT(build/include_what_you_use)
 
     // ExecutionMode::CONCURRENT token used by the pool for tokenless submission.
-    std::unique_ptr<ThreadPoolToken> _tokenless = nullptr;
+    std::unique_ptr<ThreadPoolToken> _tokenless;
 
     ThreadPool(const ThreadPool&) = delete;
     void operator=(const ThreadPool&) = delete;

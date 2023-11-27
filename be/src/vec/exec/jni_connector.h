@@ -306,7 +306,7 @@ private:
     TableMetaAddress _table_meta;
 
     int _predicates_length = 0;
-    std::unique_ptr<char[]> _predicates = nullptr;
+    std::unique_ptr<char[]> _predicates;
 
     /**
      * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta

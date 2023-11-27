@@ -206,7 +206,7 @@ private:
     int64_t _lazy_read_filtered_rows = 0;
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
-    std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr = nullptr;
+    std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr;
     int64_t _total_read_rows = 0;
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;
@@ -218,7 +218,7 @@ private:
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     RuntimeState* _state = nullptr;
-    std::shared_ptr<ObjectPool> _obj_pool = nullptr;
+    std::shared_ptr<ObjectPool> _obj_pool;
     bool _is_row_group_filtered = false;
 };
 } // namespace doris::vectorized

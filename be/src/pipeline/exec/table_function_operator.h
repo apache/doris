@@ -76,7 +76,7 @@ private:
     std::vector<vectorized::TableFunction*> _fns;
     vectorized::VExprContextSPtrs _vfn_ctxs;
     int64_t _cur_child_offset = 0;
-    std::unique_ptr<vectorized::Block> _child_block = nullptr;
+    std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
     SourceState _child_source_state;
 };

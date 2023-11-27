@@ -67,12 +67,12 @@ class ExchangeLocalState final : public PipelineXLocalState<> {
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Dependency* dependency() override { return source_dependency.get(); }
-    std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr = nullptr;
+    std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
     bool is_ready;
 
-    std::shared_ptr<AndDependency> source_dependency = nullptr;
+    std::shared_ptr<AndDependency> source_dependency;
     std::vector<std::shared_ptr<ExchangeDataDependency>> deps;
 
     std::vector<RuntimeProfile::Counter*> metrics;
@@ -106,7 +106,7 @@ private:
     const int _num_senders;
     const bool _is_merging;
     RowDescriptor _input_row_desc;
-    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr = nullptr;
+    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     // use in merge sort
     size_t _offset;

@@ -94,7 +94,7 @@ protected:
         _type_converted_decoder->set_type_length(_type_length);
     }
     // Convert decoded value to doris type value.
-    std::unique_ptr<Decoder> _type_converted_decoder = nullptr;
+    std::unique_ptr<Decoder> _type_converted_decoder;
     size_t _current_value_idx = 0;
 };
 
@@ -167,7 +167,7 @@ private:
 
     std::vector<T> _values;
 
-    std::shared_ptr<BitReader> _bit_reader = nullptr;
+    std::shared_ptr<BitReader> _bit_reader;
     uint32_t _values_per_block;
     uint32_t _mini_blocks_per_block;
     uint32_t _values_per_mini_block;
@@ -255,7 +255,7 @@ private:
     Status _get_internal(Slice* buffer, int max_values, int* out_num_values);
 
     std::vector<Slice> _values;
-    std::shared_ptr<BitReader> _bit_reader = nullptr;
+    std::shared_ptr<BitReader> _bit_reader;
     DeltaBitPackDecoder<int32_t, PhysicalType> _len_decoder;
 
     int _num_valid_values;
@@ -333,7 +333,7 @@ private:
     Status _get_internal(Slice* buffer, int max_values, int* out_num_values);
 
     std::vector<Slice> _values;
-    std::shared_ptr<BitReader> _bit_reader = nullptr;
+    std::shared_ptr<BitReader> _bit_reader;
     DeltaBitPackDecoder<int32_t, PhysicalType> _prefix_len_decoder;
     DeltaLengthByteArrayDecoder<PhysicalType> _suffix_decoder;
     std::string _last_value;

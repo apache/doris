@@ -78,8 +78,8 @@ private:
     std::vector<vectorized::PartitionDataPtr> _value_places;
     int _num_partition = 0;
     std::vector<const vectorized::IColumn*> _partition_columns;
-    std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data = nullptr;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
+    std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
+    std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
 
     RuntimeProfile::Counter* _build_timer = nullptr;

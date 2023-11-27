@@ -55,7 +55,7 @@ public:
         const void* address_begin = nullptr;
         const void* address_end = nullptr;
         std::string name;
-        std::shared_ptr<Elf> elf = nullptr;
+        std::shared_ptr<Elf> elf;
     };
 
     /// Address in virtual memory should be passed. These addresses include offset where the object is loaded in memory.

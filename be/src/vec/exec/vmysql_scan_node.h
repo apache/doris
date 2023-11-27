@@ -74,7 +74,7 @@ private:
     // Tuple index in tuple row.
     int _slot_num;
     // Jni helper for scanning an HBase table.
-    std::unique_ptr<MysqlScanner> _mysql_scanner = nullptr;
+    std::unique_ptr<MysqlScanner> _mysql_scanner;
     // Helper class for converting text to other types;
     DataTypeSerDeSPtrs _text_serdes;
     DataTypeSerDe::FormatOptions _text_formatOptions;

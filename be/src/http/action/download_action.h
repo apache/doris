@@ -69,9 +69,9 @@ private:
     std::vector<std::string> _allow_paths;
     std::string _error_log_root_dir;
     int32_t _num_workers;
-    std::unique_ptr<ThreadPool> _download_workers = nullptr;
+    std::unique_ptr<ThreadPool> _download_workers;
 
-    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group = nullptr;
+    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group;
 }; // end class DownloadAction
 
 } // end namespace doris

@@ -238,14 +238,14 @@ private:
             nullptr; // initialized in init(), used for create PageDecoder
 
     // meta for various column indexes (null if the index is absent)
-    std::unique_ptr<ZoneMapPB> _segment_zone_map = nullptr;
+    std::unique_ptr<ZoneMapPB> _segment_zone_map;
 
     mutable std::mutex _load_index_lock;
-    std::unique_ptr<ZoneMapIndexReader> _zone_map_index = nullptr;
-    std::unique_ptr<OrdinalIndexReader> _ordinal_index = nullptr;
-    std::unique_ptr<BitmapIndexReader> _bitmap_index = nullptr;
-    std::shared_ptr<InvertedIndexReader> _inverted_index = nullptr;
-    std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index = nullptr;
+    std::unique_ptr<ZoneMapIndexReader> _zone_map_index
+    std::unique_ptr<OrdinalIndexReader> _ordinal_index;
+    std::unique_ptr<BitmapIndexReader> _bitmap_index;
+    std::shared_ptr<InvertedIndexReader> _inverted_index;
+    std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 
@@ -374,7 +374,7 @@ private:
     ParsedPage _page;
 
     // keep dict page decoder
-    std::unique_ptr<PageDecoder> _dict_decoder = nullptr;
+    std::unique_ptr<PageDecoder> _dict_decoder;
 
     // keep dict page handle to avoid released
     PageHandle _dict_page_handle;
@@ -388,7 +388,7 @@ private:
 
     bool _is_all_dict_encoding = false;
 
-    std::unique_ptr<StringRef[]> _dict_word_info = nullptr;
+    std::unique_ptr<StringRef[]> _dict_word_info;
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -429,7 +429,7 @@ public:
                               vectorized::ColumnArray::ColumnOffsets& column_offsets);
 
 private:
-    std::unique_ptr<FileColumnIterator> _offset_iterator = nullptr;
+    std::unique_ptr<FileColumnIterator> _offset_iterator;
 };
 
 // This iterator is used to read map value column
@@ -465,10 +465,10 @@ public:
 
 private:
     ColumnReader* _map_reader = nullptr;
-    std::unique_ptr<ColumnIterator> _null_iterator = nullptr;
-    std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator = nullptr; //OffsetFileIterator
-    std::unique_ptr<ColumnIterator> _key_iterator = nullptr;
-    std::unique_ptr<ColumnIterator> _val_iterator = nullptr;
+    std::unique_ptr<ColumnIterator> _null_iterator;
+    std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator; //OffsetFileIterator
+    std::unique_ptr<ColumnIterator> _key_iterator;
+    std::unique_ptr<ColumnIterator> _val_iterator;
 };
 
 class StructFileColumnIterator final : public ColumnIterator {
@@ -503,7 +503,7 @@ public:
 
 private:
     ColumnReader* _struct_reader = nullptr;
-    std::unique_ptr<ColumnIterator> _null_iterator = nullptr;
+    std::unique_ptr<ColumnIterator> _null_iterator;
     std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
 };
 
@@ -538,9 +538,9 @@ public:
 
 private:
     ColumnReader* _array_reader = nullptr;
-    std::unique_ptr<OffsetFileColumnIterator> _offset_iterator = nullptr;
-    std::unique_ptr<ColumnIterator> _null_iterator = nullptr;
-    std::unique_ptr<ColumnIterator> _item_iterator = nullptr;
+    std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
+    std::unique_ptr<ColumnIterator> _null_iterator
+    std::unique_ptr<ColumnIterator> _item_iterator;
 
     Status _seek_by_offsets(ordinal_t ord);
 };

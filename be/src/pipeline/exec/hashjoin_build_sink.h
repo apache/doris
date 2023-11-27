@@ -112,12 +112,12 @@ protected:
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
     vectorized::MutableBlock _build_side_mutable_block;
-    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots = nullptr;
+    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
     bool _has_set_need_null_map_for_build = false;
     bool _build_side_ignore_null = false;
     size_t _build_rf_cardinality = 0;
     std::unordered_map<const vectorized::Block*, std::vector<int>> _inserted_rows;
-    std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency = nullptr;
+    std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
@@ -177,7 +177,7 @@ private:
     std::vector<bool> _is_null_safe_eq_join;
 
     bool _is_broadcast_join = false;
-    std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller = nullptr;
+    std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;

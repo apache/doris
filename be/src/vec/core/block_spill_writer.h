@@ -70,7 +70,7 @@ private:
     size_t batch_size_;
     size_t max_sub_block_size_ = 0;
     std::string file_path_;
-    std::unique_ptr<doris::io::FileWriter> file_writer_ = nullptr;
+    std::unique_ptr<doris::io::FileWriter> file_writer_;
 
     size_t written_blocks_ = 0;
     size_t total_written_bytes_ = 0;

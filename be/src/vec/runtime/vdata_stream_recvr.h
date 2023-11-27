@@ -154,11 +154,11 @@ private:
     bool _is_merging;
     bool _is_closed;
 
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
 
-    std::unique_ptr<VSortedRunMerger> _merger = nullptr;
+    std::unique_ptr<VSortedRunMerger> _merger;
 
     ObjectPool _sender_queue_pool;
     RuntimeProfile* _profile = nullptr;
@@ -181,13 +181,13 @@ private:
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr = nullptr;
+    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     bool _enable_pipeline;
     std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
             _sender_to_local_channel_dependency;
 
-    std::shared_ptr<bool> _mem_available = nullptr;
+    std::shared_ptr<bool> _mem_available;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -255,8 +255,8 @@ protected:
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
-    std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency = nullptr;
+    std::shared_ptr<pipeline::ExchangeDataDependency> _dependency;
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {

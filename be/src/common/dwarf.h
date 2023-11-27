@@ -170,7 +170,7 @@ public:
         // Mangled symbol name. Use `folly::demangle()` to demangle it.
         const char* name = nullptr;
         LocationInfo location;
-        std::shared_ptr<const Elf> file = nullptr;
+        std::shared_ptr<const Elf> file;
 
         void clear() { *this = SymbolizedFrame(); }
     };
@@ -184,7 +184,7 @@ public:
 private:
     static bool findDebugInfoOffset(uintptr_t address, std::string_view aranges, uint64_t& offset);
 
-    std::shared_ptr<const Elf> elf_ = nullptr; /// NOLINT
+    std::shared_ptr<const Elf> elf_; /// NOLINT
 
     // DWARF section made up of chunks, each prefixed with a length header.
     // The length indicates whether the chunk is DWARF-32 or DWARF-64, which

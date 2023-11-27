@@ -169,7 +169,7 @@ public:
     // intermediate state during the copy construction of shared_ptr. Shared_ptr is not equal
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
-    std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr = nullptr;
+    std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
     [[nodiscard]] MemTrackerLimiter* thread_mem_tracker() const {
         return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
     }
@@ -319,7 +319,7 @@ public:
     }
 
 private:
-    std::shared_ptr<MemTrackerLimiter> _old_mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _old_mem_tracker;
 };
 
 class AddThreadMemTrackerConsumer {
@@ -334,7 +334,7 @@ public:
     ~AddThreadMemTrackerConsumer();
 
 private:
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr; // Avoid mem_tracker being released midway.
+    std::shared_ptr<MemTracker> _mem_tracker; // Avoid mem_tracker being released midway.
     bool _need_pop = false;
 };
 
@@ -344,7 +344,7 @@ public:
     ~AddThreadMemTrackerConsumerByHook();
 
 private:
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 // Basic macros for mem tracker, usually do not need to be modified and used.

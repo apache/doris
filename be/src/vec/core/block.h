@@ -637,7 +637,7 @@ private:
 };
 
 struct IteratorRowRef {
-    std::shared_ptr<Block> block = nullptr;
+    std::shared_ptr<Block> block;
     int row_pos;
     bool is_same;
 

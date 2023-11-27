@@ -64,7 +64,7 @@ private:
     const TNetworkAddress _broker_addr;
     TBrokerFD _fd;
 
-    std::shared_ptr<BrokerFileSystem> _fs = nullptr;
+    std::shared_ptr<BrokerFileSystem> _fs;
     std::atomic<bool> _closed = false;
 };
 } // namespace doris::io

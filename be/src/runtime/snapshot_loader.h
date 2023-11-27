@@ -112,7 +112,7 @@ private:
     int64_t _task_id;
     const TNetworkAddress _broker_addr;
     const std::map<std::string, std::string> _prop;
-    std::shared_ptr<io::RemoteFileSystem> _remote_fs = nullptr;
+    std::shared_ptr<io::RemoteFileSystem> _remote_fs;
 };
 
 } // end namespace doris

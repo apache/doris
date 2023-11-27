@@ -70,8 +70,8 @@ private:
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
-    std::unique_ptr<JniConnector> _jni_connector = nullptr;
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    std::unique_ptr<JniConnector> _jni_connector;
 };
 
 } // namespace doris::vectorized

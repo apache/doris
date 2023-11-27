@@ -140,14 +140,14 @@ private:
     std::weak_ptr<PipelineFragmentContext> _context;
     int _previous_schedule_id = -1;
 
-    std::unique_ptr<RuntimeProfile> _pipeline_profile = nullptr;
+    std::unique_ptr<RuntimeProfile> _pipeline_profile;
 
     // Operators for pipelineX. All pipeline tasks share operators from this.
     // [SourceOperator -> ... -> SinkOperator]
     OperatorXs operatorXs;
     DataSinkOperatorXPtr _sink_x;
 
-    std::shared_ptr<ObjectPool> _obj_pool = nullptr;
+    std::shared_ptr<ObjectPool> _obj_pool;
 
     Operators _operators;
     /**

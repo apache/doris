@@ -434,8 +434,8 @@ private:
     std::atomic<uint64_t> _last_id;
     size_t _total_capacity;
 
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker = nullptr;
-    std::shared_ptr<MetricEntity> _entity = nullptr;
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker
+    std::shared_ptr<MetricEntity> _entity;
     IntGauge* cache_capacity = nullptr;
     IntGauge* cache_usage = nullptr;
     DoubleGauge* cache_usage_ratio = nullptr;
@@ -443,10 +443,10 @@ private:
     IntAtomicCounter* cache_hit_count = nullptr;
     DoubleGauge* cache_hit_ratio = nullptr;
     // bvars
-    std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar = nullptr;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _hit_count_per_second = nullptr;
-    std::unique_ptr<bvar::Adder<uint64_t>> _lookup_count_bvar = nullptr;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second = nullptr;
+    std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _hit_count_per_second;
+    std::unique_ptr<bvar::Adder<uint64_t>> _lookup_count_bvar;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second;
 };
 
 } // namespace doris

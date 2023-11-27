@@ -273,7 +273,7 @@ protected:
 
     const int _num_parallel_instances;
 
-    std::shared_ptr<RuntimeProfile> _scanner_profile = nullptr;
+    std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
@@ -282,8 +282,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
-    std::shared_ptr<pipeline::ScanDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
+    std::shared_ptr<pipeline::ScanDependency> _dependency;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency;
 };
 } // namespace vectorized
 } // namespace doris

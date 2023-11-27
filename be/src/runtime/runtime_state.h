@@ -507,7 +507,7 @@ private:
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
@@ -515,10 +515,10 @@ private:
     RuntimeProfile _load_channel_profile;
 
     const DescriptorTbl* _desc_tbl = nullptr;
-    std::shared_ptr<ObjectPool> _obj_pool = nullptr;
+    std::shared_ptr<ObjectPool> _obj_pool;
 
     // runtime filter
-    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr = nullptr;
+    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
 
     // Protects _data_stream_recvrs_pool
     std::mutex _data_stream_recvrs_lock;
@@ -528,7 +528,7 @@ private:
     // Receivers depend on the descriptor table and we need to guarantee that their control
     // blocks are removed from the data stream manager before the objects in the
     // descriptor table are destroyed.
-    std::unique_ptr<ObjectPool> _data_stream_recvrs_pool = nullptr;
+    std::unique_ptr<ObjectPool> _data_stream_recvrs_pool;
 
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;

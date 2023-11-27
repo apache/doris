@@ -97,7 +97,7 @@ public:
 
 private:
     static constexpr uint32_t kDefaultNumShards = 16;
-    std::unique_ptr<Cache> _cache = nullptr;
+    std::unique_ptr<Cache> _cache;
     bool _enabled;
 };
 

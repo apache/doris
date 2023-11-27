@@ -51,8 +51,8 @@ public:
 private:
     io::FileReaderSPtr _file_reader;
 
-    std::unique_ptr<uint8_t[]> _file_buf = nullptr;
-    std::unique_ptr<PDataRow> _cur_row = nullptr;
+    std::unique_ptr<uint8_t[]> _file_buf;
+    std::unique_ptr<PDataRow> _cur_row;
 };
 
 } // namespace doris

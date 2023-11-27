@@ -96,7 +96,7 @@ public:
     int64 get_output_rows() const { return _output_total_rows; }
 
 private:
-    std::unique_ptr<MergeSorterState> _state = nullptr;
+    std::unique_ptr<MergeSorterState> _state;
     const RowDescriptor& _row_desc;
     int64 _output_total_rows = 0;
     int64 _output_distinct_rows = 0;

@@ -444,7 +444,7 @@ private:
     bool _needs_finalize;
     bool _is_merge;
     bool _is_first_phase;
-    std::unique_ptr<Arena> _agg_profile_arena = nullptr;
+    std::unique_ptr<Arena> _agg_profile_arena;
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
@@ -456,7 +456,7 @@ private:
     size_t _partitioned_threshold = 0;
 
     AggSpillContext _spill_context;
-    std::unique_ptr<SpillPartitionHelper> _spill_partition_helper = nullptr;
+    std::unique_ptr<SpillPartitionHelper> _spill_partition_helper;
 
     RuntimeProfile::Counter* _build_table_convert_timer = nullptr;
     RuntimeProfile::Counter* _serialize_key_timer = nullptr;
@@ -482,7 +482,7 @@ private:
     PODArray<AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
     std::vector<AggregateDataPtr> _values;
-    std::unique_ptr<AggregateDataContainer> _aggregate_data_container = nullptr;
+    std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
     void _release_self_resource(RuntimeState* state);
     /// Return true if we should keep expanding hash tables in the preagg. If false,

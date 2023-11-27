@@ -276,7 +276,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
         }
     }
 
-    std::unique_ptr<ColumnFilterHelper> mark_column = nullptr;
+    std::unique_ptr<ColumnFilterHelper> mark_column;
     if (is_mark_join) {
         mark_column = std::make_unique<ColumnFilterHelper>(*mcol[mcol.size() - 1]);
     }

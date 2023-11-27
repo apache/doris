@@ -121,7 +121,7 @@ private:
     // max connections per host in this cache, -1 means unlimited
     int _max_cache_size_per_host;
 
-    std::shared_ptr<MetricEntity> _thrift_client_metric_entity = nullptr;
+    std::shared_ptr<MetricEntity> _thrift_client_metric_entity;
 
     // Number of clients 'checked-out' from the cache
     IntGauge* thrift_used_clients = nullptr;

@@ -77,7 +77,7 @@ private:
     int64_t _table_id;
     int64_t _column_id;
 
-    std::unique_ptr<ThreadPoolToken> _rpc_token = nullptr;
+    std::unique_ptr<ThreadPoolToken> _rpc_token;
     Status _rpc_status {Status::OK()};
     std::atomic<bool> _is_fetching {false};
 
@@ -122,7 +122,7 @@ public:
     }
 
 private:
-    std::unique_ptr<ThreadPool> _fetch_autoinc_id_executor = nullptr;
+    std::unique_ptr<ThreadPool> _fetch_autoinc_id_executor;
     std::map<std::tuple<int64_t, int64_t, int64_t>, AutoIncIDBuffer*> _buffers;
     std::mutex _mutex;
 };

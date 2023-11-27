@@ -156,7 +156,7 @@ public:
     Field* get_field() const { return _field.get(); }
 
 private:
-    std::unique_ptr<Field> _field = nullptr;
+    std::unique_ptr<Field> _field;
     bool _is_nullable;
     std::vector<uint8_t> _null_bitmap;
 };
@@ -211,9 +211,9 @@ public:
     friend class OffsetColumnWriter;
 
 private:
-    std::unique_ptr<PageBuilder> _page_builder = nullptr;
+    std::unique_ptr<PageBuilder> _page_builder;
 
-    std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder = nullptr;
+    std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
 
     ColumnWriterOptions _opts;
 
@@ -255,11 +255,11 @@ private:
 
     BlockCompressionCodec* _compress_codec;
 
-    std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder = nullptr;
-    std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder = nullptr;
-    std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder = nullptr;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-    std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder = nullptr;
+    std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
+    std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder
+    std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
+    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 
     // call before flush data page.
     FlushPageCallback* _new_page_callback = nullptr;
@@ -332,7 +332,7 @@ public:
 
 private:
     size_t _num_sub_column_writers;
-    std::unique_ptr<ScalarColumnWriter> _null_writer = nullptr;
+    std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _sub_column_writers;
     ColumnWriterOptions _opts;
 };
@@ -386,10 +386,10 @@ private:
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
-    std::unique_ptr<OffsetColumnWriter> _offset_writer = nullptr;
-    std::unique_ptr<ScalarColumnWriter> _null_writer = nullptr;
-    std::unique_ptr<ColumnWriter> _item_writer = nullptr;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
+    std::unique_ptr<OffsetColumnWriter> _offset_writer;
+    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<ColumnWriter> _item_writer;
+    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
 };
 
@@ -442,9 +442,9 @@ public:
 private:
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not
-    std::unique_ptr<ScalarColumnWriter> _null_writer = nullptr;
-    std::unique_ptr<OffsetColumnWriter> _offsets_writer = nullptr;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
+    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<OffsetColumnWriter> _offsets_writer;
+    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
 };
 

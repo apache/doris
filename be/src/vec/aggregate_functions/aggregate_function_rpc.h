@@ -55,7 +55,7 @@ private:
     std::string _server_addr;
     std::string _finalize_fn;
     bool _saved_last_result;
-    std::shared_ptr<PFunctionService_Stub> _client = nullptr;
+    std::shared_ptr<PFunctionService_Stub> _client;
     PFunctionCallResponse _res;
     std::vector<PFunctionCallRequest> _buffer_request;
     bool _error;

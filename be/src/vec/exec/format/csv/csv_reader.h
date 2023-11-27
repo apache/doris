@@ -148,7 +148,7 @@ public:
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
 private:
-    std::shared_ptr<EncloseCsvLineReaderContext> _text_line_reader_ctx = nullptr;
+    std::shared_ptr<EncloseCsvLineReaderContext> _text_line_reader_ctx;
 };
 
 class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFieldSplitter> {
@@ -251,11 +251,11 @@ private:
     // True if this is a load task
     bool _is_load = false;
 
-    std::shared_ptr<io::FileSystem> _file_system = nullptr;
+    std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<LineReader> _line_reader = nullptr;
+    std::unique_ptr<LineReader> _line_reader;
     bool _line_reader_eof;
-    std::unique_ptr<Decompressor> _decompressor = nullptr;
+    std::unique_ptr<Decompressor> _decompressor;
 
     TFileFormatType::type _file_format_type;
     bool _is_proto_format;
@@ -287,7 +287,7 @@ private:
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
-    std::unique_ptr<LineFieldSplitterIf> _fields_splitter = nullptr;
+    std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
     TTextSerdeType::type _text_serde_type;
     std::vector<int> _use_nullable_string_opt;
 };

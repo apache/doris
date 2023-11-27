@@ -92,7 +92,7 @@ private:
 
     DescriptorTbl _desc_tbl;
 
-    std::shared_ptr<TExpr> _where_expr = nullptr;
+    std::shared_ptr<TExpr> _where_expr;
 
     AlterTabletType _type;
 
@@ -217,7 +217,7 @@ private:
     const BlockChanger& _changer;
     size_t _memory_limitation;
     Version _temp_delta_versions;
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 class SchemaChangeHandler {
@@ -249,7 +249,7 @@ private:
     struct AlterMaterializedViewParam {
         std::string column_name;
         std::string origin_column_name;
-        std::shared_ptr<TExpr> expr = nullptr;
+        std::shared_ptr<TExpr> expr;
     };
 
     struct SchemaChangeParams {

@@ -66,7 +66,7 @@ private:
     friend class SchemaScanOperatorX;
 
     SchemaScannerParam _scanner_param;
-    std::unique_ptr<SchemaScanner> _schema_scanner = nullptr;
+    std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
 class SchemaScanOperatorX final : public OperatorX<SchemaScanLocalState> {
@@ -89,7 +89,7 @@ private:
 
     const std::string _table_name;
 
-    std::shared_ptr<SchemaScannerCommonParam> _common_scanner_param = nullptr;
+    std::shared_ptr<SchemaScannerCommonParam> _common_scanner_param;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
 
@@ -100,7 +100,7 @@ private:
     // slot num need to fill in and return
     int _slot_num;
 
-    std::unique_ptr<SchemaScanner> _schema_scanner = nullptr;
+    std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
 } // namespace doris::pipeline

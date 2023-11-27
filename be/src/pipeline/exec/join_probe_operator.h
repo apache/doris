@@ -58,7 +58,7 @@ protected:
     RuntimeProfile::Counter* _join_filter_timer = nullptr;
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
 
-    std::unique_ptr<vectorized::Block> _child_block = nullptr;
+    std::unique_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
 };
 
@@ -109,8 +109,8 @@ protected:
     const bool _is_outer_join;
     const bool _is_mark_join;
 
-    std::unique_ptr<RowDescriptor> _output_row_desc = nullptr;
-    std::unique_ptr<RowDescriptor> _intermediate_row_desc = nullptr;
+    std::unique_ptr<RowDescriptor> _output_row_desc;
+    std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     OperatorXPtr _build_side_child;

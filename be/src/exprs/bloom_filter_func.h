@@ -90,7 +90,7 @@ public:
     }
 
 private:
-    std::shared_ptr<doris::BlockBloomFilter> _bloom_filter = nullptr;
+    std::shared_ptr<doris::BlockBloomFilter> _bloom_filter;
 };
 
 // Only Used In RuntimeFilter
@@ -242,7 +242,7 @@ public:
 protected:
     // bloom filter size
     int32_t _bloom_filter_alloced;
-    std::shared_ptr<BloomFilterAdaptor> _bloom_filter = nullptr;
+    std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     bool _inited;
     std::mutex _lock;
     int64_t _bloom_filter_length;

@@ -209,7 +209,7 @@ private:
     DependencyMap _upstream_dependency;
     std::map<int, DependencySPtr> _source_dependency;
     std::vector<DependencySPtr> _downstream_dependency;
-    std::shared_ptr<LocalExchangeSharedState> _local_exchange_state = nullptr;
+    std::shared_ptr<LocalExchangeSharedState> _local_exchange_state;
     int _task_idx;
     bool _dry_run = false;
 

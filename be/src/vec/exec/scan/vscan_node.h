@@ -259,7 +259,7 @@ protected:
 
     // Each scan node will generates a ScannerContext to manage all Scanners.
     // See comments of ScannerContext for more details
-    std::shared_ptr<ScannerContext> _scanner_ctx = nullptr;
+    std::shared_ptr<ScannerContext> _scanner_ctx;
 
     // indicate this scan node has no more data to return
     bool _eos = false;
@@ -309,11 +309,11 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
-    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller = nullptr;
+    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     bool _should_create_scanner = false;
     int _context_queue_id = -1;
 
-    std::shared_ptr<RuntimeProfile> _scanner_profile = nullptr;
+    std::shared_ptr<RuntimeProfile> _scanner_profile;
 
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;

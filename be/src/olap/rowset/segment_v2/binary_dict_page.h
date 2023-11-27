@@ -83,7 +83,7 @@ private:
     PageBuilderOptions _options;
     bool _finished;
 
-    std::unique_ptr<PageBuilder> _data_page_builder = nullptr;
+    std::unique_ptr<PageBuilder> _data_page_builder;
 
     std::unique_ptr<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>> _dict_builder =
             nullptr;
@@ -133,7 +133,7 @@ public:
 private:
     Slice _data;
     PageDecoderOptions _options;
-    std::unique_ptr<PageDecoder> _data_page_decoder = nullptr;
+    std::unique_ptr<PageDecoder> _data_page_decoder;
     BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
     BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;

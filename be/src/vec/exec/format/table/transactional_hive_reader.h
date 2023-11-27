@@ -124,7 +124,7 @@ private:
     const TFileRangeDesc& _range;
     TransactionalHiveProfile _transactional_orc_profile;
     AcidRowIDSet _delete_rows;
-    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr = nullptr;
+    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
     std::vector<std::string> _col_names;
 
     io::IOContext* _io_ctx = nullptr;

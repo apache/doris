@@ -188,12 +188,12 @@ private:
     size_t _num_key_columns;
     size_t _num_short_key_columns;
     size_t _inverted_index_file_size;
-    std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder = nullptr;
-    std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder = nullptr;
+    std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
+    std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
-    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor = nullptr;
+    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     // for mow table with cluster keys, this is cluster keys
     std::vector<const KeyCoder*> _key_coders;
@@ -219,7 +219,7 @@ private:
     faststring _min_key;
     faststring _max_key;
 
-    std::shared_ptr<MowContext> _mow_context = nullptr;
+    std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
     PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;

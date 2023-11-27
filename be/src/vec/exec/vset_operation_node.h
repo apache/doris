@@ -96,7 +96,7 @@ private:
     void create_mutable_cols(Block* output_block);
     void release_mem();
 
-    std::unique_ptr<HashTableVariants> _hash_table_variants = nullptr;
+    std::unique_ptr<HashTableVariants> _hash_table_variants;
 
     std::vector<bool> _build_not_ignore_null;
 

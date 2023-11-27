@@ -514,18 +514,18 @@ private:
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
-    std::unique_ptr<ORCFileInputStream> _file_input_stream = nullptr;
+    std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
 
-    std::unique_ptr<orc::ColumnVectorBatch> _batch = nullptr;
-    std::unique_ptr<orc::Reader> _reader = nullptr;
-    std::unique_ptr<orc::RowReader> _row_reader = nullptr;
-    std::unique_ptr<ORCFilterImpl> _orc_filter = nullptr;
+    std::unique_ptr<orc::ColumnVectorBatch> _batch;
+    std::unique_ptr<orc::Reader> _reader;
+    std::unique_ptr<orc::RowReader> _row_reader;
+    std::unique_ptr<ORCFilterImpl> _orc_filter;
     orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
 
-    std::shared_ptr<io::FileSystem> _file_system = nullptr;
+    std::shared_ptr<io::FileSystem> _file_system;
 
     io::IOContext* _io_ctx = nullptr;
     bool _enable_lazy_mat = true;
@@ -535,10 +535,10 @@ private:
 
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     bool _is_acid = false;
-    std::unique_ptr<IColumn::Filter> _filter = nullptr;
+    std::unique_ptr<IColumn::Filter> _filter;
     LazyReadContext _lazy_read_ctx;
     const TransactionalHiveReader::AcidRowIDSet* _delete_rows = nullptr;
-    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr = nullptr;
+    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
 
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;
@@ -549,8 +549,8 @@ private:
     VExprContextSPtrs _filter_conjuncts;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
-    std::shared_ptr<ObjectPool> _obj_pool = nullptr;
-    std::unique_ptr<orc::StringDictFilter> _string_dict_filter = nullptr;
+    std::shared_ptr<ObjectPool> _obj_pool;
+    std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
     bool _is_dict_cols_converted;
     bool _has_complex_type = false;
 };

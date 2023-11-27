@@ -259,7 +259,7 @@ protected:
     const BaseTabletSPtr& tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
-    std::unique_ptr<vectorized::Arena> _predicate_arena = nullptr;
+    std::unique_ptr<vectorized::Arena> _predicate_arena;
     std::vector<uint32_t> _return_columns;
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys

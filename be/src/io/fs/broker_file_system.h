@@ -82,7 +82,7 @@ private:
     const TNetworkAddress& _broker_addr;
     const std::map<std::string, std::string>& _broker_prop;
 
-    std::unique_ptr<BrokerServiceConnection> _connection = nullptr;
+    std::unique_ptr<BrokerServiceConnection> _connection;
 };
 } // namespace io
 } // namespace doris

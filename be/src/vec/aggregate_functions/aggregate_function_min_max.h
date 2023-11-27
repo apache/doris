@@ -295,7 +295,7 @@ private:
 
     Int32 size = -1;    /// -1 indicates that there is no value.
     Int32 capacity = 0; /// power of two or zero
-    std::unique_ptr<char[]> large_data = nullptr;
+    std::unique_ptr<char[]> large_data;
 
 public:
     static constexpr Int32 AUTOMATIC_STORAGE_SIZE = 64;

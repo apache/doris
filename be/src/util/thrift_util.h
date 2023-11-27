@@ -109,8 +109,8 @@ public:
     void get_buffer(uint8_t** buffer, uint32_t* length) { _mem_buffer->getBuffer(buffer, length); }
 
 private:
-    std::shared_ptr<apache::thrift::transport::TMemoryBuffer> _mem_buffer = nullptr;
-    std::shared_ptr<apache::thrift::protocol::TProtocol> _protocol = nullptr;
+    std::shared_ptr<apache::thrift::transport::TMemoryBuffer> _mem_buffer;
+    std::shared_ptr<apache::thrift::protocol::TProtocol> _protocol;
 };
 
 class ThriftDeserializer {
@@ -118,8 +118,8 @@ public:
     ThriftDeserializer(bool compact);
 
 private:
-    std::shared_ptr<apache::thrift::protocol::TProtocolFactory> _factory = nullptr;
-    std::shared_ptr<apache::thrift::protocol::TProtocol> _tproto = nullptr;
+    std::shared_ptr<apache::thrift::protocol::TProtocolFactory> _factory;
+    std::shared_ptr<apache::thrift::protocol::TProtocol> _tproto;
 };
 
 // Utility to create a protocol (deserialization) object for 'mem'.

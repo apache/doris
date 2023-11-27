@@ -72,7 +72,7 @@ private:
 
     uint64_t _bytes_sent = 0;
 
-    std::shared_ptr<arrow::Schema> _arrow_schema = nullptr;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
 };
 } // namespace vectorized
 } // namespace doris

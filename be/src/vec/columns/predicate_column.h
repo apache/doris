@@ -450,7 +450,7 @@ public:
 private:
     Container data;
     // manages the memory for slice's data(For string type)
-    std::unique_ptr<Arena> _arena = nullptr;
+    std::unique_ptr<Arena> _arena;
 };
 
 } // namespace doris::vectorized

@@ -225,13 +225,13 @@ private:
     // ATTN: these fields must be before _file_reader, to make sure they will be released
     // after _file_reader. Otherwise, there may be heap-use-after-free bug.
     ObjLRUCache::CacheHandle _meta_cache_handle;
-    std::unique_ptr<FileMetaData> _file_metadata_ptr = nullptr;
+    std::unique_ptr<FileMetaData> _file_metadata_ptr;
     FileMetaData* _file_metadata = nullptr;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
-    std::shared_ptr<io::FileSystem> _file_system = nullptr;
+    std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader = nullptr;
-    std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;
+    std::unique_ptr<RowGroupReader> _current_group_reader;
     // read to the end of current reader
     bool _row_group_eof = true;
     int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file

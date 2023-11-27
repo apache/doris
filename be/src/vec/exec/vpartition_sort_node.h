@@ -203,8 +203,8 @@ private:
     Status get_sorted_block(RuntimeState* state, Block* output_block, bool* eos);
 
     // hash table
-    std::unique_ptr<PartitionedHashMapVariants> _partitioned_data = nullptr;
-    std::unique_ptr<Arena> _agg_arena_pool = nullptr;
+    std::unique_ptr<PartitionedHashMapVariants> _partitioned_data;
+    std::unique_ptr<Arena> _agg_arena_pool;
     // partition by k1,k2
     int _partition_exprs_num = 0;
     VExprContextSPtrs _partition_expr_ctxs;
@@ -221,7 +221,7 @@ private:
     int _num_partition = 0;
     int64_t _partition_inner_limit = 0;
     int _sort_idx = 0;
-    std::unique_ptr<SortCursorCmp> _previous_row = nullptr;
+    std::unique_ptr<SortCursorCmp> _previous_row;
     std::queue<Block> _blocks_buffer;
     int64_t child_input_rows = 0;
     std::mutex _buffer_mutex;

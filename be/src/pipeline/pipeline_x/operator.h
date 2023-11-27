@@ -36,7 +36,7 @@ struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams> scan_ranges;
     std::vector<DependencySPtr>& upstream_dependencies;
-    std::shared_ptr<LocalExchangeSharedState> local_exchange_state = nullptr;
+    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
     int task_idx;
 
     DependencySPtr dependency;
@@ -47,7 +47,7 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     std::vector<DependencySPtr>& dependencys;
-    std::shared_ptr<LocalExchangeSharedState> local_exchange_state = nullptr;
+    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
     const TDataSink& tsink;
 };
 
@@ -111,11 +111,11 @@ protected:
     ObjectPool* _pool = nullptr;
     int64_t _num_rows_returned {0};
 
-    std::unique_ptr<RuntimeProfile> _runtime_profile = nullptr;
+    std::unique_ptr<RuntimeProfile> _runtime_profile;
 
     // Record this node memory size. it is expected that artificial guarantees are accurate,
     // which will providea reference for operator memory.
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
@@ -135,8 +135,8 @@ protected:
     vectorized::VExprContextSPtrs _projections;
     bool _closed = false;
     vectorized::Block _origin_block;
-    std::shared_ptr<Dependency> _finish_dependency = nullptr;
-    std::shared_ptr<RuntimeFilterDependency> _filter_dependency = nullptr;
+    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -279,7 +279,7 @@ protected:
 
     RowDescriptor _row_descriptor;
 
-    std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
+    std::unique_ptr<RowDescriptor> _output_row_descriptor;
     vectorized::VExprContextSPtrs _projections;
 
     /// Resource information sent from the frontend.
@@ -383,9 +383,9 @@ protected:
     DataSinkOperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
     // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
+    std::shared_ptr<QueryStatistics> _query_statistics;
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed = false;
@@ -402,7 +402,7 @@ protected:
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
-    std::shared_ptr<Dependency> _finish_dependency = nullptr;
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
@@ -531,7 +531,7 @@ protected:
     std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
+    std::shared_ptr<QueryStatistics> _query_statistics;
 };
 
 template <typename LocalStateType>
@@ -648,9 +648,9 @@ public:
 
 protected:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
-    std::unique_ptr<Writer> _writer = nullptr;
+    std::unique_ptr<Writer> _writer;
 
-    std::shared_ptr<AsyncWriterDependency> _async_writer_dependency = nullptr;
+    std::shared_ptr<AsyncWriterDependency> _async_writer_dependency;
 };
 
 } // namespace doris::pipeline

@@ -57,7 +57,7 @@ private:
                                  size_t input_rows_count, PFunctionCallRequest* request);
     void _convert_to_block(vectorized::Block& block, const PValues& result, size_t pos);
 
-    std::shared_ptr<PFunctionService_Stub> _client = nullptr;
+    std::shared_ptr<PFunctionService_Stub> _client;
     std::string _function_name;
     std::string _server_addr;
     std::string _signature;

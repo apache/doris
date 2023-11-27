@@ -66,7 +66,7 @@ private:
     DorisCallOnce<Status> _load_once;
     const TypeInfo* _type_info = nullptr;
     std::unique_ptr<BloomFilterIndexPB> _bloom_filter_index_meta = nullptr;
-    std::unique_ptr<IndexedColumnReader> _bloom_filter_reader = nullptr;
+    std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;
 };
 
 class BloomFilterIndexIterator {

@@ -259,7 +259,7 @@ private:
 
         RowsetReaderSharedPtr _rs_reader;
         TabletReader* _reader = nullptr;
-        std::shared_ptr<Block> _block = nullptr;
+        std::shared_ptr<Block> _block;
 
         int _current;
         BlockView _block_view;
@@ -312,7 +312,7 @@ private:
         std::list<std::unique_ptr<LevelIterator>> _children;
         // point to the Level0Iterator containing the next output row.
         // null when VCollectIterator hasn't been initialized or reaches EOF.
-        std::unique_ptr<LevelIterator> _cur_child = nullptr;
+        std::unique_ptr<LevelIterator> _cur_child;
         TabletReader* _reader = nullptr;
 
         // when `_merge == true`, rowset reader returns ordered rows and VCollectIterator uses a priority queue to merge
@@ -326,12 +326,12 @@ private:
 
         bool _skip_same;
         // used when `_merge == true`
-        std::unique_ptr<MergeHeap> _heap = nullptr;
+        std::unique_ptr<MergeHeap> _heap;
 
         std::vector<RowLocation> _block_row_locations;
     };
 
-    std::unique_ptr<LevelIterator> _inner_iter = nullptr;
+    std::unique_ptr<LevelIterator> _inner_iter;
 
     // Each LevelIterator corresponds to a rowset reader,
     // it will be cleared after '_inner_iter' has been initialized.

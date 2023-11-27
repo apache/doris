@@ -68,9 +68,9 @@ private:
     const TypeInfo* _type_info = nullptr;
     bool _has_null = false;
     DorisCallOnce<Status> _load_once;
-    std::unique_ptr<IndexedColumnReader> _dict_column_reader = nullptr;
-    std::unique_ptr<IndexedColumnReader> _bitmap_column_reader = nullptr;
-    std::unique_ptr<BitmapIndexPB> _index_meta = nullptr;
+    std::unique_ptr<IndexedColumnReader> _dict_column_reader;
+    std::unique_ptr<IndexedColumnReader> _bitmap_column_reader;
+    std::unique_ptr<BitmapIndexPB> _index_meta;
 };
 
 class BitmapIndexIterator {

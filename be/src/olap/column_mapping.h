@@ -35,7 +35,7 @@ struct ColumnMapping {
     int32_t ref_column;
     // normally for default value. stores values for filters
     WrapperField* default_value = nullptr;
-    std::shared_ptr<TExpr> expr = nullptr;
+    std::shared_ptr<TExpr> expr;
     const TabletColumn* new_column = nullptr;
 };
 

@@ -73,7 +73,7 @@ private:
     int _real_port;
 
     int _server_fd = -1;
-    std::unique_ptr<ThreadPool> _workers = nullptr;
+    std::unique_ptr<ThreadPool> _workers;
     std::mutex _event_bases_lock; // protect _event_bases
     std::vector<std::shared_ptr<event_base>> _event_bases;
 

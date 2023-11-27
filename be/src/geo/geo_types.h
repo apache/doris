@@ -105,7 +105,7 @@ protected:
     bool decode(const void* data, size_t size) override;
 
 private:
-    std::unique_ptr<S2Point> _point = nullptr;
+    std::unique_ptr<S2Point> _point;
 };
 
 class GeoLine : public GeoShape {
@@ -132,7 +132,7 @@ protected:
     bool decode(const void* data, size_t size) override;
 
 private:
-    std::unique_ptr<S2Polyline> _polyline = nullptr;
+    std::unique_ptr<S2Polyline> _polyline;
 };
 
 class GeoPolygon : public GeoShape {
@@ -160,7 +160,7 @@ protected:
     bool decode(const void* data, size_t size) override;
 
 private:
-    std::unique_ptr<S2Polygon> _polygon = nullptr;
+    std::unique_ptr<S2Polygon> _polygon;
 };
 
 class GeoCircle : public GeoShape {
@@ -184,7 +184,7 @@ protected:
     bool decode(const void* data, size_t size) override;
 
 private:
-    std::unique_ptr<S2Cap> _cap = nullptr;
+    std::unique_ptr<S2Cap> _cap;
 };
 
 } // namespace doris

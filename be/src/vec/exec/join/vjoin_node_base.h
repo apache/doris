@@ -124,8 +124,8 @@ protected:
 
     // for some join, when build side rows is empty, we could return directly by add some additional null data in probe table.
     bool _empty_right_table_need_probe_dispose = false;
-    std::unique_ptr<RowDescriptor> _output_row_desc = nullptr;
-    std::unique_ptr<RowDescriptor> _intermediate_row_desc = nullptr;
+    std::unique_ptr<RowDescriptor> _output_row_desc;
+    std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr
     VExprContextSPtrs _output_expr_ctxs;
 

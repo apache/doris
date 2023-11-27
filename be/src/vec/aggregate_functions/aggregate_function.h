@@ -531,7 +531,7 @@ public:
 
 private:
     const IAggregateFunction* _function;
-    std::unique_ptr<AggregateData[]> _data = nullptr;
+    std::unique_ptr<AggregateData[]> _data;
 };
 
 } // namespace doris::vectorized

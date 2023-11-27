@@ -65,9 +65,9 @@ private:
     int _num_senders;
     bool _is_merging;
     bool _is_ready;
-    std::shared_ptr<VDataStreamRecvr> _stream_recvr = nullptr;
+    std::shared_ptr<VDataStreamRecvr> _stream_recvr;
     RowDescriptor _input_row_desc;
-    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr = nullptr;
+    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     // use in merge sort
     size_t _offset;

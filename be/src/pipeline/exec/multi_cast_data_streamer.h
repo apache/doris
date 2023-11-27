@@ -25,7 +25,7 @@ class MultiCastSourceDependency;
 struct MultiCastBlock {
     MultiCastBlock(vectorized::Block* block, int used_count, size_t mem_size);
 
-    std::unique_ptr<vectorized::Block> _block = nullptr;
+    std::unique_ptr<vectorized::Block> _block;
     int _used_count;
     size_t _mem_size;
 };

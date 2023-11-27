@@ -70,7 +70,7 @@ private:
     std::vector<RowsetSharedPtr> _output_rowsets;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
-    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor = nullptr;
+    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // "<segment_id, index_id>" -> InvertedIndexColumnWriter
     std::unordered_map<std::pair<int64_t, int64_t>,
                        std::unique_ptr<segment_v2::InvertedIndexColumnWriter>>

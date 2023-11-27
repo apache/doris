@@ -94,7 +94,7 @@ public:
     std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
     std::vector<MergeSortCursorImpl>& get_cursors() { return cursors_; }
 
-    std::unique_ptr<Block> unsorted_block_ = nullptr;
+    std::unique_ptr<Block> unsorted_block_;
 
 private:
     int _calc_spill_blocks_to_merge() const;
@@ -124,7 +124,7 @@ private:
     std::deque<int64_t> spilled_sorted_block_streams_;
     std::vector<BlockSpillReaderUPtr> spilled_block_readers_;
     Block merge_sorted_block_;
-    std::unique_ptr<VSortedRunMerger> merger_ = nullptr;
+    std::unique_ptr<VSortedRunMerger> merger_;
 
     RuntimeProfile* profile_ = nullptr;
     RuntimeProfile* block_spill_profile_ = nullptr;
@@ -211,7 +211,7 @@ private:
 
     Status _do_sort();
 
-    std::unique_ptr<MergeSorterState> _state = nullptr;
+    std::unique_ptr<MergeSorterState> _state;
 
     static constexpr size_t INITIAL_BUFFERED_BLOCK_SIZE = 1024 * 1024;
     static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;

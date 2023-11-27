@@ -68,7 +68,7 @@ public:
         ObjectPool* pool = nullptr;
         OlapTableLocationParam* location = nullptr;
         const VExprContextSPtrs* vec_output_expr_ctxs = nullptr;
-        std::shared_ptr<OlapTableSchemaParam> schema = nullptr;
+        std::shared_ptr<OlapTableSchemaParam> schema;
         void* caller = nullptr;
         CreatePartitionCallback create_partition_callback;
     };
@@ -159,7 +159,7 @@ private:
     // for auto partitions
     std::vector<std::vector<TStringLiteral>>
             _partitions_need_create; // support only one partition column now
-    std::unique_ptr<MutableBlock> _batching_block = nullptr;
+    std::unique_ptr<MutableBlock> _batching_block;
     bool _deal_batched = false; // If true, send batched block before any block's append.
     size_t _batching_rows = 0, _batching_bytes = 0;
     std::set<std::string> _deduper;
@@ -176,7 +176,7 @@ private:
     const VExprContextSPtrs* _vec_output_expr_ctxs = nullptr;
     CreatePartitionCallback _create_partition_callback = nullptr;
     void* _caller = nullptr;
-    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
+    std::shared_ptr<OlapTableSchemaParam> _schema;
 
     // reuse for find_tablet.
     std::vector<VOlapTablePartition*> _partitions;

@@ -48,7 +48,7 @@ struct MethodBase {
     using Iterator = typename HashMap::iterator;
     using HashMapType = HashMap;
 
-    std::shared_ptr<HashMap> hash_table = nullptr;
+    std::shared_ptr<HashMap> hash_table;
     Iterator iterator;
     bool inited_iterator = false;
     Key* keys = nullptr;

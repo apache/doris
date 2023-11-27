@@ -97,7 +97,7 @@ private:
     std::vector<OlapScanRange*> _key_ranges;
 
     TabletReader::ReaderParams _tablet_reader_params;
-    std::unique_ptr<TabletReader> _tablet_reader = nullptr;
+    std::unique_ptr<TabletReader> _tablet_reader;
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;

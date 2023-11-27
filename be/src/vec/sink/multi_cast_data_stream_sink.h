@@ -55,6 +55,6 @@ public:
     }
 
 private:
-    std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer = nullptr;
+    std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;
 };
 } // namespace doris::vectorized

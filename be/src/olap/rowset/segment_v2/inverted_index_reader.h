@@ -261,7 +261,7 @@ public:
 private:
     const TypeInfo* _type_info {};
     const KeyCoder* _value_key_coder {};
-    std::unique_ptr<DorisCompoundReader> _compoundReader = nullptr;
+    std::unique_ptr<DorisCompoundReader> _compoundReader;
 };
 
 class InvertedIndexIterator {
@@ -289,7 +289,7 @@ public:
 private:
     OlapReaderStatistics* _stats = nullptr;
     RuntimeState* _runtime_state = nullptr;
-    std::shared_ptr<InvertedIndexReader> _reader = nullptr;
+    std::shared_ptr<InvertedIndexReader> _reader;
 };
 
 } // namespace segment_v2
