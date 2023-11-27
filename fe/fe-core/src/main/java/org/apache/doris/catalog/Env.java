@@ -2965,7 +2965,7 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
-        sb.append("TABLE ");
+        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
 
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`.");
@@ -2995,7 +2995,7 @@ public class Env {
                 sb.append("  ").append(column.toSql());
             }
         }
-        if (table.getType() == TableType.OLAP) {
+        if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
                 for (Index index : olapTable.getIndexes()) {
@@ -3007,7 +3007,7 @@ public class Env {
         sb.append("\n) ENGINE=");
         sb.append(table.getType().name());
 
-        if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
+        if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             // keys
             String keySql = olapTable.getKeysType().toSql();
@@ -3015,10 +3015,7 @@ public class Env {
                 // after #18621, use can create a DUP_KEYS olap table without key columns
                 // and get a ddl schema without key type and key columns
             } else {
-                sb.append("\n").append(table.getType() == TableType.OLAP
-                                ? keySql
-                                : keySql.substring("DUPLICATE ".length()))
-                        .append("(");
+                sb.append("\n").append(keySql).append("(");
                 List<String> keysColumnNames = Lists.newArrayList();
                 Map<Integer, String> clusterKeysColumnNamesToId = new TreeMap<>();
                 for (Column column : olapTable.getBaseSchema()) {
@@ -3047,9 +3044,7 @@ public class Env {
                 return;
             }
 
-            if (table.getType() != TableType.MATERIALIZED_VIEW) {
-                addTableComment(olapTable, sb);
-            }
+            addTableComment(olapTable, sb);
 
             // partition
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
