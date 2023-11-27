@@ -40,6 +40,7 @@ import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughInn
 import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughSemiJoin;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
@@ -220,6 +221,10 @@ public class RuleSet {
             .add(JoinCommute.BUSHY.build())
             .build();
 
+    public static final List<Rule> MATERIALIZED_VIEW_RULES = planRuleFactories()
+            .add(MaterializedViewProjectJoinRule.INSTANCE)
+            .build();
+
     public List<Rule> getDPHypReorderRules() {
         return DPHYP_REORDER_RULES;
     }
@@ -238,6 +243,10 @@ public class RuleSet {
 
     public List<Rule> getImplementationRules() {
         return IMPLEMENTATION_RULES;
+    }
+
+    public List<Rule> getMaterializedViewRules() {
+        return MATERIALIZED_VIEW_RULES;
     }
 
     public static RuleFactories planRuleFactories() {

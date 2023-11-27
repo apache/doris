@@ -106,7 +106,7 @@ public class Transaction {
 
             coordinator.exec();
             int execTimeout = ctx.getExecTimeout();
-            LOG.info("Insert {} execution timeout:{}", DebugUtil.printId(ctx.queryId()), execTimeout);
+            LOG.debug("Insert {} execution timeout:{}", DebugUtil.printId(ctx.queryId()), execTimeout);
             boolean notTimeout = coordinator.join(execTimeout);
             if (!coordinator.isDone()) {
                 coordinator.cancel();

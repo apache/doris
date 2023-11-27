@@ -44,6 +44,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -112,6 +113,8 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CTEId> currentTree;
     private final Optional<CascadesContext> parent;
 
+    private final List<MaterializationContext> materializationContexts;
+
     /**
      * Constructor of OptimizerContext.
      *
@@ -133,6 +136,7 @@ public class CascadesContext implements ScheduleContext {
         this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
+        this.materializationContexts = new ArrayList<>();
     }
 
     /**
@@ -307,6 +311,14 @@ public class CascadesContext implements ScheduleContext {
 
     public void setOuterScope(@Nullable Scope outerScope) {
         this.outerScope = Optional.ofNullable(outerScope);
+    }
+
+    public List<MaterializationContext> getMaterializationContexts() {
+        return materializationContexts;
+    }
+
+    public void addMaterializationContext(MaterializationContext materializationContext) {
+        this.materializationContexts.add(materializationContext);
     }
 
     /**

@@ -632,6 +632,7 @@ terminal String
     KW_UNION,
     KW_UNIQUE,
     KW_UNLOCK,
+    KW_UNSET,
     KW_UNSIGNED,
     KW_UPDATE,
     KW_USE,
@@ -640,6 +641,7 @@ terminal String
     KW_VALUE,
     KW_VALUES,
     KW_VARCHAR,
+    KW_VARIABLE,
     KW_VARIABLES,
     KW_VERBOSE,
     KW_VERSION,
@@ -684,7 +686,7 @@ nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
-    describe_stmt, alter_stmt,
+    describe_stmt, alter_stmt, unset_var_stmt,
     create_job_stmt,pause_job_stmt,resume_job_stmt,stop_job_stmt,show_job_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
@@ -1112,6 +1114,8 @@ stmt ::=
     {: RESULT = use; :}
     | set_stmt:set
     {: RESULT = set; :}
+    | unset_var_stmt:stmt
+    {: RESULT = stmt; :}
     | kill_stmt:kill
     {: RESULT = kill; :}
     | kill_analysis_job_stmt: k
@@ -1813,11 +1817,6 @@ create_stmt ::=
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
-    :}
-    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_ENGINE EQUAL ident:engineName
-          properties:properties opt_comment:tableComment
-    {:
-       RESULT = new CreateTableStmt(ifNotExists, isExternal, name, engineName, properties, tableComment);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             opt_col_list:columns
@@ -4943,6 +4942,18 @@ set_stmt ::=
     :}
     ;
 
+// Unset variable statement
+unset_var_stmt ::=
+    KW_UNSET opt_var_type:type KW_VARIABLE variable_name:variable
+    {:
+        RESULT = new UnsetVariableStmt(type, variable);
+    :}
+    | KW_UNSET opt_var_type:type KW_VARIABLE KW_ALL
+    {:
+        RESULT = new UnsetVariableStmt(type, true);
+    :}
+    ;
+
 user_property_list ::=
     user_property:property
     {:
@@ -7733,6 +7744,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_USER:id
     {: RESULT = id; :}
+    | KW_VARIABLE:id
+    {: RESULT = id; :}
     | KW_VARIABLES:id
     {: RESULT = id; :}
     | KW_VALUE:id
@@ -7838,6 +7851,8 @@ keyword ::=
     | KW_PERCENT:id
     {: RESULT = id; :}
     | KW_CRON:id
+    {: RESULT = id; :}
+    | KW_UNSET:id
     {: RESULT = id; :}
     ;
 

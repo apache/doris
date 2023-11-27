@@ -863,12 +863,12 @@ visible_functions = {
     # Timestamp functions
     "Timestamp": [
         [['unix_timestamp'], 'INT', [], 'ALWAYS_NOT_NULLABLE'],
-        [['unix_timestamp'], 'INT', ['DATETIME'], 'ALWAYS_NULLABLE'],
-        [['unix_timestamp'], 'INT', ['DATE'], 'ALWAYS_NULLABLE'],
-        [['unix_timestamp'], 'INT', ['DATETIMEV2'], ''],
-        [['unix_timestamp'], 'INT', ['DATEV2'], ''],
-        [['unix_timestamp'], 'INT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['unix_timestamp'], 'INT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['unix_timestamp'], 'INT', ['DATETIME'], 'DEPEND_ON_ARGUMENT'],
+        [['unix_timestamp'], 'INT', ['DATE'], 'DEPEND_ON_ARGUMENT'],
+        [['unix_timestamp'], 'DECIMAL64', ['DATETIMEV2'], 'DEPEND_ON_ARGUMENT'],
+        [['unix_timestamp'], 'INT', ['DATEV2'], 'DEPEND_ON_ARGUMENT'],
+        [['unix_timestamp'], 'DECIMAL64', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['unix_timestamp'], 'DECIMAL64', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['from_unixtime'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
         [['from_unixtime'], 'VARCHAR', ['BIGINT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['from_unixtime'], 'VARCHAR', ['BIGINT', 'STRING'], 'ALWAYS_NULLABLE'],
@@ -2095,7 +2095,6 @@ nondeterministic_functions = [
 # The function belongs to @null_result_with_one_null_param_functions,
 # as long as one parameter is null, the function must return null.
 null_result_with_one_null_param_functions = [
-    'unix_timestamp',
     'str_to_date',
     'convert_tz',
     'pi',

@@ -139,7 +139,6 @@ import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.external.elasticsearch.EsRepository;
-import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -1424,6 +1423,8 @@ public class Env {
             editLog.logAddFirstFrontend(self);
 
             initLowerCaseTableNames();
+            // Set initial root password if master FE first time launch.
+            auth.setInitialRootPassword(Config.initial_root_password);
         } else {
             if (journalVersion <= FeMetaVersion.VERSION_114) {
                 // if journal version is less than 114, which means it is upgraded from version before 2.0.
@@ -1570,7 +1571,6 @@ public class Env {
         }
         streamLoadRecordMgr.start();
         tabletLoadIndexRecorderMgr.start();
-        getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
@@ -2967,7 +2967,7 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
-        sb.append("TABLE ");
+        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
 
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`.");
@@ -2997,7 +2997,7 @@ public class Env {
                 sb.append("  ").append(column.toSql());
             }
         }
-        if (table.getType() == TableType.OLAP) {
+        if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
                 for (Index index : olapTable.getIndexes()) {
@@ -3009,7 +3009,7 @@ public class Env {
         sb.append("\n) ENGINE=");
         sb.append(table.getType().name());
 
-        if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
+        if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             // keys
             String keySql = olapTable.getKeysType().toSql();
@@ -3017,10 +3017,7 @@ public class Env {
                 // after #18621, use can create a DUP_KEYS olap table without key columns
                 // and get a ddl schema without key type and key columns
             } else {
-                sb.append("\n").append(table.getType() == TableType.OLAP
-                                ? keySql
-                                : keySql.substring("DUPLICATE ".length()))
-                        .append("(");
+                sb.append("\n").append(keySql).append("(");
                 List<String> keysColumnNames = Lists.newArrayList();
                 Map<Integer, String> clusterKeysColumnNamesToId = new TreeMap<>();
                 for (Column column : olapTable.getBaseSchema()) {
@@ -3049,9 +3046,7 @@ public class Env {
                 return;
             }
 
-            if (table.getType() != TableType.MATERIALIZED_VIEW) {
-                addTableComment(olapTable, sb);
-            }
+            addTableComment(olapTable, sb);
 
             // partition
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -3396,18 +3391,6 @@ public class Env {
             sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
             sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
-            sb.append("\n)");
-        } else if (table.getType() == TableType.ICEBERG) {
-            IcebergTable icebergTable = (IcebergTable) table;
-
-            addTableComment(icebergTable, sb);
-
-            // properties
-            sb.append("\nPROPERTIES (\n");
-            sb.append("\"iceberg.database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
-            sb.append("\"iceberg.table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
-            sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(),
-                        " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.JDBC) {
             JdbcTable jdbcTable = (JdbcTable) table;
@@ -3793,10 +3776,6 @@ public class Env {
 
     public TabletLoadIndexRecorderMgr getTabletLoadIndexRecorderMgr() {
         return tabletLoadIndexRecorderMgr;
-    }
-
-    public IcebergTableCreationRecordMgr getIcebergTableCreationRecordMgr() {
-        return getInternalCatalog().getIcebergTableCreationRecordMgr();
     }
 
     public MasterTaskExecutor getPendingLoadTaskScheduler() {
