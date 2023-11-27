@@ -542,47 +542,16 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
             break;
         }
 
+        const char* filter_data;
+        std::vector<const char*> rows;
         bool done = false;
         auto msg = std::make_unique<pulsar::Message>();
         // consume 1 message at a time
         consumer_watch.start();
         pulsar::Result res = _p_consumer.receive(*(msg.get()), 30000 /* timeout, ms */);
         consumer_watch.stop();
-        //parse json
-        const char* filter_data =
-            filter_invalid_prefix_of_json(static_cast<const char*>(msg.get()->getData()), msg.get()->getLength());
-        std::vector<const char*> rows = convert_rows(filter_data);
         switch (res) {
         case pulsar::ResultOk:
-            //parse json
-            if (rows.size() > 1) {
-                LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
-                          << ", message id: " << msg.get()->getMessageId()
-                          << ", len: " << msg.get()->getLength();
-                for (const char* row : rows) {
-                    pulsar::MessageBuilder messageBuilder;
-                    size_t row_len = len_of_actual_data(row);
-                    messageBuilder.setContent(row, row_len);
-                    messageBuilder.setProperty("topicName",msg.get()->getTopicName());
-                    messageBuilder.setProperty("messageId","-1");
-                    pulsar::Message new_msg = messageBuilder.build();
-
-                    std::string partition = new_msg.getProperty("topicName");
-                    new_msg.setMessageId(msg.get()->getMessageId());
-                    pulsar::MessageId msg_id = new_msg.getMessageId();
-                    std::size_t msg_len = new_msg.getLength();
-                    LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
-                              << ", partition: " << partition << ", message id: " << msg_id
-                              << ", len: " << msg_len << ", filter_len: " << row_len << ", size: " << rows.size()
-                              << ", bool: " << new_msg.hasProperty("messageId");
-                }
-            }
-
-            //delete
-            for (const char* ptr : rows) {
-                delete[] ptr;
-            }
-            rows.clear();
             if (msg.get()->getDataAsString().find('{') == std::string::npos) {
                 // ignore msg with length 0.
                 // put empty msg into queue will cause the load process shutting down.
@@ -595,6 +564,38 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 ++put_rows;
                 msg.release(); // release the ownership, msg will be deleted after being processed
             }
+
+            filter_data =
+                filter_invalid_prefix_of_json(static_cast<const char*>(msg.get()->getData()), msg.get()->getLength());
+            rows = convert_rows(filter_data);
+            LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
+                      << ", message id: " << msg.get()->getMessageId()
+                      << ", len: " << msg.get()->getLength();
+            for (const char* row : rows) {
+                pulsar::MessageBuilder messageBuilder;
+                size_t row_len = len_of_actual_data(row);
+                messageBuilder.setContent(row, row_len);
+                messageBuilder.setProperty("topicName",msg.get()->getTopicName());
+                messageBuilder.setProperty("messageId","-1");
+                pulsar::Message new_msg = messageBuilder.build();
+
+                std::string partition = new_msg.getProperty("topicName");
+                new_msg.setMessageId(msg.get()->getMessageId());
+                new_msg.setTopicName(msg.get()->getTopicName());
+                pulsar::MessageId msg_id = new_msg.getMessageId();
+                std::string topic = new_msg.getTopicName();
+                std::size_t msg_len = new_msg.getLength();
+                LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
+                          << ", partition: " << partition << ", message id: " << msg_id << "topic: " << topic
+                          << ", len: " << msg_len << ", filter_len: " << row_len << ", size: " << rows.size()
+                          << ", bool: " << new_msg.hasProperty("messageId");
+            }
+            //delete
+            for (const char* ptr : rows) {
+                delete[] ptr;
+            }
+            rows.clear();
+
             ++received_rows;
             break;
         case pulsar::ResultTimeout:
