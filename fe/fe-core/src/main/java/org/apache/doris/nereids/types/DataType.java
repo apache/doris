@@ -678,6 +678,9 @@ public abstract class DataType {
     }
 
     public double rangeLength(double high, double low) {
+        if (Double.isInfinite(high) || Double.isInfinite(low)) {
+            return Double.POSITIVE_INFINITY;
+        }
         return high - low;
     }
 
