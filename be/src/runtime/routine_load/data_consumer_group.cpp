@@ -342,7 +342,8 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
              LOG(INFO) << "get pulsar message" << msg->getDataAsString()
                        << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
 
-            Status st = (pulsar_pipe.get()->*append_data)(static_cast<const char*>(msg->getData()), len);
+            Status st = (pulsar_pipe.get()->*append_data)(static_cast<const char*>(msg->getData()),
+                                                          static_cast<size_t>(len));
             if (st.ok()) {
                 received_rows++;
                 // len of receive origin message from pulsar
