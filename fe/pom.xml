@@ -305,8 +305,10 @@ under the License.
         <iceberg.version>1.1.0</iceberg.version>
         <maxcompute.version>0.45.2-public</maxcompute.version>
         <avro.version>1.11.2</avro.version>
-        <!-- Arrow 14.0.1 jdbc:arrow-flight-sql has BUG, see: https://github.com/apache/arrow/issues/38785
-        So temporarily use 15.0.0-SNAPSHOT dev version, TODO upgrade to 15.0.0 release version -->
+        <!-- Temporarily upgrade Arrow to dev version 15.0.0-SNAPSHOT,
+        because the latest release version Arrow 14.0.1 jdbc:arrow-flight-sql has BUG,
+        see: https://github.com/apache/arrow/issues/38785
+        TODO upgrade to 15.0.0 release version -->
         <arrow.version>15.0.0-SNAPSHOT</arrow.version>
         <!-- hudi -->
         <hudi.version>0.13.1</hudi.version>

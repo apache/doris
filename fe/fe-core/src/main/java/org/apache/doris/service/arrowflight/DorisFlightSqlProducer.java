@@ -293,6 +293,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void createPreparedStatement(final ActionCreatePreparedStatementRequest request, final CallContext context,
             final StreamListener<Result> listener) {
+        // TODO can only execute complete SQL, not support SQL parameters.
         executorService.submit(() -> {
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             try {

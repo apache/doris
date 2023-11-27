@@ -145,6 +145,9 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                 throw new RuntimeException(String.format("get empty arrow flight schema, finstId: %s",
                         DebugUtil.printId(tid)));
             }
+            if (pResult.hasResultIp()) {
+                ctx.getResultFlightServerAddr().hostname = pResult.getResultIp().toStringUtf8();
+            }
         } catch (RpcException e) {
             throw new RuntimeException(String.format(
                     "arrow flight schema fetch catch rpc exception, finstId: %s，backend: %s",
