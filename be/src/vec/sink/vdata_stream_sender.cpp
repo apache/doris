@@ -328,6 +328,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _pool(pool),
           _current_channel_idx(0),
           _part_type(sink.output_partition.type),
+          _hash_type(sink.output_partition.hash_type),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc),
           _serializer(this) {
@@ -338,6 +339,9 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
            sink.output_partition.type == TPartitionType::RANGE_PARTITIONED ||
            sink.output_partition.type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED ||
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED);
+    DCHECK(sink.output_partition.hash_type == THashType::CRC32 ||
+           sink.output_partition.hash_type == THashType::XXHASH64 ||
+           sink.output_partition.hash_type == THashType::SPARK_MURMUR32);
 
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
     _enable_pipeline_exec = state->enable_pipeline_exec();
@@ -383,6 +387,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _pool(pool),
           _current_channel_idx(0),
           _part_type(TPartitionType::UNPARTITIONED),
+          _hash_type(THashType::XXHASH64),
           _dest_node_id(dest_node_id),
           _serializer(this) {
     _cur_pb_block = &_pb_block1;
@@ -415,8 +420,13 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = _channel_shared_ptrs.size();
-        _partitioner.reset(
-                new Crc32HashPartitioner<ShuffleChannelIds>(_channel_shared_ptrs.size()));
+        if (_hash_type == THashType::CRC32) {
+            _partitioner.reset(
+                    new Crc32HashPartitioner<ShuffleChannelIds>(_channel_shared_ptrs.size()));
+        } else {
+            _partitioner.reset(new Murmur32HashPartitioner<ShufflePModChannelIds>(
+                    _channel_shared_ptrs.size()));
+        }
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");

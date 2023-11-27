@@ -141,7 +141,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalFileScan(PhysicalFileScan fileScan, PlanContext context) {
-        return PhysicalProperties.STORAGE_ANY;
+        return new PhysicalProperties(fileScan.getDistributionSpec());
     }
 
     /**
@@ -285,7 +285,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                         // retain left shuffle type, since coordinator use left most node to schedule fragment
                         // forbid colocate join, since right table already shuffle
                         return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
-                                leftHashSpec.getShuffleType()));
+                                leftHashSpec.getShuffleType(), leftHashSpec.getShuffleFunction()));
                     }
                 case FULL_OUTER_JOIN:
                     return PhysicalProperties.createAnyFromHash(leftHashSpec);

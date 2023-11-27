@@ -36,10 +36,13 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveBucketUtil;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.iceberg.source.IcebergSplit;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -55,6 +58,7 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
@@ -67,6 +71,7 @@ import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -90,6 +95,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
+
+    public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
 
     @Getter
     protected TableSample tableSample;
@@ -343,6 +350,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
                         ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys,
                         false, isACID) : fileSplit.getPartitionValues();
 
+                boolean isBucketedHiveTable = false;
+                int bucketNum = 0;
+                TableIf targetTable = getTargetTable();
+                if (targetTable instanceof HMSExternalTable) {
+                    isBucketedHiveTable = ((HMSExternalTable) targetTable).isBucketedTable();
+                    if (isBucketedHiveTable) {
+                        bucketNum = HiveBucketUtil.getBucketNumberFromPath(fileSplit.getPath().getName()).getAsInt();
+                    }
+                }
                 TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys,
                         locationType);
                 TFileCompressType fileCompressType = getFileCompressType(fileSplit);
@@ -380,6 +396,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                             curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(),
                             fileSplit.getStart(), fileSplit.getLength(),
                             Joiner.on("|").join(fileSplit.getHosts()));
+                }
+                if (isBucketedHiveTable) {
+                    bucketSeq2locations.put(bucketNum, curLocations);
                 }
                 scanRangeLocations.add(curLocations);
                 this.totalFileSize += fileSplit.getLength();
@@ -532,4 +551,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TableIf getTargetTable() throws UserException;
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
+
+    public DataPartition constructInputPartitionByDistributionInfo() {
+        return DataPartition.RANDOM;
+    }
+
+    public THashType getHashType() {
+        return THashType.CRC32;
+    }
 }

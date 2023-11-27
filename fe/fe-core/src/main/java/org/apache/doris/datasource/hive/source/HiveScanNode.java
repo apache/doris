@@ -17,10 +17,15 @@
 
 package org.apache.doris.datasource.hive.source;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HiveExternalDistributionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
@@ -42,6 +47,7 @@ import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -52,6 +58,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.THashType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -414,5 +421,38 @@ public class HiveScanNode extends FileQueryScanNode {
             compressType = TFileCompressType.LZ4BLOCK;
         }
         return compressType;
+    }
+
+    @Override
+    public DataPartition constructInputPartitionByDistributionInfo() {
+        if (hmsTable.isBucketedTable()) {
+            DistributionInfo distributionInfo = hmsTable.getDefaultDistributionInfo();
+            if (!(distributionInfo instanceof HashDistributionInfo)) {
+                return DataPartition.RANDOM;
+            }
+            List<Column> distributeColumns = ((HiveExternalDistributionInfo) distributionInfo).getDistributionColumns();
+            List<Expr> dataDistributeExprs = Lists.newArrayList();
+            for (Column column : distributeColumns) {
+                SlotRef slotRef = new SlotRef(desc.getRef().getName(), column.getName());
+                dataDistributeExprs.add(slotRef);
+            }
+            return DataPartition.hashPartitioned(dataDistributeExprs, THashType.SPARK_MURMUR32);
+        }
+
+        return DataPartition.RANDOM;
+    }
+
+    public HMSExternalTable getHiveTable() {
+        return hmsTable;
+    }
+
+    @Override
+    public THashType getHashType() {
+        if (hmsTable.isBucketedTable()
+                && hmsTable.getDefaultDistributionInfo() instanceof HashDistributionInfo) {
+            return THashType.SPARK_MURMUR32;
+        }
+
+        return THashType.CRC32;
     }
 }

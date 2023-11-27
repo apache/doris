@@ -33,17 +33,22 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HiveExternalDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.hive.common.util.Ref;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -285,6 +290,10 @@ public class DistributedPlanner {
             OlapScanNode olapScanNode = (OlapScanNode) node;
             return new PlanFragment(ctx.getNextFragmentId(), node,
                     olapScanNode.constructInputPartitionByDistributionInfo(), DataPartition.RANDOM);
+        } else if (node instanceof HiveScanNode) {
+            HiveScanNode hiveScanNode = (HiveScanNode) node;
+            return new PlanFragment(ctx.getNextFragmentId(), node,
+                hiveScanNode.constructInputPartitionByDistributionInfo(), DataPartition.RANDOM);
         } else {
             // other scan nodes are random partitioned: es, broker
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
@@ -327,10 +336,12 @@ public class DistributedPlanner {
         // bucket shuffle join is better than broadcast and shuffle join
         // it can reduce the network cost of join, so doris chose it first
         List<Expr> rhsPartitionExprs = Lists.newArrayList();
-        if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionExprs)) {
+        Ref<THashType> hashType = Ref.from(THashType.CRC32);
+        if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionExprs, hashType)) {
             node.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
             DataPartition rhsJoinPartition =
-                    new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionExprs);
+                    new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED,
+                        rhsPartitionExprs, hashType.value);
             ExchangeNode rhsExchange =
                     new ExchangeNode(ctx.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
             rhsExchange.setNumInstances(rightChildFragment.getPlanRoot().getNumInstances());
@@ -600,7 +611,7 @@ public class DistributedPlanner {
     }
 
     private boolean canBucketShuffleJoin(HashJoinNode node, PlanFragment leftChildFragment,
-                                         List<Expr> rhsHashExprs) {
+                                         List<Expr> rhsHashExprs, Ref<THashType> hashType) {
         if (node.getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
             return false;
         }
@@ -616,7 +627,9 @@ public class DistributedPlanner {
         PlanNode leftRoot = leftChildFragment.getPlanRoot();
         // 1.leftRoot be OlapScanNode
         if (leftRoot instanceof OlapScanNode) {
-            return canBucketShuffleJoin(node, leftRoot, rhsHashExprs);
+            return canBucketShuffleJoin(node, (OlapScanNode) leftRoot, rhsHashExprs);
+        } else if (leftRoot instanceof HiveScanNode) {
+            return canBucketShuffleJoin(node, (HiveScanNode) leftRoot, rhsHashExprs, hashType);
         }
 
         // 2.leftRoot be hashjoin node
@@ -625,17 +638,83 @@ public class DistributedPlanner {
                 leftRoot = leftRoot.getChild(0);
             }
             if (leftRoot instanceof OlapScanNode) {
-                return canBucketShuffleJoin(node, leftRoot, rhsHashExprs);
+                return canBucketShuffleJoin(node, (OlapScanNode) leftRoot, rhsHashExprs);
+            } else if (leftRoot instanceof HiveScanNode) {
+                return canBucketShuffleJoin(node, (HiveScanNode) leftRoot, rhsHashExprs, hashType);
             }
         }
 
         return false;
     }
 
+    private boolean canBucketShuffleJoin(HashJoinNode node, HiveScanNode leftScanNode,
+                                         List<Expr> rhsJoinExprs, Ref<THashType> hashType) {
+        HMSExternalTable leftTable = leftScanNode.getHiveTable();
+
+        DistributionInfo leftDistribution = leftTable.getDefaultDistributionInfo();
+        if (leftDistribution == null || !(leftDistribution instanceof HiveExternalDistributionInfo)) {
+            return false;
+        }
+
+        HiveExternalDistributionInfo hiveDistributionInfo = (HiveExternalDistributionInfo) leftDistribution;
+
+        List<Column> leftDistributeColumns = hiveDistributionInfo.getDistributionColumns();
+        List<String> leftDistributeColumnNames = leftDistributeColumns.stream()
+                .map(col -> leftTable.getName() + "." + col.getName().toLowerCase()).collect(Collectors.toList());
+
+        List<String> leftJoinColumnNames = new ArrayList<>();
+        List<Expr> rightExprs = new ArrayList<>();
+        List<BinaryPredicate> eqJoinConjuncts = node.getEqJoinConjuncts();
+
+        for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
+            Expr lhsJoinExpr = eqJoinPredicate.getChild(0);
+            Expr rhsJoinExpr = eqJoinPredicate.getChild(1);
+            if (lhsJoinExpr.unwrapSlotRef() == null || rhsJoinExpr.unwrapSlotRef() == null) {
+                continue;
+            }
+
+            SlotRef leftSlot = node.getChild(0).findSrcSlotRef(lhsJoinExpr.unwrapSlotRef());
+            if (leftSlot.getTable() instanceof HMSExternalTable
+                    && leftScanNode.desc.getSlots().contains(leftSlot.getDesc())) {
+                // table name in SlotRef is not the really name. `select * from test as t`
+                // table name in SlotRef is `t`, but here we need is `test`.
+                leftJoinColumnNames.add(leftSlot.getTable().getName() + "."
+                        + leftSlot.getColumnName().toLowerCase());
+                rightExprs.add(rhsJoinExpr);
+            }
+        }
+
+        //2 the join columns should contains all left table distribute columns to enable bucket shuffle join
+        for (int i = 0; i < leftDistributeColumnNames.size(); i++) {
+            String distributeColumnName = leftDistributeColumnNames.get(i);
+            boolean findRhsExprs = false;
+            // check the join column name is same as distribute column name and
+            // check the rhs join expr type is same as distribute column
+            for (int j = 0; j < leftJoinColumnNames.size(); j++) {
+                if (leftJoinColumnNames.get(j).equals(distributeColumnName)) {
+                    // varchar and string type don't need to check the length property
+                    if ((rightExprs.get(j).getType().isVarcharOrStringType()
+                            && leftDistributeColumns.get(i).getType().isVarcharOrStringType())
+                            || (rightExprs.get(j).getType().equals(leftDistributeColumns.get(i).getType()))) {
+                        rhsJoinExprs.add(rightExprs.get(j));
+                        findRhsExprs = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!findRhsExprs) {
+                return false;
+            }
+        }
+
+        hashType.value = leftScanNode.getHashType();
+        return true;
+    }
+
     //the join expr must contian left table distribute column
-    private boolean canBucketShuffleJoin(HashJoinNode node, PlanNode leftRoot,
+    private boolean canBucketShuffleJoin(HashJoinNode node, OlapScanNode leftScanNode,
                                          List<Expr> rhsJoinExprs) {
-        OlapScanNode leftScanNode = ((OlapScanNode) leftRoot);
         OlapTable leftTable = leftScanNode.getOlapTable();
 
         //1 the left table has more than one partition or left table is not a stable colocate table

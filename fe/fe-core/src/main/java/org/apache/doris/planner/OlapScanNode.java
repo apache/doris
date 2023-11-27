@@ -74,6 +74,7 @@ import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TOlapTableIndex;
@@ -1699,7 +1700,7 @@ public class OlapScanNode extends ScanNode {
                 SlotRef slotRef = new SlotRef(desc.getRef().getName(), column.getName());
                 dataDistributeExprs.add(slotRef);
             }
-            return DataPartition.hashPartitioned(dataDistributeExprs);
+            return DataPartition.hashPartitioned(dataDistributeExprs, THashType.CRC32);
         } else {
             return DataPartition.RANDOM;
         }

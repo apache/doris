@@ -19,11 +19,15 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HiveExternalDistributionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -57,6 +61,7 @@ import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -72,6 +77,7 @@ import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -82,6 +88,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -108,6 +115,22 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private static final String TBL_PROP_TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
     private static final String NUM_ROWS = "numRows";
+    private static final String SPARK_BUCKET = "spark.sql.sources.schema.bucketCol.";
+    private static final String SPARK_NUM_BUCKET = "spark.sql.sources.schema.numBuckets";
+    private static final String BUCKETING_VERSION = "bucketing_version";
+
+    private static final Set<String> SUPPORTED_BUCKET_PROPERTIES;
+
+    static {
+        SUPPORTED_BUCKET_PROPERTIES = Sets.newHashSet();
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "0");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "1");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "2");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "3");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "4");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_NUM_BUCKET);
+        SUPPORTED_BUCKET_PROPERTIES.add(BUCKETING_VERSION);
+    }
 
     private static final String SPARK_COL_STATS = "spark.sql.statistics.colStats.";
     private static final String SPARK_STATS_MAX = ".max";
@@ -154,8 +177,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         MAP_SPARK_STATS_TO_DORIS.put(StatsType.HISTOGRAM, SPARK_STATS_HISTOGRAM);
     }
 
-    private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
-    private List<Column> partitionColumns;
+    protected volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    protected List<Column> partitionColumns;
+    private List<Column> bucketColumns;
+    private boolean isSparkTable;
 
     private DLAType dlaType = DLAType.UNKNOWN;
 
@@ -169,6 +194,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
     }
+
+    private DistributionInfo distributionInfo;
 
     /**
      * Create hive metastore external table.
@@ -247,6 +274,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return "org.apache.hudi.hadoop.HoodieParquetInputFormat".equals(inputFormatName)
                 || "skip_merge".equals(getCatalogProperties().get("hoodie.datasource.merge.type"))
                 || (params != null && "COPY_ON_WRITE".equalsIgnoreCase(params.get("flink.table.type")));
+    }
+
+    public boolean isSparkTable() {
+        return isSparkTable;
+    }
+
+    public boolean isBucketedTable() {
+        return bucketColumns != null && !bucketColumns.isEmpty() && isSparkTable;
     }
 
     /**
@@ -561,7 +596,69 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             columns = getHiveSchema();
         }
         initPartitionColumns(columns);
+        initBucketingColumns(columns);
         return columns;
+    }
+
+    private void initBucketingColumns(List<Column> columns) {
+        List<String> bucketCols = new ArrayList<>(5);
+        int numBuckets = getBucketColumns(bucketCols);
+        if (bucketCols.isEmpty() || !isSparkTable) {
+            bucketColumns = ImmutableList.of();
+            distributionInfo = new RandomDistributionInfo(1, true);
+            return;
+        }
+
+        int bucketingVersion = Integer.valueOf(remoteTable.getParameters().getOrDefault(BUCKETING_VERSION, "2"));
+        ImmutableList.Builder<Column> bucketColBuilder = ImmutableList.builder();
+        for (String colName : bucketCols) {
+            // do not use "getColumn()", which will cause dead loop
+            for (Column column : columns) {
+                if (colName.equalsIgnoreCase(column.getName())) {
+                    // For partition/bucket column, if it is string type, change it to varchar(65535)
+                    // to be same as doris managed table.
+                    // This is to avoid some unexpected behavior such as different partition pruning result
+                    // between doris managed table and external table.
+                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                        column.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
+                    }
+                    bucketColBuilder.add(column);
+                    break;
+                }
+            }
+        }
+
+        bucketColumns = bucketColBuilder.build();
+        distributionInfo = new HiveExternalDistributionInfo(numBuckets, bucketColumns, bucketingVersion);
+        LOG.debug("get {} bucket columns for table: {}", bucketColumns.size(), name);
+    }
+
+    private int getBucketColumns(List<String> bucketCols) {
+        StorageDescriptor descriptor = remoteTable.getSd();
+        int numBuckets = -1;
+        if (descriptor.isSetBucketCols() && !descriptor.getBucketCols().isEmpty()) {
+            /* Hive Bucketed Table */
+            bucketCols.addAll(descriptor.getBucketCols());
+            numBuckets = descriptor.getNumBuckets();
+        } else if (remoteTable.isSetParameters()
+                && !Collections.disjoint(SUPPORTED_BUCKET_PROPERTIES, remoteTable.getParameters().keySet())) {
+            Map<String, String> parameters = remoteTable.getParameters();
+            for (Map.Entry<String, String> param : parameters.entrySet()) {
+                if (param.getKey().startsWith(SPARK_BUCKET)) {
+                    int index = Integer.valueOf(param.getKey()
+                            .substring(param.getKey().lastIndexOf(".") + 1));
+                    bucketCols.add(index, param.getValue());
+                } else if (param.getKey().equals(SPARK_NUM_BUCKET)) {
+                    numBuckets = Integer.valueOf(param.getValue());
+                }
+            }
+
+            if (numBuckets > 0) {
+                isSparkTable = true;
+            }
+        }
+
+        return numBuckets;
     }
 
     private List<Column> getIcebergSchema() {
@@ -670,6 +767,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }
         return Optional.empty();
+    }
+
+    public DistributionInfo getDefaultDistributionInfo() {
+        makeSureInitialized();
+        if (distributionInfo != null) {
+            return distributionInfo;
+        }
+
+        return new RandomDistributionInfo(1, true);
+    }
+
+    public Map<String, String> getTableParameters() {
+        return remoteTable.getParameters();
     }
 
     private Optional<ColumnStatistic> getHiveColumnStats(String colName) {
@@ -848,14 +958,23 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public boolean isDistributionColumn(String columnName) {
-        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
-                .collect(Collectors.toSet()).contains(columnName.toLowerCase());
+        Set<String> distributeColumns = getDistributionColumnNames()
+                .stream().map(String::toLowerCase).collect(Collectors.toSet());
+        return distributeColumns.contains(columnName.toLowerCase());
     }
 
     @Override
     public Set<String> getDistributionColumnNames() {
-        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
-                .collect(Collectors.toSet());
+        Set<String> distributionColumnNames = Sets.newHashSet();
+        if (distributionInfo instanceof RandomDistributionInfo) {
+            return distributionColumnNames;
+        }
+        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+        List<Column> distColumn = hashDistributionInfo.getDistributionColumns();
+        for (Column column : distColumn) {
+            distributionColumnNames.add(column.getName().toLowerCase());
+        }
+        return distributionColumnNames;
     }
 
     @Override
