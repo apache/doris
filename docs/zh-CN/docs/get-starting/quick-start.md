@@ -229,7 +229,6 @@ storage_root_path=/path/your/data_dir
 
 3. 配置 JAVA_HOME 环境变量
 
-<version since="1.2.0"></version>  
 由于从 1.2 版本开始支持 Java UDF 函数，BE 依赖于 Java 环境。所以要预先配置 `JAVA_HOME` 环境变量，也可以在 `start_be.sh` 启动脚本第一行添加 `export JAVA_HOME=your_java_home_path` 来添加环境变量。
 
 

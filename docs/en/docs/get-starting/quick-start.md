@@ -224,7 +224,6 @@ storage_root_path=/path/your/data_dir
 
 3. Set JAVA_HOME environment variable
 
-  <version since="1.2.0"></version>  
   Java UDF are supported since version 1.2, so BE are dependent on the Java environment. It is necessary to set the `JAVA_HOME` environment variable before starting. You can also add `export JAVA_HOME=your_java_home_path` to the first line of the `start_be.sh` startup script to set the variable.
 
 ### Start BE
