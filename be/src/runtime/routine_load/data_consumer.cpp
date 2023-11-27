@@ -574,6 +574,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                     done = true;
                 } else {
                     ++put_rows;
+                    delete msg.get();
                     msg.release(); // release the ownership, msg will be deleted after being processed
                 }
                 ++received_rows;
@@ -582,7 +583,6 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 delete[] row;
             }
             rows.clear();
-            delete msg.get();
             break;
         case pulsar::ResultTimeout:
             // leave the status as OK, because this may happened
