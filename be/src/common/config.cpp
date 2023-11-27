@@ -1073,6 +1073,8 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
+// rowid conversion correctness check when compaction for mow table
+DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1089,6 +1091,19 @@ DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
 DEFINE_Bool(exit_on_exception, "false");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
+
+// Dir of default timezone files
+DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
+
+// the max package bytes be thrift server can receive
+// avoid accepting error or too large package causing OOM,default 20000000(20M)
+DEFINE_Int32(be_thrift_max_pkg_bytes, "20000000");
+
+// Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
+DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
+
+// Download binlog rate limit, unit is KB/s, 0 means no limit
+DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");

@@ -114,6 +114,9 @@ public:
     const std::string& col_default_value() const { return _col_default_value; }
     PrimitiveType col_type() const { return _col_type; }
 
+    const std::string& col_default_value() const { return _col_default_value; }
+    PrimitiveType col_type() const { return _col_type; }
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;

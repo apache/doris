@@ -339,6 +339,14 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         Thread::set_thread_nice_value();
     }
 #endif
+
+#ifndef __APPLE__
+    // The configuration item is used to lower the priority of the scanner thread,
+    // typically employed to ensure CPU scheduling for write operations.
+    if (config::scan_thread_nice_value != 0 && scanner->get_name() != VFileScanner::NAME) {
+        Thread::set_thread_nice_value();
+    }
+#endif
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();
     Status status = Status::OK();
@@ -453,6 +461,46 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
 
     ctx->push_back_scanner_and_reschedule(scanner);
     Thread::set_self_name("idle_scanner_scan");
+}
+
+void ScannerScheduler::_register_metrics() {
+    REGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size,
+                         [this]() { return _local_scan_thread_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num,
+                         [this]() { return _local_scan_thread_pool->get_active_threads(); });
+    REGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size,
+                         [this]() { return _remote_scan_thread_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num,
+                         [this]() { return _remote_scan_thread_pool->get_active_threads(); });
+    REGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size,
+                         [this]() { return _limited_scan_thread_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num,
+                         [this]() { return _limited_scan_thread_pool->num_threads(); });
+}
+
+void ScannerScheduler::_deregister_metrics() {
+    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num);
+}
+
+void ScannerScheduler::_task_group_scanner_scan(ScannerScheduler* scheduler,
+                                                taskgroup::ScanTaskTaskGroupQueue* scan_queue) {
+    while (!_is_closed) {
+        taskgroup::ScanTask scan_task;
+        auto success = scan_queue->take(&scan_task);
+        if (success) {
+            int64_t time_spent = 0;
+            {
+                SCOPED_RAW_TIMER(&time_spent);
+                scan_task.scan_func();
+            }
+            scan_queue->update_statistics(scan_task, time_spent);
+        }
+    }
 }
 
 void ScannerScheduler::_register_metrics() {

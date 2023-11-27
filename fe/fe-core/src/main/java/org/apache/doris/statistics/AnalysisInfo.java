@@ -190,6 +190,9 @@ public class AnalysisInfo implements Writable {
     @SerializedName("createTime")
     public final long createTime = System.currentTimeMillis();
 
+    @SerializedName("startTime")
+    public long startTime;
+
     @SerializedName("endTime")
     public long endTime;
 
@@ -327,6 +330,10 @@ public class AnalysisInfo implements Writable {
             }
         }
         return analysisInfo;
+    }
+
+    public void markStartTime(long startTime) {
+        this.startTime = startTime;
     }
 
     public void markFinished() {

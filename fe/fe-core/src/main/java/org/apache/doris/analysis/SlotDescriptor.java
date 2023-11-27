@@ -296,9 +296,12 @@ public class SlotDescriptor {
             tSlotDescriptor.setPrimitiveType(column.getDataType().toThrift());
             tSlotDescriptor.setIsKey(column.isKey());
             tSlotDescriptor.setColDefaultValue(column.getDefaultValue());
+<<<<<<< HEAD
         }
         if (subColLabels != null) {
             tSlotDescriptor.setColumnPaths(subColLabels);
+=======
+>>>>>>> upstream-apache/branch-2.0
         }
         return tSlotDescriptor;
     }

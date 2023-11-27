@@ -2186,6 +2186,7 @@ public:
             }
             break;
         case BITMAP:
+            _prepare_bitmap_for_write();
             _bitmap->runOptimize();
             _bitmap->shrinkToFit();
             res = _bitmap->getSizeInBytes(config::bitmap_serialize_version);

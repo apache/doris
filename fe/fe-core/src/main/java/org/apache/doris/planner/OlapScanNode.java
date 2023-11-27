@@ -1235,8 +1235,11 @@ public class OlapScanNode extends ScanNode {
             }
             output.append("\n");
         }
-        output.append(prefix).append(String.format("partitions=%s/%s, tablets=%s/%s", selectedPartitionNum,
-                olapTable.getPartitions().size(), selectedTabletsNum, totalTabletsNum));
+        String selectedPartitions = getSelectedPartitionIds().stream().sorted()
+                .map(id -> olapTable.getPartition(id).getName())
+                .collect(Collectors.joining(","));
+        output.append(prefix).append(String.format("partitions=%s/%s (%s), tablets=%s/%s", selectedPartitionNum,
+                olapTable.getPartitions().size(), selectedPartitions, selectedTabletsNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
@@ -1661,6 +1664,13 @@ public class OlapScanNode extends ScanNode {
         // The value column of the agg does not support zone_map index.
         if (type == KeysType.AGG_KEYS && !col.isKey()) {
             return false;
+        }
+
+        if (aggExpr.getChild(0) instanceof SlotRef) {
+            SlotRef slot = (SlotRef) aggExpr.getChild(0);
+            if (CreateMaterializedViewStmt.isMVColumn(slot.getColumnName()) && slot.getColumn().isAggregated()) {
+                return false;
+            }
         }
 
         return true;

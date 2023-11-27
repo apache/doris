@@ -125,6 +125,10 @@ public:
 
     virtual bool is_partial_update() = 0;
 
+    virtual std::shared_ptr<PartialUpdateInfo> get_partial_update_info() = 0;
+
+    virtual bool is_partial_update() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };
