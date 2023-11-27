@@ -595,25 +595,6 @@ public class NativeInsertStmt extends InsertStmt {
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
         realTargetColumnNames = targetColumns.stream().map(Column::getName).collect(Collectors.toList());
-        Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (int i = 0; i < queryStmt.getResultExprs().size(); i++) {
-            Expr expr = queryStmt.getResultExprs().get(i);
-            if (!(expr instanceof StringLiteral && ((StringLiteral) expr).getValue()
-                    .equals(SelectStmt.DEFAULT_VALUE))) {
-                slotToIndex.put(realTargetColumnNames.get(i), queryStmt.getResultExprs().get(i)
-                        .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
-            }
-        }
-
-        for (Column column : targetTable.getBaseSchema()) {
-            if (!slotToIndex.containsKey(column.getName())) {
-                if (column.getDefaultValue() == null) {
-                    slotToIndex.put(column.getName(), new NullLiteral());
-                } else {
-                    slotToIndex.put(column.getName(), new StringLiteral(column.getDefaultValue()));
-                }
-            }
-        }
 
         // handle VALUES() or SELECT constant list
         if (isValuesOrConstantSelect) {
@@ -622,7 +603,7 @@ public class NativeInsertStmt extends InsertStmt {
                 // INSERT INTO VALUES(...)
                 List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
                 for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
-                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForExtendCols, slotToIndex);
+                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForExtendCols, realTargetColumnNames);
                 }
 
                 // clear these 2 structures, rebuild them using VALUES exprs
@@ -640,7 +621,7 @@ public class NativeInsertStmt extends InsertStmt {
                 // `selectStmt.getResultExprs().clear();` will clear the `rows` too, causing
                 // error.
                 rows.add(Lists.newArrayList(selectStmt.getResultExprs()));
-                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols, slotToIndex);
+                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols, realTargetColumnNames);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
                 for (Expr expr : rows.get(0)) {
@@ -651,6 +632,8 @@ public class NativeInsertStmt extends InsertStmt {
             // INSERT INTO SELECT ... FROM tbl
             if (!origColIdxsForExtendCols.isEmpty()) {
                 // extend the result expr by duplicating the related exprs
+                Map<String, Expr> slotToIndex = buildSlotToIndex(queryStmt.getResultExprs(), realTargetColumnNames,
+                        analyzer);
                 for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
                     if (entry.second == null) {
                         queryStmt.getResultExprs().add(queryStmt.getResultExprs().get(entry.first));
@@ -680,6 +663,8 @@ public class NativeInsertStmt extends InsertStmt {
         // expand colLabels in QueryStmt
         if (!origColIdxsForExtendCols.isEmpty()) {
             if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
+                Map<String, Expr> slotToIndex = buildSlotToIndex(queryStmt.getBaseTblResultExprs(),
+                        realTargetColumnNames, analyzer);
                 for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
                     if (entry.second == null) {
                         queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(entry.first));
@@ -718,8 +703,34 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
-    private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows,
-            int rowIdx, List<Pair<Integer, Column>> origColIdxsForExtendCols, Map<String, Expr> slotToIndex)
+    private Map<String, Expr> buildSlotToIndex(ArrayList<Expr> row, List<String> realTargetColumnNames,
+            Analyzer analyzer) throws AnalysisException {
+        Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < row.size(); i++) {
+            Expr expr = row.get(i);
+            expr.analyze(analyzer);
+            if (expr instanceof DefaultValueExpr || expr instanceof StringLiteral
+                    && ((StringLiteral) expr).getValue().equals(SelectStmt.DEFAULT_VALUE)) {
+                continue;
+            }
+            expr.analyze(analyzer);
+            slotToIndex.put(realTargetColumnNames.get(i),
+                    expr.checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
+        }
+        for (Column column : targetTable.getBaseSchema()) {
+            if (!slotToIndex.containsKey(column.getName())) {
+                if (column.getDefaultValue() == null) {
+                    slotToIndex.put(column.getName(), new NullLiteral());
+                } else {
+                    slotToIndex.put(column.getName(), new StringLiteral(column.getDefaultValue()));
+                }
+            }
+        }
+        return slotToIndex;
+    }
+
+    private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows, int rowIdx,
+            List<Pair<Integer, Column>> origColIdxsForExtendCols, List<String> realTargetColumnNames)
             throws AnalysisException {
         // 1. check number of fields if equal with first row
         // targetColumns contains some shadow columns, which is added by system,
@@ -729,6 +740,8 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         ArrayList<Expr> row = rows.get(rowIdx);
+        Map<String, Expr> slotToIndex = buildSlotToIndex(row, realTargetColumnNames, analyzer);
+
         if (!origColIdxsForExtendCols.isEmpty()) {
             /**
              * we should extend the row for shadow columns.

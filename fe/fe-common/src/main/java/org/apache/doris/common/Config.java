@@ -1854,7 +1854,7 @@ public class Config extends ConfigBase {
      * otherwise it will throw an AnalysisException.
      */
     @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
-    public static boolean enable_query_hive_views = false;
+    public static boolean enable_query_hive_views = true;
 
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
@@ -2156,7 +2156,7 @@ public class Config extends ConfigBase {
     public static int autobucket_min_buckets = 1;
 
     @ConfField
-    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+    public static int auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
     public static final int period_analyze_simultaneously_running_task_num = 1;
