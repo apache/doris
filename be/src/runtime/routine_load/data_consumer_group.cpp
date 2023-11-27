@@ -34,7 +34,6 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/stopwatch.hpp"
 
-
 namespace doris {
 
 Status KafkaDataConsumerGroup::assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx) {
@@ -349,52 +348,28 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
 
             //filter invalid prefix of json
             const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()), len);
-            std::vector<const char*> rows;
-            rows = convert_rows(filter_data);
-            size_t rows_size = rows.size();
-            bool append_all = true;
-            for (const char* row : rows) {
-                size_t  row_len = len_of_actual_data(row);
-                if (rows_size > 1) {
-                    LOG(INFO) << "get pulsar message"
-                              << ", partition: " << partition << ", message id: " << msg_id
-                              << ", len: " << len << ", filter_len: " << row_len << ", size: " << rows_size;
-                } else if (rows_size > 5) {
-                    LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
-                              << ", partition: " << partition << ", message id: " << msg_id
-                              << ", len: " << len << ", filter_len: " << row_len << ", size: " << rows_size;
-                }
-                // append filtered data
-                Status st = (pulsar_pipe.get()->*append_data)(row, row_len);
-                if (!st.ok()) {
-                    append_all = false;
-                    // failed to append this msg, we must stop
-                    LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id << ", errmsg=" << st.to_string();
-                    eos = true;
-                    {
-                        std::unique_lock<std::mutex> lock(_mutex);
-                        if (result_st.ok()) {
-                            result_st = st;
-                        }
-                    }
-                    break;
-                } else {
-                    received_rows++;
-                    left_bytes -= row_len;
-                }
-            }
-            //delete
-            for (const char* ptr : rows) {
-                delete[] ptr;
-            }
-            rows.clear();
-            LOG(INFO) << "clear rows size : " << rows.size();
-            if (append_all) {
+            size_t  filter_len = len_of_actual_data(filter_data);
+            // append filtered data
+            VLOG(3)   << "get pulsar message: " << std::string(filter_data, filter_len)
+                      << ", partition: " << partition << ", message id: " << msg_id
+                      << ", len: " << len << ", filter_len: " << filter_len;
+            Status st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
+            if (st.ok()) {
                 received_rows++;
                 // len of receive origin message from pulsar
                 left_bytes -= len;
                 ack_offset[partition] = msg_id;
-                LOG(INFO) << "consume partition" << partition << " - " << msg_id;
+                VLOG(3) << "consume partition" << partition << " - " << msg_id;
+            } else {
+                // failed to append this msg, we must stop
+                LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id << ", errmsg=" << st.to_string();
+                eos = true;
+                {
+                    std::unique_lock<std::mutex> lock(_mutex);
+                    if (result_st.ok()) {
+                        result_st = st;
+                    }
+                }
             }
             delete msg;
         } else {

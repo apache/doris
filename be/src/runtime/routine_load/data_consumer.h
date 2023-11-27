@@ -208,6 +208,12 @@ public:
 
     const std::string& get_partition();
 
+    const char* filter_invalid_prefix_of_json(const char* data, std::size_t size);
+
+    size_t len_of_actual_data(const char* data);
+
+    std::vector<const char*> convert_rows(const char* data);
+
 private:
     std::string _service_url;
     std::string _topic;
