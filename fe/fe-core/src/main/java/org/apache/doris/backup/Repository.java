@@ -262,6 +262,11 @@ public class Repository implements Writable {
                 byte[] bytes = Files.readAllBytes(Paths.get(localFilePath));
                 String json = new String(bytes, StandardCharsets.UTF_8);
                 JSONObject root = (JSONObject) JSONValue.parse(json);
+                if (name.compareTo((String) root.get("name")) != 0) {
+                    return new Status(ErrCode.COMMON_ERROR,
+                            "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
+                                + (String) root.get("name") + "' from " + repoInfoFilePath);
+                }
                 name = (String) root.get("name");
                 createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
                 if (createTime == -1) {
