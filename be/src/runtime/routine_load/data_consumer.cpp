@@ -581,7 +581,6 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
 
                 std::string partition = new_msg.getProperty("topicName");
                 new_msg.setMessageId(msg.get()->getMessageId());
-                new_msg.setTopicName(msg.get()->getTopicName());
                 pulsar::MessageId msg_id = new_msg.getMessageId();
                 std::string topic = new_msg.getTopicName();
                 std::size_t msg_len = new_msg.getLength();
