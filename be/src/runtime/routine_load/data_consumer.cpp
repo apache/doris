@@ -588,12 +588,14 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
                           << ", partition: " << partition << ", message id: " << msg_id << "topic: " << topic
                           << ", len: " << msg_len << ", filter_len: " << row_len << ", size: " << rows.size()
-                          << ", bool: " << new_msg.hasProperty("messageId");
+                          << ", bool messageId: " << new_msg.hasProperty("messageId")
+                          << ", bool topicName: " << new_msg.hasProperty("topicName");
             }
             //delete
             for (const char* ptr : rows) {
                 delete[] ptr;
             }
+            delete filter_data;
             rows.clear();
 
             ++received_rows;
