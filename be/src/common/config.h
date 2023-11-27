@@ -100,6 +100,11 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// for ADBC client fetch result.
+// Default is empty, the ADBC client uses the backend ip to fetch the result.
+// If ADBC client cannot access the backend ip, can set arrow_flight_sql_host to modify the fetch result ip.
+DECLARE_mString(arrow_flight_sql_host);
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
