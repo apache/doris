@@ -55,7 +55,8 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
           _root(_operators.back()),
           _sink(pipeline->sink_shared_pointer()),
           _local_exchange_state(local_exchange_state),
-          _task_idx(task_idx) {
+          _task_idx(task_idx),
+          _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
     _sink->get_dependency(_downstream_dependency, state->get_query_ctx());
     for (auto& op : _operators) {
@@ -75,7 +76,7 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     {
         // set sink local state
         LocalSinkStateInfo info {_parent_profile, local_params.sender_id,
-                                 get_downstream_dependency(), tsink};
+                                 get_downstream_dependency(), _local_exchange_state, tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(state, info));
     }
 

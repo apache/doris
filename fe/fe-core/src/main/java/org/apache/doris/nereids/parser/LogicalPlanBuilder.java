@@ -492,9 +492,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 bucketNum, ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
+
         return new CreateMTMVCommand(new CreateMTMVInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts),
                 ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
-                ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null,
+                comment,
                 desc, properties, logicalPlan, querySql,
                 new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols)
@@ -513,8 +516,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public SimpleColumnDefinition visitSimpleColumnDef(SimpleColumnDefContext ctx) {
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         return new SimpleColumnDefinition(ctx.colName.getText().toLowerCase(),
-                ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null);
+                comment);
     }
 
     /**
