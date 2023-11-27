@@ -349,15 +349,16 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
 
             //filter invalid prefix of json
             const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()), len);
-            std::vector<const char*> rows = convert_rows(filter_data);
+            std::vector<const char*> rows;
+            rows = convert_rows(filter_data);
             size_t rows_size = rows.size();
             bool append_all = true;
             for (const char* row : rows) {
                 size_t  row_len = len_of_actual_data(row);
-                if (rows_size > 1) {
+                if (rows_size > 5) {
                     LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
                               << ", partition: " << partition << ", message id: " << msg_id
-                              << ", len: " << len << ", filter_len: " << row_len;
+                              << ", len: " << len << ", filter_len: " << row_len << ", size: " << rows_size;
                 }
                 // append filtered data
                 Status st = (pulsar_pipe.get()->*append_data)(row, row_len);
@@ -377,6 +378,11 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                     left_bytes -= row_len;
                 }
             }
+            //delete
+            for (const char* ptr : rows) {
+                delete[] ptr;
+            }
+            rows.clear();
             if (append_all) {
                 received_rows++;
                 // len of receive origin message from pulsar
