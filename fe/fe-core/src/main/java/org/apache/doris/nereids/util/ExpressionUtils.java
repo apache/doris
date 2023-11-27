@@ -19,7 +19,6 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -229,37 +228,6 @@ public class ExpressionUtils {
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
         return replaceContext.getReplacedExpressions();
-    }
-
-    // Replace the slot in expressions according to the slotMapping
-    // if any slot cannot be mapped then return null
-    public static List<? extends Expression> permute(List<? extends Expression> expressions, SlotMapping slotMapping) {
-        return ImmutableList.of();
-    }
-
-    /**
-     * Replace the slot in expression with the lineage identifier from specified
-     * baseTable sets or target table types.
-     * <p>
-     * For example as following:
-     * select a + 10 as a1, d from (
-     * select b - 5 as a, d from table
-     * );
-     * after shuttle a1, d in select will be b - 5 + 10, d
-     */
-    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expression,
-            Plan plan,
-            Set<TableType> targetTypes,
-            Set<String> tableIdentifiers) {
-        return ImmutableList.of();
-    }
-
-    /**
-     * Replace the slot in expressions according to the slotMapping
-     * if any slot cannot be mapped then return null
-     */
-    public static List<? extends Expression> permute(List<? extends Expression> expressions, SlotMapping slotMapping) {
-        return ImmutableList.of();
     }
 
     /**
