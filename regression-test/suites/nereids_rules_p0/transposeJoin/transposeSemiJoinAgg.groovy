@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("pushAggThroughLeftSemiJoin") {
+suite("transposeSemiJoinAgg") {
     // filter about invisible column "DORIS_DELETE_SIGN = 0" has no impaction on partition pruning
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
@@ -64,8 +64,9 @@ suite("pushAggThroughLeftSemiJoin") {
         "group_commit_interval_ms" = "10000"
         );
         """
-    
+    // RULE: TransposeSemiJoinAggProject
     // 1. group-by(without grouping sets) 
+    // agg-leftSemi => leftSemi-agg
     qt_groupby_positive_case """
         explain shape plan
         select T3.A
@@ -73,6 +74,7 @@ suite("pushAggThroughLeftSemiJoin") {
         left semi join T2 on T3.A=T2.A;
     """
 
+    // agg-leftSemi: agg not pushed down
     qt_groupby_negative_case """
         explain shape plan
         select T3.A
@@ -81,14 +83,53 @@ suite("pushAggThroughLeftSemiJoin") {
         """
 
     // 2 grouping sets
-    qt_groupiong_negative_case
-explain shape plan
-select T3.A
-from (select A, B, sum(C) from T1 group by grouping sets (A, B), (A)) T3
-left semi join T2 on T3.A=T2.A;
+    // agg-leftSemi => leftSemi-agg
+    qt_grouping_positive_case """
+        explain shape plan
+        select T3.A
+        from (select A, B, sum(C) from T1 group by grouping sets ((A, B), (A))) T3
+        left semi join T2 on T3.A=T2.A;
+    """
 
-explain shape plan
-select T3.A
-from (select A, B, sum(C) as D from T1 group by grouping sets ((A, B), (A), ())) T3
-left semi join T2 on T3.D=T2.A;
+    // agg-leftSemi: agg not pushed down
+    qt_grouping_negative_case """
+        explain shape plan
+        select T3.A
+        from (select A, B, sum(C) as D from T1 group by grouping sets ((A, B), (A), ())) T3
+        left semi join T2 on T3.D=T2.A;
+    """
 
+    // RULE: TransposeSemiJoinAgg
+    // 1. group-by(without grouping sets) 
+    // agg-leftSemi => leftSemi-agg
+    qt_groupby_positive_case2 """
+        explain shape plan
+        select T3.A
+        from (select A from T1 group by A) T3
+        left semi join T2 on T3.A=T2.A;
+    """
+
+    // agg-leftSemi: agg not pushed down
+    qt_groupby_negative_case2 """
+        explain shape plan
+        select T3.D
+        from (select sum(C) as D from T1 group by A) T3
+        left semi join T2 on T3.D=T2.A;
+        """
+
+    // 2 grouping sets
+    // agg-leftSemi => leftSemi-agg
+    qt_grouping_positive_case2 """
+        explain shape plan
+        select T3.A
+        from (select A from T1 group by grouping sets ((A, B), (A))) T3
+        left semi join T2 on T3.A=T2.A;
+    """
+    // agg-leftSemi: agg not pushed down
+    qt_grouping_negative_case2 """
+        explain shape plan
+        select T3.D
+        from (select sum(C) as D from T1 group by grouping sets ((A, B), (A), ())) T3
+        left semi join T2 on T3.D=T2.A;
+        """
+}
