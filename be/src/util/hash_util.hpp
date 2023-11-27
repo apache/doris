@@ -125,11 +125,19 @@ public:
     // refer to https://github.com/apache/commons-codec/blob/master/src/main/java/org/apache/commons/codec/digest/MurmurHash3.java
     static const uint32_t MURMUR3_32_SEED = 104729;
 
+    // refer https://github.com/apache/spark/blob/v3.5.0/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/hash.scala#L615
+    static const uint32_t SPARK_MURMUR_32_SEED = 42;
+
     // modify from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
     static uint32_t murmur_hash3_32(const void* key, int64_t len, uint32_t seed) {
         uint32_t out = 0;
         murmur_hash3_x86_32(key, len, seed, &out);
         return out;
+    }
+
+    static uint32_t murmur_hash3_32_null(uint32_t seed) {
+        static const int INT_VALUE = 0;
+        return murmur_hash3_32((const unsigned char*)(&INT_VALUE), 4, seed);
     }
 
     static const int MURMUR_R = 47;

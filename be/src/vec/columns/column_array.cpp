@@ -319,6 +319,60 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
     }
 }
 
+// for every array row calculate murmurHash
+void ColumnArray::update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                           const uint8_t* __restrict null_data) const {
+    auto& offsets_column = get_offsets();
+    if (hash == 0) {
+        hash = HashUtil::SPARK_MURMUR_32_SEED;
+    }
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+                if (elem_size == 0) {
+                    hash = HashUtil::murmur_hash3_32(reinterpret_cast<const char*>(&elem_size),
+                                                     sizeof(elem_size), hash);
+                } else {
+                    get_data().update_murmur_with_value(offsets_column[i - 1], offsets_column[i],
+                                                        hash, nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+            if (elem_size == 0) {
+                hash = HashUtil::murmur_hash3_32(reinterpret_cast<const char*>(&elem_size),
+                                                 sizeof(elem_size), hash);
+            } else {
+                get_data().update_murmur_with_value(offsets_column[i - 1], offsets_column[i], hash,
+                                                    nullptr);
+            }
+        }
+    }
+}
+
+void ColumnArray::update_murmurs_with_value(int32_t* __restrict hash, PrimitiveType type,
+                                            int32_t rows, uint32_t offset,
+                                            const uint8_t* __restrict null_data) const {
+    auto s = rows;
+    DCHECK(s == size());
+
+    if (null_data) {
+        for (size_t i = 0; i < s; ++i) {
+            // every row
+            if (null_data[i] == 0) {
+                update_murmur_with_value(i, i + 1, hash[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_murmur_with_value(i, i + 1, hash[i], nullptr);
+        }
+    }
+}
+
 void ColumnArray::insert(const Field& x) {
     if (x.is_null()) {
         get_data().insert(Null());

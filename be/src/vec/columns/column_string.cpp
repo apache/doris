@@ -295,6 +295,29 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
     }
 }
 
+void ColumnString::update_murmurs_with_value(int32_t* __restrict hashes, doris::PrimitiveType type,
+                                             int32_t rows, uint32_t offset,
+                                             const uint8_t* __restrict null_data) const {
+    auto s = rows;
+    DCHECK(s == size());
+
+    if (null_data == nullptr) {
+        for (size_t i = 0; i < s; i++) {
+            auto data_ref = get_data_at(i);
+            hashes[i] = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size,
+                                                  HashUtil::SPARK_MURMUR_32_SEED);
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            if (null_data[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hashes[i] = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size,
+                                                      HashUtil::SPARK_MURMUR_32_SEED);
+            }
+        }
+    }
+}
+
 template <typename T>
 ColumnPtr ColumnStr<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     if (offsets.size() == 0) {

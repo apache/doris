@@ -19,12 +19,16 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HiveExternalDistributionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -77,6 +81,7 @@ import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -114,6 +119,22 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private static final String TBL_PROP_TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
     private static final String NUM_ROWS = "numRows";
+    private static final String SPARK_BUCKET = "spark.sql.sources.schema.bucketCol.";
+    private static final String SPARK_NUM_BUCKET = "spark.sql.sources.schema.numBuckets";
+    private static final String BUCKETING_VERSION = "bucketing_version";
+
+    private static final Set<String> SUPPORTED_BUCKET_PROPERTIES;
+
+    static {
+        SUPPORTED_BUCKET_PROPERTIES = Sets.newHashSet();
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "0");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "1");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "2");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "3");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_BUCKET + "4");
+        SUPPORTED_BUCKET_PROPERTIES.add(SPARK_NUM_BUCKET);
+        SUPPORTED_BUCKET_PROPERTIES.add(BUCKETING_VERSION);
+    }
 
     private static final String SPARK_COL_STATS = "spark.sql.statistics.colStats.";
     private static final String SPARK_STATS_MAX = ".max";
@@ -160,7 +181,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         MAP_SPARK_STATS_TO_DORIS.put(StatsType.HISTOGRAM, SPARK_STATS_HISTOGRAM);
     }
 
-    private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    protected volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    protected List<Column> partitionColumns;
+    private List<Column> bucketColumns;
+    private boolean isSparkTable;
 
     private DLAType dlaType = DLAType.UNKNOWN;
 
@@ -170,6 +194,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
     }
+
+    private DistributionInfo distributionInfo;
 
     /**
      * Create hive metastore external table.
@@ -248,6 +274,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return "org.apache.hudi.hadoop.HoodieParquetInputFormat".equals(inputFormatName)
                 || "skip_merge".equals(getCatalogProperties().get("hoodie.datasource.merge.type"))
                 || (params != null && "COPY_ON_WRITE".equalsIgnoreCase(params.get("flink.table.type")));
+    }
+
+    public boolean isSparkTable() {
+        return isSparkTable;
+    }
+
+    public boolean isBucketedTable() {
+        return bucketColumns != null && !bucketColumns.isEmpty() && isSparkTable;
     }
 
     /**
@@ -365,24 +399,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public boolean isHiveTransactionalTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
+                && isSupportedTransactionalFileFormat();
     }
 
-    private boolean isSupportedFullAcidTransactionalFileFormat() {
+    private boolean isSupportedTransactionalFileFormat() {
         // Sometimes we meet "transactional" = "true" but format is parquet, which is not supported.
         // So we need to check the input format for transactional table.
         String inputFormatName = remoteTable.getSd().getInputFormat();
         return inputFormatName != null && SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.contains(inputFormatName);
     }
 
-    public boolean isFullAcidTable() throws UserException {
-        if (dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable)) {
-            if (!isSupportedFullAcidTransactionalFileFormat()) {
-                throw new UserException("This table is full Acid Table, but no Orc Format.");
-            }
-            return true;
-        }
-        return false;
+    public boolean isFullAcidTable() {
+        return dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable);
     }
 
     @Override
@@ -459,51 +488,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public String getViewText() {
         String viewText = getViewExpandedText();
         if (StringUtils.isNotEmpty(viewText)) {
-            if (!viewText.equals("/* Presto View */")) {
-                return viewText;
-            }
+            return viewText;
         }
-
-        String originalText = getViewOriginalText();
-        return parseTrinoViewDefinition(originalText);
-    }
-
-    /**
-     * Parse Trino/Presto view definition from the original text.
-     * The definition is stored in the format: /* Presto View: <base64-encoded-json> * /
-     *
-     * The base64 encoded JSON contains the following fields:
-     * {
-     *   "originalSql": "SELECT * FROM employees",  // The original SQL statement
-     *   "catalog": "hive",                        // The data catalog name
-     *   "schema": "mmc_hive",                     // The schema name
-     *   ...
-     * }
-     *
-     * @param originalText The original view definition text
-     * @return The parsed SQL statement, or original text if parsing fails
-     */
-    private String parseTrinoViewDefinition(String originalText) {
-        if (originalText == null || !originalText.contains("/* Presto View: ")) {
-            return originalText;
-        }
-
-        try {
-            String base64String = originalText.substring(
-                    originalText.indexOf("/* Presto View: ") + "/* Presto View: ".length(),
-                    originalText.lastIndexOf(" */")
-            ).trim();
-            byte[] decodedBytes = Base64.getDecoder().decode(base64String);
-            String decodedString = new String(decodedBytes, StandardCharsets.UTF_8);
-            JsonObject jsonObject = new Gson().fromJson(decodedString, JsonObject.class);
-
-            if (jsonObject.has("originalSql")) {
-                return jsonObject.get("originalSql").getAsString();
-            }
-        } catch (Exception e) {
-            LOG.warn("Decoding Presto view definition failed", e);
-        }
-        return originalText;
+        return getViewOriginalText();
     }
 
     public String getViewExpandedText() {
@@ -599,7 +586,69 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private Optional<SchemaCacheValue> getIcebergSchema() {
         List<Column> columns = IcebergUtils.getSchema(catalog, dbName, name);
         List<Column> partitionColumns = initPartitionColumns(columns);
+        initBucketingColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
+    }
+
+    private void initBucketingColumns(List<Column> columns) {
+        List<String> bucketCols = new ArrayList<>(5);
+        int numBuckets = getBucketColumns(bucketCols);
+        if (bucketCols.isEmpty() || !isSparkTable) {
+            bucketColumns = ImmutableList.of();
+            distributionInfo = new RandomDistributionInfo(1, true);
+            return;
+        }
+
+        int bucketingVersion = Integer.valueOf(remoteTable.getParameters().getOrDefault(BUCKETING_VERSION, "2"));
+        ImmutableList.Builder<Column> bucketColBuilder = ImmutableList.builder();
+        for (String colName : bucketCols) {
+            // do not use "getColumn()", which will cause dead loop
+            for (Column column : columns) {
+                if (colName.equalsIgnoreCase(column.getName())) {
+                    // For partition/bucket column, if it is string type, change it to varchar(65535)
+                    // to be same as doris managed table.
+                    // This is to avoid some unexpected behavior such as different partition pruning result
+                    // between doris managed table and external table.
+                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                        column.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
+                    }
+                    bucketColBuilder.add(column);
+                    break;
+                }
+            }
+        }
+
+        bucketColumns = bucketColBuilder.build();
+        distributionInfo = new HiveExternalDistributionInfo(numBuckets, bucketColumns, bucketingVersion);
+        LOG.debug("get {} bucket columns for table: {}", bucketColumns.size(), name);
+    }
+
+    private int getBucketColumns(List<String> bucketCols) {
+        StorageDescriptor descriptor = remoteTable.getSd();
+        int numBuckets = -1;
+        if (descriptor.isSetBucketCols() && !descriptor.getBucketCols().isEmpty()) {
+            /* Hive Bucketed Table */
+            bucketCols.addAll(descriptor.getBucketCols());
+            numBuckets = descriptor.getNumBuckets();
+        } else if (remoteTable.isSetParameters()
+                && !Collections.disjoint(SUPPORTED_BUCKET_PROPERTIES, remoteTable.getParameters().keySet())) {
+            Map<String, String> parameters = remoteTable.getParameters();
+            for (Map.Entry<String, String> param : parameters.entrySet()) {
+                if (param.getKey().startsWith(SPARK_BUCKET)) {
+                    int index = Integer.valueOf(param.getKey()
+                            .substring(param.getKey().lastIndexOf(".") + 1));
+                    bucketCols.add(index, param.getValue());
+                } else if (param.getKey().equals(SPARK_NUM_BUCKET)) {
+                    numBuckets = Integer.valueOf(param.getValue());
+                }
+            }
+
+            if (numBuckets > 0) {
+                isSparkTable = true;
+            }
+        }
+
+        return numBuckets;
     }
 
     private Optional<SchemaCacheValue> getHudiSchema() {
@@ -631,6 +680,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     true, defaultValue, field.getComment(), true, -1));
         }
         List<Column> partitionColumns = initPartitionColumns(columns);
+        initBucketingColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
@@ -712,6 +762,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }
         return Optional.empty();
+    }
+
+    public DistributionInfo getDefaultDistributionInfo() {
+        makeSureInitialized();
+        if (distributionInfo != null) {
+            return distributionInfo;
+        }
+
+        return new RandomDistributionInfo(1, true);
+    }
+
+    public Map<String, String> getTableParameters() {
+        return remoteTable.getParameters();
     }
 
     private Optional<ColumnStatistic> getHiveColumnStats(String colName) {
@@ -835,14 +898,23 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public boolean isDistributionColumn(String columnName) {
-        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
-                .collect(Collectors.toSet()).contains(columnName.toLowerCase());
+        Set<String> distributeColumns = getDistributionColumnNames()
+                .stream().map(String::toLowerCase).collect(Collectors.toSet());
+        return distributeColumns.contains(columnName.toLowerCase());
     }
 
     @Override
     public Set<String> getDistributionColumnNames() {
-        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
-                .collect(Collectors.toSet());
+        Set<String> distributionColumnNames = Sets.newHashSet();
+        if (distributionInfo instanceof RandomDistributionInfo) {
+            return distributionColumnNames;
+        }
+        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+        List<Column> distColumn = hashDistributionInfo.getDistributionColumns();
+        for (Column column : distColumn) {
+            distributionColumnNames.add(column.getName().toLowerCase());
+        }
+        return distributionColumnNames;
     }
 
     @Override

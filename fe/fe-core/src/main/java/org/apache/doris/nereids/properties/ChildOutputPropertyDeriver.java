@@ -144,7 +144,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalFileScan(PhysicalFileScan fileScan, PlanContext context) {
-        return PhysicalProperties.STORAGE_ANY;
+        return new PhysicalProperties(fileScan.getDistributionSpec());
     }
 
     /**

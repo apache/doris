@@ -111,5 +111,23 @@ struct SpillPartitionChannelIds {
         return ((l >> 16) | (l << 16)) % r;
     }
 };
+
+template <typename ChannelIds>
+class Murmur32HashPartitioner final : public Partitioner<int32_t, ChannelIds> {
+public:
+    using Base = Partitioner<int32_t, ChannelIds>;
+    Murmur32HashPartitioner(int partition_count)
+            : Partitioner<int32_t, ChannelIds>(partition_count) {}
+    ~Murmur32HashPartitioner() override = default;
+
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
+
+private:
+    void _do_hash(const ColumnPtr& column, int32_t* __restrict result, int idx) const override;
+};
+
+} // namespace vectorized
+} // namespace doris
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

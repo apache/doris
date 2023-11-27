@@ -57,6 +57,18 @@ class SipHash;
         }                                                                            \
     }
 
+#define DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL(SEED)                               \
+    if (null_data == nullptr) {                                                   \
+        for (size_t i = 0; i < s; i++) {                                          \
+            hashes[i] = HashUtil::murmur_hash3_32(&data[i], sizeof(T), SEED);     \
+        }                                                                         \
+    } else {                                                                      \
+        for (size_t i = 0; i < s; i++) {                                          \
+            if (null_data[i] == 0)                                                \
+                hashes[i] = HashUtil::murmur_hash3_32(&data[i], sizeof(T), SEED); \
+        }                                                                         \
+    }
+
 namespace doris::vectorized {
 
 class Arena;
@@ -395,6 +407,21 @@ public:
                                        const uint8_t* __restrict null_data) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method update_crc_with_value is not supported for " + get_name());
+    }
+
+    /// Update state of murmur3 hash function (spark files) with value of n elements to avoid the virtual
+    /// function call null_data to mark whether need to do hash compute, null_data == nullptr
+    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
+    virtual void update_murmurs_with_value(int32_t* __restrict hash, PrimitiveType type,
+                                           int32_t rows, uint32_t offset = 0,
+                                           const uint8_t* __restrict null_data = nullptr) const {
+        LOG(FATAL) << get_name() << "update_murmurs_with_value not supported";
+    }
+
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                          const uint8_t* __restrict null_data) const {
+        LOG(FATAL) << get_name() << " update_murmur_with_value not supported";
     }
 
     /** Removes elements that don't match the filter.

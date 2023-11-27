@@ -184,6 +184,56 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
 }
 
 template <typename T>
+void ColumnDecimal<T>::update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                                const uint8_t* __restrict null_data) const {
+    if (null_data == nullptr) {
+        for (size_t i = start; i < end; i++) {
+            if constexpr (!IsDecimalV2<T>) {
+                hash = HashUtil::murmur_hash3_32(&data[i], sizeof(T),
+                                                 HashUtil::SPARK_MURMUR_32_SEED);
+            } else {
+                decimalv2_do_murmur(i, hash);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; i++) {
+            if (null_data[i] == 0) {
+                if constexpr (!IsDecimalV2<T>) {
+                    hash = HashUtil::murmur_hash3_32(&data[i], sizeof(T),
+                                                     HashUtil::SPARK_MURMUR_32_SEED);
+                } else {
+                    decimalv2_do_murmur(i, hash);
+                }
+            }
+        }
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::update_murmurs_with_value(int32_t* __restrict hashes, PrimitiveType type,
+                                                 int32_t rows, uint32_t offset,
+                                                 const uint8_t* __restrict null_data) const {
+    auto s = rows;
+    DCHECK(s == size());
+
+    if constexpr (!IsDecimalV2<T>) {
+        DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL(HashUtil::SPARK_MURMUR_32_SEED)
+    } else {
+        if (null_data == nullptr) {
+            for (size_t i = 0; i < s; i++) {
+                decimalv2_do_murmur(i, hashes[i]);
+            }
+        } else {
+            for (size_t i = 0; i < s; i++) {
+                if (null_data[i] == 0) {
+                    decimalv2_do_murmur(i, hashes[i]);
+                }
+            }
+        }
+    }
+}
+
+template <typename T>
 void ColumnDecimal<T>::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                                 const uint8_t* __restrict null_data) const {
     if (null_data) {

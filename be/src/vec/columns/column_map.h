@@ -162,6 +162,8 @@ public:
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
+    void update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data = nullptr) const override;
@@ -169,6 +171,10 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
+
+    void update_murmurs_with_value(int32_t* __restrict hash, PrimitiveType type, int32_t rows,
+                                   uint32_t offset = 0,
+                                   const uint8_t* __restrict null_data = nullptr) const override;
 
     /******************** keys and values ***************/
     const ColumnPtr& get_keys_ptr() const { return keys_column; }

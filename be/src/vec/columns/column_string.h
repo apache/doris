@@ -433,6 +433,25 @@ public:
         }
     }
 
+    void update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                  const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; ++i) {
+                if (null_data[i] == 0) {
+                    auto data_ref = get_data_at(i);
+                    hash = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size,
+                                                     HashUtil::SPARK_MURMUR_32_SEED);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; ++i) {
+                auto data_ref = get_data_at(i);
+                hash = HashUtil::murmur_hash3_32(data_ref.data, data_ref.size,
+                                                 HashUtil::SPARK_MURMUR_32_SEED);
+            }
+        }
+    }
+
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         size_t string_size = size_at(n);
         size_t offset = offset_at(n);
@@ -445,6 +464,10 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
+
+    void update_murmurs_with_value(int32_t* __restrict hashes, PrimitiveType type, int32_t rows,
+                                   uint32_t offset,
+                                   const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override {
