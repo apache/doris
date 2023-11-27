@@ -552,7 +552,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         case pulsar::ResultOk:
             //parse json
             const char* filter_data =
-                filter_invalid_prefix_of_json(static_cast<const char*>(msg.get()->getData()), len);
+                filter_invalid_prefix_of_json(static_cast<const char*>(msg.get()->getData()), msg.get()->getLength());
             std::vector<const char*> rows = convert_rows(filter_data);
             if (rows.size() > 1) {
                 LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
@@ -560,17 +560,17 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                           << ", len: " << msg.get()->getLength();
                 for (const char* row : rows) {
                     pulsar::MessageBuilder messageBuilder;
-                    size row_len = len_of_actual_data(row);
+                    size_t row_len = len_of_actual_data(row);
                     messageBuilder.setContent(row, row_len);
                     messageBuilder.setMessageId(msg.get()->getMessageId());
                     pulsar::Message new_msg = messageBuilder.build();
 
-                    std::string partition = new_msg->getTopicName();
-                    pulsar::MessageId msg_id = new_msg->getMessageId();
-                    std::size_t msg_len = new_msg->getLength();
+                    std::string partition = new_msg.getTopicName();
+                    pulsar::MessageId msg_id = new_msg.getMessageId();
+                    std::size_t msg_len = new_msg.getLength();
                     LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
                               << ", partition: " << partition << ", message id: " << msg_id
-                              << ", len: " << msg_len << ", filter_len: " << row_len << ", size: " << rows_size;
+                              << ", len: " << msg_len << ", filter_len: " << row_len << ", size: " << rows.size();
                 }
             }
 
