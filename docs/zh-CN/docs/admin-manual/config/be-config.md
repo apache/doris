@@ -148,27 +148,34 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
   示例1如下：
 
+  :::tip
   **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
+  :::
 
   `storage_root_path=/home/disk1/doris.HDD;/home/disk2/doris.SSD;/home/disk2/doris`
 
+  :::tip
   **说明**
 
     - /home/disk1/doris.HDD，表示存储介质是HDD;
     - /home/disk2/doris.SSD，表示存储介质是SSD；
     - /home/disk2/doris，存储介质默认为HDD
+  :::
 
   示例2如下：
 
+  :::tip
   **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
+  :::
 
   `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
 
+  :::tip
   **说明**
 
     - /home/disk1/doris,medium:hdd，表示存储介质是HDD;
     - /home/disk2/doris,medium:ssd，表示存储介质是SSD;
-
+  :::
 
 * 默认值：${DORIS_HOME}/storage
 
