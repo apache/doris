@@ -332,7 +332,8 @@ Status SegmentIterator::_lazy_init() {
     DorisMetrics::instance()->segment_read_total->increment(1);
     _row_bitmap.addRange(0, _segment->num_rows());
     // z-order can not use prefix index
-    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
+    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER &&
+        _segment->_tablet_schema->cluster_key_idxes().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
@@ -1324,6 +1325,10 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
 
     // The sequence column needs to be removed from primary key index when comparing key
     bool has_seq_col = _segment->_tablet_schema->has_sequence_col();
+    // Used to get key range from primary key index,
+    // for mow with cluster key table, we should get key range from short key index.
+    DCHECK(_segment->_tablet_schema->cluster_key_idxes().empty());
+
     if (has_seq_col) {
         size_t seq_col_length =
                 _segment->_tablet_schema->column(_segment->_tablet_schema->sequence_col_idx())

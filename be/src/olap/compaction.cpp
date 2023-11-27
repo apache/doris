@@ -660,7 +660,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     output_rowsets.push_back(_output_rowset);
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-        _tablet->enable_unique_key_merge_on_write()) {
+        _tablet->enable_unique_key_merge_on_write() &&
+        _tablet->tablet_schema()->cluster_key_idxes().empty()) {
         Version version = _tablet->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
         std::set<RowLocation> missed_rows;
@@ -689,7 +690,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             }
         }
 
-        RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+        if (config::enable_rowid_conversion_correctness_check) {
+            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+        }
         location_map.clear();
 
         {
@@ -750,7 +753,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 }
             }
 
-            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+            if (config::enable_rowid_conversion_correctness_check) {
+                RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+            }
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
             RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));

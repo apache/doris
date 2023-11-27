@@ -925,12 +925,6 @@ public class Config extends ConfigBase {
     public static long es_state_sync_interval_second = 10;
 
     /**
-     * fe will create iceberg table every iceberg_table_creation_interval_second
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static long iceberg_table_creation_interval_second = 10;
-
-    /**
      * the factor of delay time before deciding to repair tablet.
      * if priority is VERY_HIGH, repair it immediately.
      * HIGH, delay tablet_repair_delay_factor_second * 1;
@@ -1505,14 +1499,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long min_bytes_indicate_replica_too_large = 2 * 1024 * 1024 * 1024L;
 
-    /**
-     * If set to TRUE, the column definitions of iceberg table and the doris table must be consistent
-     * If set to FALSE, Doris only creates columns of supported data types.
-     * Default is true.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean iceberg_table_creation_strict_mode = true;
-
     // statistics
     /*
      * the max unfinished statistics job number
@@ -1586,14 +1572,15 @@ public class Config extends ConfigBase {
     @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
 
-    /**
-     * The number of threads used to consume insert tasks.
-     * if you have a lot of insert jobs,and the average execution frequency is relatively high you need to increase
-     * this value or increase the number of {@code @job_insert_task_queue_size}
-     * The value should be greater than 0, if it is 0 or <=0, set it to 5
-     */
-    @ConfField(description = {"用于执行 Insert 任务的线程数", "The number of threads used to consume insert tasks."})
+    @ConfField(description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为5",
+            "The number of threads used to consume Insert tasks, "
+                    + "the value should be greater than 0, if it is <=0, default is 5."})
     public static int job_insert_task_consumer_thread_num = 10;
+
+    @ConfField(description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为5",
+            "The number of threads used to consume mtmv tasks, "
+                    + "the value should be greater than 0, if it is <=0, default is 5."})
+    public static int job_mtmv_task_consumer_thread_num = 10;
 
     /*---------------------- JOB CONFIG END------------------------*/
     /**
@@ -1760,12 +1747,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
 
-    /**
-     * The iceberg and hudi table will be removed in v1.3
-     * Use multi catalog instead.
-     */
-    @ConfField(mutable = true, masterOnly = false)
-    public static boolean disable_iceberg_hudi_table = true;
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "禁止创建odbc, mysql, broker类型的外表", "Disallow the creation of odbc, mysql, broker type external tables"})
+    public static boolean enable_odbc_mysql_broker_table = false;
 
     /**
      * The default connection timeout for hive metastore.
@@ -1870,15 +1854,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
-
-    /**
-     * enable use odbc table
-     */
-    @ConfField(mutable = true, masterOnly = true, description = {
-        "是否开启 ODBC 外表功能，默认关闭，ODBC 外表是淘汰的功能，请使用 JDBC Catalog",
-        "Whether to enable the ODBC appearance function, it is disabled by default,"
-            + " and the ODBC appearance is an obsolete feature. Please use the JDBC Catalog"})
-    public static boolean enable_odbc_table = false;
 
     /**
      * This is used whether to push down function to MYSQL in external Table with query sql
@@ -2137,7 +2112,7 @@ public class Config extends ConfigBase {
     public static int force_olap_table_replication_num = 0;
 
     @ConfField
-    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+    public static int auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
     public static final int period_analyze_simultaneously_running_task_num = 1;
@@ -2293,4 +2268,8 @@ public class Config extends ConfigBase {
                     + "If it is less than this value, it will be diagnosed as balanced."
     })
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
+
+    @ConfField(description = {"nereids trace文件的存放路径。",
+            "The path of the nereids trace file."})
+    public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
 }

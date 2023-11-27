@@ -423,6 +423,20 @@ public class TypeCoercionUtils {
         }
     }
 
+    /**
+     * like castIfNotSameType does, but varchar or char type would be cast to target length exactly
+     */
+    public static Expression castIfNotSameTypeStrict(Expression input, DataType targetType) {
+        if (input.isNullLiteral()) {
+            return new NullLiteral(targetType);
+        } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)) {
+            return input;
+        } else {
+            checkCanCastTo(input.getDataType(), targetType);
+            return unSafeCast(input, targetType);
+        }
+    }
+
     private static boolean isSubqueryAndDataTypeIsBitmap(Expression input) {
         return input instanceof SubqueryExpr && input.getDataType().isBitmapType();
     }
@@ -453,6 +467,11 @@ public class TypeCoercionUtils {
                 if (promoted != null) {
                     return promoted;
                 }
+            }
+            // adapt scale when from string to datetimev2 with float
+            if (type.isStringLikeType() && dataType.isDateTimeV2Type()) {
+                return recordTypeCoercionForSubQuery(input,
+                        DateTimeV2Type.forTypeFromString(((Literal) input).getStringValue()));
             }
         }
         return recordTypeCoercionForSubQuery(input, dataType);

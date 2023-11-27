@@ -116,7 +116,7 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
     auto st = _query_ctx->exec_status();
     if (!_runtime_states.empty()) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_ATTACH_TASK(_runtime_state.get());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         FOR_EACH_RUNTIME_STATE(_call_back(runtime_state.get(), &st); runtime_state.reset();)
     } else {
         _call_back(nullptr, &st);
@@ -148,6 +148,9 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
+    }
+    if (reason == PPlanFragmentCancelReason::TIMEOUT) {
+        LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
@@ -423,17 +426,25 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_total_load_streams(request.total_load_streams);
         _runtime_states[i]->set_num_local_sink(request.num_local_sink);
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
-        for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+        auto get_local_exchange_state =
+                [&](PipelinePtr pipeline) -> std::shared_ptr<LocalExchangeSharedState> {
+            auto source_id = pipeline->operator_xs().front()->operator_id();
+            if (auto iter = _op_id_to_le_state.find(source_id); iter != _op_id_to_le_state.end()) {
+                return iter->second;
+            }
+            for (auto sink_to_source_id : pipeline->sink_x()->dests_id()) {
+                if (auto iter = _op_id_to_le_state.find(sink_to_source_id);
+                    iter != _op_id_to_le_state.end()) {
+                    return iter->second;
+                }
+            }
+            return nullptr;
+        };
+        for (auto& pipeline : _pipelines) {
             auto task = std::make_unique<PipelineXTask>(
-                    _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
-                    _runtime_states[i]->runtime_profile(),
-                    _op_id_to_le_state.contains(
-                            _pipelines[pip_idx]->operator_xs().front()->operator_id())
-                            ? _op_id_to_le_state
-                                      [_pipelines[pip_idx]->operator_xs().front()->operator_id()]
-                            : nullptr,
-                    i);
-            pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
+                    pipeline, _total_tasks++, _runtime_states[i].get(), this,
+                    _runtime_states[i]->runtime_profile(), get_local_exchange_state(pipeline), i);
+            pipeline_id_to_task.insert({pipeline->id(), task.get()});
             _tasks[i].emplace_back(std::move(task));
         }
 

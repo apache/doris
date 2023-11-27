@@ -40,7 +40,7 @@ Other ways of importing data in JSON format are not currently supported.
 
 ## Supported JSON Formats
 
-Currently only the following two JSON formats are supported:
+Currently only the following three JSON formats are supported:
 
 1. Multiple rows of data represented by Array
 

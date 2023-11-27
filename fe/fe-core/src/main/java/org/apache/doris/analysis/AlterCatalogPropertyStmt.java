@@ -47,6 +47,11 @@ public class AlterCatalogPropertyStmt extends AlterCatalogStmt {
     @Override
     public String toSql() {
         return "ALTER CATALOG " + catalogName + " SET PROPERTIES ("
-                + new PrintableMap<>(newProperties, "=", true, false, ",") + ")";
+                + new PrintableMap<>(newProperties, "=", true, false, true) + ")";
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

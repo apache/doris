@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.txn;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -92,7 +93,7 @@ public class Transaction {
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeInsertIntoTableCommand(StmtExecutor executor) {
+    public void executeInsertIntoTableCommand(StmtExecutor executor, long jobId) {
         LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
         Throwable throwable = null;
 
@@ -200,11 +201,23 @@ public class Transaction {
         try {
             // the statement parsed by Nereids is saved at executor::parsedStmt.
             StatementBase statement = executor.getParsedStmt();
+            UserIdentity userIdentity;
+            //if we use job scheduler, parse statement will not set user identity,so we need to get it from context
+            if (null == statement) {
+                userIdentity = ctx.getCurrentUserIdentity();
+            } else {
+                userIdentity = statement.getUserInfo();
+            }
+            EtlJobType etlJobType = EtlJobType.INSERT;
+            if (0 != jobId) {
+                etlJobType = EtlJobType.INSERT_JOB;
+            }
+
             ctx.getEnv().getLoadManager()
                     .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
                             table.getId(),
-                            EtlJobType.INSERT, createAt, throwable == null ? "" : throwable.getMessage(),
-                            coordinator.getTrackingUrl(), statement.getUserInfo());
+                            etlJobType, createAt, throwable == null ? "" : throwable.getMessage(),
+                            coordinator.getTrackingUrl(), userIdentity, jobId);
         } catch (MetaNotFoundException e) {
             LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
             errMsg = "Record info of insert load with error " + e.getMessage();

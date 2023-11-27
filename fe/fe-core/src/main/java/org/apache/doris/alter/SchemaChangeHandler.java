@@ -310,24 +310,19 @@ public class SchemaChangeHandler extends AlterHandler {
          */
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
             List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
-            boolean isKey = false;
             for (Column column : baseSchema) {
-                if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
-                    lightSchemaChange = false;
-                    isKey = true;
-                    break;
+                if (column.getName().equalsIgnoreCase(dropColName)) {
+                    if (column.isKey()) {
+                        throw new DdlException("Can not drop key column in Unique data model table");
+                    } else if (column.isClusterKey()) {
+                        throw new DdlException("Can not drop cluster key column in Unique data model table");
+                    }
                 }
             }
-
-            if (isKey) {
-                throw new DdlException("Can not drop key column in Unique data model table");
-            }
-
             if (olapTable.hasSequenceCol() && dropColName.equalsIgnoreCase(olapTable.getSequenceMapCol())) {
                 throw new DdlException("Can not drop sequence mapping column[" + dropColName
                         + "] in Unique data model table[" + olapTable.getName() + "]");
             }
-
         } else if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (null == targetIndexName) {
                 // drop column in base table
@@ -595,6 +590,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         col.checkSchemaChangeAllowed(modColumn);
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
+                    if (col.isClusterKey()) {
+                        throw new DdlException("Can not modify cluster key column: " + col.getName());
+                    }
                 }
             }
             if (hasColPos) {
@@ -807,6 +805,9 @@ public class SchemaChangeHandler extends AlterHandler {
             for (Column column : targetIndexSchema) {
                 if (!column.isVisible()) {
                     newSchema.add(column);
+                }
+                if (column.isClusterKey()) {
+                    throw new DdlException("Can not modify column order in Unique data model table");
                 }
             }
         }
