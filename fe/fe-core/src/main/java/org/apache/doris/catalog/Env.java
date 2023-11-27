@@ -1364,6 +1364,8 @@ public class Env {
             editLog.logAddFirstFrontend(self);
 
             initLowerCaseTableNames();
+            // Set initial root password if master FE first time launch.
+            auth.setInitialRootPassword(Config.initial_root_password);
         } else {
             if (journalVersion <= FeMetaVersion.VERSION_114) {
                 // if journal version is less than 114, which means it is upgraded from version before 2.0.
