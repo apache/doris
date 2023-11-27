@@ -155,7 +155,6 @@ class Node(object):
         # copy config to local
         conf_dir = os.path.join(path, "conf")
         if not os.path.exists(conf_dir) or utils.is_dir_empty(conf_dir):
-            os.makedirs(conf_dir, exist_ok=True)
             utils.copy_image_directory(
                 self.get_image(), "{}/{}/conf".format(DOCKER_DORIS_PATH,
                                                       self.node_type()),
