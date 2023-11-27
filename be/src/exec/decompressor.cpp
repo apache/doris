@@ -371,8 +371,8 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
 
     while (input_len > 0) {
         //if faild ,  fall back to large block begin
-        auto large_block_input_ptr = input_ptr;
-        auto large_block_output_ptr = output_ptr;
+        auto* large_block_input_ptr = input_ptr;
+        auto* large_block_output_ptr = output_ptr;
 
         if (input_len < sizeof(uint32_t)) {
             return Status::InvalidArgument(strings::Substitute(
