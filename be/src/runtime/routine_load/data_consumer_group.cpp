@@ -335,21 +335,14 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
         pulsar::Message* msg;
         bool res = _queue.blocking_get(&msg);
         if (res) {
-            std::string partition = msg->getTopicName();
+            std::string partition = msg->getProperty("topicName");
             pulsar::MessageId msg_id = msg->getMessageId();
             std::size_t len = msg->getLength();
 
             VLOG(3) << "get pulsar message"
                     << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
 
-            //filter invalid prefix of json
-            const char* filter_data = filter_invalid_prefix_of_json(static_cast<const char*>(msg->getData()), len);
-            size_t  filter_len = len_of_actual_data(filter_data);
-            // append filtered data
-            VLOG(3)   << "get pulsar message: " << std::string(filter_data, filter_len)
-                      << ", partition: " << partition << ", message id: " << msg_id
-                      << ", len: " << len << ", filter_len: " << filter_len;
-            Status st = (pulsar_pipe.get()->*append_data)(filter_data, filter_len);
+            Status st = (pulsar_pipe.get()->*append_data)(static_cast<const char*>(msg->getData()), len);
             if (st.ok()) {
                 received_rows++;
                 // len of receive origin message from pulsar

@@ -548,50 +548,40 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         consumer_watch.stop();
         switch (res) {
         case pulsar::ResultOk:
-            if (msg.get()->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
-                LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
-                          << ", message id: " << msg.get()->getMessageId()
-                          << ", len: " << msg.get()->getLength();
-                //filter invalid prefix of json
-                filter_data = substring_prefix_json(msg.get()->getDataAsString());
-                rows = convert_rows(filter_data.c_str());
-                for (const char* row : rows) {
-                    pulsar::MessageBuilder messageBuilder;
-                    size_t row_len = len_of_actual_data(row);
-                    messageBuilder.setContent(row, row_len);
-                    messageBuilder.setProperty("topicName",msg.get()->getTopicName());
-                    pulsar::Message new_msg = messageBuilder.build();
-                    new_msg.setMessageId(msg.get()->getMessageId());
+            //filter invalid prefix of json
+            filter_data = substring_prefix_json(msg.get()->getDataAsString());
+            rows = convert_rows(filter_data.c_str());
+            for (const char* row : rows) {
+                pulsar::MessageBuilder messageBuilder;
+                size_t row_len = len_of_actual_data(row);
+                messageBuilder.setContent(row, row_len);
+                messageBuilder.setProperty("topicName",msg.get()->getTopicName());
+                pulsar::Message new_msg = messageBuilder.build();
+                new_msg.setMessageId(msg.get()->getMessageId());
 
-                    std::string partition = new_msg.getProperty("topicName");
-                    pulsar::MessageId msg_id = new_msg.getMessageId();
-                    std::size_t msg_len = new_msg.getLength();
-
-                    LOG(INFO) << "get pulsar message: " << new_msg.getDataAsString()
-                              << ", partition: " << partition << ", message id: " << msg_id
-                              << ", len: " << msg_len << ", filter_len: " << row_len
-                              << ", size: " << rows.size()
-                              << ", bool topicName: " << new_msg.hasProperty("topicName")
-                              << ", value topicName: " << new_msg.getProperty("topicName");
+                if (new_msg.getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
+                    LOG(INFO) << "receive pulsar message: " << new_msg.getDataAsString()
+                              << ", message id: " << new_msg.getMessageId()
+                              << ", len: " << new_msg.getLength();
                 }
-                for (const char* row : rows) {
-                    delete[] row;
+                if (new_msg.getDataAsString().find("{\"") == std::string::npos) {
+                    // ignore msg with length 0.
+                    // put empty msg into queue will cause the load process shutting down.
+                    LOG(INFO) << "pass error message: " << new_msg.getDataAsString();
+                    break;
+                } else if (!queue->blocking_put(&new_msg)) {
+                    // queue is shutdown
+                    done = true;
+                } else {
+                    ++put_rows;
+                    msg.release(); // release the ownership, msg will be deleted after being processed
                 }
-                rows.clear();
+                ++received_rows;
             }
-            if (msg.get()->getDataAsString().find("{\"") == std::string::npos) {
-                // ignore msg with length 0.
-                // put empty msg into queue will cause the load process shutting down.
-                LOG(INFO) << "pass null message: " << msg.get()->getDataAsString();
-                break;
-            } else if (!queue->blocking_put(msg.get())) {
-                // queue is shutdown
-                done = true;
-            } else {
-                ++put_rows;
-                msg.release(); // release the ownership, msg will be deleted after being processed
+            for (const char* row : rows) {
+                delete[] row;
             }
-            ++received_rows;
+            rows.clear();
             break;
         case pulsar::ResultTimeout:
             // leave the status as OK, because this may happened
