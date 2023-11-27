@@ -590,44 +590,12 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 for (const char* ptr : rows) {
                     delete[] ptr;
                 }
-                delete filter_data;
+                delete[] filter_data;
                 rows.clear();
+                LOG(INFO) << "free pulsar message";
                 ++put_rows;
                 msg.release(); // release the ownership, msg will be deleted after being processed
             }
-
-            filter_data =
-                filter_invalid_prefix_of_json(static_cast<const char*>(msg.get()->getData()), msg.get()->getLength());
-            rows = convert_rows(filter_data);
-            LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
-                      << ", message id: " << msg.get()->getMessageId()
-                      << ", len: " << msg.get()->getLength();
-            for (const char* row : rows) {
-                pulsar::MessageBuilder messageBuilder;
-                size_t row_len = len_of_actual_data(row);
-                messageBuilder.setContent(row, row_len);
-                messageBuilder.setProperty("topicName",msg.get()->getTopicName());
-                messageBuilder.setProperty("messageId","-1");
-                pulsar::Message new_msg = messageBuilder.build();
-
-                std::string partition = new_msg.getProperty("topicName");
-                new_msg.setMessageId(msg.get()->getMessageId());
-                pulsar::MessageId msg_id = new_msg.getMessageId();
-                std::string topic = new_msg.getTopicName();
-                std::size_t msg_len = new_msg.getLength();
-                LOG(INFO) << "get pulsar message: " << std::string(row, row_len)
-                          << ", partition: " << partition << ", message id: " << msg_id << "topic: " << topic
-                          << ", len: " << msg_len << ", filter_len: " << row_len << ", size: " << rows.size()
-                          << ", bool messageId: " << new_msg.hasProperty("messageId")
-                          << ", bool topicName: " << new_msg.hasProperty("topicName");
-            }
-            //delete
-            for (const char* ptr : rows) {
-                delete[] ptr;
-            }
-            delete filter_data;
-            rows.clear();
-
             ++received_rows;
             break;
         case pulsar::ResultTimeout:
