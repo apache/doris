@@ -203,7 +203,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 * 类型：int32
 * 描述：配置BE的所属于的集群id。
-  - 该值通常由FE通过心跳向BE下发，不需要额外进行配置。当确认某BE属于某一个确定的Drois集群时，可以进行配置，同时需要修改数据目录下的cluster_id文件，使二者相同。
+  - 该值通常由FE通过心跳向BE下发，不需要额外进行配置。当确认某BE属于某一个确定的 Doris 集群时，可以进行配置，同时需要修改数据目录下的cluster_id文件，使二者相同。
 * 默认值：-1
 
 #### `custom_config_dir`
@@ -224,7 +224,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `es_scroll_keepalive`
 
-* 描述：es scroll Keeplive保持时间，默认5分钟
+* 描述：es scroll keep-alive 保持时间，默认5分钟
 * 默认值: 5 (m)
 
 #### `external_table_connect_timeout_sec`
@@ -411,7 +411,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `enable_prefetch`
 
 * 类型：bool
-* 描述：当使用PartitionedHashTable进行聚合和join计算时，是否进行HashBuket的预取，推荐设置为true。
+* 描述：当使用PartitionedHashTable进行聚合和join计算时，是否进行 HashBucket 的预取，推荐设置为true。
 * 默认值：true
 
 #### `enable_quadratic_probing`
