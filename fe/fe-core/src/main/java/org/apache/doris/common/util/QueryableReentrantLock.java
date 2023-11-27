@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import java.util.Collection;
 import java.util.concurrent.locks.ReentrantLock;
 
 /*
@@ -38,10 +37,5 @@ public class QueryableReentrantLock extends ReentrantLock {
     @Override
     public Thread getOwner() {
         return super.getOwner();
-    }
-
-    @Override
-    public Collection<Thread> getQueuedThreads() {
-        return super.getQueuedThreads();
     }
 }
