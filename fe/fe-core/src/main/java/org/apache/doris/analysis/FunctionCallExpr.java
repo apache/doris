@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
@@ -1679,6 +1680,27 @@ public class FunctionCallExpr extends Expr {
                     children.set(1, new StringLiteral("%Y-%m-%d"));
                 } else if (fmtLiteral.getStringValue().equals("yyyy-MM-dd HH:mm:ss")) {
                     children.set(1, new StringLiteral("%Y-%m-%d %H:%i:%s"));
+                }
+            }
+
+            if (fnName.getFunction().equalsIgnoreCase("unix_timestamp") && children.size() == 1) {
+                if (getChild(0).type.isDatetimeV2()) {
+                    ScalarType type = (ScalarType) getChild(0).type;
+                    Preconditions.checkArgument(type.getScalarScale() <= 6,
+                            "DatetimeV2's scale shouldn't exceed 6 but meet " + type.getScalarScale());
+                    fn.setReturnType(
+                            ScalarType.createDecimalType(PrimitiveType.DECIMAL64, 10 + type.getScalarScale(),
+                                    type.getScalarScale()));
+                } else if (getChild(0).type.isStringType()) {
+                    // use DATETIME to make scale adaptive
+                    ScalarType type = ((ScalarType) (((StringLiteral) getChild(0))
+                            .uncheckedCastTo(ScalarType.DATETIME).type));
+                    if (type.isDatetimeV2()) {
+                        int scale = ((ScalarType) (((StringLiteral) getChild(0))
+                                .uncheckedCastTo(ScalarType.DATETIME).type)).getScalarScale();
+                        fn.setReturnType(
+                                ScalarType.createDecimalType(PrimitiveType.DECIMAL64, 10 + scale, scale));
+                    }
                 }
             }
         }

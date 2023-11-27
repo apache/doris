@@ -388,6 +388,10 @@ struct Decimal {
         return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));
     }
 
+    static Decimal from_int_frac(T integer, T fraction, int scale) {
+        return Decimal(integer * int_exp10(scale) + fraction);
+    }
+
     template <typename U>
     Decimal(const Decimal<U>& x) {
         value = x;
