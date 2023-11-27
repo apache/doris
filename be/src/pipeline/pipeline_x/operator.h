@@ -47,6 +47,7 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile;
     const int sender_id;
     std::vector<DependencySPtr>& dependencys;
+    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
     const TDataSink& tsink;
 };
 
@@ -326,7 +327,7 @@ public:
 
 protected:
     DependencyType* _dependency;
-    typename DependencyType::SharedState* _shared_state;
+    typename DependencyType::SharedState* _shared_state = nullptr;
 };
 
 class DataSinkOperatorXBase;
@@ -639,7 +640,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state);
 
-    Dependency* write_blocked_by(PipelineXTask* task);
     Dependency* dependency() override { return _async_writer_dependency.get(); }
     Status close(RuntimeState* state, Status exec_status) override;
 

@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.FileSystemType;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

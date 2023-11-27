@@ -179,7 +179,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
+import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
@@ -428,7 +428,7 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowJobStmt) {
             handleShowJob();
         } else if (stmt instanceof ShowJobTaskStmt) {
-            //handleShowJobTask();
+            handleShowJobTask();
         } else if (stmt instanceof ShowConvertLSCStmt) {
             handleShowConvertLSC();
         } else {
@@ -1417,36 +1417,39 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
     }
 
-    /*private void handleShowJobTask() {
+    private void handleShowJobTask() {
         ShowJobTaskStmt showJobTaskStmt = (ShowJobTaskStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        List<Job> jobs = Env.getCurrentEnv().getJobRegister()
-                .getJobs(showJobTaskStmt.getDbFullName(), showJobTaskStmt.getName(), showJobTaskStmt.getJobCategory(),
-                        null);
+        List<org.apache.doris.job.base.AbstractJob> jobs = Env.getCurrentEnv().getJobManager()
+                .queryJobs(showJobTaskStmt.getJobType(), showJobTaskStmt.getName());
         if (CollectionUtils.isEmpty(jobs)) {
             resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
             return;
         }
-        Job job = jobs.get(0);
-        long jobId = job.getJobId();
-        List<JobTask> jobTasks = Env.getCurrentEnv().getJobTaskManager().getJobTasks(jobId);
+        org.apache.doris.job.base.AbstractJob job = jobs.get(0);
+        List<AbstractTask> jobTasks = job.queryTasks();
         if (CollectionUtils.isEmpty(jobTasks)) {
-            resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
+            resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
             return;
         }
-        for (JobTask jobTask : jobTasks) {
-            rows.add(jobTask.getShowInfo(job.getJobName()));
+        for (AbstractTask jobTask : jobTasks) {
+            rows.add(jobTask.getShowInfo());
         }
-        resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
-    }*/
+        resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
+    }
 
     private void handleShowJob() throws AnalysisException {
         ShowJobStmt showJobStmt = (ShowJobStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         // if job exists
         List<org.apache.doris.job.base.AbstractJob> jobList;
-        jobList = Env.getCurrentEnv().getJobManager()
-                .queryJobs(showJobStmt.getDbFullName(), showJobStmt.getName());
+        if (null == showJobStmt.getJobType()) {
+            jobList = Env.getCurrentEnv().getJobManager()
+                    .queryJobs(showJobStmt.getJobTypes());
+        } else {
+            jobList = Env.getCurrentEnv().getJobManager()
+                    .queryJobs(showJobStmt.getJobType(), showJobStmt.getName());
+        }
 
         if (jobList.isEmpty()) {
             resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
@@ -1456,9 +1459,9 @@ public class ShowExecutor {
         // check auth
 
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
-            rows.add(job.getCommonShowInfo());
+            rows.add(job.getShowInfo());
         }
-        resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
+        resultSet = new ShowResultSet(jobList.get(0).getJobMetaData(), rows);
     }
 
     private void handleShowRoutineLoad() throws AnalysisException {
@@ -2491,21 +2494,8 @@ public class ShowExecutor {
 
     private void handleShowTableCreation() throws AnalysisException {
         ShowTableCreationStmt showStmt = (ShowTableCreationStmt) stmt;
-        String dbName = showStmt.getDbName();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
-
-        List<IcebergTableCreationRecord> records = ctx.getEnv().getIcebergTableCreationRecordMgr()
-                .getTableCreationRecordByDbId(db.getId());
 
         List<List<Comparable>> rowSet = Lists.newArrayList();
-        for (IcebergTableCreationRecord record : records) {
-            List<Comparable> row = record.getTableCreationRecord();
-            // like predicate
-            if (Strings.isNullOrEmpty(showStmt.getWild()) || showStmt.like(record.getTable())) {
-                rowSet.add(row);
-            }
-        }
-
         // sort function rows by fourth column (Create Time) asc
         ListComparator<List<Comparable>> comparator = null;
         OrderByPair orderByPair = new OrderByPair(3, false);

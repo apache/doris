@@ -108,6 +108,7 @@
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -1641,6 +1642,21 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     } else {
         tablet_info->__set_version_miss(cversion.second < max_version.second);
     }
+
+    DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.version_miss", {
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
+            auto miss = dp->param<bool>("version_miss", true);
+            LOG_WARNING("Tablet.build_tablet_report_info.version_miss")
+                    .tag("tablet id", tablet_id)
+                    .tag("version_miss", miss);
+            tablet_info->__set_version_miss(miss);
+
+        } else {
+            LOG_WARNING("Tablet.build_tablet_report_info.version_miss").tag("tablet id", tablet_id);
+        }
+    });
+
     // find rowset with max version
     auto iter = _rs_version_map.find(max_version);
     if (iter == _rs_version_map.end()) {
@@ -1675,6 +1691,19 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     if (tablet_state() == TABLET_SHUTDOWN) {
         tablet_info->__set_used(false);
     }
+
+    DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.used", {
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
+            auto used = dp->param<bool>("used", true);
+            LOG_WARNING("Tablet.build_tablet_report_info.used")
+                    .tag("tablet id", tablet_id)
+                    .tag("used", used);
+            tablet_info->__set_used(used);
+        } else {
+            LOG_WARNING("Tablet.build_tablet_report_info.used").tag("tablet id", tablet_id);
+        }
+    });
 
     // the report version is the largest continuous version, same logic as in FE side
     tablet_info->__set_version(cversion.second);
@@ -2757,7 +2786,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                               RowLocation* row_location, uint32_t version,
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                              RowsetSharedPtr* rowset) {
+                              RowsetSharedPtr* rowset, bool with_rowid) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     if (_tablet_meta->tablet_schema()->has_sequence_col() && with_seq_col) {
@@ -2766,7 +2795,12 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                                  .length() +
                          1;
     }
-    Slice key_without_seq = Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length);
+    size_t rowid_length = 0;
+    if (with_rowid && !_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+        rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
+    }
+    Slice key_without_seq =
+            Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length - rowid_length);
     RowLocation loc;
 
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
@@ -2776,9 +2810,13 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int i = num_segments - 1; i >= 0; i--) {
-            if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
-                key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
-                continue;
+            // If mow table has cluster keys, the key bounds is short keys, not primary keys
+            // use PrimaryKeyIndexMetaPB in primary key index?
+            if (_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+                if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
+                    key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
+                    continue;
+                }
             }
             picked_segments.emplace_back(i);
         }
@@ -2795,7 +2833,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
-            Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, &loc);
+            Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, with_rowid, &loc);
             if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
@@ -2940,6 +2978,28 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         for (size_t i = 0; i < num_read; i++, row_id++) {
             Slice key = Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
             RowLocation loc;
+            // calculate row id
+            if (!_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+                size_t seq_col_length = 0;
+                if (_tablet_meta->tablet_schema()->has_sequence_col()) {
+                    seq_col_length =
+                            _tablet_meta->tablet_schema()
+                                    ->column(_tablet_meta->tablet_schema()->sequence_col_idx())
+                                    .length() +
+                            1;
+                }
+                size_t rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
+                Slice key_without_seq =
+                        Slice(key.get_data(), key.get_size() - seq_col_length - rowid_length);
+                Slice rowid_slice =
+                        Slice(key.get_data() + key_without_seq.get_size() + seq_col_length + 1,
+                              rowid_length - 1);
+                const auto* type_info =
+                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
+                auto rowid_coder = get_key_coder(type_info->type());
+                RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
+                                                              (uint8_t*)&row_id));
+            }
             // same row in segments should be filtered
             if (delete_bitmap->contains({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                         row_id)) {
@@ -3008,7 +3068,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         }
         remaining -= num_read;
     }
-    DCHECK_EQ(total, row_id) << "segment total rows: " << total << " row_id:" << row_id;
+    // DCHECK_EQ(total, row_id) << "segment total rows: " << total << " row_id:" << row_id;
 
     if (config::enable_merge_on_write_correctness_check) {
         RowsetIdUnorderedSet rowsetids;
@@ -3697,11 +3757,15 @@ Status Tablet::calc_delete_bitmap_between_segments(
     size_t seq_col_length = 0;
     if (_tablet_meta->tablet_schema()->has_sequence_col()) {
         auto seq_col_idx = _tablet_meta->tablet_schema()->sequence_col_idx();
-        seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length();
+        seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length() + 1;
+    }
+    size_t rowid_length = 0;
+    if (!_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+        rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
 
     MergeIndexDeleteBitmapCalculator calculator;
-    RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length));
+    RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length, rowid_length));
 
     RETURN_IF_ERROR(calculator.calculate_all(delete_bitmap));
 

@@ -1130,6 +1130,8 @@ DECLARE_mBool(enable_flatten_nested_for_variant);
 DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
+// rowid conversion correctness check when compaction for mow table
+DECLARE_mBool(enable_rowid_conversion_correctness_check);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1194,6 +1196,8 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
+
+DECLARE_mInt32(buffered_reader_read_timeout_ms);
 
 #ifdef BE_TEST
 // test s3

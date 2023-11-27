@@ -55,7 +55,8 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
           _root(_operators.back()),
           _sink(pipeline->sink_shared_pointer()),
           _local_exchange_state(local_exchange_state),
-          _task_idx(task_idx) {
+          _task_idx(task_idx),
+          _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
     _sink->get_dependency(_downstream_dependency, state->get_query_ctx());
     for (auto& op : _operators) {
@@ -75,26 +76,22 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     {
         // set sink local state
         LocalSinkStateInfo info {_parent_profile, local_params.sender_id,
-                                 get_downstream_dependency(), tsink};
+                                 get_downstream_dependency(), _local_exchange_state, tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(state, info));
     }
 
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->node_id(), no_scan_ranges);
-
+    auto* parent_profile = _parent_profile;
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
-        auto& deps = get_upstream_dependency(_operators[op_idx]->operator_id());
-        LocalStateInfo info {
-                op_idx == _operators.size() - 1
-                        ? _parent_profile
-                        : state->get_local_state(_operators[op_idx + 1]->operator_id())->profile(),
-                scan_ranges,
-                deps,
-                _local_exchange_state,
-                _task_idx,
-                _source_dependency[_operators[op_idx]->operator_id()]};
-        RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
+        auto& op = _operators[op_idx];
+        auto& deps = get_upstream_dependency(op->operator_id());
+        LocalStateInfo info {parent_profile, scan_ranges,
+                             deps,           _local_exchange_state,
+                             _task_idx,      _source_dependency[op->operator_id()]};
+        RETURN_IF_ERROR(op->setup_local_state(state, info));
+        parent_profile = state->get_local_state(op->operator_id())->profile();
     }
 
     _block = doris::vectorized::Block::create_unique();

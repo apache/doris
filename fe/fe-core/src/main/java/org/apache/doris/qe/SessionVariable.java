@@ -438,6 +438,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
+    public static final String ENABLE_EXTERNAL_MV_REWRITE = "enable_external_mv_rewrite";
+    public static final String ENABLE_MV_REWRITE = "enable_mv_rewrite";
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
 
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
@@ -448,6 +450,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TABLE_STATS_HEALTH_THRESHOLD
             = "table_stats_health_threshold";
+
+    public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
+            = "enable_materialized_view_rewrite";
+
+    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE
+            = "materialized_view_rewrite_enable_contain_foreign_table";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -766,6 +774,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_EXTERNAL_MV_REWRITE, needForward = true)
+    public boolean enableExternalMvRewrite = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_MV_REWRITE, needForward = true)
+    public boolean enableMvRewrite = false;
 
     // the maximum size in bytes for a table that will be broadcast to all be nodes
     // when performing a join, By setting this value to -1 broadcasting can be disabled.
@@ -1362,6 +1375,17 @@ public class SessionVariable implements Serializable, Writable {
                             + "considered outdated."})
     public int tableStatsHealthThreshold = 60;
 
+    @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
+            description = {"是否开启基于结构信息的物化视图透明改写",
+                    "Whether to enable materialized view rewriting based on struct info"})
+    public boolean enableMaterializedViewRewrite = false;
+
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE, needForward = true,
+            description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
+                    "whether to use a materialized view that contains the foreign table "
+                            + "when using rewriting based on struct info"})
+    public boolean materializedViewRewriteEnableContainForeignTable = false;
+
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
@@ -1483,10 +1507,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         // set random 1, 10, 100, 1000, 10000
-        // this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
-        // Now P0 test have some failed cese about topn, but can't reproduce at local
-        // So set this threshold to 0 temporary.
-        this.topnOptLimitThreshold = 0;
+        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
     }
 
     public String printFuzzyVariables() {
@@ -2421,6 +2442,22 @@ public class SessionVariable implements Serializable, Writable {
                         : maxTableCountUseCascadesJoinReorder;
     }
 
+    public boolean isEnableExternalMvRewrite() {
+        return enableExternalMvRewrite;
+    }
+
+    public void setEnableExternalMvRewrite(boolean enableExternalMvRewrite) {
+        this.enableExternalMvRewrite = enableExternalMvRewrite;
+    }
+
+    public boolean isEnableMvRewrite() {
+        return enableMvRewrite;
+    }
+
+    public void setEnableMvRewrite(boolean enableMvRewrite) {
+        this.enableMvRewrite = enableMvRewrite;
+    }
+
     public boolean isShowUserDefaultRole() {
         return showUserDefaultRole;
     }
@@ -2921,10 +2958,6 @@ public class SessionVariable implements Serializable, Writable {
         return this.profileLevel;
     }
 
-    public boolean fasterFloatConvert() {
-        return this.fasterFloatConvert;
-    }
-
     public void checkSqlDialect(String sqlDialect) {
         if (StringUtils.isEmpty(sqlDialect)) {
             LOG.warn("sqlDialect value is empty");
@@ -2939,5 +2972,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableInsertGroupCommit() {
         return enableInsertGroupCommit || Config.wait_internal_group_commit_finish;
+    }
+
+    public boolean isEnableMaterializedViewRewrite() {
+        return enableMaterializedViewRewrite;
+    }
+
+    public boolean isMaterializedViewRewriteEnableContainForeignTable() {
+        return materializedViewRewriteEnableContainForeignTable;
     }
 }

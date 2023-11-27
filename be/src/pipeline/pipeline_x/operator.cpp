@@ -346,8 +346,13 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     _dependency = (DependencyType*)info.dependency.get();
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
         auto& deps = info.upstream_dependencies;
-        _dependency->set_shared_state(deps.front()->shared_state());
+        if constexpr (std::is_same_v<LocalExchangeSourceDependency, DependencyType>) {
+            _dependency->set_shared_state(info.local_exchange_state);
+        } else {
+            _dependency->set_shared_state(deps.front()->shared_state());
+        }
         _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state().get();
+        _shared_state->ref();
         _wait_for_dependency_timer =
                 ADD_TIMER(_runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time");
         _shared_state->source_dep = _dependency;
@@ -382,6 +387,9 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
+    if (_shared_state) {
+        RETURN_IF_ERROR(_shared_state->close(state));
+    }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     }
@@ -404,12 +412,16 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
         auto& deps = info.dependencys;
         _dependency = (DependencyType*)deps.front().get();
+        if constexpr (std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
+            _dependency->set_shared_state(info.local_exchange_state);
+        }
         if (_dependency) {
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
             _wait_for_dependency_timer =
                     ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
         }
+        _shared_state->ref();
     } else {
         auto& deps = info.dependencys;
         deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());
@@ -428,6 +440,9 @@ template <typename DependencyType>
 Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
+    }
+    if (_shared_state) {
+        RETURN_IF_ERROR(_shared_state->close(state));
     }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
@@ -511,11 +526,6 @@ template <typename Writer, typename Parent>
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              SourceState source_state) {
     return _writer->sink(block, source_state == SourceState::FINISHED);
-}
-
-template <typename Writer, typename Parent>
-Dependency* AsyncWriterSink<Writer, Parent>::write_blocked_by(PipelineXTask* task) {
-    return _writer->write_blocked_by(task);
 }
 
 template <typename Writer, typename Parent>

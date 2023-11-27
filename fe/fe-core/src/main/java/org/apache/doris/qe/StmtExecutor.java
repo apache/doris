@@ -1363,12 +1363,16 @@ public class StmtExecutor {
 
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
-        LOG.info("Handling query {} with query id {}",
-                originStmt.originStmt, DebugUtil.printId(context.queryId));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Handling query {} with query id {}",
+                          originStmt.originStmt, DebugUtil.printId(context.queryId));
+        }
+
         if (context.getConnectType() == ConnectType.MYSQL) {
             // Every time set no send flag and clean all data in buffer
             context.getMysqlChannel().reset();
         }
+
         Queriable queryStmt = (Queriable) parsedStmt;
 
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
@@ -1419,7 +1423,10 @@ public class StmtExecutor {
         if (channel != null && parsedStmt instanceof SelectStmt) {
             SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
             if (parsedSelectStmt.getLimit() == 0) {
-                LOG.info("ignore handle limit 0 ,sql:{}", parsedSelectStmt.toSql());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("ignore handle limit 0 ,sql:{}", parsedSelectStmt.toSql());
+                }
+
                 sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
                 context.getState().setEof();
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
@@ -2058,7 +2065,7 @@ public class StmtExecutor {
                         .recordFinishedLoadJob(label, txnId, insertStmt.getDbName(),
                                 insertStmt.getTargetTable().getId(),
                                 EtlJobType.INSERT, createTime, throwable == null ? "" : throwable.getMessage(),
-                                coord.getTrackingUrl(), insertStmt.getUserInfo());
+                                coord.getTrackingUrl(), insertStmt.getUserInfo(), 0L);
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
                 errMsg = "Record info of insert load with error " + e.getMessage();
