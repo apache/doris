@@ -1322,10 +1322,6 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
     }
     if (!has_valid_value) {
         string col_names;
-        for (int i = 0; i < block.columns(); ++i) {
-            auto column = block.get_by_position(i).column->assume_mutable();
-            column->pop_back(1);
-        }
         for (auto* slot_desc : slot_descs) {
             col_names.append(slot_desc->col_name() + ", ");
         }
