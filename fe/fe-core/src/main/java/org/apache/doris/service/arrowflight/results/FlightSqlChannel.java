@@ -98,7 +98,35 @@ public class FlightSqlChannel {
         resultCache.put(queryId, flightSqlResultCacheEntry);
     }
 
-    public void addEmptyResult(String queryId, String query) {
+    public void addResult(String queryId, String runningQuery, ResultSetMetaData metaData, String result) {
+        List<Field> schemaFields = new ArrayList<>();
+        List<FieldVector> dataFields = new ArrayList<>();
+
+        // TODO: only support varchar type
+        for (Column col : metaData.getColumns()) {
+            schemaFields.add(new Field(col.getName(), FieldType.nullable(new Utf8()), null));
+            VarCharVector varCharVector = new VarCharVector(col.getName(), allocator);
+            varCharVector.allocateNew();
+            varCharVector.setValueCount(result.split("\n").length);
+            dataFields.add(varCharVector);
+        }
+
+        int rowNum = 0;
+        for (String item : result.split("\n")) {
+            if (item == null || item.equals(FeConstants.null_string)) {
+                dataFields.get(0).setNull(rowNum);
+            } else {
+                ((VarCharVector) dataFields.get(0)).setSafe(rowNum, item.getBytes());
+            }
+            rowNum += 1;
+        }
+        VectorSchemaRoot vectorSchemaRoot = new VectorSchemaRoot(schemaFields, dataFields);
+        final FlightSqlResultCacheEntry flightSqlResultCacheEntry = new FlightSqlResultCacheEntry(vectorSchemaRoot,
+                runningQuery);
+        resultCache.put(queryId, flightSqlResultCacheEntry);
+    }
+
+    public void addOKResult(String queryId, String query) {
         List<Field> schemaFields = new ArrayList<>();
         List<FieldVector> dataFields = new ArrayList<>();
         schemaFields.add(new Field("StatusResult", FieldType.nullable(new Utf8()), null));
