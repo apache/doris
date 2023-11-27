@@ -525,7 +525,6 @@ std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::format_to(debug_string_buffer, ", Sink Buffer: (_should_stop = {}, _busy_channels = {})",
                    _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load());
     return fmt::to_string(debug_string_buffer);
-    return fmt::to_string(debug_string_buffer);
 }
 
 Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
