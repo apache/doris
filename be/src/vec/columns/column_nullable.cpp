@@ -88,6 +88,23 @@ void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint32_t& h
     }
 }
 
+void ColumnNullable::update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                              const uint8_t* __restrict null_data) const {
+    if (!has_null()) {
+        nested_column->update_murmur_with_value(start, end, hash, nullptr);
+    } else {
+        const auto* __restrict real_null_data =
+                assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+        hash = HashUtil::SPARK_MURMUR_32_SEED;
+        for (int i = start; i < end; ++i) {
+            if (real_null_data[i] != 0) {
+                hash = HashUtil::murmur_hash3_32_null(hash);
+            }
+        }
+        nested_column->update_murmur_with_value(start, end, hash, real_null_data);
+    }
+}
+
 void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
     if (is_null_at(n)) {
         hash.update(0);
@@ -113,6 +130,27 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
             }
         }
         nested_column->update_crcs_with_value(hashes, type, rows, offset, real_null_data);
+    }
+}
+
+void ColumnNullable::update_murmurs_with_value(int32_t* __restrict hashes,
+                                               doris::PrimitiveType type, int32_t rows,
+                                               uint32_t offset,
+                                               const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    auto s = rows;
+    DCHECK(s == size());
+    const auto* __restrict real_null_data =
+            assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+    if (!has_null()) {
+        nested_column->update_murmurs_with_value(hashes, type, rows, offset, nullptr);
+    } else {
+        for (int i = 0; i < s; ++i) {
+            if (real_null_data[i] != 0) {
+                hashes[i] = HashUtil::murmur_hash3_32_null(HashUtil::SPARK_MURMUR_32_SEED);
+            }
+        }
+        nested_column->update_murmurs_with_value(hashes, type, rows, offset, real_null_data);
     }
 }
 

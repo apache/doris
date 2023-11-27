@@ -213,6 +213,41 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
 }
 
 template <typename T>
+void ColumnVector<T>::update_murmurs_with_value(int32_t* __restrict hashes, PrimitiveType type,
+                                                int32_t rows, uint32_t offset,
+                                                const uint8_t* __restrict null_data) const {
+    auto s = rows;
+    DCHECK(s == size());
+
+    if constexpr (!std::is_same_v<T, Int64>) {
+        DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL(HashUtil::SPARK_MURMUR_32_SEED)
+    } else {
+        if (type == TYPE_DATE || type == TYPE_DATETIME) {
+            char buf[64];
+            auto date_convert_do_crc = [&](size_t i) {
+                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[i];
+                auto len = date_val.to_buffer(buf);
+                hashes[i] = HashUtil::murmur_hash3_32(buf, len, HashUtil::SPARK_MURMUR_32_SEED);
+            };
+
+            if (null_data == nullptr) {
+                for (size_t i = 0; i < s; i++) {
+                    date_convert_do_crc(i);
+                }
+            } else {
+                for (size_t i = 0; i < s; i++) {
+                    if (null_data[i] == 0) {
+                        date_convert_do_crc(i);
+                    }
+                }
+            }
+        } else {
+            DO_MURMUR_HASHES_FUNCTION_COLUMN_IMPL(HashUtil::SPARK_MURMUR_32_SEED)
+        }
+    }
+}
+
+template <typename T>
 struct ColumnVector<T>::less {
     const Self& parent;
     int nan_direction_hint;

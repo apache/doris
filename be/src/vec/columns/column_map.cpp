@@ -343,6 +343,40 @@ void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
     }
 }
 
+void ColumnMap::update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                         const uint8_t* __restrict null_data) const {
+    auto& offsets = get_offsets();
+    if (hash == 0) {
+        hash = HashUtil::SPARK_MURMUR_32_SEED;
+    }
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t kv_size = offsets[i] - offsets[i - 1];
+                if (kv_size == 0) {
+                    hash = HashUtil::murmur_hash3_32(reinterpret_cast<const char*>(&kv_size),
+                                                     sizeof(kv_size), hash);
+                } else {
+                    get_keys().update_murmur_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                    get_values().update_murmur_with_value(offsets[i - 1], offsets[i], hash,
+                                                          nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t kv_size = offsets[i] - offsets[i - 1];
+            if (kv_size == 0) {
+                hash = HashUtil::murmur_hash3_32(reinterpret_cast<const char*>(&kv_size),
+                                                 sizeof(kv_size), hash);
+            } else {
+                get_keys().update_murmur_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                get_values().update_murmur_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+            }
+        }
+    }
+}
+
 void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_data) const {
     size_t s = size();
     if (null_data) {
@@ -374,6 +408,26 @@ void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType 
     } else {
         for (size_t i = 0; i < s; ++i) {
             update_crc_with_value(i, i + 1, hash[i], nullptr);
+        }
+    }
+}
+
+void ColumnMap::update_murmurs_with_value(int32_t* __restrict hash, PrimitiveType type,
+                                          int32_t rows, uint32_t offset,
+                                          const uint8_t* __restrict null_data) const {
+    auto s = rows;
+    DCHECK(s == size());
+
+    if (null_data) {
+        for (size_t i = 0; i < s; ++i) {
+            // every row
+            if (null_data[i] == 0) {
+                update_murmur_with_value(i, i + 1, hash[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_murmur_with_value(i, i + 1, hash[i], nullptr);
         }
     }
 }
