@@ -124,7 +124,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     vectorized::Block flush_block(std::move(block));
     // If column already exist in original tablet schema, then we pick common type
     // and cast column to common type, and modify tablet column to common type,
-    // otherwise it's a new column, we should add to frontend
+    // otherwise it's a new column
     auto append_column = [&](const TabletColumn& parent_variant, auto& column_entry_from_object) {
         const std::string& column_name =
                 parent_variant.name_lower_case() + "." + column_entry_from_object->path.get_path();
