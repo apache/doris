@@ -485,6 +485,21 @@ public class SelectStmt extends QueryStmt {
         }
         super.analyze(analyzer);
 
+        Boolean haveMv = false;
+        for (TableRef tbl : fromClause) {
+            if (!(tbl.getTable() instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) tbl.getTable();
+            if (olapTable.getIndexIds().size() != 1) {
+                haveMv = true;
+            }
+        }
+
+        if (!haveMv) {
+            forbiddenMVRewrite();
+        }
+
         if (mvSMap.size() != 0) {
             mvSMap.useNotCheckDescIdEquals();
             for (TableRef tableRef : getTableRefs()) {
