@@ -556,20 +556,20 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 size_t row_len = len_of_actual_data(row);
                 messageBuilder.setContent(row, row_len);
                 messageBuilder.setProperty("topicName",msg.get()->getTopicName());
-                pulsar::Message new_msg = messageBuilder.build();
-                new_msg.setMessageId(msg.get()->getMessageId());
+                pulsar::Message* new_msg = new pulsar::Message(messageBuilder.build());
+                new_msg->setMessageId(msg.get()->getMessageId());
 
-                if (new_msg.getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
-                    LOG(INFO) << "receive pulsar message: " << new_msg.getDataAsString()
-                              << ", message id: " << new_msg.getMessageId()
-                              << ", len: " << new_msg.getLength();
+                if (new_msg->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
+                    LOG(INFO) << "receive pulsar message: " << new_msg->getDataAsString()
+                              << ", message id: " << new_msg->getMessageId()
+                              << ", len: " << new_msg->getLength();
                 }
-                if (new_msg.getDataAsString().find("{\"") == std::string::npos) {
+                if (new_msg->getDataAsString().find("{\"") == std::string::npos) {
                     // ignore msg with length 0.
                     // put empty msg into queue will cause the load process shutting down.
-                    LOG(INFO) << "pass error message: " << new_msg.getDataAsString();
+                    LOG(INFO) << "pass error message: " << new_msg->getDataAsString();
                     break;
-                } else if (!queue->blocking_put(&new_msg)) {
+                } else if (!queue->blocking_put(new_msg)) {
                     // queue is shutdown
                     done = true;
                 } else {
