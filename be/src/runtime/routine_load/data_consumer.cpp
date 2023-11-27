@@ -729,15 +729,16 @@ std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
             size_t len = array.Size();
             for(size_t i = 0; i < len; i++) {
                 destination.SetObject();
-                rapidjson::Value& object = const_cast<rapidjson::Value&>(array[i]);
-                rapidjson::Value eventName("event", destination.GetAllocator());
-                destination.AddMember(eventName, object, destination.GetAllocator());
                 for (auto& member : source.GetObject()) {
                     const char* key = member.name.GetString();
                     if (std::strcmp(key, "events") != 0) {
                         rapidjson::Value keyName(key, destination.GetAllocator());
                         rapidjson::Value& sourceValue = source[key];
                         destination.AddMember(keyName, sourceValue, destination.GetAllocator());
+                    } else {
+                        rapidjson::Value& object = const_cast<rapidjson::Value&>(array[i]);
+                        rapidjson::Value eventName("event", destination.GetAllocator());
+                        destination.AddMember(eventName, object, destination.GetAllocator());
                     }
                 }
 
