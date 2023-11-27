@@ -22,7 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
@@ -107,17 +107,28 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     protected List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
         for (TableIf table : db.getTables()) {
-            if (skip(table)) {
+            try {
+                if (skip(table)) {
+                    continue;
+                }
+                createAnalyzeJobForTbl(db, analysisInfos, table);
+            } catch (Throwable t) {
+                LOG.warn("Failed to analyze table {}.{}.{}",
+                        db.getCatalog().getName(), db.getFullName(), table.getName(), t);
                 continue;
             }
-            createAnalyzeJobForTbl(db, analysisInfos, table);
         }
         return analysisInfos;
     }
 
     // return true if skip auto analyze this time.
     protected boolean skip(TableIf table) {
-        if (!(table instanceof OlapTable || table instanceof ExternalTable)) {
+        if (!(table instanceof OlapTable || table instanceof HMSExternalTable)) {
+            return true;
+        }
+        // For now, only support Hive HMS table auto collection.
+        if (table instanceof HMSExternalTable
+                && !((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
             return true;
         }
         if (table.getDataSize(true) < StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5) {

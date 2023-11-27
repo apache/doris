@@ -392,9 +392,18 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        // TODO: Find a way to decide if this external table need to be reanalyzed.
-        // For now, simply return true for all external tables.
-        return true;
+        if (tblStats == null) {
+            return true;
+        }
+        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+                .stream()
+                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                .map(Column::getName)
+                .collect(Collectors.toSet()))) {
+            return true;
+        }
+        return System.currentTimeMillis()
+            - tblStats.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
     }
 
     @Override

@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -335,6 +336,12 @@ public class AnalysisManager implements Writable {
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
             return null;
+        }
+        // Only OlapTable and Hive HMSExternalTable support sample analyze.
+        if ((stmt.getSamplePercent() > 0 || stmt.getSampleRows() > 0) && !canSample(stmt.getTable())) {
+            String message = String.format("Table %s doesn't support sample analyze.", stmt.getTable().getName());
+            LOG.info(message);
+            throw new DdlException(message);
         }
 
         boolean isSync = stmt.isSync();
@@ -1084,5 +1091,21 @@ public class AnalysisManager implements Writable {
 
     public boolean hasUnFinished() {
         return !analysisJobIdToTaskMap.isEmpty();
+    }
+
+    /**
+     * Only OlapTable and Hive HMSExternalTable can sample for now.
+     * @param table
+     * @return Return true if the given table can do sample analyze. False otherwise.
+     */
+    public boolean canSample(TableIf table) {
+        if (table instanceof OlapTable) {
+            return true;
+        }
+        if (table instanceof HMSExternalTable
+                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
+            return true;
+        }
+        return false;
     }
 }

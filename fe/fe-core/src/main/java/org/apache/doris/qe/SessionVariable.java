@@ -448,6 +448,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
             = "huge_table_auto_analyze_interval_in_millis";
 
+    public static final String EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
+            = "external_table_auto_analyze_interval_in_millis";
+
     public static final String TABLE_STATS_HEALTH_THRESHOLD
             = "table_stats_health_threshold";
 
@@ -1365,6 +1368,12 @@ public class SessionVariable implements Serializable, Writable {
                             + "Within this interval,"
                             + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
     public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(12);
+
+    @VariableMgr.VarAttr(name = EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
+            description = {"控制对外表的自动ANALYZE的最小时间间隔，在该时间间隔内的外表仅ANALYZE一次",
+                    "This controls the minimum time interval for automatic ANALYZE on external tables."
+                        + "Within this interval, external tables are analyzed only once."})
+    public long externalTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(24);
 
     @VariableMgr.VarAttr(name = TABLE_STATS_HEALTH_THRESHOLD, flag = VariableMgr.GLOBAL,
             description = {"取值在0-100之间，当自上次统计信息收集操作之后"
