@@ -84,8 +84,9 @@ public class DateLiteral extends LiteralExpr {
 
     private static final DateLiteral MIN_DATETIMEV2
             = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2);
+    // Because type is datetimev2(0), so microsecond is 0
     private static final DateLiteral MAX_DATETIMEV2
-            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2);
+            = new DateLiteral(9999, 12, 31, 23, 59, 59, 0L, Type.DATETIMEV2);
     private static final int DATEKEY_LENGTH = 8;
     private static final int DATETIMEKEY_LENGTH = 14;
     private static final int MAX_MICROSECOND = 999999;
@@ -356,18 +357,6 @@ public class DateLiteral extends LiteralExpr {
         analysisDone();
     }
 
-    public DateLiteral(DateLiteral other) {
-        super(other);
-        hour = other.hour;
-        minute = other.minute;
-        second = other.second;
-        year = other.year;
-        month = other.month;
-        day = other.day;
-        microsecond = other.microsecond;
-        type = other.type;
-    }
-
     public static DateLiteral createMinValue(Type type) throws AnalysisException {
         return new DateLiteral(type, false);
     }
@@ -550,7 +539,7 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public Expr clone() {
-        return new DateLiteral(this);
+        return new DateLiteral(year, month, day, hour, minute, second, microsecond, type);
     }
 
     @Override
@@ -621,6 +610,35 @@ public class DateLiteral extends LiteralExpr {
 
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
+        }
+
+        if (expr instanceof PlaceHolderExpr) {
+            expr = ((PlaceHolderExpr) expr).getlExpr();
+        }
+
+        if (expr instanceof DateLiteral) {
+            DateLiteral other = (DateLiteral) expr;
+            if (((this.type.isDate() || this.type.isDateV2()) && (other.type.isDatetime() || other.type.isDatetimeV2()))
+                    || ((this.type.isDatetime() || this.type.isDatetimeV2()) && (other.type.isDate()
+                    || other.type.isDateV2()))) {
+                return -1;
+            }
+
+            if (this.year != other.year) {
+                return this.year > other.year ? 1 : -1;
+            } else if (this.month != other.month) {
+                return this.month > other.month ? 1 : -1;
+            } else if (this.day != other.day) {
+                return this.day > other.day ? 1 : -1;
+            } else if (this.hour != other.hour) {
+                return this.hour > other.hour ? 1 : -1;
+            } else if (this.minute != other.minute) {
+                return this.minute > other.minute ? 1 : -1;
+            } else if (this.second != other.second) {
+                return this.second > other.second ? 1 : -1;
+            } else if (this.microsecond != other.microsecond) {
+                return this.microsecond > other.microsecond ? 1 : -1;
+            }
         }
         // date time will not overflow when doing addition and subtraction
         return getStringValue().compareTo(expr.getStringValue());
@@ -775,7 +793,7 @@ public class DateLiteral extends LiteralExpr {
         } else if (targetType.isStringType()) {
             return new StringLiteral(getStringValue());
         } else if (targetType.isBigIntType()) {
-            long value = getYear() * 1000 + getMonth() * 100 + getDay();
+            long value = year * 1000 + month * 100 + day;
             return new IntLiteral(value, Type.BIGINT);
         } else {
             if (Type.isImplicitlyCastable(this.type, targetType, true, SessionVariable.getEnableDecimal256())) {

@@ -81,9 +81,10 @@ public class FEFunctions {
     @FEFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static IntLiteral dayOfWeek(LiteralExpr date) throws AnalysisException {
         // use zellar algorithm.
-        long year = ((DateLiteral) date).getYear();
-        long month = ((DateLiteral) date).getMonth();
-        long day = ((DateLiteral) date).getDay();
+        DateLiteral dateLiteral = (DateLiteral) date;
+        long year = dateLiteral.getYear();
+        long month = dateLiteral.getMonth();
+        long day = dateLiteral.getDay();
         if (month < 3) {
             month += 12;
             year -= 1;
@@ -91,7 +92,9 @@ public class FEFunctions {
         long c = year / 100;
         long y = year % 100;
         long t;
-        if (date.compareTo(new DateLiteral(1582, 10, 4)) > 0) {
+        if (dateLiteral.getYear() > 1582
+                || (dateLiteral.getYear() == 1582 && dateLiteral.getMonth() > 10)
+                || (dateLiteral.getYear() == 1582 && dateLiteral.getMonth() == 10 && dateLiteral.getDay() > 4)) {
             t = (y + y / 4 + c / 4 - 2 * c + 26 * (month + 1) / 10 + day - 1) % 7;
         } else {
             t = (y + y / 4 - c + 26 * (month + 1) / 10 + day + 4) % 7;
@@ -533,8 +536,7 @@ public class FEFunctions {
                             (int) dateLiteral.getHour(), (int) dateLiteral.getMinute(), (int) dateLiteral.getSecond()),
                     truncate.getStringValue());
 
-            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
-                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
+            return new DateLiteral(localDate, date.getType());
         }
         return null;
     }
@@ -548,8 +550,7 @@ public class FEFunctions {
                             (int) dateLiteral.getHour(), (int) dateLiteral.getMinute(), (int) dateLiteral.getSecond()),
                     truncate.getStringValue());
 
-            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
-                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
+            return new DateLiteral(localDate, date.getType());
         }
         return null;
     }
@@ -562,8 +563,7 @@ public class FEFunctions {
                     (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(), 0, 0, 0),
                     truncate.getStringValue());
 
-            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
-                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
+            return new DateLiteral(localDate, date.getType());
         }
         return null;
     }
@@ -576,8 +576,7 @@ public class FEFunctions {
                     (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(), 0, 0, 0),
                     truncate.getStringValue());
 
-            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
-                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
+            return new DateLiteral(localDate, date.getType());
         }
         return null;
     }
