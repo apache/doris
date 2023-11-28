@@ -60,10 +60,18 @@ public:
         if (_always_ready) {
             return;
         }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_always_ready) {
+            return;
+        }
         Dependency::block();
     }
 
     void set_always_ready() {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
         if (_always_ready) {
             return;
         }
@@ -73,6 +81,7 @@ public:
 
 private:
     std::atomic<bool> _always_ready {false};
+    std::mutex _always_done_lock;
 };
 
 class PartitionSortSourceOperatorX;
