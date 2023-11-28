@@ -80,10 +80,10 @@ private:
     Block tmp_block_;
 
     RuntimeProfile* profile_ = nullptr;
-    RuntimeProfile::Counter* write_bytes_counter_;
-    RuntimeProfile::Counter* serialize_timer_;
-    RuntimeProfile::Counter* write_timer_;
-    RuntimeProfile::Counter* write_blocks_num_;
+    RuntimeProfile::Counter* write_bytes_counter_ = nullptr;
+    RuntimeProfile::Counter* serialize_timer_ = nullptr;
+    RuntimeProfile::Counter* write_timer_ = nullptr;
+    RuntimeProfile::Counter* write_blocks_num_ = nullptr;
 };
 
 using BlockSpillWriterUPtr = std::unique_ptr<BlockSpillWriter>;

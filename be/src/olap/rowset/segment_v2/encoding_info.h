@@ -84,7 +84,7 @@ private:
 
     FieldType _type;
     EncodingTypePB _encoding;
-    std::unique_ptr<DataPagePreDecoder> _data_page_pre_decoder = nullptr;
+    std::unique_ptr<DataPagePreDecoder> _data_page_pre_decoder;
 };
 
 } // namespace segment_v2

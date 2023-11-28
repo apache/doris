@@ -49,8 +49,8 @@ enum KeysType : int;
 // row pos in _input_mutable_block
 struct RowInBlock {
     size_t _row_pos;
-    char* _agg_mem;
-    size_t* _agg_state_offset;
+    char* _agg_mem = nullptr;
+    size_t* _agg_state_offset = nullptr;
     bool _has_init_agg;
 
     RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
@@ -136,8 +136,8 @@ public:
     int operator()(const RowInBlock* left, const RowInBlock* right) const;
 
 private:
-    const TabletSchema* _tablet_schema;
-    vectorized::MutableBlock* _pblock; //  corresponds to Memtable::_input_mutable_block
+    const TabletSchema* _tablet_schema = nullptr;
+    vectorized::MutableBlock* _pblock = nullptr; //  corresponds to Memtable::_input_mutable_block
 };
 
 class MemTableStat {
@@ -207,7 +207,7 @@ private:
     bool _enable_unique_key_mow = false;
     bool _is_partial_update = false;
     const KeysType _keys_type;
-    const TabletSchema* _tablet_schema;
+    const TabletSchema* _tablet_schema = nullptr;
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 

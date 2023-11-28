@@ -132,7 +132,7 @@ private:
     std::shared_ptr<apache::thrift::TProcessor> _processor;
 
     // If not nullptr, called when session events happen. Not owned by us.
-    SessionHandlerIf* _session_handler;
+    SessionHandlerIf* _session_handler = nullptr;
 
     // Protects _session_keys
     std::mutex _session_keys_lock;
@@ -150,9 +150,9 @@ private:
 
     std::shared_ptr<MetricEntity> _thrift_server_metric_entity;
     // Number of currently active connections
-    IntGauge* thrift_current_connections;
+    IntGauge* thrift_current_connections = nullptr;
     // Total connections made over the lifetime of this server
-    IntCounter* thrift_connections_total;
+    IntCounter* thrift_connections_total = nullptr;
 };
 
 } // namespace doris

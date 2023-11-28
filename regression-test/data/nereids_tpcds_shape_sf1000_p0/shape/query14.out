@@ -4,11 +4,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
 ------hashJoin[INNER_JOIN] hashCondition=((item.i_brand_id = t.brand_id) and (item.i_category_id = t.category_id) and (item.i_class_id = t.class_id)) otherCondition=() build RFs:RF6 class_id->[i_class_id];RF7 category_id->[i_category_id];RF8 brand_id->[i_brand_id]
+--------PhysicalProject
+----------PhysicalOlapScan[item] apply RFs: RF6 RF7 RF8
 --------PhysicalDistribute
-----------PhysicalProject
-------------PhysicalOlapScan[item] apply RFs: RF6 RF7 RF8
---------PhysicalIntersect
-----------PhysicalDistribute
+----------PhysicalIntersect
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
@@ -24,7 +23,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[item]
-----------PhysicalDistribute
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
@@ -40,7 +38,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[item]
-----------PhysicalDistribute
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
@@ -183,11 +180,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
 ------hashJoin[INNER_JOIN] hashCondition=((item.i_brand_id = x.brand_id) and (item.i_category_id = x.category_id) and (item.i_class_id = x.class_id)) otherCondition=() build RFs:RF6 class_id->[i_class_id];RF7 category_id->[i_category_id];RF8 brand_id->[i_brand_id]
+--------PhysicalProject
+----------PhysicalOlapScan[item] apply RFs: RF6 RF7 RF8
 --------PhysicalDistribute
-----------PhysicalProject
-------------PhysicalOlapScan[item] apply RFs: RF6 RF7 RF8
---------PhysicalIntersect
-----------PhysicalDistribute
+----------PhysicalIntersect
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
@@ -203,7 +199,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[item]
-----------PhysicalDistribute
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
@@ -219,7 +214,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[item]
-----------PhysicalDistribute
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]

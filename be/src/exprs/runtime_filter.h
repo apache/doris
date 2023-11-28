@@ -149,9 +149,9 @@ struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
                               butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
             : request(req), data(data_stream), pool(obj_pool) {}
-    const PPublishFilterRequest* request;
-    butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool;
+    const PPublishFilterRequest* request = nullptr;
+    butil::IOBufAsZeroCopyInputStream* data = nullptr;
+    ObjectPool* pool = nullptr;
 };
 
 struct UpdateRuntimeFilterParamsV2 {
@@ -161,15 +161,15 @@ struct UpdateRuntimeFilterParamsV2 {
             : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequestV2* request;
     butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool;
+    ObjectPool* pool = nullptr;
 };
 
 struct MergeRuntimeFilterParams {
     MergeRuntimeFilterParams(const PMergeFilterRequest* req,
                              butil::IOBufAsZeroCopyInputStream* data_stream)
             : request(req), data(data_stream) {}
-    const PMergeFilterRequest* request;
-    butil::IOBufAsZeroCopyInputStream* data;
+    const PMergeFilterRequest* request = nullptr;
+    butil::IOBufAsZeroCopyInputStream* data = nullptr;
 };
 
 enum RuntimeFilterState {
@@ -428,10 +428,10 @@ protected:
 
     RuntimeState* _state = nullptr;
     QueryContext* _query_ctx = nullptr;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
-    RuntimePredicateWrapper* _wrapper;
+    RuntimePredicateWrapper* _wrapper = nullptr;
     // runtime filter id
     int _filter_id;
     // Specific types BoardCast or Shuffle

@@ -11,24 +11,23 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF5 n_nationkey->[s_nationkey]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF4 s_suppkey->[l_suppkey]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF2 ps_suppkey->[l_suppkey];RF3 ps_partkey->[l_partkey]
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->[l_orderkey]
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF0 RF1 RF2 RF3 RF4
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[orders]
---------------------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF2 ps_suppkey->[l_suppkey];RF3 ps_partkey->[l_partkey]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
+------------------------------PhysicalDistribute
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->[l_orderkey]
 ----------------------------------PhysicalProject
-------------------------------------filter((p_name like '%green%'))
---------------------------------------PhysicalOlapScan[part]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[partsupp]
+------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF0 RF1 RF2 RF3 RF4
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[orders]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((p_name like '%green%'))
+------------------------------------PhysicalOlapScan[part]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[partsupp]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[supplier] apply RFs: RF5

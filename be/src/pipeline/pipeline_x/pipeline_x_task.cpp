@@ -342,10 +342,12 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
-    fmt::format_to(
-            debug_string_buffer,
-            "PipelineTask[this = {}, state = {}, data state = {}, dry run = {}]\noperators: ",
-            (void*)this, get_state_name(_cur_state), (int)_data_state, _dry_run);
+    fmt::format_to(debug_string_buffer,
+                   "PipelineTask[this = {}, state = {}, data state = {}, dry run = {}, elapse time "
+                   "= {}ns], block dependency = {}, _use_blocking_queue = {}\noperators: ",
+                   (void*)this, get_state_name(_cur_state), (int)_data_state, _dry_run,
+                   MonotonicNanos() - _fragment_context->create_time(),
+                   _blocked_dep ? _blocked_dep->debug_string() : "NULL", _use_blocking_queue);
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(
                 debug_string_buffer, "\n{}",

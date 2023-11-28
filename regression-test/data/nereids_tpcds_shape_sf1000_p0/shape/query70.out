@@ -26,9 +26,8 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((store.s_state = tmp1.s_state)) otherCondition=() build RFs:RF2 s_state->[s_state]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store] apply RFs: RF2
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[store] apply RFs: RF2
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((ranking <= 5))

@@ -123,9 +123,9 @@ private:
     bool _build_finished;
     std::vector<bool> _probe_finished_children_index;
     MutableBlock _mutable_block;
-    RuntimeProfile::Counter* _build_timer; // time to build hash table
-    RuntimeProfile::Counter* _probe_timer; // time to probe
-    RuntimeProfile::Counter* _pull_timer;  // time to pull data
+    RuntimeProfile::Counter* _build_timer = nullptr; // time to build hash table
+    RuntimeProfile::Counter* _probe_timer = nullptr; // time to probe
+    RuntimeProfile::Counter* _pull_timer = nullptr;  // time to pull data
     Arena _arena;
 
     template <class HashTableContext, bool is_intersected>

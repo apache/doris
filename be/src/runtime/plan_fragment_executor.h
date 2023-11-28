@@ -153,8 +153,8 @@ public:
     Status update_status(Status status);
 
 private:
-    ExecEnv* _exec_env; // not owned
-    ExecNode* _plan;    // lives in _runtime_state->obj_pool()
+    ExecEnv* _exec_env = nullptr; // not owned
+    ExecNode* _plan = nullptr;    // lives in _runtime_state->obj_pool()
     std::shared_ptr<QueryContext> _query_ctx;
     // Id of this instance
     TUniqueId _fragment_instance_id;
@@ -211,12 +211,12 @@ private:
     std::unique_ptr<DataSink> _sink;
 
     // Number of rows returned by this fragment
-    RuntimeProfile::Counter* _rows_produced_counter;
+    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
 
     // Number of blocks returned by this fragment
-    RuntimeProfile::Counter* _blocks_produced_counter;
+    RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    RuntimeProfile::Counter* _fragment_cpu_timer;
+    RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
@@ -240,7 +240,7 @@ private:
 
     bool _group_commit = false;
 
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
