@@ -327,7 +327,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 ctx->pulsar_info->ack_offset = std::move(ack_offset);
                 ctx->receive_bytes = ctx->max_batch_size - left_bytes;
                 get_backlog_nums(ctx);
-                acknowledge_cumulative(ctx);
+//                acknowledge_cumulative(ctx);
                 return Status::OK();
             }
         }

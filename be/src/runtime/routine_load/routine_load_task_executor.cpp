@@ -512,22 +512,38 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
                       << "start assign partition of consumer : " << consumer
                       << "ack_offset entry is :" << kv;
 
-            if (kv.first.find("/baina/") == std::string::npos) {
-                // assign partition for consumer
-                st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->assign_partition(kv.first, ctx);
-                if (!st.ok()) {
-                    // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
-                    // So just print a warning
-                    LOG(WARNING) << st;
-                }
+//            if (kv.first.find("/baina/") == std::string::npos) {
+//                // assign partition for consumer
+//                st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->assign_partition(kv.first, ctx);
+//                if (!st.ok()) {
+//                    // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
+//                    // So just print a warning
+//                    LOG(WARNING) << st;
+//                }
+//
+//                // do ack
+//                st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->acknowledge_cumulative(kv.second);
+//                if (!st.ok()) {
+//                    // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
+//                    // So just print a warning
+//                    LOG(WARNING) << st;
+//                }
+//            }
 
-                // do ack
-                st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->acknowledge_cumulative(kv.second);
-                if (!st.ok()) {
-                    // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
-                    // So just print a warning
-                    LOG(WARNING) << st;
-                }
+            // assign partition for consumer
+            st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->assign_partition(kv.first, ctx);
+            if (!st.ok()) {
+                // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << st;
+            }
+
+            // do ack
+            st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->acknowledge_cumulative(kv.second);
+            if (!st.ok()) {
+                // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << st;
             }
 
             // return consumer
