@@ -535,33 +535,55 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
     while (remaining > 0) {
         size_t num_written = remaining;
+        LOG(INFO) << "before append page, remaining_rows=" << num_written << ", page_ptr=" << ptr
+                  << ": " << MemTracker::log_usage(_mem_tracker->make_snapshot());
         RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
+        LOG(INFO) << "after append page, remaining_rows=" << num_written << ", page_ptr=" << ptr
+                  << ": " << MemTracker::log_usage(_mem_tracker->make_snapshot());
 
         remaining -= num_written;
 
         if (_page_builder->is_page_full()) {
             RETURN_IF_ERROR(finish_current_page());
         }
+        LOG(INFO) << "after finish page, remaining_rows=" << num_written << ", page_ptr=" << ptr
+                  << ": " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     }
     LOG(INFO) << "after append data: " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     return Status::OK();
 }
 
 Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size_t* num_written) {
+    LOG(INFO) << "before page_builder->add, remaining_rows=" << num_written << ", page_ptr=" << data
+              << ": " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     RETURN_IF_ERROR(_page_builder->add(data, num_written));
+    LOG(INFO) << "after page_builder->add, remaining_rows=" << num_written << ", page_ptr=" << data
+              << ": " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     if (_opts.need_zone_map) {
         _zone_map_index_builder->add_values(data, *num_written);
     }
+    LOG(INFO) << "after _zone_map_index_builder->add, remaining_rows=" << num_written
+              << ", page_ptr=" << data << ": "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     if (_opts.need_bitmap_index) {
         _bitmap_index_builder->add_values(data, *num_written);
     }
+    LOG(INFO) << "after _bitmap_index_builder->add, remaining_rows=" << num_written
+              << ", page_ptr=" << data << ": "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     if (_opts.inverted_index) {
         RETURN_IF_ERROR(
                 _inverted_index_builder->add_values(get_field()->name(), data, *num_written));
     }
+    LOG(INFO) << "after _inverted_index_builder->add, remaining_rows=" << num_written
+              << ", page_ptr=" << data << ": "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_values(data, *num_written);
     }
+    LOG(INFO) << "after _bloom_filter_index_builder->add, remaining_rows=" << num_written
+              << ", page_ptr=" << data << ": "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
 
     _next_rowid += *num_written;
 
@@ -570,6 +592,9 @@ Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size
     if (is_nullable()) {
         _null_bitmap_builder->add_run(false, *num_written);
     }
+    LOG(INFO) << "after _null_bitmap_index_builder->add, remaining_rows=" << num_written
+              << ", page_ptr=" << data << ": "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     return Status::OK();
 }
 
