@@ -1044,11 +1044,12 @@ Status TabletManager::start_trash_sweep() {
 #endif
         clean_num = 0;
         size_t tablet_num = 0;
+        std::list<TabletSharedPtr> it;
         {
             std::shared_lock rdlock(_shutdown_tablets_lock);
             tablet_num = _shutdown_tablets.size();
+            it = _shutdown_tablets.begin();
         }
-        auto it = _shutdown_tablets.begin();
         for (size_t i = 0; i < tablet_num; i++) {
             // check if the meta has the tablet info and its state is shutdown
             if (it->use_count() > 1) {
