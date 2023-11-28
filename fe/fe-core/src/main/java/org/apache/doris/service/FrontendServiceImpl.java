@@ -1010,7 +1010,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, List<String> tables,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
-        final String fullUserName = ClusterNamespace.getFullName(cluster, user);
+        final String fullUserName = ClusterNamespace.getNameFromFullName(user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
         List<UserIdentity> currentUser = Lists.newArrayList();
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
@@ -1045,7 +1045,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
-        final String fullUserName = ClusterNamespace.getFullName(cluster, user);
+        final String fullUserName = ClusterNamespace.getNameFromFullName(user);
         List<UserIdentity> currentUser = Lists.newArrayList();
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
         Preconditions.checkState(currentUser.size() == 1);
@@ -2347,7 +2347,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // check account and password
-        final String fullUserName = ClusterNamespace.getFullName(cluster, request.getUser());
+        final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
         List<UserIdentity> currentUser = Lists.newArrayList();
         try {
             Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, request.getUserIp(), request.getPasswd(),
@@ -2938,7 +2938,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             ctx.setCluster(cluster);
             ctx.setQualifiedUser(request.getUser());
-            String fullUserName = ClusterNamespace.getFullName(cluster, request.getUser());
+            String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
             UserIdentity currentUserIdentity = new UserIdentity(fullUserName, "%");
             ctx.setCurrentUserIdentity(currentUserIdentity);
 
