@@ -696,7 +696,7 @@ Status PipelineFragmentContext::submit() {
     auto* scheduler = _exec_env->pipeline_task_scheduler();
     if (_query_ctx->get_task_scheduler()) {
         scheduler = _query_ctx->get_task_scheduler();
-    } else if (_task_group_entity) {
+    } else if (_task_group_entity && _query_ctx->use_task_group_for_cpu_limit.load()) {
         scheduler = _exec_env->pipeline_task_group_scheduler();
     }
     for (auto& task : _tasks) {
