@@ -318,6 +318,10 @@ bool RuntimeState::is_cancelled() const {
     return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
 }
 
+std::string RuntimeState::cancel_reason() const {
+    return _cancel_reason;
+}
+
 Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
     {
         std::lock_guard<std::mutex> l(_process_status_lock);
