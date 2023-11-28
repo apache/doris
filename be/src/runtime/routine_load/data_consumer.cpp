@@ -582,12 +582,6 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 }
                 ++received_rows;
             }
-            ack = _p_consumer.acknowledge(msg.get()->getMessageId());
-            if (ack != pulsar::ResultOk) {
-                LOG(WARNING) << "pulsar consumer failed to acknowledge message"
-                             << "consumer id : [" << _id << "]"
-                             << "message id : [" << msg.get()->getMessageId() << "]";
-            }
             delete msg.get();
             msg.release(); // release the ownership, msg will be deleted after being processed
             for (const char* row : rows) {
