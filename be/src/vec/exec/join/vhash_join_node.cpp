@@ -725,8 +725,12 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_build_timer);
 
+#ifndef NDEBUG
+    constexpr static auto BUILD_BLOCK_MAX_SIZE = 0;
+#else
     // make one block for each 4 gigabytes
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
+#endif
 
     if (_has_null_in_build_side) {
         // TODO: if _has_null_in_build_side is true we should finish current pipeline task.
