@@ -726,7 +726,6 @@ std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
     rapidjson::Document source;
     rapidjson::Document destination;
     rapidjson::StringBuffer buffer;
-    rapidjson::Value& sourceValue;
     if(!source.Parse(data).HasParseError()) {
         if (source.HasMember("events") && source["events"].IsArray()) {
             const rapidjson::Value& array = source["events"];
@@ -737,6 +736,7 @@ std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
                     const char* key = member.name.GetString();
                     if (std::strcmp(key, "events") != 0) {
                         rapidjson::Value keyName(key, destination.GetAllocator());
+                        rapidjson::Value& sourceValue = source[key];
                         sourceValue.CopyFrom(source[key], destination.GetAllocator());
                         destination.AddMember(keyName, sourceValue, destination.GetAllocator());
                     } else {
