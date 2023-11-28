@@ -231,9 +231,9 @@ private:
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
-    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
-    std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
-    std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
+    std::shared_ptr<AndDependency> _exchange_sink_dependency;
+    std::shared_ptr<BroadcastDependency> _broadcast_dependency;
     std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;

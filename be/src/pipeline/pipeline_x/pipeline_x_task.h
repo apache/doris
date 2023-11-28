@@ -213,9 +213,9 @@ private:
     int _task_idx;
     bool _dry_run = false;
 
-    Dependency* _blocked_dep {nullptr};
+    Dependency* _blocked_dep = nullptr;
 
-    Dependency* _execution_dep {nullptr};
+    Dependency* _execution_dep = nullptr;
 
     std::atomic<bool> _use_blocking_queue {true};
     std::atomic<bool> _finished {false};

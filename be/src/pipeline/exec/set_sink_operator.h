@@ -57,7 +57,7 @@ public:
     bool can_write() override { return true; }
 
 private:
-    vectorized::VSetOperationNode<is_intersect>* _set_node;
+    vectorized::VSetOperationNode<is_intersect>* _set_node = nullptr;
 };
 
 class SetSinkDependency final : public Dependency {

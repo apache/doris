@@ -72,7 +72,7 @@ private:
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
 
     // topn top value
     vectorized::Field old_top {vectorized::Field::Types::Null};
@@ -99,7 +99,7 @@ private:
 
     // Number of rows to skip.
     const int64_t _offset;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;

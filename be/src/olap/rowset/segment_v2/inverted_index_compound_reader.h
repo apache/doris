@@ -52,18 +52,18 @@ private:
 
     int32_t readBufferSize;
     // base info
-    lucene::store::Directory* dir;
-    lucene::store::RAMDirectory* ram_dir;
+    lucene::store::Directory* dir = nullptr;
+    lucene::store::RAMDirectory* ram_dir = nullptr;
     std::string directory;
     std::string file_name;
-    CL_NS(store)::IndexInput* stream;
+    CL_NS(store)::IndexInput* stream = nullptr;
 
     using EntriesType =
             lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
                                     lucene::util::Equals::Char, lucene::util::Deletor::acArray,
                                     lucene::util::Deletor::Object<ReaderFileEntry>>;
 
-    EntriesType* entries;
+    EntriesType* entries = nullptr;
 
     std::mutex _this_lock;
 

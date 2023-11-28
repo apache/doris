@@ -108,7 +108,7 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
     const bool _group_commit;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 };
 
 } // namespace pipeline

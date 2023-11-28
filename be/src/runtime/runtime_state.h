@@ -507,14 +507,14 @@ private:
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
     RuntimeProfile _load_channel_profile;
 
-    const DescriptorTbl* _desc_tbl;
+    const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
 
     // runtime filter

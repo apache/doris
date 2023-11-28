@@ -163,7 +163,7 @@ private:
     using StateType = vectorized::LikeState;
     StringRef pattern;
 
-    StateType* _state;
+    StateType* _state = nullptr;
 
     // A separate scratch region is required for every concurrent caller of the
     // Hyperscan API. So here _like_state is separate for each instance of
