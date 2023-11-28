@@ -31,6 +31,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -761,7 +762,8 @@ public class StatisticsUtil {
         return type instanceof ArrayType
                 || type instanceof StructType
                 || type instanceof MapType
-                || type instanceof VariantType;
+                || type instanceof VariantType
+                || type instanceof AggStateType;
     }
 
     public static void sleep(long millis) {
