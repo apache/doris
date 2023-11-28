@@ -84,7 +84,12 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      */
     private List<NotificationEvent> getNextHMSEvents(HMSExternalCatalog hmsExternalCatalog) {
         LOG.debug("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
-        NotificationEventResponse response = hmsExternalCatalog.getNextEventResponse(hmsExternalCatalog);
+        NotificationEventResponse response;
+        if (Env.getCurrentEnv().isMaster()) {
+            response = hmsExternalCatalog.getNextEventResponseForMaster(hmsExternalCatalog);
+        } else {
+            response = hmsExternalCatalog.getNextEventResponseForSlave(hmsExternalCatalog);
+        }
 
         if (response == null) {
             return Collections.emptyList();
