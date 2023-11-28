@@ -23,6 +23,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
@@ -224,6 +225,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
+        if (this instanceof AggregateFunction) {
+            // agg_fun(literal) is not constant, the result depends on the group by keys
+            return false;
+        }
         if (this instanceof LeafExpression) {
             return this instanceof Literal;
         } else {
