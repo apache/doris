@@ -81,9 +81,10 @@ public class FEFunctions {
     @FEFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static IntLiteral dayOfWeek(LiteralExpr date) throws AnalysisException {
         // use zellar algorithm.
-        long year = ((DateLiteral) date).getYear();
-        long month = ((DateLiteral) date).getMonth();
-        long day = ((DateLiteral) date).getDay();
+        DateLiteral dateLiteral = (DateLiteral) date;
+        long year = dateLiteral.getYear();
+        long month = dateLiteral.getMonth();
+        long day = dateLiteral.getDay();
         if (month < 3) {
             month += 12;
             year -= 1;

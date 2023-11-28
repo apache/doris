@@ -93,16 +93,15 @@ public class PlaceHolderExpr extends LiteralExpr {
         return lExpr.compareLiteral(expr);
     }
 
-    @Override
-    public int compareTo(LiteralExpr literalExpr) {
-        return compareLiteral(literalExpr);
-    }
-
     public String getStringValue() {
         if (lExpr == null) {
             return "";
         }
         return lExpr.getStringValue();
+    }
+
+    public LiteralExpr getlExpr() {
+        return lExpr;
     }
 
     public long getLongValue() {
