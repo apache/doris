@@ -52,7 +52,7 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                             }
                             return limit.withChildren(agg.withChildren(newJoin));
                         })
-                        .toRule(RuleType.PUSH_LIMIT_DISTINCT_THROUGH_JOIN),
+                        .toRule(RuleType.PUSH_DOWN_LIMIT_DISTINCT_THROUGH_JOIN),
 
                 // limit -> distinct -> project -> join
                 logicalLimit(logicalAggregate(logicalProject(logicalJoin()).when(LogicalProject::isAllSlots))
@@ -67,7 +67,7 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                                 return null;
                             }
                             return limit.withChildren(agg.withChildren(project.withChildren(newJoin)));
-                        }).toRule(RuleType.PUSH_LIMIT_DISTINCT_THROUGH_JOIN)
+                        }).toRule(RuleType.PUSH_DOWN_LIMIT_DISTINCT_THROUGH_PROJECT_JOIN)
         );
     }
 
