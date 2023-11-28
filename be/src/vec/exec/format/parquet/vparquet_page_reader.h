@@ -66,8 +66,8 @@ public:
 private:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
 
-    io::BufferedStreamReader* _reader;
-    io::IOContext* _io_ctx;
+    io::BufferedStreamReader* _reader = nullptr;
+    io::IOContext* _io_ctx = nullptr;
     tparquet::PageHeader _cur_page_header;
     Statistics _statistics;
     PageReaderState _state = INITIALIZED;

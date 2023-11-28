@@ -55,8 +55,8 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
-    Dependency* source_dep;
-    Dependency* sink_dep;
+    Dependency* source_dep = nullptr;
+    Dependency* sink_dep = nullptr;
 
     std::atomic<int> ref_count = 0;
 
@@ -126,9 +126,9 @@ protected:
     const std::string _name;
     const bool _is_write_dependency;
     std::atomic<bool> _ready;
-    const QueryContext* _query_ctx;
+    const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state {nullptr};
+    std::shared_ptr<BasicSharedState> _shared_state;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 
@@ -187,7 +187,7 @@ private:
     std::mutex _lock;
     const int64_t _registration_time;
     const int32_t _wait_time_ms;
-    IRuntimeFilter* _runtime_filter;
+    IRuntimeFilter* _runtime_filter = nullptr;
 };
 
 class RuntimeFilterDependency final : public Dependency {
@@ -262,7 +262,7 @@ public:
         return Status::OK();
     }
 
-    vectorized::AggregatedDataVariantsUPtr agg_data;
+    vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<vectorized::AggregateDataContainer> aggregate_data_container;
     vectorized::AggSpillContext spill_context;
     vectorized::ArenaUPtr agg_arena_pool;
@@ -273,7 +273,7 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
-    std::unique_ptr<DataQueue> data_queue = nullptr;
+    std::unique_ptr<DataQueue> data_queue;
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -398,7 +398,7 @@ struct HashJoinSharedState : public JoinSharedState {
             std::make_shared<vectorized::HashTableVariants>();
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks = nullptr;
+    std::shared_ptr<std::vector<vectorized::Block>> build_blocks;
     bool probe_ignore_null = false;
 };
 
@@ -416,7 +416,7 @@ public:
     std::queue<vectorized::Block> blocks_buffer;
     std::mutex buffer_mutex;
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
-    std::unique_ptr<vectorized::SortCursorCmp> previous_row = nullptr;
+    std::unique_ptr<vectorized::SortCursorCmp> previous_row;
 };
 
 class AsyncWriterDependency final : public Dependency {
@@ -445,7 +445,8 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<vectorized::HashTableVariants> hash_table_variants; // the real data HERE.
+    std::unique_ptr<vectorized::HashTableVariants> hash_table_variants =
+            nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     /// init in both upstream side.

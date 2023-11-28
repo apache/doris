@@ -150,7 +150,7 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 
     TDataSink _t_sink;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     // unique load id
     PUniqueId _load_id;

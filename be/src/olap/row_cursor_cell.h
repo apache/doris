@@ -30,7 +30,7 @@ struct RowCursorCell {
     void* mutable_cell_ptr() const { return (char*)_ptr + 1; }
 
 private:
-    void* _ptr;
+    void* _ptr = nullptr;
 };
 
 } // namespace doris

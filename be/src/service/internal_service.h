@@ -252,7 +252,7 @@ private:
                                        google::protobuf::Closure* done);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     // every brpc service request should put into thread pool
     // the reason see issue #16634

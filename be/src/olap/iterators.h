@@ -56,11 +56,11 @@ public:
                   include_upper(include_upper_) {}
 
         // the lower bound of the range, nullptr if not existed
-        const RowCursor* lower_key;
+        const RowCursor* lower_key = nullptr;
         // whether `lower_key` is included in the range
         bool include_lower;
         // the upper bound of the range, nullptr if not existed
-        const RowCursor* upper_key;
+        const RowCursor* upper_key = nullptr;
         // whether `upper_key` is included in the range
         bool include_upper;
     };
