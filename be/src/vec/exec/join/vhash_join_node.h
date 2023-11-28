@@ -155,14 +155,7 @@ private:
     ColumnRawPtrs& _build_raw_ptrs;
     Parent* _parent = nullptr;
     int _batch_size;
-<<<<<<< HEAD
-    uint8_t _offset;
     RuntimeState* _state = nullptr;
-
-    ProfileCounter* _build_side_compute_hash_timer = nullptr;
-=======
-    RuntimeState* _state;
->>>>>>> e5fb35abb3 (Join rewrite (#26140))
 };
 
 template <typename RowRefListType>
