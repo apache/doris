@@ -285,7 +285,6 @@ suite("single_table_without_aggregate") {
     sql """DROP MATERIALIZED VIEW IF EXISTS mv7_0 ON orders"""
 
     // top cte = select + from + order by + limit
-    // view = select + from + order by + limit
     def cte7_1_name = "cte7_1"
     def cte7_1 = "with ${cte7_1_name} as ( ${query2_1} )"
     def query7_1 = "${cte7_1} select d, count(*) from " +
