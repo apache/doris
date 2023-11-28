@@ -217,6 +217,14 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
 
     DCHECK(req.runtime_state != nullptr);
+
+    if (req.query_statistics) {
+        TQueryStatistics queryStatistics;
+        DCHECK(req.query_statistics->collect_dml_statistics());
+        req.query_statistics->to_thrift(&queryStatistics);
+        params.__set_query_statistics(queryStatistics);
+    }
+
     if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
