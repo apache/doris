@@ -1203,7 +1203,7 @@ DECLARE_Int32(download_binlog_rate_limit_kbs);
 DECLARE_mInt32(buffered_reader_read_timeout_ms);
 
 // whether to enable /api/snapshot api
-DECLARE_Bool(enable_snapshot_action)
+DECLARE_Bool(enable_snapshot_action);
 
 #ifdef BE_TEST
 // test s3
