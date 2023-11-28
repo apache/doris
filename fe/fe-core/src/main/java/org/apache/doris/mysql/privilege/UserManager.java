@@ -29,6 +29,7 @@ import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.MysqlPassword;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
@@ -49,7 +50,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public class UserManager implements Writable {
+public class UserManager implements Writable, GsonPostProcessable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
     // Concurrency control is delegated by Auth, so not concurrentMap
@@ -316,7 +317,6 @@ public class UserManager implements Writable {
     public static UserManager read(DataInput in) throws IOException {
         String json = Text.readString(in);
         UserManager um = GsonUtils.GSON.fromJson(json, UserManager.class);
-        um.removeClusterPrefix();
         return um;
     }
 
@@ -327,5 +327,10 @@ public class UserManager implements Writable {
             String user = entry.getKey();
             newNameToUsers.put(ClusterNamespace.getNameFromFullName(user), entry.getValue());
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
     }
 }

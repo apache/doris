@@ -32,6 +32,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -55,7 +56,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class RoleManager implements Writable {
+public class RoleManager implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RoleManager.class);
     //prefix of each user default role
     public static String DEFAULT_ROLE_PREFIX = "default_role_rbac_";
@@ -263,7 +264,6 @@ public class RoleManager implements Writable {
         } else {
             String json = Text.readString(in);
             RoleManager rm = GsonUtils.GSON.fromJson(json, RoleManager.class);
-            rm.removeClusterPrefix();
             return rm;
         }
     }
@@ -285,5 +285,10 @@ public class RoleManager implements Writable {
             Role role = Role.read(in);
             roles.put(role.getRoleName(), role);
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
     }
 }

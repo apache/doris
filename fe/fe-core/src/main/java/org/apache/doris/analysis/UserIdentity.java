@@ -218,7 +218,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_109) {
             UserIdentity userIdentity = new UserIdentity();
             userIdentity.readFields(in);
-            userIdentity.removeClusterPrefix();
             return userIdentity;
         } else {
             String json = Text.readString(in);
@@ -283,5 +282,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         isAnalyzed = true;
+        removeClusterPrefix();
     }
 }

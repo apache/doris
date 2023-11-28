@@ -836,7 +836,6 @@ public class Role implements Writable, GsonPostProcessable {
         } else {
             String json = Text.readString(in);
             Role r = GsonUtils.GSON.fromJson(json, Role.class);
-            r.removeClusterPrefix();
             return r;
         }
     }
@@ -873,6 +872,7 @@ public class Role implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
+        removeClusterPrefix();
         rebuildPrivTables();
     }
 
