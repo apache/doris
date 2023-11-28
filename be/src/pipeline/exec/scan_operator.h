@@ -99,7 +99,7 @@ public:
     std::string debug_string(int indentation_level = 0) override {
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(debug_string_buffer, "{}, _scanner_done = {}",
-                       Dependency::debug_string(indentation_level), _scanner_done.load());
+                       Dependency::debug_string(indentation_level), _scanner_done);
         return fmt::to_string(debug_string_buffer);
     }
 
@@ -107,7 +107,7 @@ public:
 
 private:
     vectorized::ScannerContext* _scanner_ctx = nullptr;
-    std::atomic<bool> _scanner_done {false};
+    bool _scanner_done {false};
     std::mutex _always_done_lock;
 };
 
