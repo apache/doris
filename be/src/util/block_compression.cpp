@@ -20,6 +20,11 @@
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
+// Only used on x86 or x86_64
+#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
+        defined(__i386) || defined(_M_IX86)
+#include <libdeflate.h>
+#endif
 #include <limits.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
@@ -929,7 +934,7 @@ private:
     mutable std::vector<DContext*> _ctx_d_pool;
 };
 
-class GzipBlockCompression final : public ZlibBlockCompression {
+class GzipBlockCompression : public ZlibBlockCompression {
 public:
     static GzipBlockCompression* instance() {
         static GzipBlockCompression s_instance;
@@ -1006,6 +1011,39 @@ private:
     const static int MEM_LEVEL = 8;
 };
 
+// Only used on x86 or x86_64
+#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
+        defined(__i386) || defined(_M_IX86)
+class GzipBlockCompressionByLibdeflate final : public GzipBlockCompression {
+public:
+    GzipBlockCompressionByLibdeflate() : GzipBlockCompression() {}
+    static GzipBlockCompressionByLibdeflate* instance() {
+        static GzipBlockCompressionByLibdeflate s_instance;
+        return &s_instance;
+    }
+    ~GzipBlockCompressionByLibdeflate() override = default;
+
+    Status decompress(const Slice& input, Slice* output) override {
+        if (input.empty()) {
+            output->size = 0;
+            return Status::OK();
+        }
+        thread_local std::unique_ptr<libdeflate_decompressor, void (*)(libdeflate_decompressor*)>
+                decompressor {libdeflate_alloc_decompressor(), libdeflate_free_decompressor};
+        if (!decompressor) {
+            return Status::InternalError("libdeflate_alloc_decompressor error.");
+        }
+        std::size_t out_len;
+        auto result = libdeflate_gzip_decompress(decompressor.get(), input.data, input.size,
+                                                 output->data, output->size, &out_len);
+        if (result != LIBDEFLATE_SUCCESS) {
+            return Status::InternalError("libdeflate_gzip_decompress error, res={}", result);
+        }
+        return Status::OK();
+    }
+};
+#endif
+
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
                                    BlockCompressionCodec** codec) {
     switch (type) {
@@ -1054,7 +1092,13 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
         *codec = ZstdBlockCompression::instance();
         break;
     case tparquet::CompressionCodec::GZIP:
+// Only used on x86 or x86_64
+#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
+        defined(__i386) || defined(_M_IX86)
+        *codec = GzipBlockCompressionByLibdeflate::instance();
+#else
         *codec = GzipBlockCompression::instance();
+#endif
         break;
     default:
         return Status::InternalError("unknown compression type({})", parquet_codec);
