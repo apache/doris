@@ -731,8 +731,16 @@ Status ScalarColumnWriter::finish_current_page() {
 
     // build data page body : encoded values + [nullmap]
     std::vector<Slice> body;
+    LOG(INFO) << "before _page_builder->finish: "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     OwnedSlice encoded_values = _page_builder->finish();
+    LOG(INFO) << "after _page_builder->finish: "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
+    LOG(INFO) << "before _page_builder->reset: "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     _page_builder->reset();
+    LOG(INFO) << "after _page_builder->reset: "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     body.push_back(encoded_values.slice());
 
     OwnedSlice nullmap;
@@ -743,7 +751,7 @@ Status ScalarColumnWriter::finish_current_page() {
         }
         _null_bitmap_builder->reset();
     }
-    LOG(INFO) << "before finish current page: "
+    LOG(INFO) << "before prepare data page footer: "
               << MemTracker::log_usage(_mem_tracker->make_snapshot());
 
     // prepare data page footer
