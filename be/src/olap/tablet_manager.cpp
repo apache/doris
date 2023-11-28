@@ -1085,6 +1085,8 @@ Status TabletManager::start_trash_sweep() {
             }
             _shutdown_tablets.clear();
         }
+        MonotonicStopWatch timer;
+        timer.start();
         std::lock_guard<std::shared_mutex> wrlock(_shutdown_deleting_tablets_lock);
         auto it = _shutdown_deleting_tablets.begin();
         while (it != _shutdown_deleting_tablets.end()) {
@@ -1164,6 +1166,8 @@ Status TabletManager::start_trash_sweep() {
                 break;
             }
         }
+        LOG(INFO) << "Finshed clean " << clean_num << " items in "
+                  << timer.elapsed_time() / 1000 / 100 << "ms";
         // >= 200 means there may be more tablets need to be handled
         // So continue
     } while (clean_num >= 200);
