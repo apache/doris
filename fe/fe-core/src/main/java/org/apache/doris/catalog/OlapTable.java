@@ -2405,6 +2405,17 @@ public class OlapTable extends Table {
     @Override
     public boolean isPartitionColumn(String columnName) {
         return getPartitionInfo().getPartitionColumns().stream()
-            .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
+                .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
+    }
+
+    /**
+     * For olap table, we need to acquire read lock when plan.
+     * Because we need to make sure the partition's version remain unchanged when plan.
+     *
+     * @return
+     */
+    @Override
+    public boolean needReadLockWhenPlan() {
+        return true;
     }
 }

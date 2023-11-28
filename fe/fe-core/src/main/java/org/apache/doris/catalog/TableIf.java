@@ -154,6 +154,15 @@ public interface TableIf {
     void write(DataOutput out) throws IOException;
 
     /**
+     * return true if this kind of table need read lock when doing query plan.
+     *
+     * @return
+     */
+    default boolean needReadLockWhenPlan() {
+        return false;
+    }
+
+    /**
      * Doris table type.
      */
     enum TableType {
