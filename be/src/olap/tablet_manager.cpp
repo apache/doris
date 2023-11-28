@@ -619,24 +619,12 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool in
     TabletSharedPtr tablet;
     tablet = _get_tablet_unlocked(tablet_id);
     if (tablet == nullptr && include_deleted) {
-        {
-            std::shared_lock rdlock(_shutdown_tablets_lock);
-            for (auto& deleted_tablet : _shutdown_tablets) {
-                CHECK(deleted_tablet != nullptr) << "deleted tablet is nullptr";
-                if (deleted_tablet->tablet_id() == tablet_id) {
-                    tablet = deleted_tablet;
-                    break;
-                }
-            }
-        }
-        if (tablet == nullptr) {
-            std::shared_lock rdlock(_shutdown_deleting_tablets_lock);
-            for (auto& deleted_tablet : _shutdown_deleting_tablets) {
-                CHECK(deleted_tablet != nullptr) << "deleted tablet is nullptr";
-                if (deleted_tablet->tablet_id() == tablet_id) {
-                    tablet = deleted_tablet;
-                    break;
-                }
+        std::shared_lock rdlock(_shutdown_tablets_lock);
+        for (auto& deleted_tablet : _shutdown_tablets) {
+            CHECK(deleted_tablet != nullptr) << "deleted tablet is nullptr";
+            if (deleted_tablet->tablet_id() == tablet_id) {
+                tablet = deleted_tablet;
+                break;
             }
         }
     }
@@ -1040,12 +1028,14 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
 }
 
 Status TabletManager::start_trash_sweep() {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    {
-        for_each_tablet(
-                [](const TabletSharedPtr& tablet) { tablet->delete_expired_stale_rowset(); },
-                filter_all_tablets);
+    std::unique_lock<std::mutex> lock(_gc_tablets_lock, std::defer_lock);
+    if (!lock.try_lock()) {
+        return;
     }
+
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    for_each_tablet([](const TabletSharedPtr& tablet) { tablet->delete_expired_stale_rowset(); },
+                    filter_all_tablets);
 
     int32_t clean_num = 0;
     do {
@@ -1053,19 +1043,13 @@ Status TabletManager::start_trash_sweep() {
         sleep(1);
 #endif
         clean_num = 0;
-        // should get write lock here, because it will remove tablet from shut_down_tablets
-        // and get tablet will access shut_down_tablets
+        size_t tablet_num = 0;
         {
-            std::lock_guard<std::shared_mutex> wrlock1(_shutdown_tablets_lock);
-            std::lock_guard<std::shared_mutex> wrlock2(_shutdown_deleting_tablets_lock);
-            for (const auto& tablet : _shutdown_tablets) {
-                _shutdown_deleting_tablets.push_back(tablet);
-            }
-            _shutdown_tablets.clear();
+            std::shared_lock rdlock(_shutdown_tablets_lock);
+            tablet_num = _shutdown_tablets.size();
         }
-        std::lock_guard<std::shared_mutex> wrlock(_shutdown_deleting_tablets_lock);
-        auto it = _shutdown_deleting_tablets.begin();
-        while (it != _shutdown_deleting_tablets.end()) {
+        auto it = _shutdown_tablets.begin();
+        for (size_t i = 0; i < tablet_num; i++) {
             // check if the meta has the tablet info and its state is shutdown
             if (it->use_count() > 1) {
                 // it means current tablet is referenced by other thread
@@ -1085,7 +1069,8 @@ Status TabletManager::start_trash_sweep() {
                                  << " old tablet_uid=" << (*it)->tablet_uid()
                                  << " cur tablet_uid=" << tablet_meta->tablet_uid();
                     // remove it from list
-                    it = _shutdown_deleting_tablets.erase(it);
+                    std::lock_guard<std::shared_mutex> wrlock(_shutdown_tablets_lock);
+                    it = _shutdown_tablets.erase(it);
                     continue;
                 }
                 // move data to trash
@@ -1119,8 +1104,9 @@ Status TabletManager::start_trash_sweep() {
                           << "tablet_id=" << (*it)->tablet_id()
                           << ", schema_hash=" << (*it)->schema_hash()
                           << ", tablet_path=" << tablet_path;
-                it = _shutdown_deleting_tablets.erase(it);
                 ++clean_num;
+                std::lock_guard<std::shared_mutex> wrlock(_shutdown_tablets_lock);
+                it = _shutdown_tablets.erase(it);
             } else {
                 // if could not find tablet info in meta store, then check if dir existed
                 const auto& tablet_path = (*it)->tablet_path();
@@ -1139,7 +1125,8 @@ Status TabletManager::start_trash_sweep() {
                               << "tablet_id=" << (*it)->tablet_id()
                               << ", schema_hash=" << (*it)->schema_hash()
                               << ", tablet_path=" << tablet_path;
-                    it = _shutdown_deleting_tablets.erase(it);
+                    std::lock_guard<std::shared_mutex> wrlock(_shutdown_tablets_lock);
+                    it = _shutdown_tablets.erase(it);
                 }
             }
 
