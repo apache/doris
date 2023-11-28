@@ -866,7 +866,7 @@ public class Auth implements Writable {
 
     // create role
     public void createRole(CreateRoleStmt stmt) throws DdlException {
-        createRoleInternal(stmt.getQualifiedRole(), stmt.isSetIfNotExists(), false);
+        createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), false);
     }
 
     public void replayCreateRole(PrivInfo info) {
@@ -900,7 +900,7 @@ public class Auth implements Writable {
 
     // drop role
     public void dropRole(DropRoleStmt stmt) throws DdlException {
-        dropRoleInternal(stmt.getQualifiedRole(), stmt.isSetIfExists(), false);
+        dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
     }
 
     public void replayDropRole(PrivInfo info) {
