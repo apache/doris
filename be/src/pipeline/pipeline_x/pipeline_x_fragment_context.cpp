@@ -131,6 +131,9 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason)
             .tag("error message", msg);
+    if (reason == PPlanFragmentCancelReason::TIMEOUT) {
+        LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
+    }
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             FOR_EACH_RUNTIME_STATE(LOG(WARNING) << "PipelineXFragmentContext cancel instance: "
@@ -148,9 +151,6 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
-    }
-    if (reason == PPlanFragmentCancelReason::TIMEOUT) {
-        LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
