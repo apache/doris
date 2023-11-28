@@ -262,8 +262,20 @@ public class RoleManager implements Writable {
             return roleManager;
         } else {
             String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, RoleManager.class);
+            RoleManager rm = GsonUtils.GSON.fromJson(json, RoleManager.class);
+            rm.removeClusterPrefix();
+            return rm;
         }
+    }
+
+    // should be removed after version 3.0
+    private void removeClusterPrefix() {
+        Map<String, Role> newRoles = Maps.newHashMap();
+        for (Map.Entry<String, Role> entry : roles.entrySet()) {
+            String roleName = ClusterNamespace.getNameFromFullName(entry.getKey());
+            newRoles.put(roleName, entry.getValue());
+        }
+        roles = newRoles;
     }
 
     @Deprecated

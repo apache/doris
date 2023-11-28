@@ -95,7 +95,7 @@ public class AlterUserStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        userDesc.getUserIdent().analyze(analyzer.getClusterName());
+        userDesc.getUserIdent().analyze();
         userDesc.getPassVar().analyze();
 
         if (userDesc.hasPassword()) {

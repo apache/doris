@@ -19,6 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -314,6 +315,17 @@ public class UserManager implements Writable {
 
     public static UserManager read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, UserManager.class);
+        UserManager um = GsonUtils.GSON.fromJson(json, UserManager.class);
+        um.removeClusterPrefix();
+        return um;
+    }
+
+    // should be removed after version 3.0
+    private void removeClusterPrefix() {
+        Map<String, List<User>> newNameToUsers = Maps.newHashMap();
+        for (Entry<String, List<User>> entry : nameToUsers.entrySet()) {
+            String user = entry.getKey();
+            newNameToUsers.put(ClusterNamespace.getNameFromFullName(user), entry.getValue());
+        }
     }
 }
