@@ -97,8 +97,8 @@ public:
     vectorized::DataTypes right_table_data_types();
     vectorized::DataTypes left_table_data_types();
     bool* has_null_in_build_side() { return &_shared_state->_has_null_in_build_side; }
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks() const {
-        return _shared_state->build_blocks;
+    const std::shared_ptr<vectorized::Block>& build_block() const {
+        return _shared_state->build_block;
     }
 
 private:
@@ -114,9 +114,11 @@ private:
     friend struct vectorized::ProcessHashTableProbe;
 
     int _probe_index = -1;
+    uint32_t _build_index = 0;
     bool _ready_probe = false;
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;
+    int _last_probe_match;
 
     vectorized::Block _probe_block;
     vectorized::ColumnRawPtrs _probe_columns;
@@ -130,8 +132,6 @@ private:
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
     vectorized::ColumnUInt8::MutablePtr _null_map_column;
-    // for cases when a probe row matches more than batch size build rows.
-    bool _is_any_probe_match_row_output = false;
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
