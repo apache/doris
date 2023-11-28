@@ -596,7 +596,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
         _is_report_on_cancel = false;
     }
     _cancel_msg = msg;
-    _runtime_state->set_is_cancelled(true, msg);
+    _runtime_state->set_is_cancelled(msg);
     // To notify wait_for_start()
     _query_ctx->set_ready_to_execute(true);
 

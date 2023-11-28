@@ -73,8 +73,10 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
@@ -537,6 +539,9 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
+    DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc",
+                    { MemInfo::process_full_gc(); });
+
     if (_cancelled || _send_finished) { // not run
         return 0;
     }
@@ -856,6 +861,7 @@ bool VNodeChannel::is_send_data_rpc_done() const {
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
+    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemInfo::process_full_gc(); });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     // set _is_closed to true finally
     Defer set_closed {[&]() {
@@ -880,6 +886,10 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         bthread_usleep(1000);
     }
     _close_time_ms = UnixMillis() - _close_time_ms;
+
+    if (_cancelled || state->is_cancelled()) {
+        _cancel_with_msg(state->cancel_reason());
+    }
 
     if (_add_batches_finished) {
         _close_check();
