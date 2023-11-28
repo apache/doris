@@ -572,19 +572,15 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                     LOG(INFO) << "pass error message: " << new_msg->getDataAsString();
                     break;
                 } else if (!queue->blocking_put(&(*new_msg))) {
-                    LOG(INFO) << "release message";
                     // queue is shutdown
                     done = true;
                 } else {
-                    LOG(INFO) << "put queue add one";
                     ++put_rows;
                 }
                 ++received_rows;
             }
-            LOG(INFO) << "start release message";
             delete msg.get();
             msg.release(); // release the ownership, msg will be deleted after being processed
-            LOG(INFO) << "finish release message";
             for (const char* row : rows) {
                 delete[] row;
             }
