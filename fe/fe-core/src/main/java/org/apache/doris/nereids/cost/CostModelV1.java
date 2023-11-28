@@ -218,7 +218,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         }
 
         // any
-        // cost of randome shuffle is lower than hash shuffle.
+        // cost of random shuffle is lower than hash shuffle.
         return CostV1.of(context.getSessionVariable(),
                 0,
                 0,
@@ -290,8 +290,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             int parallelInstance = Math.max(1, context.getSessionVariable().getParallelExecInstanceNum());
             int totalInstanceNumber = parallelInstance * beNumber;
             if (buildSideFactor <= 1.0) {
-                // use totalInstanceNumber to the power of 2 as the default factor value
-                buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
+                if (buildStats.computeSize() < 1024 * 1024) {
+                    // no penalty to broadcast if build side is small
+                    buildSideFactor = 1.0;
+                } else {
+                    // use totalInstanceNumber to the power of 2 as the default factor value
+                    buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
+                }
             }
             return CostV1.of(context.getSessionVariable(),
                     leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,

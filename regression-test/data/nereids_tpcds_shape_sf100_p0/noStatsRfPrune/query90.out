@@ -11,20 +11,18 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF5 wp_web_page_sk->[ws_web_page_sk]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF4 t_time_sk->[ws_sold_time_sk]
+----------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF4 hd_demo_sk->[ws_ship_hdemo_sk]
+------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF3 t_time_sk->[ws_sold_time_sk]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[web_sales] apply RFs: RF3 RF4 RF5
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((time_dim.t_hour <= 11) and (time_dim.t_hour >= 10))
+--------------------------------PhysicalOlapScan[time_dim]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF3 hd_demo_sk->[ws_ship_hdemo_sk]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_sales] apply RFs: RF3 RF4 RF5
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((household_demographics.hd_dep_count = 2))
-------------------------------------PhysicalOlapScan[household_demographics]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((time_dim.t_hour <= 11) and (time_dim.t_hour >= 10))
-------------------------------PhysicalOlapScan[time_dim]
+----------------------------filter((household_demographics.hd_dep_count = 2))
+------------------------------PhysicalOlapScan[household_demographics]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------filter((web_page.wp_char_count <= 5200) and (web_page.wp_char_count >= 5000))
@@ -36,20 +34,18 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF2 wp_web_page_sk->[ws_web_page_sk]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF1 t_time_sk->[ws_sold_time_sk]
+------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF1 hd_demo_sk->[ws_ship_hdemo_sk]
+--------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF0 t_time_sk->[ws_sold_time_sk]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((time_dim.t_hour <= 17) and (time_dim.t_hour >= 16))
+----------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF0 hd_demo_sk->[ws_ship_hdemo_sk]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((household_demographics.hd_dep_count = 2))
---------------------------------------PhysicalOlapScan[household_demographics]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------filter((time_dim.t_hour <= 17) and (time_dim.t_hour >= 16))
---------------------------------PhysicalOlapScan[time_dim]
+------------------------------filter((household_demographics.hd_dep_count = 2))
+--------------------------------PhysicalOlapScan[household_demographics]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------filter((web_page.wp_char_count <= 5200) and (web_page.wp_char_count >= 5000))

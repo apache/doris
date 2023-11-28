@@ -15,33 +15,28 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = n1.n_nationkey)) otherCondition=() build RFs:RF4 n_nationkey->[c_nationkey]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=() build RFs:RF3 c_custkey->[o_custkey]
+------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF2 p_partkey->[l_partkey]
+------------------------------------PhysicalDistribute
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[o_custkey]
+----------------------------------------PhysicalDistribute
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->[l_orderkey]
+--------------------------------------------PhysicalProject
+----------------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF0 RF2
+--------------------------------------------PhysicalProject
+----------------------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
+------------------------------------------------PhysicalOlapScan[orders] apply RFs: RF1
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[customer] apply RFs: RF4
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
+------------------------------------------PhysicalOlapScan[part]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
---------------------------------------------------PhysicalDistribute
-----------------------------------------------------PhysicalProject
-------------------------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF0 RF2
---------------------------------------------------PhysicalDistribute
-----------------------------------------------------PhysicalProject
-------------------------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
---------------------------------------------------------PhysicalOlapScan[part]
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[supplier]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
---------------------------------------------PhysicalOlapScan[orders] apply RFs: RF3
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF4
+------------------------------------PhysicalOlapScan[supplier]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[nation] apply RFs: RF6
