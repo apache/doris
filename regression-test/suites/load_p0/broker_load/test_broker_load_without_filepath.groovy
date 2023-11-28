@@ -69,7 +69,7 @@ suite("test_broker_load_without_filepath", "load_p0") {
                         """
         }catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("No destination path specified."))
+            assertTrue(e.getMessage().contains("DATA INFILE must be specified."))
         }
     }
 
