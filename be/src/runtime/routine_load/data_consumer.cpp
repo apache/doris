@@ -543,6 +543,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         std::vector<const char*> rows;
         std::string filter_data;
         pulsar::Message* new_msg;
+        pulsar::Result ack;
         // consume 1 message at a time
         consumer_watch.start();
         pulsar::Result res = _p_consumer.receive(*(msg.get()), 30000 /* timeout, ms */);
@@ -580,6 +581,12 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                     ++put_rows;
                 }
                 ++received_rows;
+            }
+            ack = _p_consumer.acknowledge(msg.get()->getMessageId());
+            if (ack != pulsar::ResultOk) {
+                LOG(WARNING) << "pulsar consumer failed to acknowledge message"
+                             << "consumer id : [" << _id << "]"
+                             << "message id : [" << msg.get()->getMessageId() << "]";
             }
             delete msg.get();
             msg.release(); // release the ownership, msg will be deleted after being processed
