@@ -26,8 +26,7 @@ PhysicalResultSink
 ----------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((c.c_customer_sk = web_sales.ws_bill_customer_sk)) otherCondition=()
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = c.c_current_cdemo_sk)) otherCondition=() build RFs:RF3 c_current_cdemo_sk->[cd_demo_sk]
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF3
+----------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF3
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[c_current_addr_sk]

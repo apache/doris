@@ -19,20 +19,18 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_first_sales_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF15 d_date_sk->[c_first_sales_date_sk]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_hdemo_sk = hd2.hd_demo_sk)) otherCondition=() build RFs:RF14 hd_demo_sk->[c_current_hdemo_sk]
+--------------------------------------PhysicalProject
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_hdemo_sk = hd2.hd_demo_sk)) otherCondition=() build RFs:RF14 hd_demo_sk->[c_current_hdemo_sk]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[customer] apply RFs: RF14 RF15 RF16 RF17 RF18 RF19
+------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[customer] apply RFs: RF14 RF15 RF16 RF17 RF18 RF19
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((hd2.hd_income_band_sk = ib2.ib_income_band_sk)) otherCondition=() build RFs:RF13 ib_income_band_sk->[hd_income_band_sk]
---------------------------------------------------PhysicalDistribute
-----------------------------------------------------PhysicalProject
-------------------------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF13
---------------------------------------------------PhysicalDistribute
-----------------------------------------------------PhysicalProject
-------------------------------------------------------PhysicalOlapScan[income_band]
+----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((hd2.hd_income_band_sk = ib2.ib_income_band_sk)) otherCondition=() build RFs:RF13 ib_income_band_sk->[hd_income_band_sk]
+------------------------------------------------PhysicalProject
+--------------------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF13
+------------------------------------------------PhysicalDistribute
+--------------------------------------------------PhysicalProject
+----------------------------------------------------PhysicalOlapScan[income_band]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[date_dim]
@@ -54,10 +52,10 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF9 p_promo_sk->[ss_promo_sk]
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = ad1.ca_address_sk)) otherCondition=() build RFs:RF8 ca_address_sk->[ss_addr_sk]
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF8 cd_demo_sk->[ss_cdemo_sk]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF7 cd_demo_sk->[ss_cdemo_sk]
+----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = ad1.ca_address_sk)) otherCondition=() build RFs:RF7 ca_address_sk->[ss_addr_sk]
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF6 i_item_sk->[ss_item_sk]
 ----------------------------------------------------PhysicalProject
@@ -89,10 +87,10 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------------------------PhysicalOlapScan[item]
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalOlapScan[customer_demographics]
+----------------------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[customer_address]
+----------------------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[promotion]

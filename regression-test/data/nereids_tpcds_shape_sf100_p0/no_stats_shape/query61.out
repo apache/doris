@@ -9,77 +9,70 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF10 i_item_sk->[ss_item_sk]
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF9 ca_address_sk->[c_current_addr_sk]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF8 c_customer_sk->[ss_customer_sk]
+------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF10 s_store_sk->[ss_store_sk]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF9 p_promo_sk->[ss_promo_sk]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ss_sold_date_sk]
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF7 i_item_sk->[ss_item_sk]
+------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF6 ca_address_sk->[c_current_addr_sk]
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF5 c_customer_sk->[ss_customer_sk]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF5 RF7 RF8 RF9 RF10
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[customer] apply RFs: RF6
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF7 d_date_sk->[ss_sold_date_sk]
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF6 s_store_sk->[ss_store_sk]
-------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF5 p_promo_sk->[ss_promo_sk]
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF5 RF6 RF7 RF8 RF10
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
---------------------------------------------------PhysicalOlapScan[promotion]
-------------------------------------------PhysicalDistribute
---------------------------------------------PhysicalProject
-----------------------------------------------filter((store.s_gmt_offset = -7.00))
-------------------------------------------------PhysicalOlapScan[store]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
---------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF9
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------filter((customer_address.ca_gmt_offset = -7.00))
---------------------------------PhysicalOlapScan[customer_address]
+------------------------------------filter((customer_address.ca_gmt_offset = -7.00))
+--------------------------------------PhysicalOlapScan[customer_address]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((item.i_category = 'Jewelry'))
+------------------------------------PhysicalOlapScan[item]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
+----------------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
+------------------------------PhysicalOlapScan[promotion]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((item.i_category = 'Jewelry'))
---------------------------PhysicalOlapScan[item]
+------------------------filter((store.s_gmt_offset = -7.00))
+--------------------------PhysicalOlapScan[store]
 ----------PhysicalDistribute
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[ss_item_sk]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[c_current_addr_sk]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF2 c_customer_sk->[ss_customer_sk]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->[ss_store_sk]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
+------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[c_current_addr_sk]
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF0 c_customer_sk->[ss_customer_sk]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF4
-------------------------------------------PhysicalDistribute
---------------------------------------------PhysicalProject
-----------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
-------------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalProject
---------------------------------------------filter((store.s_gmt_offset = -7.00))
-----------------------------------------------PhysicalOlapScan[store]
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF2 RF3 RF4
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[customer] apply RFs: RF3
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((customer_address.ca_gmt_offset = -7.00))
-----------------------------------PhysicalOlapScan[customer_address]
+--------------------------------------PhysicalOlapScan[customer] apply RFs: RF1
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((customer_address.ca_gmt_offset = -7.00))
+--------------------------------------PhysicalOlapScan[customer_address]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
+------------------------------------PhysicalOlapScan[date_dim]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((store.s_gmt_offset = -7.00))
+--------------------------------PhysicalOlapScan[store]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------filter((item.i_category = 'Jewelry'))

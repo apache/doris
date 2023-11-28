@@ -81,18 +81,17 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF10 web_site_sk->[ws_web_site_sk]
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF9 i_item_sk->[ws_item_sk]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=()
---------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ws_sold_date_sk]
-----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8 RF9 RF10 RF11
-----------------------------------------------PhysicalDistribute
-------------------------------------------------PhysicalProject
---------------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
-----------------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalProject
+----------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=()
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ws_sold_date_sk]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[web_returns]
+----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8 RF9 RF10 RF11
+--------------------------------------------PhysicalDistribute
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
+--------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[web_returns]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((item.i_current_price > 50.00))

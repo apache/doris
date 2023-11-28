@@ -8,9 +8,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 --------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[ss_addr_sk]
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
+----------------PhysicalProject
+------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[customer_address]
