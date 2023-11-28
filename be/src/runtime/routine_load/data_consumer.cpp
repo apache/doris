@@ -562,8 +562,10 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
 
                 if (new_msg->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
                     LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
+                              << ", len: " << msg.get()->getLength()
                               << ", message id: " << msg.get()->getMessageId()
-                              << ", len: " << msg.get()->getLength();
+                              << ", pulsar consumer: " << _id
+                              << ", grp: " << _grp_id;
                 }
 
                 if (new_msg->getDataAsString().find("{\"") == std::string::npos) {

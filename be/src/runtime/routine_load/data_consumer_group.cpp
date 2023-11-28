@@ -327,7 +327,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 ctx->pulsar_info->ack_offset = std::move(ack_offset);
                 ctx->receive_bytes = ctx->max_batch_size - left_bytes;
                 get_backlog_nums(ctx);
-//                acknowledge_cumulative(ctx);
+                acknowledge_cumulative(ctx);
                 return Status::OK();
             }
         }
@@ -349,7 +349,23 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                received_rows++;
                // len of receive origin message from pulsar
                left_bytes -= len;
-               ack_offset[partition] = msg_id;
+               if (ack_offset.find(partition) != ack_offset.end()) {
+                    if (msg->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
+                        LOG(INFO) << "old message id: " << ack_offset[partition]
+                                  << ", new message id: " << msg_id
+                                  << ", bool : " << ack_offset[partition] < msg_id;
+                        if (ack_offset[partition] > msg_id) {
+                            LOG(INFO) << "now get pulsar message:" << msg->getDataAsString()
+                                      << ", partition: " << partition << ", message id: " << msg_id
+                                      << ", len: " << len << ", size: " << msg->getDataAsString().size();
+                        }
+                    }
+                    if (ack_offset[partition] < msg_id) {
+                        ack_offset[partition] = msg_id;
+                    }
+               } else {
+                    ack_offset[partition] = msg_id;
+               }
                VLOG(3) << "consume partition" << partition << " - " << msg_id;
            } else {
                // failed to append this msg, we must stop
