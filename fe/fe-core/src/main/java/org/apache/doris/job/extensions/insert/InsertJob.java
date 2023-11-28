@@ -64,11 +64,14 @@ public class InsertJob extends AbstractJob<InsertTask> {
     ConcurrentLinkedQueue<Long> taskIdList;
 
     // max save task num, do we need to config it?
-    private static final int MAX_SAVE_TASK_NUM = 50;
+    private static final int MAX_SAVE_TASK_NUM = 100;
 
 
     @Override
     public List<InsertTask> createTasks(TaskType taskType) {
+        if (CollectionUtils.isNotEmpty(getRunningTasks())) {
+            return new ArrayList<>();
+        }
         InsertTask task = new InsertTask(null, getCurrentDbName(), getExecuteSql(), getCreateUser());
         task.setJobId(getJobId());
         task.setTaskType(taskType);
@@ -139,6 +142,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
             InsertTask task;
             try {
                 task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
+                task.setCreateTimeMs(loadJob.getCreateTimestamp());
             } catch (MetaNotFoundException e) {
                 log.warn("load job not found,job id is {}", loadJob.getId());
                 return;
@@ -172,7 +176,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
     }
 
     @Override
-    public void onTaskSuccess(InsertTask task) {
+    public void onTaskSuccess(InsertTask task) throws JobException {
         super.onTaskSuccess(task);
     }
 

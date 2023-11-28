@@ -22,10 +22,9 @@ import org.apache.doris.job.disruptor.TaskDisruptor;
 
 import io.netty.util.Timeout;
 import io.netty.util.TimerTask;
-import jline.internal.Log;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 
-@Slf4j
+@Log4j2
 public class TimerJobSchedulerTask<T extends AbstractJob<?>> implements TimerTask {
 
     private TaskDisruptor dispatchDisruptor;
@@ -42,7 +41,7 @@ public class TimerJobSchedulerTask<T extends AbstractJob<?>> implements TimerTas
         try {
             dispatchDisruptor.publishEvent(this.job);
         } catch (Exception e) {
-            Log.warn("dispatch timer job error, task id is {}", this.job.getJobId(), e);
+            log.warn("dispatch timer job error, task id is {}", this.job.getJobId(), e);
         }
     }
 }

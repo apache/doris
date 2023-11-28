@@ -102,14 +102,14 @@ public interface Job<T extends AbstractTask> {
      *
      * @param task The failed task.
      */
-    void onTaskFail(T task);
+    void onTaskFail(T task) throws JobException;
 
     /**
      * Notifies the job when a task execution is successful.
      *
      * @param task The successful task.
      */
-    void onTaskSuccess(T task);
+    void onTaskSuccess(T task) throws JobException;
 
     /**
      * get the job's show info, which is used to sql show the job information

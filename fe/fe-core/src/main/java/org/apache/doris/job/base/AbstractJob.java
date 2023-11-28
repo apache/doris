@@ -41,7 +41,10 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Data
 public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Writable {
@@ -107,6 +110,27 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
                 .orElseThrow(() -> new JobException("no task id:" + taskId)).cancel();
     }
 
+    public List<T> queryAllTasks() {
+        List<T> tasks = new ArrayList<>();
+        if (CollectionUtils.isEmpty(runningTasks)) {
+            return queryTasks();
+        }
+
+        List<T> historyTasks = queryTasks();
+        if (CollectionUtils.isNotEmpty(historyTasks)) {
+            tasks.addAll(historyTasks);
+        }
+        Map<Long, T> loadTask = tasks.stream().collect(Collectors.toMap(AbstractTask::getTaskId, a -> a));
+        runningTasks.forEach(task -> {
+            if (!loadTask.containsKey(task.getTaskId())) {
+                tasks.add(task);
+            }
+        });
+        Comparator<T> taskComparator = Comparator.comparingLong(T::getCreateTimeMs).reversed();
+        tasks.sort(taskComparator);
+        return tasks;
+    }
+
     public void initTasks(List<? extends AbstractTask> tasks) {
         tasks.forEach(task -> {
             task.setJobId(jobId);
@@ -131,7 +155,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         checkJobParamsInternal();
     }
 
-    public void updateJobStatus(JobStatus newJobStatus) {
+    public void updateJobStatus(JobStatus newJobStatus) throws JobException {
         if (null == newJobStatus) {
             throw new IllegalArgumentException("jobStatus cannot be null");
         }
@@ -147,6 +171,9 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
             throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
                     jobStatus.name(), this.jobStatus.name()));
         }
+        if (JobStatus.PAUSED.equals(newJobStatus)) {
+            cancelAllTasks();
+        }
         jobStatus = newJobStatus;
     }
 
@@ -161,19 +188,19 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     }
 
     @Override
-    public void onTaskFail(T task) {
+    public void onTaskFail(T task) throws JobException {
         updateJobStatusIfEnd();
         runningTasks.remove(task);
     }
 
     @Override
-    public void onTaskSuccess(T task) {
+    public void onTaskSuccess(T task) throws JobException {
         updateJobStatusIfEnd();
         runningTasks.remove(task);
 
     }
 
-    private void updateJobStatusIfEnd() {
+    private void updateJobStatusIfEnd() throws JobException {
         JobExecuteType executeType = getJobConfig().getExecuteType();
         if (executeType.equals(JobExecuteType.MANUAL)) {
             return;

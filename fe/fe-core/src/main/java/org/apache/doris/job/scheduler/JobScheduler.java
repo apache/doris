@@ -30,7 +30,7 @@ import org.apache.doris.job.manager.TaskDisruptorGroupManager;
 import org.apache.doris.job.task.AbstractTask;
 
 import io.netty.util.HashedWheelTimer;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.io.Closeable;
@@ -39,7 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-@Slf4j
+@Log4j2
 public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
 
     /**
@@ -152,6 +152,8 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         }
         List<? extends AbstractTask> tasks = job.createTasks(taskType);
         if (CollectionUtils.isEmpty(tasks)) {
+            log.info("job create task is empty, skip scheduler, job id is {},job name is {}", job.getJobId(),
+                    job.getJobName());
             if (job.getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
                 job.setJobStatus(JobStatus.FINISHED);
             }

@@ -25,10 +25,10 @@ import org.apache.doris.job.exception.JobException;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 
 @Data
-@Slf4j
+@Log4j2
 public abstract class AbstractTask implements Task {
 
     @SerializedName(value = "jid")
@@ -49,7 +49,7 @@ public abstract class AbstractTask implements Task {
     private TaskType taskType;
 
     @Override
-    public void onFail(String msg) {
+    public void onFail(String msg) throws JobException {
         status = TaskStatus.FAILD;
         if (!isCallable()) {
             return;
@@ -83,6 +83,9 @@ public abstract class AbstractTask implements Task {
 
     @Override
     public void onSuccess() throws JobException {
+        if (TaskStatus.CANCEL.equals(status)) {
+            return;
+        }
         status = TaskStatus.SUCCESS;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
