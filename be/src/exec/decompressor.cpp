@@ -349,7 +349,7 @@ Status Lz4BlockDecompressor::init() {
 // The large data block will be divided into several small data block.
 // Suppose a large data block is divided into three small blocks:
 // large data block1:            | small block1 | small block2 | small block3 |
-// CompressDate:   <A [B1 compress(small block1) ] [B2 compress(small block1) ] [B3 compress(small block1)]>
+// CompressData:   <A [B1 compress(small block1) ] [B2 compress(small block1) ] [B3 compress(small block1)]>
 //
 // A : original length of the current block of large data block.
 // sizeof(A) = 4 bytes.
