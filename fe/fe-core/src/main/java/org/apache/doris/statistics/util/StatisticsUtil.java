@@ -906,6 +906,16 @@ public class StatisticsUtil {
         return StatisticConstants.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS;
     }
 
+    public static long getExternalTableAutoAnalyzeIntervalInMillis() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
+                .externalTableAutoAnalyzeIntervalInMillis;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of externalTableAutoAnalyzeIntervalInMillis, return default", e);
+        }
+        return StatisticConstants.EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS;
+    }
+
     public static long getTableStatsHealthThreshold() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.TABLE_STATS_HEALTH_THRESHOLD)
