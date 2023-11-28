@@ -199,6 +199,21 @@ public:
         }
     }
 
+    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
+        const Self& src_vec = assert_cast<const Self&>(src);
+        auto new_size = indices_end - indices_begin;
+
+        for (uint32_t i = 0; i < new_size; ++i) {
+            auto offset = *(indices_begin + i);
+            if (offset == 0) {
+                data.emplace_back(T {});
+            } else {
+                data.emplace_back(src_vec.get_element(offset));
+            }
+        }
+    }
+
     void pop_back(size_t n) override { data.erase(data.end() - n, data.end()); }
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,

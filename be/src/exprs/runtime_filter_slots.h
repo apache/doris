@@ -37,7 +37,7 @@ public:
             const std::vector<TRuntimeFilterDesc>& runtime_filter_descs)
             : _build_expr_context(build_expr_ctxs), _runtime_filter_descs(runtime_filter_descs) {}
 
-    Status init(RuntimeState* state, int64_t hash_table_size, size_t build_bf_cardinality) {
+    Status init(RuntimeState* state, int64_t hash_table_size) {
         // runtime filter effect strategy
         // 1. we will ignore IN filter when hash_table_size is too big
         // 2. we will ignore BLOOM filter and MinMax filter when hash_table_size
@@ -111,7 +111,7 @@ public:
             }
 
             if (runtime_filter->is_bloomfilter()) {
-                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(build_bf_cardinality));
+                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(hash_table_size));
             }
 
             // Note:
@@ -162,7 +162,7 @@ public:
         return Status::OK();
     }
 
-    void insert(std::unordered_map<const vectorized::Block*, std::vector<int>>& datas) {
+    void insert(const std::unordered_set<const vectorized::Block*>& datas) {
         for (int i = 0; i < _build_expr_context.size(); ++i) {
             auto iter = _runtime_filters.find(i);
             if (iter == _runtime_filters.end()) {
@@ -170,29 +170,10 @@ public:
             }
 
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
-            for (auto it : datas) {
-                auto& column = it.first->get_by_position(result_column_id).column;
-
-                if (auto* nullable =
-                            vectorized::check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                    auto& column_nested = nullable->get_nested_column_ptr();
-                    auto& column_nullmap = nullable->get_null_map_column_ptr();
-                    std::vector<int> indexs;
-                    for (int row_num : it.second) {
-                        if (assert_cast<const vectorized::ColumnUInt8*>(column_nullmap.get())
-                                    ->get_bool(row_num)) {
-                            continue;
-                        }
-                        indexs.push_back(row_num);
-                    }
-                    for (auto filter : iter->second) {
-                        filter->insert_batch(column_nested, indexs);
-                    }
-
-                } else {
-                    for (auto filter : iter->second) {
-                        filter->insert_batch(column, it.second);
-                    }
+            for (const auto* it : datas) {
+                auto column = it->get_by_position(result_column_id).column;
+                for (auto* filter : iter->second) {
+                    filter->insert_batch(column, 1);
                 }
             }
         }
