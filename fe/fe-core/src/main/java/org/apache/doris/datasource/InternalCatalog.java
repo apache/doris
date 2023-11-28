@@ -2700,7 +2700,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (!Strings.isNullOrEmpty(hiveTable.getHiveProperties().get(HMSProperties.HIVE_VERSION))) {
             hiveConf.set(HMSProperties.HIVE_VERSION, hiveTable.getHiveProperties().get(HMSProperties.HIVE_VERSION));
         }
-        PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
+        PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, null, 1);
         if (!client.tableExists(hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
         }

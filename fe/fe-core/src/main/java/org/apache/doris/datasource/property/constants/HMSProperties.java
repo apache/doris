@@ -27,6 +27,7 @@ public class HMSProperties {
     public static final String HIVE_VERSION = "hive.version";
     // required
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
+    public static final String HIVE_META_TYPE = "hive_meta_type";
     public static final List<String> REQUIRED_FIELDS = Collections.singletonList(HMSProperties.HIVE_METASTORE_URIS);
 
 }

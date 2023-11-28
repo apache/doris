@@ -21,10 +21,8 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
-import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
-import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
@@ -34,11 +32,9 @@ import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
-import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.LockComponentBuilder;
 import org.apache.hadoop.hive.metastore.LockRequestBuilder;
-import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
@@ -78,18 +74,23 @@ public class PooledHiveMetaStoreClient {
     private final int poolSize;
     private final HiveConf hiveConf;
 
-    public PooledHiveMetaStoreClient(HiveConf hiveConf, int pooSize) {
-        Preconditions.checkArgument(pooSize > 0, pooSize);
-        hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
-                String.valueOf(Config.hive_metastore_client_timeout_second));
+    private final JdbcClientConfig jdbcClientConfig;
+
+    public PooledHiveMetaStoreClient(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, int poolSize) {
+        Preconditions.checkArgument(poolSize > 0, poolSize);
+        if (hiveConf != null) {
+            hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+                    String.valueOf(Config.hive_metastore_client_timeout_second));
+        }
         this.hiveConf = hiveConf;
-        this.poolSize = pooSize;
+        this.jdbcClientConfig = jdbcClientConfig;
+        this.poolSize = poolSize;
     }
 
     public List<String> getAllDatabases() {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getAllDatabases();
+                return client.getAllDatabases();
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -102,7 +103,7 @@ public class PooledHiveMetaStoreClient {
     public List<String> getAllTables(String dbName) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getAllTables(dbName);
+                return client.getAllTables(dbName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -115,7 +116,7 @@ public class PooledHiveMetaStoreClient {
     public boolean tableExists(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.tableExists(dbName, tblName);
+                return client.tableExists(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -134,7 +135,7 @@ public class PooledHiveMetaStoreClient {
         short limited = max <= Short.MAX_VALUE ? (short) max : MAX_LIST_PARTITION_NUM;
         try (CachedClient client = getClient()) {
             try {
-                return client.client.listPartitionNames(dbName, tblName, limited);
+                return client.listPartitionNames(dbName, tblName, limited);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -147,7 +148,7 @@ public class PooledHiveMetaStoreClient {
     public Partition getPartition(String dbName, String tblName, List<String> partitionValues) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getPartition(dbName, tblName, partitionValues);
+                return client.getPartition(dbName, tblName, partitionValues);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -161,7 +162,7 @@ public class PooledHiveMetaStoreClient {
     public List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getPartitionsByNames(dbName, tblName, partitionNames);
+                return client.getPartitionsByNames(dbName, tblName, partitionNames);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -172,24 +173,10 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
-    public List<Partition> getPartitionsByFilter(String dbName, String tblName, String filter) {
-        try (CachedClient client = getClient()) {
-            try {
-                return client.client.listPartitionsByFilter(dbName, tblName, filter, MAX_LIST_PARTITION_NUM);
-            } catch (Exception e) {
-                client.setThrowable(e);
-                throw e;
-            }
-        } catch (Exception e) {
-            throw new HMSClientException("failed to get partition by filter for table %s in db %s", e, tblName,
-                    dbName);
-        }
-    }
-
     public Database getDatabase(String dbName) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getDatabase(dbName);
+                return client.getDatabase(dbName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -202,7 +189,7 @@ public class PooledHiveMetaStoreClient {
     public Table getTable(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getTable(dbName, tblName);
+                return client.getTable(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -215,7 +202,7 @@ public class PooledHiveMetaStoreClient {
     public List<FieldSchema> getSchema(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getSchema(dbName, tblName);
+                return client.getSchema(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -228,7 +215,7 @@ public class PooledHiveMetaStoreClient {
     public List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName, List<String> columns) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getTableColumnStatistics(dbName, tblName, columns);
+                return client.getTableColumnStatistics(dbName, tblName, columns);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -242,7 +229,7 @@ public class PooledHiveMetaStoreClient {
             String dbName, String tblName, List<String> partNames, List<String> columns) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);
+                return client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -255,7 +242,7 @@ public class PooledHiveMetaStoreClient {
     public CurrentNotificationEventId getCurrentNotificationEventId() {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getCurrentNotificationEventId();
+                return client.getCurrentNotificationEventId();
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -273,7 +260,7 @@ public class PooledHiveMetaStoreClient {
             throws MetastoreNotificationFetchException {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.getNextNotification(lastEventId, maxEvents, filter);
+                return client.getNextNotification(lastEventId, maxEvents, filter);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -289,7 +276,7 @@ public class PooledHiveMetaStoreClient {
     public long openTxn(String user) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.openTxn(user);
+                return client.openTxn(user);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -302,7 +289,7 @@ public class PooledHiveMetaStoreClient {
     public void commitTxn(long txnId) {
         try (CachedClient client = getClient()) {
             try {
-                client.client.commitTxn(txnId);
+                client.commitTxn(txnId);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -322,7 +309,7 @@ public class PooledHiveMetaStoreClient {
         try (CachedClient client = getClient()) {
             LockResponse response;
             try {
-                response = client.client.lock(request.build());
+                response = client.lock(request.build());
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -352,8 +339,8 @@ public class PooledHiveMetaStoreClient {
                 // Pass currentTxn as 0L to get the recent snapshot of valid transactions in Hive
                 // Do not pass currentTransactionId instead as it will break Hive's listing of delta directories if major compaction
                 // deletes delta directories for valid transactions that existed at the time transaction is opened
-                ValidTxnList validTransactions = client.client.getValidTxns();
-                List<TableValidWriteIds> tableValidWriteIdsList = client.client.getValidWriteIds(
+                ValidTxnList validTransactions = client.getValidTxns();
+                List<TableValidWriteIds> tableValidWriteIdsList = client.getValidWriteIds(
                         Collections.singletonList(fullTableName), validTransactions.toString());
                 if (tableValidWriteIdsList.size() != 1) {
                     throw new Exception("tableValidWriteIdsList's size should be 1");
@@ -377,7 +364,7 @@ public class PooledHiveMetaStoreClient {
     private LockResponse checkLock(long lockId) {
         try (CachedClient client = getClient()) {
             try {
-                return client.client.checkLock(lockId);
+                return client.checkLock(lockId);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -411,67 +398,28 @@ public class PooledHiveMetaStoreClient {
         return builder.build();
     }
 
-    public void heartbeatForTxn(long txnId) {
-        try (CachedClient client = getClient()) {
-            try {
-                client.client.heartbeat(txnId, txnId);
-            } catch (Exception e) {
-                client.setThrowable(e);
-                throw e;
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("failed to do heartbeat for transaction " + txnId, e);
-        }
-    }
-
-    private class CachedClient implements AutoCloseable {
-        private final IMetaStoreClient client;
-        private volatile Throwable throwable;
-
-        private CachedClient(HiveConf hiveConf) throws MetaException {
-            String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
-            if (HMSProperties.DLF_TYPE.equalsIgnoreCase(type)) {
-                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                        ProxyMetaStoreClient.class.getName());
-            } else if (HMSProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
-                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                        AWSCatalogMetastoreClient.class.getName());
-            } else {
-                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                        HiveMetaStoreClient.class.getName());
-            }
-        }
-
-        public void setThrowable(Throwable throwable) {
-            this.throwable = throwable;
-        }
-
-        @Override
-        public void close() throws Exception {
-            synchronized (clientPool) {
-                if (throwable != null || clientPool.size() > poolSize) {
-                    client.close();
-                } else {
-                    clientPool.offer(this);
-                }
-            }
-        }
-    }
-
-    private CachedClient getClient() throws MetaException {
+    private CachedClient getClient() throws Exception {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
             synchronized (clientPool) {
                 CachedClient client = clientPool.poll();
                 if (client == null) {
-                    return new CachedClient(hiveConf);
+                    return CachedClientFactory.createCachedClient(this, hiveConf, jdbcClientConfig);
                 }
                 return client;
             }
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
         }
+    }
+
+    public Queue<CachedClient> getClientPool() {
+        return clientPool;
+    }
+
+    public int getPoolSize() {
+        return poolSize;
     }
 }
 
