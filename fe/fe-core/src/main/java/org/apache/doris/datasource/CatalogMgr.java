@@ -795,9 +795,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return ((ExternalCatalog) catalog).tableExistInLocal(dbName, tableName);
     }
 
-    public void createExternalTableFromEvent(String dbName, String tableName, String catalogName,
-            boolean ignoreIfExists)
-            throws DdlException {
+    public void createExternalTableFromEvent(String dbName, String tableName,
+                                             String catalogName, boolean ignoreIfExists) throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -822,6 +821,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         long tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
+        // -1 means it will be dropped later, ignore
+        if (tblId == -1L) {
+            return;
+        }
+
         db.writeLock();
         try {
             ((HMSExternalDatabase) db).createTable(tableName, tblId);
@@ -868,6 +872,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         long dbId = Env.getCurrentEnv().getExternalMetaIdMgr().getDbId(catalog.getId(), dbName);
+        // -1 means it will be dropped later, ignore
+        if (dbId == -1L) {
+            return;
+        }
+
         ((HMSExternalCatalog) catalog).createDatabase(dbId, dbName);
     }
 

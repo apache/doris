@@ -28,6 +28,14 @@ import java.util.Map;
 import javax.annotation.Nullable;
 import javax.validation.constraints.NotNull;
 
+/**
+ * <pre>
+ * ExternalMetaIdMgr is responsible for managing external meta ids.
+ * Now it just manages the external meta ids of hms events,
+ * but it will be extended to manage other external meta ids in the future.
+ * </pre>
+ * TODO: remove InitCatalogLog and InitDatabaseLog, manage external meta ids at ExternalMetaIdMgr
+ */
 public class ExternalMetaIdMgr {
 
     private static final Logger LOG = LogManager.getLogger(ExternalMetaIdMgr.class);
@@ -41,6 +49,7 @@ public class ExternalMetaIdMgr {
         return Env.getCurrentEnv().getNextId();
     }
 
+    // return the db id of the specified db, -1 means not exists
     public long getDbId(long catalogId, String dbName) {
         DbMetaIdMgr dbMetaIdMgr = getDbMetaIdMgr(catalogId, dbName);
         if (dbMetaIdMgr == null) {
@@ -49,6 +58,7 @@ public class ExternalMetaIdMgr {
         return dbMetaIdMgr.dbId;
     }
 
+    // return the tbl id of the specified tbl, -1 means not exists
     public long getTblId(long catalogId, String dbName, String tblName) {
         TblMetaIdMgr tblMetaIdMgr = getTblMetaIdMgr(catalogId, dbName, tblName);
         if (tblMetaIdMgr == null) {
@@ -57,6 +67,7 @@ public class ExternalMetaIdMgr {
         return tblMetaIdMgr.tblId;
     }
 
+    // return the partition id of the specified partition, -1 means not exists
     public long getPartitionId(long catalogId, String dbName,
                                String tblName, String partitionName) {
         PartitionMetaIdMgr partitionMetaIdMgr = getPartitionMetaIdMgr(catalogId, dbName, tblName, partitionName);
@@ -106,6 +117,7 @@ public class ExternalMetaIdMgr {
         }
     }
 
+    // no lock because the operations is serialized currently
     private void handleMetaIdMapping(MetaIdMappingsLog.MetaIdMapping mapping, CtlMetaIdMgr ctlMetaIdMgr) {
         MetaIdMappingsLog.OperationType opType = MetaIdMappingsLog.getOperationType(mapping.getOpType());
         MetaIdMappingsLog.MetaObjectType objType = MetaIdMappingsLog.getMetaObjectType(mapping.getMetaObjType());
@@ -117,6 +129,7 @@ public class ExternalMetaIdMgr {
             case DELETE:
                 handleDelMetaIdMapping(mapping, ctlMetaIdMgr, objType);
                 break;
+
             default:
                 break;
         }
@@ -131,12 +144,14 @@ public class ExternalMetaIdMgr {
             case DATABASE:
                 ctlMetaIdMgr.dbNameToMgr.remove(mapping.getDbName());
                 break;
+
             case TABLE:
                 dbMetaIdMgr = ctlMetaIdMgr.dbNameToMgr.get(mapping.getDbName());
                 if (dbMetaIdMgr != null) {
                     dbMetaIdMgr.tblNameToMgr.remove(mapping.getTblName());
                 }
                 break;
+
             case PARTITION:
                 dbMetaIdMgr = ctlMetaIdMgr.dbNameToMgr.get(mapping.getDbName());
                 if (dbMetaIdMgr != null) {
@@ -146,6 +161,7 @@ public class ExternalMetaIdMgr {
                     }
                 }
                 break;
+
             default:
                 break;
         }
@@ -161,12 +177,14 @@ public class ExternalMetaIdMgr {
                 ctlMetaIdMgr.dbNameToMgr.put(mapping.getDbName(),
                             new DbMetaIdMgr(mapping.getId(), mapping.getDbName()));
                 break;
+
             case TABLE:
                 dbMetaIdMgr = ctlMetaIdMgr.dbNameToMgr
                             .computeIfAbsent(mapping.getDbName(), DbMetaIdMgr::new);
                 dbMetaIdMgr.tblNameToMgr.put(mapping.getTblName(),
                             new TblMetaIdMgr(mapping.getId(), mapping.getTblName()));
                 break;
+
             case PARTITION:
                 dbMetaIdMgr = ctlMetaIdMgr.dbNameToMgr
                             .computeIfAbsent(mapping.getDbName(), DbMetaIdMgr::new);
@@ -175,6 +193,7 @@ public class ExternalMetaIdMgr {
                 tblMetaIdMgr.partitionNameToMgr.put(mapping.getPartitionName(),
                             new PartitionMetaIdMgr(mapping.getId(), mapping.getPartitionName()));
                 break;
+
             default:
                 break;
         }
