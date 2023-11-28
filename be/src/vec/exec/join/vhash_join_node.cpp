@@ -728,11 +728,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     // make one block for each 4 gigabytes
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
-    if (_has_null_in_build_side) {
-        // TODO: if _has_null_in_build_side is true we should finish current pipeline task.
-        DCHECK(state->enable_pipeline_exec());
-        return Status::OK();
-    }
     if (_should_build_hash_table) {
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from probe side.
