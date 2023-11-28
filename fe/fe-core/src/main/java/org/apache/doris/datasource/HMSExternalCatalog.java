@@ -252,14 +252,19 @@ public class HMSExternalCatalog extends ExternalCatalog {
             return null;
         }
 
-        // Check if the lastSyncedEventId of slave FE is lower than masterLastSyncedEventId
-        if (!Env.getCurrentEnv().isMaster() && lastSyncedEventId >= masterLastSyncedEventId) {
-            return null;
+        int maxEventSize;
+        if (!Env.getCurrentEnv().isMaster()) {
+            // return if lastSyncedEventId of slave FE is lower than masterLastSyncedEventId
+            if (lastSyncedEventId == masterLastSyncedEventId) {
+                 return null;
+            }
+            // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
+            maxEventSize = Math.min((int) (masterLastSyncedEventId - lastSyncedEventId),
+                        Config.hms_events_batch_size_per_rpc);
+        } else {
+            maxEventSize = Config.hms_events_batch_size_per_rpc;
         }
 
-        // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
-        int maxEventSize = Env.getCurrentEnv().isMaster() ? Config.hms_events_batch_size_per_rpc
-                    : (int) (masterLastSyncedEventId - lastSyncedEventId);
         try {
             return client.getNextNotification(lastSyncedEventId, maxEventSize, null);
         } catch (MetastoreNotificationFetchException e) {
