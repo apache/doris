@@ -724,6 +724,21 @@ public class AnalysisManager implements Writable {
         StatisticsRepository.dropStatistics(tblId, cols);
     }
 
+    public void dropStats(TableIf table) throws DdlException {
+        TableStatsMeta tableStats = findTableStatsStatus(table.getId());
+        if (tableStats == null) {
+            return;
+        }
+        Set<String> cols = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+        for (String col : cols) {
+            tableStats.removeColumn(col);
+            Env.getCurrentEnv().getStatisticsCache().invalidate(table.getId(), -1L, col);
+        }
+        tableStats.updatedTime = 0;
+        logCreateTableStats(tableStats);
+        StatisticsRepository.dropStatistics(table.getId(), cols);
+    }
+
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
         Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalysisJobStmt.jobId);
         if (analysisTaskMap == null) {

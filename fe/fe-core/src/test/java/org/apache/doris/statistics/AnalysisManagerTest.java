@@ -409,7 +409,6 @@ public class AnalysisManagerTest {
                 .setColToPartitions(new HashMap<>()).setColName("col1").build(), olapTable);
         stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
-
     }
 
     @Test

@@ -522,8 +522,7 @@ public class StatisticsUtil {
      *
      * @param updatedRows The number of rows updated by the table
      * @param totalRows The current number of rows in the table
-     *         the healthier the statistics of the table
-     * @return Health, the value range is [0, 100], the larger the value,
+     * @return Health, the value range is [0, 100], the larger the value, the healthier the statistics of the table.
      */
     public static int getTableHealth(long totalRows, long updatedRows) {
         if (updatedRows >= totalRows) {
