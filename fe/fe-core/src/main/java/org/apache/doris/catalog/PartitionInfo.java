@@ -116,6 +116,16 @@ public class PartitionInfo implements Writable {
         }
     }
 
+    /**
+     * @return both normal partition and temp partition
+     */
+    public Map<Long, PartitionItem> getAllPartitions() {
+        HashMap all = new HashMap<>();
+        all.putAll(idToTempItem);
+        all.putAll(idToItem);
+        return all;
+    }
+
     public PartitionItem getItem(long partitionId) {
         PartitionItem item = idToItem.get(partitionId);
         if (item == null) {
