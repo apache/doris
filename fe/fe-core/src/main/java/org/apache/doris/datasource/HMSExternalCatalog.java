@@ -23,6 +23,7 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.HMSCachedClient;
@@ -61,6 +62,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // Must set to -1 otherwise client.getNextNotification will throw exception
     // Reference to https://github.com/apDdlache/doris/issues/18251
     private long lastSyncedEventId = -1L;
+    private volatile long masterLastSyncedEventId = -1L;
     public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     // broker name for file split and query scan.
@@ -195,13 +197,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
             hmsExternalDatabase.getTables().forEach(table -> names.add(table.getName()));
             return names;
         } else {
-            return client.getAllTables(getRealTableName(dbName));
+            return client.getAllTables(ClusterNamespace.getNameFromFullName(dbName));
         }
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        return client.tableExists(getRealTableName(dbName), tblName);
+        return client.tableExists(ClusterNamespace.getNameFromFullName(dbName), tblName);
     }
 
     @Override
@@ -211,7 +213,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (hmsExternalDatabase == null) {
             return false;
         }
-        return hmsExternalDatabase.getTable(getRealTableName(tblName)).isPresent();
+        return hmsExternalDatabase.getTable(ClusterNamespace.getNameFromFullName(tblName)).isPresent();
     }
 
     public HMSCachedClient getClient() {
@@ -221,6 +223,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public void setLastSyncedEventId(long lastSyncedEventId) {
         this.lastSyncedEventId = lastSyncedEventId;
+    }
+
+    public void setMasterLastSyncedEventId(long lastSyncedEventId) {
+        this.masterLastSyncedEventId = lastSyncedEventId;
     }
 
     public NotificationEventResponse getNextEventResponse(HMSExternalCatalog hmsExternalCatalog)
@@ -239,15 +245,23 @@ public class HMSExternalCatalog extends ExternalCatalog {
             return null;
         }
 
-        LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {},lastSyncedEventId is {}",
+        LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {}, lastSyncedEventId is {}",
                 hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
         if (currentEventId == lastSyncedEventId) {
             LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
             return null;
         }
 
+        // Check if the lastSyncedEventId of slave FE is lower than masterLastSyncedEventId
+        if (!Env.getCurrentEnv().isMaster() && lastSyncedEventId >= masterLastSyncedEventId) {
+            return null;
+        }
+
+        // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
+        int maxEventSize = Env.getCurrentEnv().isMaster() ? Config.hms_events_batch_size_per_rpc
+                    : (int) (masterLastSyncedEventId - lastSyncedEventId);
         try {
-            return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+            return client.getNextNotification(lastSyncedEventId, maxEventSize, null);
         } catch (MetastoreNotificationFetchException e) {
             // Need a fallback to handle this because this error state can not be recovered until restarting FE
             if (StringUtils.isNotEmpty(e.getMessage())
@@ -281,7 +295,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void dropDatabaseForReplay(String dbName) {
+    public void dropDatabase(String dbName) {
         LOG.debug("drop database [{}]", dbName);
         Long dbId = dbNameToId.remove(dbName);
         if (dbId == null) {
@@ -291,7 +305,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void createDatabaseForReplay(long dbId, String dbName) {
+    public void createDatabase(long dbId, String dbName) {
         LOG.debug("create database [{}]", dbName);
         dbNameToId.put(dbName, dbId);
         ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);

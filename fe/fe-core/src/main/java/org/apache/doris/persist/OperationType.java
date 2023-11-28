@@ -286,12 +286,19 @@ public class OperationType {
     @Deprecated
     public static final short OP_ALTER_MTMV_STMT = 345;
 
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_TABLE = 350;
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_DB = 351;
+    @Deprecated
     public static final short OP_CREATE_EXTERNAL_TABLE = 352;
+    @Deprecated
     public static final short OP_CREATE_EXTERNAL_DB = 353;
+    @Deprecated
     public static final short OP_ADD_EXTERNAL_PARTITIONS = 354;
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_PARTITIONS = 355;
+    @Deprecated
     public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
 
     public static final short OP_ALTER_USER = 400;
@@ -354,6 +361,8 @@ public class OperationType {
     public static final short OP_ALTER_REPOSITORY = 460;
 
     public static final short OP_INSERT_OVERWRITE = 461;
+
+    public static final short OP_ADD_META_ID_MAPPINGS = 462;
 
     /**
      * Get opcode name by op code.

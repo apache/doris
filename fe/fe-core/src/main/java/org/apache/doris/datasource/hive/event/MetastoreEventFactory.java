@@ -18,7 +18,10 @@
 
 package org.apache.doris.datasource.hive.event;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.MetaIdMappingsLog;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -71,29 +74,76 @@ public class MetastoreEventFactory implements EventFactory {
         }
     }
 
-    List<MetastoreEvent> getMetastoreEvents(List<NotificationEvent> events, HMSExternalCatalog hmsExternalCatalog) {
+    List<MetastoreEvent> getMetastoreEvents(List<NotificationEvent> events,
+                                            HMSExternalCatalog hmsExternalCatalog,
+                                            boolean isMaster) {
         List<MetastoreEvent> metastoreEvents = Lists.newArrayList();
         String catalogName = hmsExternalCatalog.getName();
         for (NotificationEvent event : events) {
             metastoreEvents.addAll(transferNotificationEventToMetastoreEvents(event, catalogName));
         }
-        return createBatchEvents(catalogName, metastoreEvents);
+        List<MetastoreEvent> mergedEvents = mergeEvents(catalogName, metastoreEvents);
+        if (isMaster) {
+            logMetaIdMappings(hmsExternalCatalog.getId(), events.get(events.size() - 1).getEventId(), mergedEvents);
+        }
+        return mergedEvents;
+    }
+
+    private void logMetaIdMappings(long catalogId, long lastSyncedEventId, List<MetastoreEvent> mergedEvents) {
+        MetaIdMappingsLog log = new MetaIdMappingsLog();
+        log.setCatalogId(catalogId);
+        log.setFromHmsEvent(true);
+        log.setLastSyncedEventId(lastSyncedEventId);
+        for (MetastoreEvent event : mergedEvents) {
+            switch (event.getEventType()) {
+                case CREATE_DATABASE:
+                    log.addFromCreateDatabaseEvent(event.dbName, ExternalMetaIdMgr.nextMetaId());
+                    break;
+                case DROP_DATABASE:
+                    log.addFromDropDatabaseEvent(event.dbName);
+                    break;
+                case CREATE_TABLE:
+                    log.addFromCreateTableEvent(event.dbName, event.tblName, ExternalMetaIdMgr.nextMetaId());
+                    break;
+                case DROP_TABLE:
+                    log.addFromDropTableEvent(event.dbName, event.tblName);
+                    break;
+                case ADD_PARTITION:
+                    AddPartitionEvent addPartitionEvent = (AddPartitionEvent) event;
+                    for (String partitionName : addPartitionEvent.getAllPartitionNames()) {
+                        log.addFromAddPartitionEvent(event.dbName, event.tblName,
+                                    partitionName, ExternalMetaIdMgr.nextMetaId());
+                    }
+                    break;
+                case DROP_PARTITION:
+                    DropPartitionEvent dropPartitionEvent = (DropPartitionEvent) event;
+                    for (String partitionName : dropPartitionEvent.getAllPartitionNames()) {
+                        log.addFromDropPartitionEvent(event.dbName, event.tblName, partitionName);
+                    }
+                    break;
+                default:
+                    // do nothing
+                    break;
+            }
+        }
+        Env.getCurrentEnv().getExternalMetaIdMgr().replayMetaIdMappingsLog(log);
+        Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
     }
 
     /**
      * Merge events to reduce the cost time on event processing, currently mainly handles MetastoreTableEvent
      * because merge MetastoreTableEvent is simple and cost-effective.
      * For example, consider there are some events as following:
-     *
+     * <pre>
      *    event1: alter table db1.t1 add partition p1;
      *    event2: alter table db1.t1 drop partition p2;
      *    event3: alter table db1.t2 add partition p3;
      *    event4: alter table db2.t3 rename to t4;
      *    event5: drop table db1.t1;
-     *
+     * </pre>
      * Only `event3 event4 event5` will be reserved and other events will be skipped.
      * */
-    public List<MetastoreEvent> createBatchEvents(String catalogName, List<MetastoreEvent> events) {
+    public List<MetastoreEvent> mergeEvents(String catalogName, List<MetastoreEvent> events) {
         List<MetastoreEvent> eventsCopy = Lists.newArrayList(events);
         Map<MetastoreTableEvent.TableKey, List<Integer>> indexMap = Maps.newLinkedHashMap();
         for (int i = 0; i < events.size(); i++) {
