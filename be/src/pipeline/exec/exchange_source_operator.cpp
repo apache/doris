@@ -43,6 +43,30 @@ bool ExchangeSourceOperator::is_pending_finish() const {
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<>(state, parent), num_rows_skipped(0), is_ready(false) {}
 
+std::string ExchangeLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}",
+                   PipelineXLocalState<>::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", Queues: (");
+    const auto& queues = stream_recvr->sender_queues();
+    for (size_t i = 0; i < queues.size(); i++) {
+        fmt::format_to(debug_string_buffer,
+                       "No. {} queue: (_num_remaining_senders = {}, block_queue size = {})", i,
+                       queues[i]->_num_remaining_senders, queues[i]->_block_queue.size());
+    }
+    fmt::format_to(debug_string_buffer, ")");
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string ExchangeSourceOperatorX::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}",
+                   OperatorX<ExchangeLocalState>::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", Info: (_num_senders = {}, _is_merging = {})",
+                   _num_senders, _is_merging);
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     SCOPED_TIMER(exec_time_counter());

@@ -518,6 +518,15 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status)
     return final_st;
 }
 
+std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}",
+                   PipelineXSinkLocalState<>::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", Sink Buffer: (_should_stop = {}, _busy_channels = {})",
+                   _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load());
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();

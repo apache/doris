@@ -60,6 +60,7 @@ class RuntimeState;
 namespace pipeline {
 struct ExchangeDataDependency;
 class LocalExchangeChannelDependency;
+class ExchangeLocalState;
 } // namespace pipeline
 
 namespace vectorized {
@@ -235,6 +236,7 @@ public:
     }
 
 protected:
+    friend class pipeline::ExchangeLocalState;
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
     // Not managed by this class

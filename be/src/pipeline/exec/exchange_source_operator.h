@@ -67,6 +67,7 @@ class ExchangeLocalState final : public PipelineXLocalState<> {
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Dependency* dependency() override { return source_dependency.get(); }
+    std::string debug_string(int indentation_level) const override;
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
@@ -88,6 +89,8 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
+
+    std::string debug_string(int indentation_level = 0) const override;
 
     Status close(RuntimeState* state) override;
     [[nodiscard]] bool is_source() const override { return true; }

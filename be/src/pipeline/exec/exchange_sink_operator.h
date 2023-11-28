@@ -186,6 +186,7 @@ public:
 
     std::string id_name() override;
     segment_v2::CompressionTypePB& compression_type();
+    std::string debug_string(int indentation_level) const override;
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
