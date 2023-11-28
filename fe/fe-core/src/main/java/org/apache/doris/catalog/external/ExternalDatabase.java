@@ -24,10 +24,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
@@ -35,11 +37,13 @@ import org.apache.doris.qe.MasterCatalogExecutor;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -54,18 +58,24 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * @param <T> External table type is ExternalTable or its subclass.
  */
 public abstract class ExternalDatabase<T extends ExternalTable>
-            implements DatabaseIf<T> {
+            implements DatabaseIf<T>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
+    @SerializedName(value = "id")
     protected long id;
+    @SerializedName(value = "name")
     protected String name;
+    @SerializedName(value = "dbProperties")
     protected DatabaseProperty dbProperties = new DatabaseProperty();
+    @SerializedName(value = "initialized")
     protected boolean initialized = false;
     // Cache of table name to table id.
     protected Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+    @SerializedName(value = "idToTbl")
     protected Map<Long, T> idToTbl = Maps.newConcurrentMap();
+    @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
     protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
@@ -313,10 +323,24 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         this.lastUpdateTime = lastUpdateTime;
     }
 
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
     @SuppressWarnings("rawtypes")
     public static ExternalDatabase read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalDatabase.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        tableNameToId = Maps.newConcurrentMap();
+        for (T tbl : idToTbl.values()) {
+            tableNameToId.put(tbl.getName(), tbl.getId());
+        }
+        rwLock = new ReentrantReadWriteLock(true);
     }
 
     @Override
