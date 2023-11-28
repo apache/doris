@@ -333,9 +333,6 @@ Status PipelineXTask::close(Status exec_status) {
 
 std::string PipelineXTask::debug_string() {
     std::unique_lock<std::mutex> lc(_release_lock);
-    if (_finished) {
-        return "ALREADY FINISHED";
-    }
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
@@ -356,6 +353,9 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "\n{}",
                    _opened ? _sink->debug_string(_state, _operators.size())
                            : _sink->debug_string(_operators.size()));
+    if (_finished) {
+        return fmt::to_string(debug_string_buffer);
+    }
     fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
     size_t i = 0;
     for (; i < _read_dependencies.size(); i++) {
