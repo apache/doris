@@ -70,7 +70,9 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
                         std::to_string(_push_req.tablet_id)));
 }
 
-EngineBatchLoadTask::~EngineBatchLoadTask() {}
+EngineBatchLoadTask::~EngineBatchLoadTask() {
+
+}
 
 Status EngineBatchLoadTask::execute() {
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -209,6 +211,7 @@ Status EngineBatchLoadTask::_process() {
                 // Check file size
                 uint64_t local_file_size = std::filesystem::file_size(_local_file_path);
                 if (file_size != local_file_size) {
+                    LOG(INFO) << "ping an debug download_file error: " << file_size << ", " << local_file_size;
                     return Status::InternalError(
                             "download_file size error. file_size={}, local_file_size={}", file_size,
                             local_file_size);
@@ -231,12 +234,12 @@ Status EngineBatchLoadTask::_process() {
             if (_push_req.__isset.http_file_size) {
                 rate = (double)_push_req.http_file_size / (cost / 1000 / 1000 / 1000) / 1024;
             }
-            LOG(INFO) << "succeed to download file. local_file=" << _local_file_path
+            LOG(INFO) << "ping an debug succeed to download file. local_file=" << _local_file_path
                       << ", remote_file=" << _remote_file_path << ", tablet_id"
                       << _push_req.tablet_id << ", cost=" << cost / 1000 << "us, file_size"
                       << _push_req.http_file_size << ", download rage:" << rate << "KB/s";
         } else {
-            LOG(WARNING) << "download file failed. remote_file=" << _remote_file_path
+            LOG(INFO) << "ping an debug download file failed. remote_file=" << _remote_file_path
                          << ", tablet=" << _push_req.tablet_id << ", cost=" << cost / 1000
                          << "us, is_timeout=" << is_timeout;
         }
@@ -247,7 +250,7 @@ Status EngineBatchLoadTask::_process() {
         time_t push_begin = time(nullptr);
         status = _push(_push_req, _tablet_infos);
         time_t push_finish = time(nullptr);
-        LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
+        LOG(INFO) << "ping an debug Push finish, cost time: " << (push_finish - push_begin) << "s, local_file:" << _local_file_path;
         if (status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             status = Status::OK();
         }
@@ -294,12 +297,12 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
     }
 
     if (!res.ok()) {
-        LOG(WARNING) << "failed to push delta, transaction_id=" << request.transaction_id
+        LOG(WARNING) << "ping an debug failed to push delta, transaction_id=" << request.transaction_id
                      << ", tablet=" << tablet->full_name()
                      << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
         DorisMetrics::instance()->push_requests_fail_total->increment(1);
     } else {
-        LOG(INFO) << "succeed to push delta, transaction_id=" << request.transaction_id
+        LOG(INFO) << "ping an debug succeed to push delta, transaction_id=" << request.transaction_id
                   << ", tablet=" << tablet->full_name()
                   << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
         DorisMetrics::instance()->push_requests_success_total->increment(1);

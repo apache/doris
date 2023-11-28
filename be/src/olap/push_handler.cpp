@@ -96,7 +96,7 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
             StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
             tablet_info_vec->push_back(tablet_info);
         }
-        LOG(INFO) << "process realtime push successfully. "
+        LOG(INFO) << "ping an debug process realtime push successfully. "
                   << "tablet=" << tablet->full_name() << ", partition_id=" << request.partition_id
                   << ", transaction_id=" << request.transaction_id;
     }
@@ -172,7 +172,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // writes
     res = _convert_v2(tablet, &rowset_to_add, tablet_schema, push_type);
     if (!res.ok()) {
-        LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
+        LOG(WARNING) << "ping an debug fail to convert tmp file when realtime push. res=" << res
                      << ", failed to process realtime push."
                      << ", tablet=" << tablet->full_name()
                      << ", transaction_id=" << request.transaction_id;
@@ -266,8 +266,16 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
 
             // 4. Read data from broker and write into cur_tablet
             VLOG_NOTICE << "start to convert etl file to delta.";
+
+            int64_t _start = MonotonicNanos();
+            int64_t _read_start = 0;
+            int64_t _read_end = 0;
+            int64_t _add_block_start = 0;
+            int64_t _add_block_end = 0;
             while (!reader->eof()) {
+                _read_start = MonotonicNanos();
                 res = reader->next(&block);
+                _read_end += MonotonicNanos() - _read_start;
                 if (!res.ok()) {
                     LOG(WARNING) << "read next row failed."
                                  << " res=" << res << " read_rows=" << num_rows;
@@ -276,18 +284,23 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
                     if (reader->eof()) {
                         break;
                     }
+                    _add_block_start = MonotonicNanos();
                     if (!(res = rowset_writer->add_block(&block))) {
                         LOG(WARNING) << "fail to attach block to rowset_writer. "
                                      << "res=" << res << ", tablet=" << cur_tablet->full_name()
                                      << ", read_rows=" << num_rows;
                         break;
                     }
+                    _add_block_end += MonotonicNanos() - _add_block_start;
                     num_rows++;
                 }
             }
-
             reader->print_profile();
             reader->close();
+            int64_t _end = MonotonicNanos() - _start;
+            LOG(INFO) << "ping an debug in convert tablet=" << cur_tablet->full_name() << ", file path=" << path
+                      << ", file size=" << _request.broker_scan_range.ranges[0].file_size
+                      << ", total=" << _end / 1000 << "us, read=" << _read_end << "us, add=" << _add_block_end << "us";
         }
 
         if (rowset_writer->flush() != Status::OK()) {

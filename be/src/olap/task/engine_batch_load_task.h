@@ -33,7 +33,7 @@ class TPushReq;
 class TTabletInfo;
 
 const uint32_t PUSH_MAX_RETRY = 1;
-const uint32_t MAX_RETRY = 3;
+const uint32_t MAX_RETRY = 1;
 const uint32_t DEFAULT_DOWNLOAD_TIMEOUT = 3600;
 
 class EngineBatchLoadTask : public EngineTask {
