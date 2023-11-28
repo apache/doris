@@ -255,7 +255,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         int maxEventSize;
         if (!Env.getCurrentEnv().isMaster()) {
             // return if lastSyncedEventId of slave FE is lower than masterLastSyncedEventId
-            if (lastSyncedEventId == masterLastSyncedEventId) {
+            if (lastSyncedEventId >= masterLastSyncedEventId) {
                 return null;
             }
             // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
