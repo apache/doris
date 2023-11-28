@@ -341,27 +341,22 @@ Status Lz4BlockDecompressor::init() {
     return Status::OK();
 }
 
-// hadoop-lz4 is not compatible with lz4 CLI.
-// hadoop-lz4 uses a block compression scheme based on LZ4. According to the Hadoop document
-// (BlockCompressorStream. Java and BlockDecompressorStream. Java), is divided into several
-// large chunk of input data. Each block contains the original length of the current block of
-// large data chunk, followed by one or more small data blocks prefixed by the compressed length of
-// the current small data block.
-// example:
-//
-// A large data chunk be divided into three small block  :
-// OriginDate:                 | small block1 | small block2 | small block3 |
+// Hadoop lz4codec source :
+// https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
+// Example:
+// OriginData(The original data will be divided into several large data block.) :
+//      large data chunk1 | large data chunk2 | large data chunk3 | ....
+// The large data chunk will be divided into several small data block.
+// Suppose a large data block is divided into three small blocks:
+// large data chunk1:            | small block1 | small block2 | small block3 |
 // CompressDate:   <A [B1 compress(small block1) ] [B2 compress(small block1) ] [B3 compress(small block1)]>
 //
-// A : original length of the current block of large data chunk. sizeof(A) = 4 bytes.
+// A : original length of the current block of large data chunk.
+// sizeof(A) = 4 bytes.
 // A = length(small block1) + length(small block2) + length(small block3)
-// Bx : length of  small data block bx. sizeof(Bx) = 4 bytes.
+// Bx : length of  small data block bx.
+// sizeof(Bx) = 4 bytes.
 // Bx = length(compress(small blockx))
-//
-// the hadoop lz4codec source code can be found here:
-// https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
-//
-// More details refer to https://issues.apache.org/jira/browse/HADOOP-12990
 Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
                                         uint8_t* output, size_t output_max_len,
                                         size_t* decompressed_len, bool* stream_end,
