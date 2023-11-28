@@ -59,7 +59,6 @@ import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SetVar.SetVarType;
 import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -151,7 +150,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
-import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -194,7 +192,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -279,7 +276,7 @@ public class StmtExecutor {
         this.profile = new Profile("Query", context.getSessionVariable().enableProfile());
     }
 
-    private static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
         if (cols.isEmpty()) {
             return null;
         }
@@ -292,9 +289,9 @@ public class StmtExecutor {
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
-                row.addColBuilder().setValue(expr.getStringValueForArray());
+                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForArray()));
             } else {
-                row.addColBuilder().setValue(expr.getStringValue());
+                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValue()));
             }
         }
         return row.build();
@@ -1830,7 +1827,7 @@ public class StmtExecutor {
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId())
                 .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
-                .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism);
+                .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism).setTrimDoubleQuotes(true);
         if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
             List<String> targetColumnNames = ((NativeInsertStmt) parsedStmt).getTargetColumnNames();
             if (targetColumnNames.contains(Column.SEQUENCE_COL) || targetColumnNames.contains(Column.DELETE_SIGN)) {
@@ -1896,59 +1893,12 @@ public class StmtExecutor {
             txnId = context.getTxnEntry().getTxnConf().getTxnId();
         } else if (insertStmt instanceof NativeInsertStmt && ((NativeInsertStmt) insertStmt).isGroupCommit()) {
             isGroupCommit = true;
-            if (Env.getCurrentEnv().getGroupCommitManager().isBlock(insertStmt.getTargetTable().getId())) {
-                String msg = "insert table " + insertStmt.getTargetTable().getId() + " is blocked on schema change";
-                LOG.info(msg);
-                throw new DdlException(msg);
-            }
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) insertStmt;
-            Backend backend = context.getInsertGroupCommit(insertStmt.getTargetTable().getId());
-            if (backend == null || !backend.isAlive() || backend.isDecommissioned()) {
-                List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-                if (allBackendIds.isEmpty()) {
-                    throw new DdlException("No alive backend");
-                }
-                Collections.shuffle(allBackendIds);
-                boolean find = false;
-                for (Long beId : allBackendIds) {
-                    backend = Env.getCurrentSystemInfo().getBackend(beId);
-                    if (!backend.isDecommissioned()) {
-                        context.setInsertGroupCommit(insertStmt.getTargetTable().getId(), backend);
-                        find = true;
-                        LOG.debug("choose new be {}", backend.getId());
-                        break;
-                    }
-                }
-                if (!find) {
-                    throw new DdlException("No suitable backend");
-                }
-            }
             int maxRetry = 3;
             for (int i = 0; i < maxRetry; i++) {
                 GroupCommitPlanner groupCommitPlanner = nativeInsertStmt.planForGroupCommit(context.queryId);
-                // handle rows
-                List<InternalService.PDataRow> rows = new ArrayList<>();
-                SelectStmt selectStmt = (SelectStmt) insertStmt.getQueryStmt();
-                if (selectStmt.getValueList() != null) {
-                    for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                        InternalService.PDataRow data = getRowStringValue(row);
-                        rows.add(data);
-                    }
-                } else {
-                    List<Expr> exprList = new ArrayList<>();
-                    for (Expr resultExpr : selectStmt.getResultExprs()) {
-                        if (resultExpr instanceof SlotRef) {
-                            exprList.add(((SlotRef) resultExpr).getDesc().getSourceExprs().get(0));
-                        } else {
-                            exprList.add(resultExpr);
-                        }
-                    }
-                    InternalService.PDataRow data = getRowStringValue(exprList);
-                    rows.add(data);
-                }
-                Future<PGroupCommitInsertResponse> future = groupCommitPlanner
-                        .executeGroupCommitInsert(context, rows);
-                PGroupCommitInsertResponse response = future.get();
+                List<InternalService.PDataRow> rows = groupCommitPlanner.getRows(nativeInsertStmt);
+                PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(context, rows);
                 TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
                 if (code == TStatusCode.DATA_QUALITY_ERROR) {
                     LOG.info("group commit insert failed. stmt: {}, backend id: {}, status: {}, "

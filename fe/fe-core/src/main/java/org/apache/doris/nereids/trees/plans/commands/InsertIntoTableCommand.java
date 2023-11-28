@@ -81,7 +81,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 
 /**
  * insert into select command implementation
@@ -400,8 +399,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
         GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner(physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), null, ctx.queryId());
-        Future<PGroupCommitInsertResponse> future = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
-        PGroupCommitInsertResponse response = future.get();
+        PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
         if (code == TStatusCode.DATA_QUALITY_ERROR) {
             LOG.info("group commit insert failed. query id: {}, backend id: {}, status: {}, "
