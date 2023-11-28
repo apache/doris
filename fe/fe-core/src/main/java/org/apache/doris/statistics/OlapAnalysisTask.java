@@ -31,10 +31,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.text.StringSubstitutor;
 
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -94,8 +92,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             // Get basic stats, including min and max.
             ResultRow basicStats = collectBasicStat(r);
             long rowCount = tbl.getRowCount();
-            String min = Base64.getEncoder().encodeToString(basicStats.get(0).getBytes(StandardCharsets.UTF_8));
-            String max = Base64.getEncoder().encodeToString(basicStats.get(1).getBytes(StandardCharsets.UTF_8));
+            String min = StatisticsUtil.encodeValue(basicStats, 0);
+            String max = StatisticsUtil.encodeValue(basicStats, 1);
 
             boolean limitFlag = false;
             long rowsToSample = pair.second;

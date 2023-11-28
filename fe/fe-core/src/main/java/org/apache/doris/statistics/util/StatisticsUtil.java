@@ -90,12 +90,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -935,6 +937,21 @@ public class StatisticsUtil {
             LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
         }
         return StatisticConstants.ANALYZE_TIMEOUT_IN_SEC;
+    }
+
+    public static String encodeValue(ResultRow row, int index) {
+        if (row == null || row.getValues().size() <= index) {
+            return "NULL";
+        }
+        return encodeString(row.get(index));
+    }
+
+    public static String encodeString(String value) {
+        if (value == null) {
+            return "NULL";
+        } else {
+            return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+        }
     }
 
 }
