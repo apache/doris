@@ -103,7 +103,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
      */
     public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
             PartitionInfo partitionInfo, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
-        return prune(partitionSlots, partitionPredicate, partitionInfo.getIdToItem(false), cascadesContext,
+        return prune(partitionSlots, partitionPredicate, partitionInfo.getAllPartitions(), cascadesContext,
                 partitionTableType);
     }
 
