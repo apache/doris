@@ -1060,9 +1060,12 @@ std::string PipelineXFragmentContext::debug_string() {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
             if (_tasks[j][i]->is_finished()) {
-                continue;
+                fmt::format_to(debug_string_buffer, "Task {}: {}\n", i,
+                               get_state_name(_tasks[j][i]->get_state()));
+            } else {
+                fmt::format_to(debug_string_buffer, "Task {}: {}\n", i,
+                               _tasks[j][i]->debug_string());
             }
-            fmt::format_to(debug_string_buffer, "Task {}: {}\n", i, _tasks[j][i]->debug_string());
         }
     }
 
