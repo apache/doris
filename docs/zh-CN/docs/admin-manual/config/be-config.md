@@ -754,6 +754,11 @@ BaseCompaction:546859:
 * 描述: load错误日志将在此时间后删除
 * 默认值: 48（h）
 
+#### `load_error_log_limit_bytes`
+
+* Description: load错误日志大小超过此值将被截断
+* 默认值: 209715200 (byte)
+
 #### `load_process_max_memory_limit_percent`
 
 * 描述: 单节点上所有的导入线程占据的内存上限比例
