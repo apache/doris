@@ -57,7 +57,7 @@ protected:
         RuntimeFilterContext(IRuntimeFilter* rf) : apply_mark(false), runtime_filter(rf) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark;
-        IRuntimeFilter* runtime_filter;
+        IRuntimeFilter* runtime_filter = nullptr;
     };
 
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
@@ -65,7 +65,7 @@ protected:
     std::vector<bool> _runtime_filter_ready_flag;
     std::mutex _rf_locks;
     phmap::flat_hash_set<VExprSPtr> _rf_vexpr_set;
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
 
 private:
     int32_t _filter_id;

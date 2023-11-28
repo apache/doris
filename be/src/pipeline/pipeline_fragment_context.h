@@ -201,8 +201,8 @@ protected:
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;
-    RuntimeProfile::Counter* _start_timer;
-    RuntimeProfile::Counter* _prepare_timer;
+    RuntimeProfile::Counter* _start_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     bool _is_fragment_instance_closed = false;
@@ -218,7 +218,7 @@ protected:
     // profile reporting-related
     report_status_callback _report_status_cb;
 
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
 
 private:
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);

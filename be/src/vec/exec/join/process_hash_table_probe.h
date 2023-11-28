@@ -92,7 +92,7 @@ struct ProcessHashTableProbe {
     Status process_data_in_hashtable(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
                                      Block* output_block, bool* eos);
 
-    Parent* _parent;
+    Parent* _parent = nullptr;
     const int _batch_size;
     std::shared_ptr<std::vector<Block>> _build_blocks;
     std::unique_ptr<Arena> _arena;
@@ -103,12 +103,12 @@ struct ProcessHashTableProbe {
     PaddedPODArray<int32_t> _build_block_rows;
     std::vector<std::pair<int8_t, int>> _build_blocks_locs;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
-    ColumnUInt8::Container* _tuple_is_null_left_flags;
+    ColumnUInt8::Container* _tuple_is_null_left_flags = nullptr;
     // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
-    ColumnUInt8::Container* _tuple_is_null_right_flags;
+    ColumnUInt8::Container* _tuple_is_null_right_flags = nullptr;
 
     size_t _serialized_key_buffer_size {0};
-    uint8_t* _serialized_key_buffer;
+    uint8_t* _serialized_key_buffer = nullptr;
     std::unique_ptr<Arena> _serialize_key_arena;
     std::vector<char> _probe_side_find_result;
 
@@ -121,15 +121,15 @@ struct ProcessHashTableProbe {
 
     bool _have_other_join_conjunct;
     bool _is_right_semi_anti;
-    std::vector<bool>* _left_output_slot_flags;
-    std::vector<bool>* _right_output_slot_flags;
+    std::vector<bool>* _left_output_slot_flags = nullptr;
+    std::vector<bool>* _right_output_slot_flags = nullptr;
     bool* _has_null_in_build_side;
 
-    RuntimeProfile::Counter* _rows_returned_counter;
-    RuntimeProfile::Counter* _search_hashtable_timer;
-    RuntimeProfile::Counter* _build_side_output_timer;
-    RuntimeProfile::Counter* _probe_side_output_timer;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer;
+    RuntimeProfile::Counter* _rows_returned_counter = nullptr;
+    RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _build_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
     static constexpr int PROBE_SIDE_EXPLODE_RATE = 1;
 };
 

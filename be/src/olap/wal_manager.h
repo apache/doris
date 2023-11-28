@@ -72,7 +72,7 @@ public:
     Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::shared_mutex _lock;
     scoped_refptr<Thread> _replay_thread;
     CountDownLatch _stop_background_threads_latch;

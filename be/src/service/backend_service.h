@@ -143,7 +143,7 @@ public:
 
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::unique_ptr<AgentServer> _agent_server;
     std::unique_ptr<ThreadPool> _ingest_binlog_workers;
 };

@@ -108,8 +108,8 @@ private:
                                      int64_t txn_id, const TUniqueId& instance_id, Status& status,
                                      bool prepare_failed, RuntimeState* state);
 
-    ExecEnv* _exec_env;
-    ThreadPool* _thread_pool;
+    ExecEnv* _exec_env = nullptr;
+    ThreadPool* _thread_pool = nullptr;
     int64_t _db_id;
     int64_t _table_id;
     std::mutex _lock;
@@ -136,7 +136,7 @@ public:
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     std::mutex _lock;
     // TODO remove table when unused

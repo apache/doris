@@ -33,7 +33,7 @@ namespace doris::pipeline {
 
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
-    RuntimeProfile* parent_profile;
+    RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams> scan_ranges;
     std::vector<DependencySPtr>& upstream_dependencies;
     std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
@@ -44,7 +44,7 @@ struct LocalStateInfo {
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
-    RuntimeProfile* parent_profile;
+    RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     std::vector<DependencySPtr>& dependencys;
     std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
@@ -108,7 +108,7 @@ public:
 protected:
     friend class OperatorXBase;
 
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     int64_t _num_rows_returned {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
@@ -117,20 +117,20 @@ protected:
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
 
-    RuntimeProfile::Counter* _rows_returned_counter;
-    RuntimeProfile::Counter* _blocks_returned_counter;
-    RuntimeProfile::Counter* _wait_for_dependency_timer;
-    RuntimeProfile::Counter* _memory_used_counter;
-    RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
-    RuntimeProfile::Counter* _projection_timer;
-    RuntimeProfile::Counter* _exec_timer;
+    RuntimeProfile::Counter* _rows_returned_counter = nullptr;
+    RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
+    RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
+    RuntimeProfile::Counter* _memory_used_counter = nullptr;
+    RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
+    RuntimeProfile::Counter* _projection_timer = nullptr;
+    RuntimeProfile::Counter* _exec_timer = nullptr;
     // Account for peak memory used by this node
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
 
-    OperatorXBase* _parent;
-    RuntimeState* _state;
+    OperatorXBase* _parent = nullptr;
+    RuntimeState* _state = nullptr;
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
     bool _closed = false;
@@ -272,7 +272,7 @@ protected:
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
     TPlanNodeType::type _type;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     std::vector<TupleId> _tuple_ids;
 
     vectorized::VExprContextSPtrs _conjuncts;
@@ -326,7 +326,7 @@ public:
     Dependency* dependency() override { return _dependency; }
 
 protected:
-    DependencyType* _dependency;
+    DependencyType* _dependency = nullptr;
     typename DependencyType::SharedState* _shared_state = nullptr;
 };
 
@@ -380,9 +380,9 @@ public:
     Dependency* finishdependency() { return _finish_dependency.get(); }
 
 protected:
-    DataSinkOperatorXBase* _parent;
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
+    DataSinkOperatorXBase* _parent = nullptr;
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
     std::unique_ptr<MemTracker> _mem_tracker;
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
@@ -396,12 +396,12 @@ protected:
     std::unique_ptr<RuntimeProfile> _faker_runtime_profile =
             std::make_unique<RuntimeProfile>("faker profile");
 
-    RuntimeProfile::Counter* _rows_input_counter;
+    RuntimeProfile::Counter* _rows_input_counter = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
-    RuntimeProfile::Counter* _wait_for_dependency_timer;
-    RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
-    RuntimeProfile::Counter* _exec_timer;
+    RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
+    RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
+    RuntimeProfile::Counter* _exec_timer = nullptr;
     std::shared_ptr<Dependency> _finish_dependency;
 };
 

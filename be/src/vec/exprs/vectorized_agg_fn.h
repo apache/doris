@@ -120,12 +120,12 @@ private:
 
     const TypeDescriptor _return_type;
 
-    const SlotDescriptor* _intermediate_slot_desc;
-    const SlotDescriptor* _output_slot_desc;
+    const SlotDescriptor* _intermediate_slot_desc = nullptr;
+    const SlotDescriptor* _output_slot_desc = nullptr;
 
-    RuntimeProfile::Counter* _exec_timer;
-    RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _expr_timer;
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
 
     // input context
     VExprContextSPtrs _input_exprs_ctxs;

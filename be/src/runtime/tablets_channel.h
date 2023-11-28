@@ -185,7 +185,7 @@ private:
 
     bool _write_single_replica = false;
 
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _memory_usage_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _write_memory_usage_counter = nullptr;

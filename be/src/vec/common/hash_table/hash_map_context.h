@@ -51,7 +51,7 @@ struct MethodBase {
     std::shared_ptr<HashMap> hash_table;
     Iterator iterator;
     bool inited_iterator = false;
-    Key* keys;
+    Key* keys = nullptr;
     Arena arena;
     std::vector<size_t> hash_values;
 

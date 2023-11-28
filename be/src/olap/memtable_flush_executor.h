@@ -91,7 +91,7 @@ private:
 
     FlushStatistic _stats;
 
-    RowsetWriter* _rowset_writer;
+    RowsetWriter* _rowset_writer = nullptr;
 
     MemTableStat _memtable_stat;
 };

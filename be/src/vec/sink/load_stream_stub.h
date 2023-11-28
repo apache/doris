@@ -137,7 +137,7 @@ private:
         std::vector<int64_t> _success_tablets;
         std::vector<int64_t> _failed_tablets;
 
-        LoadStreamStub* _stub;
+        LoadStreamStub* _stub = nullptr;
     };
 
 public:

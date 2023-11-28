@@ -139,14 +139,14 @@ private:
     vectorized::HashTableIteratorVariants _outer_join_pull_visited_iter;
     vectorized::HashTableIteratorVariants _probe_row_match_iter;
 
-    RuntimeProfile::Counter* _probe_expr_call_timer;
-    RuntimeProfile::Counter* _probe_next_timer;
-    RuntimeProfile::Counter* _probe_side_output_timer;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer;
-    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
-    RuntimeProfile::Counter* _search_hashtable_timer;
-    RuntimeProfile::Counter* _build_side_output_timer;
-    RuntimeProfile::Counter* _process_other_join_conjunct_timer;
+    RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
+    RuntimeProfile::Counter* _probe_next_timer = nullptr;
+    RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _build_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
 };
 
 class HashJoinProbeOperatorX final : public JoinProbeOperatorX<HashJoinProbeLocalState> {

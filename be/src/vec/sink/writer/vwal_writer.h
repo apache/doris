@@ -102,7 +102,7 @@ private:
     std::string _label;
     RuntimeState* _state = nullptr;
     TupleDescriptor* _output_tuple_desc = nullptr;
-    std::shared_ptr<WalWriter> _wal_writer = nullptr;
+    std::shared_ptr<WalWriter> _wal_writer;
 };
 } // namespace vectorized
 } // namespace doris

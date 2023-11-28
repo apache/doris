@@ -40,9 +40,9 @@ protected:
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
 
-    RuntimeProfile::Counter* _build_rows_counter;
-    RuntimeProfile::Counter* _push_down_timer;
-    RuntimeProfile::Counter* _push_compute_timer;
+    RuntimeProfile::Counter* _build_rows_counter = nullptr;
+    RuntimeProfile::Counter* _push_down_timer = nullptr;
+    RuntimeProfile::Counter* _push_compute_timer = nullptr;
 };
 
 template <typename LocalStateType>

@@ -94,11 +94,11 @@ protected:
     std::shared_ptr<MetricEntity> _metric_entity;
 
 public:
-    IntCounter* query_scan_bytes;
-    IntCounter* query_scan_rows;
-    IntCounter* query_scan_count;
-    IntCounter* flush_bytes;
-    IntCounter* flush_finish_count;
+    IntCounter* query_scan_bytes = nullptr;
+    IntCounter* query_scan_rows = nullptr;
+    IntCounter* query_scan_count = nullptr;
+    IntCounter* flush_bytes = nullptr;
+    IntCounter* flush_finish_count = nullptr;
     std::atomic<int64_t> published_count = 0;
 };
 

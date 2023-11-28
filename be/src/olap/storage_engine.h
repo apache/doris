@@ -435,7 +435,7 @@ private:
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
-    HeartbeatFlags* _heartbeat_flags;
+    HeartbeatFlags* _heartbeat_flags = nullptr;
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;

@@ -88,7 +88,7 @@ private:
 
 private:
     const TCloneReq& _clone_req;
-    vector<TTabletInfo>* _tablet_infos;
+    vector<TTabletInfo>* _tablet_infos = nullptr;
     int64_t _signature;
     const TMasterInfo& _master_info;
     int64_t _copy_size;

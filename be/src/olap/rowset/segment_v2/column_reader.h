@@ -363,10 +363,10 @@ private:
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
 
-    ColumnReader* _reader;
+    ColumnReader* _reader = nullptr;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()
-    BlockCompressionCodec* _compress_codec;
+    BlockCompressionCodec* _compress_codec = nullptr;
 
     // 1. The _page represents current page.
     // 2. We define an operation is one seek and following read,
@@ -464,7 +464,7 @@ public:
     }
 
 private:
-    ColumnReader* _map_reader;
+    ColumnReader* _map_reader = nullptr;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator; //OffsetFileIterator
     std::unique_ptr<ColumnIterator> _key_iterator;
@@ -502,7 +502,7 @@ public:
     }
 
 private:
-    ColumnReader* _struct_reader;
+    ColumnReader* _struct_reader = nullptr;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
 };
@@ -537,7 +537,7 @@ public:
     }
 
 private:
-    ColumnReader* _array_reader;
+    ColumnReader* _array_reader = nullptr;
     std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;

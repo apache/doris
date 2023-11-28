@@ -62,11 +62,11 @@ struct HashTableBuild {
     }
 
 private:
-    int64_t* _mem_used;
+    int64_t* _mem_used = nullptr;
     const int _rows;
     const uint8_t _offset;
     ColumnRawPtrs& _build_raw_ptrs;
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
 };
 
 } // namespace doris::vectorized

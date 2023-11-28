@@ -34,9 +34,9 @@ struct ColumnMapping {
     // >=0: use origin column
     int32_t ref_column;
     // normally for default value. stores values for filters
-    WrapperField* default_value;
+    WrapperField* default_value = nullptr;
     std::shared_ptr<TExpr> expr;
-    const TabletColumn* new_column;
+    const TabletColumn* new_column = nullptr;
 };
 
 using SchemaMapping = std::vector<ColumnMapping>;

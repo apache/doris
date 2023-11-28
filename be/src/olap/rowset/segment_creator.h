@@ -58,7 +58,7 @@ public:
     }
 
 private:
-    T* _t;
+    T* _t = nullptr;
 };
 
 class SegmentCollector {
@@ -78,7 +78,7 @@ public:
     }
 
 private:
-    T* _t;
+    T* _t = nullptr;
 };
 
 class SegmentFlusher {
@@ -119,7 +119,7 @@ public:
     private:
         Writer(SegmentFlusher* flusher, std::unique_ptr<segment_v2::SegmentWriter>& segment_writer);
 
-        SegmentFlusher* _flusher;
+        SegmentFlusher* _flusher = nullptr;
         std::unique_ptr<segment_v2::SegmentWriter> _writer;
     };
 

@@ -66,7 +66,7 @@ struct Batch {
     static constexpr uint32_t MAX_SIZE = 7; /// Adequate values are 3, 7, 15, 31.
 
     uint8_t size = 0; /// It's smaller than size_t but keeps align in Arena.
-    Batch<RowRefType>* next;
+    Batch<RowRefType>* next = nullptr;
     RowRefType row_refs[MAX_SIZE];
 
     Batch(Batch<RowRefType>* parent) : next(parent) {}
@@ -121,9 +121,9 @@ public:
     bool ok() const { return first || batch; }
 
 private:
-    RowRefListType* root;
+    RowRefListType* root = nullptr;
     bool first;
-    Batch<RowRefType>* batch;
+    Batch<RowRefType>* batch = nullptr;
     size_t position;
 };
 

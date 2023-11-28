@@ -500,21 +500,21 @@ private:
     };
 
     struct RateCounterInfo {
-        Counter* src_counter;
+        Counter* src_counter = nullptr;
         SampleFn sample_fn;
         int64_t elapsed_ms;
     };
 
     struct SamplingCounterInfo {
-        Counter* src_counter; // the counter to be sampled
+        Counter* src_counter = nullptr; // the counter to be sampled
         SampleFn sample_fn;
         int64_t total_sampled_value; // sum of all sampled values;
         int64_t num_sampled;         // number of samples taken
     };
 
     struct BucketCountersInfo {
-        Counter* src_counter; // the counter to be sampled
-        int64_t num_sampled;  // number of samples taken
+        Counter* src_counter = nullptr; // the counter to be sampled
+        int64_t num_sampled;            // number of samples taken
         // TODO: customize bucketing
     };
 
@@ -563,7 +563,7 @@ public:
 
 private:
     int64_t _val;
-    RuntimeProfile::Counter* _counter;
+    RuntimeProfile::Counter* _counter = nullptr;
 };
 
 // Utility class to update time elapsed when the object goes out of scope.
@@ -608,8 +608,8 @@ public:
 
 private:
     T _sw;
-    RuntimeProfile::Counter* _counter;
-    const Bool* _is_cancelled;
+    RuntimeProfile::Counter* _counter = nullptr;
+    const Bool* _is_cancelled = nullptr;
 };
 
 // Utility class to update time elapsed when the object goes out of scope.
@@ -628,7 +628,7 @@ public:
 
 private:
     T _sw;
-    C* _counter;
+    C* _counter = nullptr;
 };
 
 } // namespace doris

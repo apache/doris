@@ -48,8 +48,8 @@ struct ReportStatusRequest {
     bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile;
-    RuntimeProfile* load_channel_profile;
+    RuntimeProfile* profile = nullptr;
+    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -198,7 +198,7 @@ public:
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
 public:
-    DescriptorTbl* desc_tbl;
+    DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
     std::string group;
@@ -228,7 +228,7 @@ public:
 
 private:
     TUniqueId _query_id;
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",

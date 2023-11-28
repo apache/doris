@@ -70,10 +70,10 @@ public:
     void check_and_update_cpu_share(const TaskGroupInfo& tg_info);
 
 private:
-    QueueType* _task_queue;
+    QueueType* _task_queue = nullptr;
 
     uint64_t _vruntime_ns = 0;
-    taskgroup::TaskGroup* _tg;
+    taskgroup::TaskGroup* _tg = nullptr;
 
     std::string _type;
 

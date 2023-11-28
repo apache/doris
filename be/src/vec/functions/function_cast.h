@@ -1711,7 +1711,7 @@ public:
     bool is_use_default_implementation_for_constants() const override { return true; }
 
 private:
-    const char* name;
+    const char* name = nullptr;
     MonotonicityForRange monotonicity_for_range;
 
     DataTypes argument_types;

@@ -133,7 +133,7 @@ private:
     }
 
     uint32_t _num_shards;
-    KVCache<std::string>** _shards;
+    KVCache<std::string>** _shards = nullptr;
 };
 
 } // namespace doris::vectorized
