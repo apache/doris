@@ -176,5 +176,9 @@ public class NereidsTracer {
         TRACE_PATH = Optional.ofNullable(TRACE_PATH).orElse(Config.nereids_trace_log_dir);
         new File(TRACE_PATH).mkdirs();
     }
+
+    public static void disable() {
+        NereidsTracer.shouldLog = false;
+    }
 }
 
