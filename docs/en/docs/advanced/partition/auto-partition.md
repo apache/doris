@@ -36,7 +36,7 @@ The Auto Partitioning feature supports automatic detection of whether the corres
 
 The auto partition function mainly solves the problem that the user expects to partition the table based on a certain column, but the data distribution of the column is scattered or unpredictable, so it is difficult to accurately create the required partitions when building or adjusting the structure of the table, or the number of partitions is so large that it is too cumbersome to create them manually.
 
-Take the time type partition column as an example, in the [Dynamic Partition](./dynamic-partition.md) function, we support the automatic creation of new partitions to accommodate real-time data at specific time periods. For real-time user behaviour logs and other scenarios, this feature basically meets the requirements. However, in more complex scenarios, such as dealing with non-real-time data, the partition column is independent of the current system time and contains a large number of discrete values. At this time to improve efficiency we want to partition the data based on this column, but the data may actually involve the partition can not be grasped in advance, or the expected number of required partitions is too large. In this case, dynamic partitioning or manually created partitions can not meet our needs, automatic partitioning function is very good to cover such needs.
+Take the time type partition column as an example, in the [Dynamic Partition](./dynamic-partition) function, we support the automatic creation of new partitions to accommodate real-time data at specific time periods. For real-time user behaviour logs and other scenarios, this feature basically meets the requirements. However, in more complex scenarios, such as dealing with non-real-time data, the partition column is independent of the current system time and contains a large number of discrete values. At this time to improve efficiency we want to partition the data based on this column, but the data may actually involve the partition can not be grasped in advance, or the expected number of required partitions is too large. In this case, dynamic partitioning or manually created partitions can not meet our needs, automatic partitioning function is very good to cover such needs.
 
 Suppose our table DDL is as follows:
 
@@ -79,11 +79,11 @@ PROPERTIES (
 );
 ```
 
-The table stores a large amount of business history data, partitioned based on the date the transaction occurred. As you can see when building the table, we need to manually create the partitions in advance. If the data range of the partitioned columns changes, for example, 2022 is added to the above table, we need to create a partition by [ALTER-TABLE-PARTITION](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION.md) to make changes to the table partition. If such partitions need to be changed, or subdivided at a finer level of granularity, it is very tedious to modify them. At this point we can rewrite the table DDL using AUTO PARTITION.
+The table stores a large amount of business history data, partitioned based on the date the transaction occurred. As you can see when building the table, we need to manually create the partitions in advance. If the data range of the partitioned columns changes, for example, 2022 is added to the above table, we need to create a partition by [ALTER-TABLE-PARTITION](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION) to make changes to the table partition. If such partitions need to be changed, or subdivided at a finer level of granularity, it is very tedious to modify them. At this point we can rewrite the table DDL using AUTO PARTITION.
 
 ## Grammer
 
-When building a table, use the following syntax to populate [CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) with the `partition_info` section:
+When building a table, use the following syntax to populate [CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE) with the `partition_info` section:
 
 1. AUTO RANGE PARTITION:
 
@@ -195,5 +195,5 @@ A partition created by the AUTO PARTITION function has the exact same functional
 
 - If a partition is created during the insertion or import of data and the entire import process does not complete (fails or is cancelled), the created partition is not automatically deleted.
 - Tables that use AUTO PARTITION only have their partitions created automatically instead of manually. The original use of the table and the partitions it creates is the same as for non-AUTO PARTITION tables or partitions.
-- To prevent accidental creation of too many partitions, we use the [FE Configuration](../../admin-manual/config/fe-config.md) `max_auto_partition_num` controls the maximum number of partitions an AUTO PARTITION table can hold. This value can be adjusted if necessary
-- When importing data to a table with AUTO PARTITION enabled, the polling interval for data sent by the Coordinator is different from that of a normal table. For details, see `olap_table_sink_send_interval_auto_partition_factor` in [BE Configuration](../../admin-manual/config/be-config.md).
+- To prevent accidental creation of too many partitions, we use the [FE Configuration](../../admin-manual/config/fe-config) `max_auto_partition_num` controls the maximum number of partitions an AUTO PARTITION table can hold. This value can be adjusted if necessary
+- When importing data to a table with AUTO PARTITION enabled, the polling interval for data sent by the Coordinator is different from that of a normal table. For details, see `olap_table_sink_send_interval_auto_partition_factor` in [BE Configuration](../../admin-manual/config/be-config).
