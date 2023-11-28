@@ -32,6 +32,7 @@
 namespace doris {
 class RuntimeProfile;
 class TupleDescriptor;
+class IRuntimeFilter;
 
 namespace vectorized {
 class VExprContext;
@@ -79,6 +80,10 @@ public:
 protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
+
+    virtual Status _push_late_arrival_runtime_filter(const IRuntimeFilter* filter) {
+        return Status::OK();
+    }
 
     // Update the counters before closing this scanner
     virtual void _update_counters_before_close();
@@ -160,6 +165,8 @@ protected:
         _conjuncts.clear();
     }
 
+    virtual Status _push_late_arrival_runtime_filters();
+
     RuntimeState* _state;
     VScanNode* _parent;
     pipeline::ScanLocalStateBase* _local_state;
@@ -192,6 +199,8 @@ protected:
     // The old _conjuncts will be temporarily placed in _stale_expr_ctxs
     // and will be destroyed at the end.
     VExprContextSPtrs _stale_expr_ctxs;
+
+    std::set<int32_t> _pushed_runtime_filters_id;
 
     // num of rows read from scanner
     int64_t _num_rows_read = 0;

@@ -472,6 +472,17 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     return Status::OK();
 }
 
+Status NewOlapScanner::_push_late_arrival_runtime_filter(const IRuntimeFilter* filter) {
+    const auto slot_id = filter->slot_id();
+    for (auto& slot : _output_tuple_desc->slots()) {
+        if (slot->id() == slot_id) {
+            return _tablet_reader->push_late_arrival_runtime_filter(filter, slot);
+        }
+    }
+    return Status::Error<ErrorCode::INTERNAL_ERROR>("invalid slot id #{} for runtime filter: #{}",
+                                                    slot_id, filter->filter_id());
+}
+
 Status NewOlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();

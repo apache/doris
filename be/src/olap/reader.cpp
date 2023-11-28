@@ -36,6 +36,7 @@
 #include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
 #include "olap/itoken_extractor.h"
 #include "olap/like_column_predicate.h"
@@ -47,6 +48,7 @@
 #include "olap/schema.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -118,6 +120,10 @@ TabletReader::~TabletReader() {
         delete pred;
     }
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
+        delete pred;
+    }
+
+    for (auto* pred : _late_arrival_predicates) {
         delete pred;
     }
 }
@@ -236,6 +242,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.read_orderby_key_columns =
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;
+    _reader_context.late_arrival_predicates = &_late_arrival_predicates;
     _reader_context.predicates_except_leafnode_of_andnode = &_col_preds_except_leafnode_of_andnode;
     _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
@@ -680,4 +687,19 @@ Status TabletReader::init_reader_params_and_create_block(
     return Status::OK();
 }
 
+Status TabletReader::push_late_arrival_runtime_filter(const IRuntimeFilter* filter,
+                                                      const SlotDescriptor* slot_descriptor) {
+    RETURN_IF_ERROR(_tablet_schema->have_column(slot_descriptor->col_name()));
+    auto column = _tablet_schema->column(slot_descriptor->col_name());
+    auto column_index = _tablet_schema->field_index(slot_descriptor->col_name());
+    std::vector<ColumnPredicate*> predicates;
+    RETURN_IF_ERROR(filter->create_column_predicates(column, column_index, predicates,
+                                                     _predicate_arena.get()));
+
+    if (!predicates.empty()) {
+        _late_arrival_predicates.insert(_late_arrival_predicates.end(), predicates.begin(),
+                                        predicates.end());
+    }
+    return Status::OK();
+}
 } // namespace doris

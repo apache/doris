@@ -336,6 +336,32 @@ Status SegmentIterator::_lazy_init() {
         _segment->_tablet_schema->cluster_key_idxes().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
+
+    if (_opts.late_arrival_predicates &&
+        _handled_late_predicates_count < _opts.late_arrival_predicates->size()) {
+        for (size_t i = _handled_late_predicates_count; i != _opts.late_arrival_predicates->size();
+             ++i) {
+            auto predicate = _opts.late_arrival_predicates->at(i);
+            if (predicate->need_to_clone()) {
+                ColumnPredicate* cloned = nullptr;
+                predicate->clone(&cloned);
+                _pool->add(cloned);
+                predicate = cloned;
+            }
+            _col_predicates.emplace_back(predicate);
+
+            const auto column_id = predicate->column_id();
+            if (_opts.col_id_to_predicates.count(column_id) == 0) {
+                _opts.col_id_to_predicates.insert(
+                        {column_id, std::make_shared<AndBlockColumnPredicate>()});
+            }
+            auto single_column_block_predicate = new SingleColumnBlockPredicate(predicate);
+            _opts.col_id_to_predicates[column_id]->add_column_predicate(
+                    single_column_block_predicate);
+        }
+        _handled_late_predicates_count = _opts.late_arrival_predicates->size();
+    }
+
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
     // Remove rows that have been marked deleted
@@ -1951,6 +1977,124 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
     return Status::OK();
 }
 
+Status SegmentIterator::_process_late_arrival_predicates(
+        const std::vector<ColumnPredicate*>& predicates) {
+    std::set<ColumnId> columns_id;
+
+    bool has_vec_predicates = false;
+    bool has_short_predicates = false;
+
+    for (auto* predicate : predicates) {
+        const auto cid = predicate->column_id();
+        columns_id.emplace(cid);
+        if (_can_evaluated_by_vectorized(predicate)) {
+            _pre_eval_block_predicate.emplace_back(predicate);
+            has_vec_predicates = true;
+        } else {
+            _short_cir_eval_predicate.emplace_back(predicate);
+            has_short_predicates = true;
+            if (predicate->is_filter()) {
+                _filter_info_id.push_back(predicate);
+            }
+        }
+
+        DCHECK_LT(cid, _is_pred_column.size());
+    }
+
+    DCHECK(!_first_read_column_ids.empty());
+
+    /// Here remove all non-predicates(common exprs included) from `_first_read_column_ids`
+    if (!_lazy_materialization_read) {
+        if (_is_need_expr_eval) {
+            /// all common exprs' columns are in `_first_read_column_ids`
+            DCHECK(!(_is_need_vec_eval || _is_need_short_eval));
+            DCHECK_EQ(_second_read_column_ids.size(), _first_read_column_ids.size());
+            _first_read_column_ids.clear();
+        } else if (!(_is_need_vec_eval || _is_need_short_eval)) {
+            /// all non-predicate columns are in `_first_read_column_ids`
+            DCHECK_EQ(_non_predicate_columns.size(), _first_read_column_ids.size());
+            _first_read_column_ids.clear();
+        }
+        _lazy_materialization_read = true;
+        _block_rowids.resize(_opts.block_row_max);
+    }
+
+    /// Now remove late arrival predicates' columns from `_second_read_column_ids` or `_non_predicate_columns`,
+    /// and put them into `_first_read_column_ids`.
+    for (auto cid : columns_id) {
+        if (std::find(_first_read_column_ids.begin(), _first_read_column_ids.end(), cid) !=
+            _first_read_column_ids.end()) {
+            DCHECK(_is_pred_column[cid]);
+            continue;
+        }
+
+        bool need_to_output = false;
+        auto it = std::find(_second_read_column_ids.begin(), _second_read_column_ids.end(), cid);
+        if (it != _second_read_column_ids.end()) {
+            _second_read_column_ids.erase(it);
+            need_to_output = true;
+        } else {
+            it = std::find(_non_predicate_columns.begin(), _non_predicate_columns.end(), cid);
+            if (it != _non_predicate_columns.end()) {
+                _non_predicate_columns.erase(it);
+            }
+            need_to_output = true;
+        }
+
+        if (need_to_output) {
+            /// If the column was not predicate/expr column, here need put it into `_columns_to_filter`,
+            /// since the column will be changed to predicate column.
+            if (!_is_pred_column[cid] && !_is_common_expr_column[cid]) {
+                auto index = _schema_block_id_map[cid];
+                _columns_to_filter.emplace_back(index);
+            }
+        } else {
+            _schema_block_id_map[cid] = std::numeric_limits<int>::max();
+        }
+
+        _first_read_column_ids.emplace_back(cid);
+        _is_pred_column[cid] = true;
+        const auto* column_desc = _schema->column(cid);
+        RETURN_IF_CATCH_EXCEPTION(_current_return_columns[cid] = Schema::get_predicate_column_ptr(
+                                          *column_desc, _opts.io_ctx.reader_type));
+        _current_return_columns[cid]->set_rowset_segment_id(
+                {_segment->rowset_id(), _segment->id()});
+        _current_return_columns[cid]->reserve(_opts.block_row_max);
+    }
+
+    if (has_vec_predicates) {
+        _is_need_vec_eval = true;
+    }
+    if (has_short_predicates) {
+        _is_need_short_eval = true;
+    }
+    DCHECK(_is_need_short_eval || _is_need_vec_eval);
+
+    return Status::OK();
+}
+
+Status SegmentIterator::_handle_late_arrival_predicates() {
+    if (_opts.late_arrival_predicates == nullptr) {
+        return Status::OK();
+    }
+
+    const auto count = _opts.late_arrival_predicates->size();
+
+    if (LIKELY(_handled_late_predicates_count == count)) {
+        return Status::OK();
+    }
+
+    std::vector<ColumnPredicate*> arrival_predicates;
+    for (size_t i = _handled_late_predicates_count; i != count; ++i) {
+        auto* predicate = _opts.late_arrival_predicates->at(i);
+        arrival_predicates.emplace_back(predicate);
+    }
+
+    _handled_late_predicates_count = count;
+
+    return _process_late_arrival_predicates(arrival_predicates);
+}
+
 Status SegmentIterator::next_batch(vectorized::Block* block) {
     auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); }); }();
     if (!status.ok()) {
@@ -1995,6 +2139,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         }
     }
+
+    RETURN_IF_ERROR(_handle_late_arrival_predicates());
 
     _init_current_block(block, _current_return_columns);
 
@@ -2148,6 +2294,14 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
             if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
                 _update_max_row(block);
+            }
+            if (block != nullptr) {
+                size_t count = block->columns();
+                size_t rows = block->rows();
+                for (size_t i = 0; i != count; ++i) {
+                    auto& elem = block->get_by_position(i);
+                    DCHECK_EQ(rows, elem.column->size());
+                }
             }
             return Status::OK();
         }

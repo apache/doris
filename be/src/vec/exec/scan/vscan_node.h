@@ -244,6 +244,8 @@ protected:
 
     Status _prepare_scanners(const int query_parallel_instance_num);
 
+    Status _append_late_arrival_runtime_filter(const IRuntimeFilter* filter, bool& pushed) override;
+
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
 
@@ -314,6 +316,8 @@ protected:
     int _context_queue_id = -1;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
+
+    std::vector<const IRuntimeFilter*> _late_arrival_runtime_filters;
 
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter;
