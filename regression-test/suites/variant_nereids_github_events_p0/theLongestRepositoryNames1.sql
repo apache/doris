@@ -1,0 +1,1 @@
+SELECT count(), cast(v["repo"]["name"] as string) FROM github_events WHERE cast(v["type"] as string) = 'WatchEvent' GROUP BY cast(v["repo"]["name"] as string) ORDER BY length(cast(v["repo"]["name"] as string)) DESC, cast(v["repo"]["name"] as string) LIMIT 50
