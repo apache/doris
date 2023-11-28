@@ -718,7 +718,7 @@ size_t PulsarDataConsumer::len_of_actual_data(const char* data) {
     while (data[length] != '\0') {
         ++length;
     }
-    return length+1;
+    return length;
 }
 
 std::vector<const char*> PulsarDataConsumer::convert_rows(const char* data) {
