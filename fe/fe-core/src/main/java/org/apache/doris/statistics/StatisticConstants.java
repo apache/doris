@@ -94,7 +94,7 @@ public class StatisticConstants {
 
     public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
 
-    public static final int SUBMIT_JOB_LIMIT = 5;
+    public static final int TASK_QUEUE_CAP = 10;
 
     static {
         SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
