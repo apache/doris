@@ -91,8 +91,9 @@ public:
                      int64_t filtered_rows);
     Status append_block(vectorized::Block* input_block, int64_t num_rows, int64_t filter_rows,
                         vectorized::Block* block, OlapTableBlockConvertor* block_convertor,
-                        OlapTabletFinder* tablet_finder);
+                        OlapTabletFinder* tablet_finder, bool group_commit);
     Status close();
+    WalWriter* wal_writer() { return _wal_writer.get(); }
 
 private:
     int64_t _db_id;

@@ -54,9 +54,25 @@ VWalWriter::VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id, RuntimeStat
 
 VWalWriter::~VWalWriter() {}
 
+std::string convert_label(std::string org_label) {
+    auto pos = org_label.find("-");
+    auto sub1 = org_label.substr(0, pos);
+    if (pos == org_label.npos) {
+        return sub1;
+    }
+    auto sub2 = org_label.substr(pos + 1, org_label.npos);
+    std::string label = sub1 + "_" + sub2;
+    return label;
+}
 Status VWalWriter::init() {
-    RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_path(_db_id, _tb_id, _wal_id,
-                                                                _state->import_label()));
+    if (config::wait_relay_wal_finish) {
+        std::string label = convert_label(_state->import_label());
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_path(_db_id, _tb_id, _wal_id,
+                                                                    label + "_test_wait"));
+    } else {
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_path(_db_id, _tb_id, _wal_id,
+                                                                    _state->import_label()));
+    }
     RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->create_wal_writer(_wal_id, _wal_writer));
     _state->exec_env()->wal_mgr()->add_wal_status_queue(_tb_id, _wal_id,
                                                         WalManager::WAL_STATUS::CREATE);
@@ -99,15 +115,17 @@ Status VWalWriter::write_wal(OlapTableBlockConvertor* block_convertor,
 Status VWalWriter::append_block(vectorized::Block* input_block, int64_t num_rows,
                                 int64_t filter_rows, vectorized::Block* block,
                                 OlapTableBlockConvertor* block_convertor,
-                                OlapTabletFinder* tablet_finder) {
+                                OlapTabletFinder* tablet_finder, bool group_commit) {
     RETURN_IF_ERROR(
             write_wal(block_convertor, tablet_finder, block, _state, num_rows, filter_rows));
+    if (group_commit) {
 #ifndef BE_TEST
-    auto* future_block = assert_cast<FutureBlock*>(input_block);
-    std::unique_lock<std::mutex> l(*(future_block->lock));
-    future_block->set_result(Status::OK(), num_rows, num_rows - filter_rows);
-    future_block->cv->notify_all();
+        auto* future_block = assert_cast<FutureBlock*>(input_block);
+        std::unique_lock<std::mutex> l(*(future_block->lock));
+        future_block->set_result(Status::OK(), num_rows, num_rows - filter_rows);
+        future_block->cv->notify_all();
 #endif
+    }
     return Status::OK();
 }
 Status VWalWriter::close() {

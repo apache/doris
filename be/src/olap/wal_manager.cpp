@@ -392,4 +392,63 @@ Status WalManager::get_wal_column_index(int64_t wal_id, std::vector<size_t>& col
     return Status::OK();
 }
 
+Status WalManager::add_wal_cv_map(int64_t wal_id, std::shared_ptr<std::mutex> lock,
+                                  std::shared_ptr<std::condition_variable> cv) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_cv_lock);
+    auto it = _wal_lock_map.find(wal_id);
+    if (it != _wal_lock_map.end()) {
+        return Status::InternalError("wal {} is already in _wal_cv_map ", wal_id);
+    }
+    _wal_lock_map.emplace(wal_id, lock);
+    _wal_cv_map.emplace(wal_id, cv);
+    LOG(INFO) << "add  " << wal_id << " to _wal_cv_map";
+    return Status::OK();
+}
+Status WalManager::erase_wal_cv_map(int64_t wal_id) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_cv_lock);
+    if (_wal_lock_map.erase(wal_id) && _wal_cv_map.erase(wal_id)) {
+        LOG(INFO) << "erase " << wal_id << " from _wal_cv_map";
+    } else {
+        return Status::InternalError("fail to erase wal {} from wal_cv_map", wal_id);
+    }
+    return Status::OK();
+}
+Status WalManager::wait_relay_wal_finish(int64_t wal_id) {
+    std::shared_ptr<std::mutex> lock = nullptr;
+    std::shared_ptr<std::condition_variable> cv = nullptr;
+    RETURN_IF_ERROR(get_lock_and_cv(wal_id, lock, cv));
+    std::unique_lock l(*(lock));
+    cv->wait(l);
+    LOG(INFO) << "get wal " << wal_id << ",finish wait";
+    RETURN_IF_ERROR(erase_wal_cv_map(wal_id));
+    LOG(INFO) << "erase wal " << wal_id;
+    return Status::OK();
+}
+
+Status WalManager::notify(int64_t wal_id) {
+    std::shared_ptr<std::mutex> lock = nullptr;
+    std::shared_ptr<std::condition_variable> cv = nullptr;
+    RETURN_IF_ERROR(get_lock_and_cv(wal_id, lock, cv));
+    std::unique_lock l(*(lock));
+    cv->notify_all();
+    LOG(INFO) << "get wal " << wal_id << ",notify all";
+    return Status::OK();
+}
+
+Status WalManager::get_lock_and_cv(int64_t wal_id, std::shared_ptr<std::mutex>& lock,
+                                   std::shared_ptr<std::condition_variable>& cv) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_cv_lock);
+    auto lock_it = _wal_lock_map.find(wal_id);
+    if (lock_it == _wal_lock_map.end()) {
+        return Status::InternalError("cannot find txn {} in wal_lock_map", wal_id);
+    }
+    lock = lock_it->second;
+    auto cv_it = _wal_cv_map.find(wal_id);
+    if (cv_it == _wal_cv_map.end()) {
+        return Status::InternalError("cannot find txn {} in wal_cv_map", wal_id);
+    }
+    cv = cv_it->second;
+    return Status::OK();
+}
+
 } // namespace doris

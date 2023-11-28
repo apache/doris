@@ -42,6 +42,7 @@
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
 #include "io/fs/stream_load_pipe.h"
+#include "olap/wal_manager.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -148,6 +149,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
     if (request.__isset.wal_id) {
         _runtime_state->set_wal_id(request.wal_id);
+        _runtime_state->set_relay_wal(true);
     }
 
     if (request.query_options.__isset.is_report_success) {
@@ -222,6 +224,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
                 row_desc(), runtime_state(), &_sink, *_desc_tbl));
+        _runtime_state->set_txn_id(request.fragment.output_sink.olap_table_sink.txn_id);
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
@@ -364,6 +367,11 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         {
             std::lock_guard<std::mutex> l(_status_lock);
             status = _status;
+        }
+        if (config::wait_relay_wal_finish && !_runtime_state->relay_wal() &&
+            _runtime_state->txn_id() > 0) {
+            RETURN_IF_ERROR(_runtime_state->exec_env()->wal_mgr()->wait_relay_wal_finish(
+                    _runtime_state->txn_id()));
         }
         status = _sink->close(runtime_state(), status);
         RETURN_IF_ERROR(status);

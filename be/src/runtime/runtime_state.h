@@ -240,6 +240,14 @@ public:
 
     const std::string& import_label() { return _import_label; }
 
+    bool relay_wal() { return _relay_wal; }
+
+    void set_relay_wal(bool relay_wal) { _relay_wal = relay_wal; }
+
+    void set_txn_id(int64_t txn_id) { _txn_id = txn_id; }
+
+    int64_t txn_id() { return _txn_id; }
+
     const std::string& load_dir() const { return _load_dir; }
 
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
@@ -593,6 +601,7 @@ private:
     std::string _load_dir;
     int64_t _load_job_id;
     int64_t _wal_id = -1;
+    int64_t _txn_id = -1;
 
     // mini load
     int64_t _normal_row_number;
@@ -610,6 +619,8 @@ private:
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
+
+    bool _relay_wal = false;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

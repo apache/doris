@@ -1227,7 +1227,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
     }
 
-    if (_group_commit) {
+    if (_group_commit || (config::wait_relay_wal_finish && !_state->relay_wal())) {
         _v_wal_writer = std::make_shared<VWalWriter>(table_sink.db_id, table_sink.table_id,
                                                      table_sink.txn_id, _state, _output_tuple_desc);
         RETURN_IF_ERROR(_v_wal_writer->init());
@@ -1665,7 +1665,20 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     if (_v_wal_writer != nullptr) {
         RETURN_IF_ERROR(_v_wal_writer->append_block(&input_block, block->rows(), filtered_rows,
                                                     block.get(), _block_convertor.get(),
-                                                    _tablet_finder.get()));
+                                                    _tablet_finder.get(), _group_commit));
+    }
+    if (config::wait_relay_wal_finish && !_state->relay_wal()) {
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_recover_wal(
+                std::to_string(_t_sink.olap_table_sink.db_id),
+                std::to_string(_t_sink.olap_table_sink.table_id),
+                std::vector<std::string> {_v_wal_writer->wal_writer()->file_name()}));
+        std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+        std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_cv_map(
+                _t_sink.olap_table_sink.txn_id, lock, cv));
+        g_sink_write_bytes << 0;
+        g_sink_write_rows << 0;
+        return Status::OK();
     }
 
     // Add block to node channel

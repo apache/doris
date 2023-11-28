@@ -1157,6 +1157,7 @@ DECLARE_String(group_commit_replay_wal_dir);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
 DECLARE_Bool(wait_internal_group_commit_finish);
+DECLARE_Bool(wait_relay_wal_finish);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
