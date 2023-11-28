@@ -27,11 +27,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -144,32 +146,50 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        HiveConf hiveConf = new HiveConf();
-        for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
-            hiveConf.set(kv.getKey(), kv.getValue());
-        }
-        hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
-                String.valueOf(Config.hive_metastore_client_timeout_second));
-        String authentication = catalogProperty.getOrDefault(
-                HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
-        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            hiveConf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
-            UserGroupInformation.setConfiguration(hiveConf);
-            try {
-                /**
-                 * Because metastore client is created by using
-                 * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
-                 * it will relogin when TGT is expired, so we don't need to relogin manually.
-                 */
-                UserGroupInformation.loginUserFromKeytab(
-                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, ""),
-                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_KEYTAB, ""));
-            } catch (IOException e) {
-                throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
+        HiveConf hiveConf = null;
+        JdbcClientConfig jdbcClientConfig = null;
+        String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_META_TYPE, "hms");
+        if (hiveMetastoreType.equalsIgnoreCase("hms")) {
+            hiveConf = new HiveConf();
+            for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
+                hiveConf.set(kv.getKey(), kv.getValue());
             }
-        }
+            hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+                    String.valueOf(Config.hive_metastore_client_timeout_second));
+            String authentication = catalogProperty.getOrDefault(
+                    HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
+            if (AuthType.KERBEROS.getDesc().equals(authentication)) {
+                hiveConf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
+                UserGroupInformation.setConfiguration(hiveConf);
+                try {
+                    /**
+                     * Because metastore client is created by using
+                     * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
+                     * it will relogin when TGT is expired, so we don't need to relogin manually.
+                     */
+                    UserGroupInformation.loginUserFromKeytab(
+                            catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, ""),
+                            catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_KEYTAB, ""));
+                } catch (IOException e) {
+                    throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
+                }
+            }
+        } else if (hiveMetastoreType.equalsIgnoreCase("jdbc")) {
+            jdbcClientConfig = new JdbcClientConfig();
+            jdbcClientConfig.setUser(catalogProperty.getOrDefault("user", ""));
+            jdbcClientConfig.setPassword(catalogProperty.getOrDefault("password", ""));
+            jdbcClientConfig.setJdbcUrl(catalogProperty.getOrDefault("jdbc_url", ""));
+            jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
+            jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
 
-        client = new PooledHiveMetaStoreClient(hiveConf,
+            Map<String, String> customizedProperties = Maps.newHashMap();
+            customizedProperties.put("shared_jdbc_url", catalogProperty.getOrDefault("shared_jdbc_url", ""));
+            customizedProperties.put("hive_catalog", catalogProperty.getOrDefault("hive_catalog", ""));
+            jdbcClientConfig.setCustomizedProperties(customizedProperties);
+        } else {
+            LOG.error("Do not support hive_meta_type = " + hiveMetastoreType);
+        }
+        client = new PooledHiveMetaStoreClient(hiveConf, jdbcClientConfig,
                     Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size));
     }
 
