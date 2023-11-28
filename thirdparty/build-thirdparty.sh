@@ -1691,6 +1691,20 @@ build_avx2neon() {
     cp -r ./* "${TP_INSTALL_DIR}/include/avx2neon/"
 }
 
+# libdeflate
+build_libdeflate() {
+    check_if_source_exist "${LIBDEFLATE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${LIBDEFLATE_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         libunixodbc
@@ -1754,6 +1768,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         libunwind
         dragonbox
         avx2neon
+        libdeflate
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
