@@ -1087,7 +1087,7 @@ DEFINE_String(group_commit_replay_wal_dir, "./wal");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
 DEFINE_Bool(wait_internal_group_commit_finish, "false");
-DEFINE_Bool(wait_relay_wal_finish, "false");
+DEFINE_Bool(wait_relay_wal_finish, "true");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
