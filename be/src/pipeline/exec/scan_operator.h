@@ -77,6 +77,10 @@ public:
         if (_scanner_done) {
             return;
         }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_scanner_done) {
+            return;
+        }
         Dependency::block();
     }
 
@@ -84,15 +88,27 @@ public:
         if (_scanner_done) {
             return;
         }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_scanner_done) {
+            return;
+        }
         _scanner_done = true;
         Dependency::set_ready();
+    }
+
+    std::string debug_string(int indentation_level = 0) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "{}, _scanner_done = {}",
+                       Dependency::debug_string(indentation_level), _scanner_done);
+        return fmt::to_string(debug_string_buffer);
     }
 
     void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
 
 private:
     vectorized::ScannerContext* _scanner_ctx = nullptr;
-    std::atomic<bool> _scanner_done {false};
+    bool _scanner_done {false};
+    std::mutex _always_done_lock;
 };
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
