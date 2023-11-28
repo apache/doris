@@ -60,18 +60,21 @@ public class MetaIdMappingsLog implements Writable {
         return GsonUtils.GSON.fromJson(json, MetaIdMappingsLog.class);
     }
 
-    public void addFromCreateDatabaseEvent(String databaseName, long databaseId) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 1, (short) 1, databaseName, null, null, databaseId);
+    public void addFromCreateDatabaseEvent(String databaseName) {
+        MetaIdMapping mapping = new MetaIdMapping((short) 1, (short) 1, databaseName, null, null,
+                    ExternalMetaIdMgr.nextMetaId());
         this.metaIdMappings.add(mapping);
     }
 
-    public void addFromCreateTableEvent(String dbName, String tableName, long tableId) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 1, (short) 2, dbName, tableName, null, tableId);
+    public void addFromCreateTableEvent(String dbName, String tableName) {
+        MetaIdMapping mapping = new MetaIdMapping((short) 1, (short) 2, dbName, tableName, null,
+                    ExternalMetaIdMgr.nextMetaId());
         this.metaIdMappings.add(mapping);
     }
 
-    public void addFromAddPartitionEvent(String dbName, String tblName, String partitionName, long partitionId) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 1, (short) 3, dbName, tblName, partitionName, partitionId);
+    public void addFromAddPartitionEvent(String dbName, String tblName, String partitionName) {
+        MetaIdMapping mapping = new MetaIdMapping((short) 1, (short) 3, dbName, tblName, partitionName,
+                    ExternalMetaIdMgr.nextMetaId());
         this.metaIdMappings.add(mapping);
     }
 
@@ -81,7 +84,7 @@ public class MetaIdMappingsLog implements Writable {
     }
 
     public void addFromDropTableEvent(String dbName, String tblName) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 2, (short) 1, dbName, tblName, null, -1L);
+        MetaIdMapping mapping = new MetaIdMapping((short) 2, (short) 2, dbName, tblName, null, -1L);
         this.metaIdMappings.add(mapping);
     }
 
@@ -96,7 +99,6 @@ public class MetaIdMappingsLog implements Writable {
                 return OperationType.ADD;
             case 2:
                 return OperationType.DELETE;
-
             default:
                 return OperationType.IGNORE;
         }
@@ -110,7 +112,6 @@ public class MetaIdMappingsLog implements Writable {
                 return MetaObjectType.TABLE;
             case 3:
                 return MetaObjectType.PARTITION;
-
             default:
                 return MetaObjectType.IGNORE;
         }

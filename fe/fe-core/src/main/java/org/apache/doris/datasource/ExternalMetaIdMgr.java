@@ -45,6 +45,7 @@ public class ExternalMetaIdMgr {
     public ExternalMetaIdMgr() {
     }
 
+    // invoke this method only on master
     public static long nextMetaId() {
         return Env.getCurrentEnv().getNextId();
     }

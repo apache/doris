@@ -19,7 +19,6 @@
 package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 
@@ -97,13 +96,13 @@ public class MetastoreEventFactory implements EventFactory {
         for (MetastoreEvent event : mergedEvents) {
             switch (event.getEventType()) {
                 case CREATE_DATABASE:
-                    log.addFromCreateDatabaseEvent(event.dbName, ExternalMetaIdMgr.nextMetaId());
+                    log.addFromCreateDatabaseEvent(event.dbName);
                     break;
                 case DROP_DATABASE:
                     log.addFromDropDatabaseEvent(event.dbName);
                     break;
                 case CREATE_TABLE:
-                    log.addFromCreateTableEvent(event.dbName, event.tblName, ExternalMetaIdMgr.nextMetaId());
+                    log.addFromCreateTableEvent(event.dbName, event.tblName);
                     break;
                 case DROP_TABLE:
                     log.addFromDropTableEvent(event.dbName, event.tblName);
@@ -111,8 +110,7 @@ public class MetastoreEventFactory implements EventFactory {
                 case ADD_PARTITION:
                     AddPartitionEvent addPartitionEvent = (AddPartitionEvent) event;
                     for (String partitionName : addPartitionEvent.getAllPartitionNames()) {
-                        log.addFromAddPartitionEvent(event.dbName, event.tblName,
-                                    partitionName, ExternalMetaIdMgr.nextMetaId());
+                        log.addFromAddPartitionEvent(event.dbName, event.tblName, partitionName);
                     }
                     break;
                 case DROP_PARTITION:
