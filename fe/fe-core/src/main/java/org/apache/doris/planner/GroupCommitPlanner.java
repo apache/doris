@@ -169,40 +169,30 @@ public class GroupCommitPlanner {
             return null;
         }
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
-        try {
-            List<Expr> exprs = cols.subList(0, cols.size() - filterSize);
-            for (Expr expr : exprs) {
-                if (!expr.isLiteralOrCastExpr() && !(expr instanceof CastExpr)) {
-                    if (expr.getChildren().get(0) instanceof NullLiteral) {
-                        row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
-                        continue;
-                    }
-                    throw new UserException(
-                        "do not support non-literal expr in transactional insert operation: " + expr.toSql());
+        List<Expr> exprs = cols.subList(0, cols.size() - filterSize);
+        for (Expr expr : exprs) {
+            if (!expr.isLiteralOrCastExpr() && !(expr instanceof CastExpr)) {
+                if (expr.getChildren().get(0) instanceof NullLiteral) {
+                    row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
+                    continue;
                 }
-                processExprVal(expr, row);
+                throw new UserException(
+                        "do not support non-literal expr in transactional insert operation: " + expr.toSql());
             }
-        } catch (UserException e) {
-            throw new RuntimeException(e);
+            processExprVal(expr, row);
         }
         return row.build();
     }
 
     private static void processExprVal(Expr expr, InternalService.PDataRow.Builder row) {
-        if (expr.getChildren().isEmpty()) {
-            if (expr instanceof NullLiteral) {
-                row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
-            } else if (expr.getType() instanceof ArrayType) {
-                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForArray()));
-            } else if (!expr.getChildren().isEmpty()) {
-                expr.getChildren().forEach(child -> processExprVal(child, row));
-            } else {
-                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValue()));
-            }
+        if (expr instanceof NullLiteral) {
+            row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
+        } else if (expr.getType() instanceof ArrayType) {
+            row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForArray()));
+        } else if (!expr.getChildren().isEmpty()) {
+            expr.getChildren().forEach(child -> processExprVal(child, row));
         } else {
-            for (Expr child : expr.getChildren()) {
-                processExprVal(child, row);
-            }
+            row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValue()));
         }
     }
 

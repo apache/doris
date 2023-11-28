@@ -288,7 +288,6 @@ public class StmtExecutor {
             }
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
-                // row.addColBuilder().setValue("null");
             } else if (expr instanceof ArrayLiteral) {
                 row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForArray()));
             } else {

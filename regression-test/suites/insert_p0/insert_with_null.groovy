@@ -56,9 +56,9 @@ suite("insert_with_null") {
         CREATE TABLE ${table} (
             `id` int(11) NOT NULL,
             `name` varchar(50) NULL,
-            `score` int(11) NULL default "-1"
+            `desc` array<String> NULL
         ) ENGINE=OLAP
-        DUPLICATE KEY(`id`, `name`)
+        DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1"
@@ -76,19 +76,22 @@ suite("insert_with_null") {
             sql """ set enable_fallback_to_original_planner=false; """
         }
 
-        sql """ insert into ${table} values(1, '"b"', 100); """
-        sql """ insert into ${table} values(2, "\\N", 100); """
-        // sql """ insert into ${table} values(3, "\\\\N", 100); """
-        sql """ insert into ${table} values(4, 'null', 100); """
-        sql """ insert into ${table} values(5, 'NULL', 100); """
-        sql """ insert into ${table} values(6, null, 100); """
-
-        if (write_mode == "txn_insert") {
+        sql """ insert into ${table} values(1, '"b"', ["k1=v1, k2=v2"]); """
+        sql """ insert into ${table} values(2, "\\N", ['k3=v3, k4=v4']); """
+        // sql """ insert into ${table} values(3, "\\\\N", []); """
+        sql """ insert into ${table} values(4, 'null', []); """
+        sql """ insert into ${table} values(5, 'NULL', ['k5, k6']); """
+        sql """ insert into ${table} values(6, null, ["k7", "k8"]); """
+        if (write_mode != "txn_insert") {
+            sql """ insert into ${table}(id, name) values(7, 'abc'); """
+            getRowCount(6)
+        } else {
             sql "commit"
+            getRowCount(5)
         }
 
-        getRowCount(5)
         qt_sql """ select * from ${table} order by id asc; """
         qt_sql """ select * from ${table} where name is null order by id asc; """
+        qt_sql """ select * from ${table} where `desc` is null order by id asc; """
     }
 }
