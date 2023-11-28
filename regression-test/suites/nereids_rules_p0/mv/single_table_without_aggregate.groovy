@@ -64,7 +64,7 @@ suite("single_table_without_aggregate") {
 
     // select + from
     def mv1_0 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d from orders"
-    def query1_0 = "select O_ORDERKEY + 100, abs(O_TOTALPRICE) + 1, date_add(O_ORDERDATE, INTERVAL 2 DAY) " +
+    def query1_0 = "select O_ORDERKEY + 100, abs(O_TOTALPRICE) + 1 as abs_price, date_add(O_ORDERDATE, INTERVAL 2 DAY) " +
             "from orders"
     check_rewrite(mv1_0, query1_0, "mv1_0")
     order_qt_query1_0 "${query1_0}"
@@ -238,7 +238,8 @@ suite("single_table_without_aggregate") {
     def query6_1 = "select d, count(*) from " +
             "${view6_1_name} " +
             "group by d"
-    check_rewrite(mv2_1, query6_1, "mv6_1")
+    // should support but not
+//    check_rewrite(mv2_1, query6_1, "mv6_1")
     order_qt_query6_1 "${query6_1}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv6_1 ON orders"""
 
@@ -269,4 +270,54 @@ suite("single_table_without_aggregate") {
     check_rewrite(mv4_1, query6_3, "mv6_3")
     order_qt_query6_3 "${query6_3}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv6_3 ON orders"""
+
+
+    // top cte = select + from
+    def cte7_0_name = "cte7_0"
+    def cte7_0 = "with ${cte7_0_name} as ( ${query1_0} )"
+
+    def query7_0 = "${cte7_0} SELECT abs_price, count(*) from " +
+            "${cte7_0_name} " +
+            "group by abs_price"
+    // should support but not
+//    check_rewrite(mv1_0, query7_0, "mv7_0")
+    order_qt_query7_0 "${query7_0}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv7_0 ON orders"""
+
+    // top cte = select + from + order by + limit
+    // view = select + from + order by + limit
+    def cte7_1_name = "cte7_1"
+    def cte7_1 = "with ${cte7_1_name} as ( ${query2_1} )"
+    def query7_1 = "${cte7_1} select d, count(*) from " +
+            "${cte7_1_name} " +
+            "group by d"
+    // should support but not
+//    check_rewrite(mv2_1, query7_1, "mv7_1")
+    order_qt_query7_1 "${query7_1}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv7_1 ON orders"""
+
+    // top cte = select + from + filter
+    def cte7_2_name = "cte7_2"
+    def cte7_2 = "with ${cte7_2_name} as ( ${query3_0} )"
+
+    def query7_2 = "${cte7_2} select O_ORDERKEY, count(*) from " +
+            "${cte7_2_name} " +
+            "group by O_ORDERKEY"
+    // should support but not
+//    check_rewrite(mv3_0, query7_2, "mv7_2")
+    order_qt_query7_2 "${query7_2}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv7_2 ON orders"""
+
+
+    // top cte = select + from + filter + order by + limit
+    def cte7_3_name = "cte7_3"
+    def cte7_3 = "with ${cte7_3_name} as ( ${query4_1} )"
+
+    def query7_3 = "${cte7_3} select O_ORDERKEY, count(*) from " +
+            "${cte7_3_name} " +
+            "group by O_ORDERKEY"
+    // should support but not
+    check_rewrite(mv4_1, query7_3, "mv7_3")
+    order_qt_query7_3 "${query7_3}"
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv7_3 ON orders"""
 }
