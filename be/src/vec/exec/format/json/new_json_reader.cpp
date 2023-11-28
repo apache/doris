@@ -773,9 +773,9 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
             col_names.append(slot_desc->col_name() + ", ");
         }
         RETURN_IF_ERROR(_append_error_msg(objectValue,
-                                          "All fields is null, this is a invalid row. "
-                                          "Column names:[{}], jsonpaths:{}, please check column "
-                                          "names and jsonpaths",
+                                          "There is no column matching jsonpaths in the json file, "
+                                          "columns:[{}], jsonpaths:{}, please check columns "
+                                          "and jsonpaths",
                                           col_names, valid));
         return Status::OK();
     }
@@ -1326,9 +1326,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             col_names.append(slot_desc->col_name() + ", ");
         }
         RETURN_IF_ERROR(_append_error_msg(value,
-                                          "All fields is null, this is a invalid row. "
-                                          "Column names:[{}], jsonpaths:{}, please check column "
-                                          "names and jsonpaths",
+                                          "There is no column matching jsonpaths in the json file, "
+                                          "columns:[{}], jsonpaths:{}, please check columns "
+                                          "and jsonpaths",
                                           col_names, valid));
         return Status::OK();
     }
@@ -1633,9 +1633,9 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
             col_names.append(slot_desc->col_name() + ", ");
         }
         RETURN_IF_ERROR(_append_error_msg(value,
-                                          "All fields is null, this is a invalid row. "
-                                          "Column names:[{}], jsonpaths:{}, please check column "
-                                          "names and jsonpaths",
+                                          "There is no column matching jsonpaths in the json file, "
+                                          "columns:[{}], jsonpaths:{}, please check columns "
+                                          "and jsonpaths",
                                           col_names, valid));
         return Status::OK();
     }
