@@ -1048,7 +1048,7 @@ Status TabletManager::start_trash_sweep() {
 
     auto get_batch_tablets = [this, &last_it](int limit) {
         std::vector<TabletSharedPtr> batch_tablets;
-        std::lock_guard wrlock(_shutdown_tablets_lock);
+        std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
         while (last_it != _shutdown_tablets.end() && batch_tablets.size() < limit) {
             // it means current tablet is referenced by other thread
             if (last_it->use_count() > 1) {
@@ -1093,7 +1093,7 @@ Status TabletManager::start_trash_sweep() {
     }
 
     if (!failed_tablets.empty()) {
-        std::lock_guard wrlock(_shutdown_tablets_lock);
+        std::lock_guard<std::shared_mutex> wrlock(_shutdown_tablets_lock);
         _shutdown_tablets.splice(_shutdown_tablets.end(), failed_tablets);
     }
 
@@ -1126,7 +1126,11 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
             // take snapshot of tablet meta
             auto meta_file_path = fmt::format("{}/{}.hdr", tablet_path, tablet->tablet_id());
             int64_t save_meta_ts = MonotonicMicros();
-            if (!tablet->tablet_meta()->save(meta_file_path).ok()) {
+            auto save_st = tablet->tablet_meta()->save(meta_file_path);
+            if (!save_st.ok()) {
+                LOG(WARNING) << "failed to save meta, tablet_id=" << tablet_meta->tablet_id()
+                             << ", tablet_uid=" << tablet_meta->tablet_uid()
+                             << ", error=" << save_st;
                 return false;
             }
             int64_t now = MonotonicMicros();
@@ -1140,9 +1144,11 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
             }
         }
         // remove tablet meta
-        if (!TabletMetaManager::remove(tablet->data_dir(), tablet->tablet_id(),
-                                       tablet->schema_hash())
-                     .ok()) {
+        auto remove_st = TabletMetaManager::remove(tablet->data_dir(), tablet->tablet_id(),
+                                                   tablet->schema_hash());
+        if (!remove_st.ok()) {
+            LOG(WARNING) << "failed to remove meta, tablet_id=" << tablet_meta->tablet_id()
+                         << ", tablet_uid=" << tablet_meta->tablet_uid() << ", error=" << remove_st;
             return false;
         }
         LOG(INFO) << "successfully move tablet to trash. "
