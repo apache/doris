@@ -17,6 +17,7 @@
 
 #include "olap/wal_manager.h"
 
+#include <glog/logging.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <atomic>
@@ -24,14 +25,21 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_map>
 #include <utility>
 
+#include "common/config.h"
+#include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "olap/wal_writer.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "util/parse_util.h"
 #include "util/path_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/exec/format/wal/wal_reader.h"
@@ -40,8 +48,6 @@ namespace doris {
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
         : _exec_env(exec_env), _stop_background_threads_latch(1), _stop(false) {
     doris::vectorized::WalReader::string_split(wal_dir_list, ";", _wal_dirs);
-    _all_wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
-    _cv = std::make_shared<std::condition_variable>();
     static_cast<void>(ThreadPoolBuilder("GroupCommitReplayWalThreadPool")
                               .set_min_threads(1)
                               .set_max_threads(config::group_commit_relay_wal_threads)
@@ -66,6 +72,37 @@ void WalManager::stop() {
 }
 
 Status WalManager::init() {
+    RETURN_IF_ERROR(_init_wal_dirs_conf());
+    RETURN_IF_ERROR(_init_wal_dirs());
+    RETURN_IF_ERROR(_init_wal_disk_info());
+    return Thread::create(
+            "WalMgr", "replay_wal", [this]() { static_cast<void>(this->replay()); },
+            &_replay_thread);
+}
+
+Status WalManager::_init_wal_dirs_conf() {
+    std::vector<std::string> tmp_dirs;
+    if (_wal_dirs.empty()) {
+        // default case.
+        for (const StorePath& path : ExecEnv::GetInstance()->store_paths()) {
+            tmp_dirs.emplace_back(path.path + "/wal");
+        }
+    } else {
+        // user config must be absolute path.
+        for (const std::string& wal_dir : _wal_dirs) {
+            if (std::filesystem::path(wal_dir).is_absolute()) {
+                tmp_dirs.emplace_back(wal_dir);
+            } else {
+                return Status::InternalError(
+                        "BE config group_commit_replay_wal_dir has to be absolute path!");
+            }
+        }
+    }
+    _wal_dirs = tmp_dirs;
+    return Status::OK();
+}
+
+Status WalManager::_init_wal_dirs() {
     bool exists = false;
     for (auto wal_dir : _wal_dirs) {
         std::string tmp_dir = wal_dir + "/tmp";
@@ -80,9 +117,43 @@ Status WalManager::init() {
         }
         RETURN_IF_ERROR(scan_wals(wal_dir));
     }
-    return Thread::create(
-            "WalMgr", "replay_wal", [this]() { static_cast<void>(this->replay()); },
-            &_replay_thread);
+    return Status::OK();
+}
+
+Status WalManager::_init_wal_disk_info() {
+    for (const std::string& wal_dir : _wal_dirs) {
+        size_t available_bytes;
+#ifndef BE_TEST
+        size_t disk_capacity_bytes;
+        RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(wal_dir, &disk_capacity_bytes,
+                                                                      &available_bytes));
+#else
+        available_bytes = wal_limit_test_bytes;
+#endif
+        bool is_percent = true;
+        int64_t wal_disk_limit = ParseUtil::parse_mem_spec(config::group_commit_wal_max_disk_limit,
+                                                           -1, available_bytes, &is_percent);
+        if (wal_disk_limit < 0) {
+            return Status::InternalError(
+                    "group_commit_wal_max_disk_limit config is wrong, please check your config!");
+        }
+        // if there are some wal files in wal dir, we need to add it to wal disk limit.
+        size_t wal_dir_size = 0;
+        RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(wal_dir, &wal_dir_size));
+        if (is_percent) {
+            wal_disk_limit += wal_dir_size;
+        }
+        {
+            std::unique_lock<std::shared_mutex> l(_wal_disk_info_lock);
+            _wal_disk_info_map.insert(std::make_pair(
+                    wal_dir, std::make_shared<WalDiskInfo>(wal_disk_limit, wal_dir_size, 0)));
+        }
+
+#ifdef BE_TEST
+        wal_limit_test_bytes = wal_disk_limit;
+#endif
+    }
+    return Status::OK();
 }
 
 void WalManager::add_wal_status_queue(int64_t table_id, int64_t wal_id, WAL_STATUS wal_status) {
@@ -158,9 +229,9 @@ void WalManager::print_wal_status_queue() {
 }
 
 Status WalManager::add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
-                                const std::string& label) {
-    std::string base_path =
-            _wal_dirs.size() == 1 ? _wal_dirs[0] : _wal_dirs[rand() % _wal_dirs.size()];
+                                const std::string& label, std::string& base_path) {
+    // TODO: (Yukang) change it.
+    base_path = get_min_disk_usage_wal_dir();
     std::stringstream ss;
     ss << base_path << "/" << std::to_string(db_id) << "/" << std::to_string(table_id) << "/"
        << std::to_string(wal_id) << "_" << label;
@@ -209,7 +280,7 @@ Status WalManager::create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>&
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(base_path));
     }
     LOG(INFO) << "create wal " << wal_path;
-    wal_writer = std::make_shared<WalWriter>(wal_path, _all_wal_disk_bytes, _cv);
+    wal_writer = std::make_shared<WalWriter>(wal_path);
     RETURN_IF_ERROR(wal_writer->init());
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
@@ -331,6 +402,9 @@ Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, std::vector<
         table_ptr = it->second;
     }
     table_ptr->add_wals(wals);
+    for (auto wal : wals) {
+        RETURN_IF_ERROR(update_wal_disk_info_map(_get_base_wal_path(wal)));
+    }
     return Status::OK();
 }
 
@@ -344,31 +418,20 @@ size_t WalManager::get_wal_table_size(int64_t table_id) {
     }
 }
 
-Status WalManager::delete_wal(int64_t wal_id) {
+Status WalManager::delete_wal(int64_t wal_id, size_t block_queue_pre_allocated) {
+    std::string wal_path;
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
-        if (_wal_id_to_writer_map.find(wal_id) != _wal_id_to_writer_map.end()) {
-            _all_wal_disk_bytes->fetch_sub(_wal_id_to_writer_map[wal_id]->disk_bytes(),
-                                           std::memory_order_relaxed);
-            _cv->notify_one();
-            std::string wal_path = _wal_path_map[wal_id];
-            LOG(INFO) << "wal delete file=" << wal_path << ", this file disk usage is "
-                      << _wal_id_to_writer_map[wal_id]->disk_bytes()
-                      << " ,after deleting it, all wals disk usage is "
-                      << _all_wal_disk_bytes->load(std::memory_order_relaxed);
-            _wal_id_to_writer_map.erase(wal_id);
-        }
-        if (_wal_id_to_writer_map.empty()) {
-            CHECK_EQ(_all_wal_disk_bytes->load(std::memory_order_relaxed), 0);
-        }
         auto it = _wal_path_map.find(wal_id);
         if (it != _wal_path_map.end()) {
-            std::string wal_path = it->second;
+            wal_path = it->second;
             RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));
             LOG(INFO) << "delete file=" << wal_path;
             _wal_path_map.erase(wal_id);
         }
     }
+    RETURN_IF_ERROR(update_wal_disk_info_map(_get_base_wal_path(wal_path), -1, -1,
+                                             block_queue_pre_allocated, false));
     return Status::OK();
 }
 
@@ -407,6 +470,116 @@ Status WalManager::get_wal_column_index(int64_t wal_id, std::vector<size_t>& col
         return Status::InternalError("cannot find wal {} in wal_column_id_map", wal_id);
     }
     return Status::OK();
+}
+
+bool WalManager::is_wal_disk_space_enough() {
+    // if all disks space usage < 80%
+    std::shared_lock l(_wal_disk_info_lock);
+    for (const auto& it : _wal_disk_info_map) {
+        size_t limit = it.second->limit;
+        size_t available = it.second->available();
+        if (available >= limit * 0.8) {
+            return true;
+        }
+    }
+    return false;
+}
+
+const string& WalManager::get_min_disk_usage_wal_dir() {
+    std::shared_lock l(_wal_disk_info_lock);
+    return _wal_dirs.size() == 1
+                   ? _wal_dirs[0]
+                   : *std::min_element(_wal_dirs.begin(), _wal_dirs.end(),
+                                       [this](const std::string& dir1, const std::string& dir2) {
+                                           return _wal_disk_info_map[dir1]->available() <
+                                                  _wal_disk_info_map[dir2]->available();
+                                       });
+}
+
+const string& WalManager::get_random_wal_dir() {
+    std::shared_lock l(_wal_disk_info_lock);
+    return _wal_disk_info_map.size() == 1
+                   ? _wal_disk_info_map.begin()->first
+                   : std::next(_wal_disk_info_map.begin(), rand() % _wal_disk_info_map.size())
+                             ->first;
+}
+
+size_t WalManager::get_max_available_size() {
+    std::shared_lock l(_wal_disk_info_lock);
+    return _wal_disk_info_map.size() == 1
+                   ? _wal_disk_info_map.begin()->second->available()
+                   : std::max_element(_wal_disk_info_map.begin(), _wal_disk_info_map.end(),
+                                      [](const auto& map1, const auto& map2) {
+                                          return map1.second->available() <
+                                                 map2.second->available();
+                                      })
+                             ->second->available();
+}
+
+Status WalManager::update_wal_disk_info_map(std::string wal_dir, size_t limit, size_t used,
+                                            size_t pre_allocated, bool is_add_pre_allocated) {
+    if (_wal_disk_info_map.find(wal_dir) != _wal_disk_info_map.end()) {
+        std::unique_lock l(_wal_disk_info_lock);
+        if (limit != static_cast<size_t>(-1)) {
+            _wal_disk_info_map[wal_dir]->limit = limit;
+        } else {
+            size_t available_bytes;
+            size_t disk_capacity_bytes;
+            RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(
+                    wal_dir, &disk_capacity_bytes, &available_bytes));
+            bool is_percent = true;
+            int64_t wal_disk_limit = ParseUtil::parse_mem_spec(
+                    config::group_commit_wal_max_disk_limit, -1, available_bytes, &is_percent);
+            if (wal_disk_limit <= 0) {
+                return Status::InternalError("Disk full! Please check your disk usage!");
+            }
+            size_t wal_dir_size = 0;
+            RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(wal_dir, &wal_dir_size));
+            _wal_disk_info_map[wal_dir]->limit = wal_disk_limit;
+        }
+        if (used != static_cast<size_t>(-1)) {
+            _wal_disk_info_map[wal_dir]->used = used;
+        } else {
+            size_t wal_dir_size = 0;
+            RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(wal_dir, &wal_dir_size));
+            _wal_disk_info_map[wal_dir]->used = wal_dir_size;
+        }
+        if (pre_allocated != static_cast<size_t>(-1)) {
+            if (is_add_pre_allocated) {
+                _wal_disk_info_map[wal_dir]->pre_allocated += pre_allocated;
+            } else {
+                _wal_disk_info_map[wal_dir]->pre_allocated -= pre_allocated;
+            }
+        }
+    } else {
+        return Status::InternalError("Can not find wal dir in wal disk info map.");
+    }
+    return Status::OK();
+}
+
+Status WalManager::get_wal_disk_available_size(const std::string& wal_dir,
+                                               size_t* available_bytes) {
+    RETURN_IF_ERROR(update_wal_disk_info_map(wal_dir));
+    std::shared_lock l(_wal_disk_info_lock);
+    {
+        if (auto it = _wal_disk_info_map.find(wal_dir); it != _wal_disk_info_map.end()) {
+            *available_bytes = _wal_disk_info_map[wal_dir]->available();
+            return Status::OK();
+        } else {
+            return Status::InternalError("can not find wal dir!");
+        }
+    }
+}
+
+std::string WalManager::_get_base_wal_path(const std::string& wal_path_str) {
+    io::Path wal_path = wal_path_str;
+    for (int i = 0; i < 3; ++i) {
+        if (!wal_path.has_parent_path()) {
+            return "";
+        }
+        wal_path = wal_path.parent_path();
+    }
+    return wal_path.string();
 }
 
 } // namespace doris

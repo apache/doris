@@ -57,7 +57,7 @@ private:
     void init_desc_table();
 
     ExecEnv* _env = nullptr;
-    std::string wal_dir = "./wal_test";
+    std::string wal_dir = "./wal";
     int64_t db_id = 1;
     int64_t tb_id = 2;
     int64_t txn_id = 789;

@@ -90,10 +90,7 @@ void generate_block(PBlock& pblock, int row_index) {
 
 TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
     std::string file_name = _s_test_data_path + "/abcd123.txt";
-    std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes =
-            std::make_shared<std::atomic_size_t>(0);
-    std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
-    auto wal_writer = WalWriter(file_name, _all_wal_disk_bytes, cv);
+    auto wal_writer = WalWriter(file_name);
     static_cast<void>(wal_writer.init());
     size_t file_len = 0;
     int64_t file_size = -1;

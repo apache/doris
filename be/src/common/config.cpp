@@ -1089,7 +1089,7 @@ DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 DEFINE_Int16(bitmap_serialize_version, "1");
 
 // group commit insert config
-DEFINE_String(group_commit_wal_path, "./wal");
+DEFINE_String(group_commit_wal_path, "");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
 DEFINE_Int32(group_commit_relay_wal_threads, "10");
@@ -1118,8 +1118,9 @@ DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 // Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
 DEFINE_Int32(group_commit_max_queue_size, "67108864");
 
-// Max size(bytes) of wal disk using, used for disk space back pressure, default 64M.
-DEFINE_Int32(wal_max_disk_size, "67108864");
+// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
+// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
+DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
