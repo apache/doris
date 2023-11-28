@@ -485,23 +485,6 @@ public class SelectStmt extends QueryStmt {
         }
         super.analyze(analyzer);
 
-        if (!isForbiddenMVRewrite()) {
-            Boolean haveMv = false;
-            for (TableRef tbl : fromClause) {
-                if (!tbl.haveDesc() || !(tbl.getTable() instanceof OlapTable)) {
-                    continue;
-                }
-                OlapTable olapTable = (OlapTable) tbl.getTable();
-                if (olapTable.getIndexIds().size() != 1) {
-                    haveMv = true;
-                }
-            }
-
-            if (!haveMv) {
-                forbiddenMVRewrite();
-            }
-        }
-
         if (mvSMap.size() != 0) {
             mvSMap.useNotCheckDescIdEquals();
             for (TableRef tableRef : getTableRefs()) {
@@ -520,6 +503,24 @@ public class SelectStmt extends QueryStmt {
         }
         fromClause.setNeedToSql(needToSql);
         fromClause.analyze(analyzer);
+
+        if (!isForbiddenMVRewrite()) {
+            Boolean haveMv = false;
+            for (TableRef tbl : fromClause) {
+                if (!tbl.haveDesc() || !(tbl.getTable() instanceof OlapTable)) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) tbl.getTable();
+                if (olapTable.getIndexIds().size() != 1) {
+                    haveMv = true;
+                }
+            }
+
+            if (!haveMv) {
+                forbiddenMVRewrite();
+            }
+        }
+
         // Generate !empty() predicates to filter out empty collections.
         // Skip this step when analyzing a WITH-clause because CollectionTableRefs
         // do not register collection slots in their parent in that context
