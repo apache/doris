@@ -20,22 +20,26 @@ xxx
 xxx
 
 -- !sql3 --
-Abc
-Beijing
-Beijing
-XXX
-xxx
+ 
+!
+1
+?
+_
+x
 
 -- !sql4 --
-Abc
-Abc
-Beijing
-Beijing
-Beijing
-Beijing
-XXX
-XXX
-new
-xxx
-xxx
+ 
+ 
+!
+!
+1
+1
+?
+?
+_
+_
+_
+x
+x
+y
 
