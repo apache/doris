@@ -62,7 +62,7 @@ public class LeadingHint extends Hint {
 
     private final List<Pair<Long, Expression>> filters = new ArrayList<>();
 
-    private final Map<Expression, JoinType> filterJoinType = Maps.newLinkedHashMap();
+    private final Map<Expression, JoinType> conditionJoinType = Maps.newLinkedHashMap();
 
     private final List<JoinConstraint> joinConstraintList = new ArrayList<>();
 
@@ -196,22 +196,23 @@ public class LeadingHint extends Hint {
         return filters;
     }
 
-    public void putFilterJoinType(Expression filter, JoinType joinType) {
-        filterJoinType.put(filter, joinType);
+    public void putConditionJoinType(Expression filter, JoinType joinType) {
+        conditionJoinType.put(filter, joinType);
     }
 
     /**
-     * find out whether filters can match original joinType
-     * @param filters filters needs to put on this join
+     * find out whether conditions can match original joinType
+     * @param conditions conditions needs to put on this join
      * @param joinType join type computed by join constraint
-     * @return can filters matched
+     * @return can conditions matched
      */
-    public boolean isFilterJoinTypeMatched(List<Expression> filters, JoinType joinType) {
-        for (Expression filter : filters) {
-            JoinType originalJoinType = filterJoinType.get(filter);
+    public boolean isConditionJoinTypeMatched(List<Expression> conditions, JoinType joinType) {
+        for (Expression condition : conditions) {
+            JoinType originalJoinType = conditionJoinType.get(condition);
             if (originalJoinType.equals(joinType)
-                    || originalJoinType.isOuterJoin() && joinType.isOuterJoin()
-                    || originalJoinType.isSemiJoin() && joinType.isSemiJoin()) {
+                    || originalJoinType.isOneSideOuterJoin() && joinType.isOneSideOuterJoin()
+                    || originalJoinType.isSemiJoin() && joinType.isSemiJoin()
+                    || originalJoinType.isAntiJoin() && joinType.isAntiJoin()) {
                 continue;
             }
             return false;
@@ -433,12 +434,13 @@ public class LeadingHint extends Hint {
                             getFilters(), newStackTop.second, logicalPlan);
                     Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
                             newStackTop.second.getOutput(), logicalPlan.getOutput(), conditions);
+                    // leading hint would set status inside if not success
                     JoinType joinType = computeJoinType(getBitmap(newStackTop.second),
                             getBitmap(logicalPlan), conditions);
                     if (joinType == null) {
                         this.setStatus(HintStatus.SYNTAX_ERROR);
                         this.setErrorMessage("JoinType can not be null");
-                    } else if (!isFilterJoinTypeMatched(conditions, joinType)) {
+                    } else if (!isConditionJoinTypeMatched(conditions, joinType)) {
                         this.setStatus(HintStatus.UNUSED);
                         this.setErrorMessage("condition does not matched joinType");
                     }
@@ -482,6 +484,7 @@ public class LeadingHint extends Hint {
 
         LogicalJoin finalJoin = (LogicalJoin) stack.pop().second;
         // we want all filters been remove
+        assert (filters.isEmpty());
         if (finalJoin != null) {
             this.setStatus(HintStatus.SUCCESS);
         }

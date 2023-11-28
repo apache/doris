@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
@@ -24,14 +24,11 @@ import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Exists;
+import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -70,7 +67,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
-                    leading.putFilterJoinType(expression, join.getJoinType());
+                    leading.putConditionJoinType(expression, join.getJoinType());
                 }
                 expressions = join.getOtherJoinConjuncts();
                 for (Expression expression : expressions) {
@@ -79,38 +76,13 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
-                    leading.putFilterJoinType(expression, join.getJoinType());
+                    leading.putConditionJoinType(expression, join.getJoinType());
                 }
                 Long leftHand = LongBitmap.computeTableBitmap(join.left().getInputRelations());
                 Long rightHand = LongBitmap.computeTableBitmap(join.right().getInputRelations());
                 join.setBitmap(LongBitmap.or(leftHand, rightHand));
                 collectJoinConstraintList(leading, leftHand, rightHand, join, totalFilterBitMap, nonNullableSlotBitMap);
 
-                return ctx.root;
-            }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
-
-            logicalFilter().thenApply(ctx -> {
-                if (!ctx.cascadesContext.isLeadingJoin()) {
-                    return ctx.root;
-                }
-                LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                        .getHintMap().get("Leading");
-                LogicalFilter filter = ctx.root;
-                Set<Expression> expressions = filter.getConjuncts();
-                for (Expression expression : expressions) {
-                    Long filterBitMap = 0L;
-                    // do not put aggregate function, in subquery and exists subquery into join conditions
-                    if (expression.containsType(AggregateFunction.class)
-                            || expression instanceof InSubquery || expression instanceof Exists) {
-                        continue;
-                    } else {
-                        filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
-                    }
-                    if (filterBitMap.equals(0L)) {
-                        continue;
-                    }
-                    leading.getFilters().add(Pair.of(filterBitMap, expression));
-                }
                 return ctx.root;
             }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
 

@@ -38,14 +38,19 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 
 /**
- * eliminate logical select hint and set then to cascade context
+ * eliminate logical select hint and set them to cascade context
  */
 public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
+    private Logger logger = LoggerFactory.getLogger(getClass());
+
     @Override
     public Rule build() {
         return logicalSelectHint().thenApply(ctx -> {
@@ -69,7 +74,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                     extractLeading((SelectHintLeading) hint.getValue(), ctx.cascadesContext,
                             ctx.statementContext, selectHintPlan.getHints());
                 } else {
-                    // logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
+                    logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
                 }
             }
             return selectHintPlan.child();
@@ -110,6 +115,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
         if (context.getHintMap().get("Leading") != null) {
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+            context.getHintMap().get("Leading").setStatus(Hint.HintStatus.UNUSED);
             hint.setErrorMessage("one query block can only have one leading clause");
             statementContext.addHint(hint);
             context.setLeadingJoin(false);

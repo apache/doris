@@ -28,10 +28,12 @@ import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.LeadingJoin;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
@@ -41,9 +43,7 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
-import org.apache.doris.nereids.rules.rewrite.CollectJoinConstraint;
-import org.apache.doris.nereids.rules.rewrite.LeadingJoin;
-import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
+import org.apache.doris.nereids.rules.rewrite.JoinCommute;
 
 import java.util.List;
 import java.util.Objects;
@@ -124,7 +124,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
-            bottomUp(new SemiJoinCommute()),
+            bottomUp(new JoinCommute()),
             bottomUp(
                     new CollectSubQueryAlias(),
                     new CollectJoinConstraint()
