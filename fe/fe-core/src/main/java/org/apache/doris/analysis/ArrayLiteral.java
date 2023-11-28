@@ -128,6 +128,33 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
+    public int hashCode() {
+        int code =  31 * super.hashCode();
+        for (Expr c : children) {
+            code = code + c.hashCode();
+        }
+        return code;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof ArrayLiteral)) {
+            return false;
+        }
+        if (this == o) {
+            return true;
+        }
+
+        ArrayLiteral that = (ArrayLiteral) o;
+        for (int i = 0; i < children.size(); i++) {
+            if (!children.get(i).equals(that.children.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
         out.writeInt(children.size());

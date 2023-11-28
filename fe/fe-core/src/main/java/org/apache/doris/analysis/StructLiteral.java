@@ -164,4 +164,30 @@ public class StructLiteral extends LiteralExpr {
             e.checkValueValid();
         }
     }
+
+    public int hashCode() {
+        int code =  31 * super.hashCode();
+        for (Expr c : children) {
+            code = code + c.hashCode();
+        }
+        return code;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof StructLiteral)) {
+            return false;
+        }
+        if (this == o) {
+            return true;
+        }
+
+        StructLiteral that = (StructLiteral) o;
+        for (int i = 0; i < children.size(); i++) {
+            if (!children.get(i).equals(that.children.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 }
