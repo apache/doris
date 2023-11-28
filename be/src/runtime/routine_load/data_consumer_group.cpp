@@ -245,8 +245,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
     Status result_st = Status::OK();
     // start all consumers
     for (auto& consumer : _consumers) {
-        auto consumer_tmp = consumer;
-        if (!_thread_pool.offer([this, consumer_tmp, capture0 = &_queue, capture1 = ctx->max_interval_s * 1000,
+        if (!_thread_pool.offer([this, consumer, capture0 = &_queue, capture1 = ctx->max_interval_s * 1000,
                 capture2 = [this, &result_st](const Status& st) {
                  std::unique_lock<std::mutex> lock(_mutex);
                  _counter--;
@@ -259,7 +258,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                  if (result_st.ok() && !st.ok()) {
                      result_st = st;
                  }
-                }] { actual_consume(consumer_tmp, capture0, capture1, capture2); })) {
+                }] { actual_consume(consumer, capture0, capture1, capture2); })) {
             LOG(WARNING) << "failed to submit data consumer: " << consumer->id() << ", group id: " << _grp_id;
             return Status::InternalError("failed to submit data consumer");
         } else {

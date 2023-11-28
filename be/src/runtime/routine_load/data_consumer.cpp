@@ -552,6 +552,14 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
             //filter invalid prefix of json
             filter_data = substring_prefix_json(msg.get()->getDataAsString());
             rows = convert_rows(filter_data.c_str());
+            if (msg.get()->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
+                LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
+                          << ", len: " << msg.get()->getLength()
+                          << ", message id: " << msg.get()->getMessageId()
+                          << ", pulsar consumer: " << _id
+                          << ", grp: " << _grp_id
+                          << ", rows size: " << rows.size();
+            }
             for (const char* row : rows) {
                 pulsar::MessageBuilder messageBuilder;
                 size_t row_len = len_of_actual_data(row);
@@ -559,14 +567,6 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 messageBuilder.setProperty("topicName",msg.get()->getTopicName());
                 new_msg = new pulsar::Message(messageBuilder.build());
                 new_msg->setMessageId(msg.get()->getMessageId());
-
-                if (new_msg->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
-                    LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
-                              << ", len: " << msg.get()->getLength()
-                              << ", message id: " << msg.get()->getMessageId()
-                              << ", pulsar consumer: " << _id
-                              << ", grp: " << _grp_id;
-                }
 
                 if (new_msg->getDataAsString().find("{\"") == std::string::npos) {
                     // ignore msg with length 0.
