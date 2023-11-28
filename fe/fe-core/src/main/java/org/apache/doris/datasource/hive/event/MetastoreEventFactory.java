@@ -73,16 +73,14 @@ public class MetastoreEventFactory implements EventFactory {
         }
     }
 
-    List<MetastoreEvent> getMetastoreEvents(List<NotificationEvent> events,
-                                            HMSExternalCatalog hmsExternalCatalog,
-                                            boolean isMaster) {
+    List<MetastoreEvent> getMetastoreEvents(List<NotificationEvent> events, HMSExternalCatalog hmsExternalCatalog) {
         List<MetastoreEvent> metastoreEvents = Lists.newArrayList();
         String catalogName = hmsExternalCatalog.getName();
         for (NotificationEvent event : events) {
             metastoreEvents.addAll(transferNotificationEventToMetastoreEvents(event, catalogName));
         }
         List<MetastoreEvent> mergedEvents = mergeEvents(catalogName, metastoreEvents);
-        if (isMaster) {
+        if (Env.getCurrentEnv().isMaster()) {
             logMetaIdMappings(hmsExternalCatalog.getId(), events.get(events.size() - 1).getEventId(), mergedEvents);
         }
         return mergedEvents;

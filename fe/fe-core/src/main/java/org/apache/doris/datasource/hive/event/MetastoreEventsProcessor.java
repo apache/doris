@@ -70,8 +70,6 @@ public class MetastoreEventsProcessor extends MasterDaemon {
 
     private boolean isRunning;
 
-    private boolean isMaster;
-
     public MetastoreEventsProcessor() {
         super(MetastoreEventsProcessor.class.getName(), Config.hms_events_polling_interval_ms);
         this.metastoreEventFactory = new MetastoreEventFactory();
@@ -121,8 +119,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      */
     private void processEvents(List<NotificationEvent> events, HMSExternalCatalog hmsExternalCatalog) {
         //transfer
-        List<MetastoreEvent> metastoreEvents = metastoreEventFactory.getMetastoreEvents(
-                    events, hmsExternalCatalog, isMaster);
+        List<MetastoreEvent> metastoreEvents = metastoreEventFactory.getMetastoreEvents(events, hmsExternalCatalog);
         doExecute(metastoreEvents, hmsExternalCatalog);
         hmsExternalCatalog.setLastSyncedEventId(events.get(events.size() - 1).getEventId());
     }
@@ -143,7 +140,6 @@ public class MetastoreEventsProcessor extends MasterDaemon {
     }
 
     private void realRun() {
-        isMaster = Env.getCurrentEnv().isMaster();
         List<Long> catalogIds = Env.getCurrentEnv().getCatalogMgr().getCatalogIds();
         for (Long catalogId : catalogIds) {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
