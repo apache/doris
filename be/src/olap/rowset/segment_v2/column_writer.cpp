@@ -554,34 +554,34 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 }
 
 Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size_t* num_written) {
-    LOG(INFO) << "before page_builder->add, remaining_rows=" << num_written << ", page_ptr=" << &data
+    LOG(INFO) << "before page_builder->add, remaining_rows=" << *num_written << ", page_ptr=" << &data
               << ": " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     RETURN_IF_ERROR(_page_builder->add(data, num_written));
-    LOG(INFO) << "after page_builder->add, remaining_rows=" << num_written << ", page_ptr=" << &data
+    LOG(INFO) << "after page_builder->add, remaining_rows=" << *num_written << ", page_ptr=" << &data
               << ": " << MemTracker::log_usage(_mem_tracker->make_snapshot());
     if (_opts.need_zone_map) {
         _zone_map_index_builder->add_values(data, *num_written);
     }
-    LOG(INFO) << "after _zone_map_index_builder->add, remaining_rows=" << num_written
+    LOG(INFO) << "after _zone_map_index_builder->add, remaining_rows=" << *num_written
               << ", page_ptr=" << &data << ": "
               << MemTracker::log_usage(_mem_tracker->make_snapshot());
     if (_opts.need_bitmap_index) {
         _bitmap_index_builder->add_values(data, *num_written);
     }
-    LOG(INFO) << "after _bitmap_index_builder->add, remaining_rows=" << num_written
+    LOG(INFO) << "after _bitmap_index_builder->add, remaining_rows=" << *num_written
               << ", page_ptr=" << &data << ": "
               << MemTracker::log_usage(_mem_tracker->make_snapshot());
     if (_opts.inverted_index) {
         RETURN_IF_ERROR(
                 _inverted_index_builder->add_values(get_field()->name(), data, *num_written));
     }
-    LOG(INFO) << "after _inverted_index_builder->add, remaining_rows=" << num_written
+    LOG(INFO) << "after _inverted_index_builder->add, remaining_rows=" << *num_written
               << ", page_ptr=" << &data << ": "
               << MemTracker::log_usage(_mem_tracker->make_snapshot());
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_values(data, *num_written);
     }
-    LOG(INFO) << "after _bloom_filter_index_builder->add, remaining_rows=" << num_written
+    LOG(INFO) << "after _bloom_filter_index_builder->add, remaining_rows=" << *num_written
               << ", page_ptr=" << &data << ": "
               << MemTracker::log_usage(_mem_tracker->make_snapshot());
 
@@ -592,7 +592,7 @@ Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size
     if (is_nullable()) {
         _null_bitmap_builder->add_run(false, *num_written);
     }
-    LOG(INFO) << "after _null_bitmap_index_builder->add, remaining_rows=" << num_written
+    LOG(INFO) << "after _null_bitmap_index_builder->add, remaining_rows=" << *num_written
               << ", page_ptr=" << &data << ": "
               << MemTracker::log_usage(_mem_tracker->make_snapshot());
     return Status::OK();
@@ -716,6 +716,8 @@ Status ScalarColumnWriter::finish_current_page() {
     if (_next_rowid == _first_rowid) {
         return Status::OK();
     }
+    LOG(INFO) << "before finish current page: "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     if (_opts.need_zone_map) {
         if (_next_rowid - _first_rowid < config::zone_map_row_num_threshold) {
             _zone_map_index_builder->reset_page_zone_map();
@@ -741,9 +743,13 @@ Status ScalarColumnWriter::finish_current_page() {
         }
         _null_bitmap_builder->reset();
     }
+    LOG(INFO) << "before finish current page: "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
 
     // prepare data page footer
     std::unique_ptr<Page> page(new Page());
+    LOG(INFO) << "before init new page, new page=" << page << ": "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     page->footer.set_type(DATA_PAGE);
     page->footer.set_uncompressed_size(Slice::compute_total_size(body));
     auto data_page_footer = page->footer.mutable_data_page_footer();
@@ -768,6 +774,8 @@ Status ScalarColumnWriter::finish_current_page() {
 
     _push_back_page(std::move(page));
     _first_rowid = _next_rowid;
+    LOG(INFO) << "after finish current page, new page=" << page << ": "
+              << MemTracker::log_usage(_mem_tracker->make_snapshot());
     return Status::OK();
 }
 
