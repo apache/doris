@@ -339,8 +339,8 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
             pulsar::MessageId msg_id = msg->getMessageId();
             std::size_t len = msg->getLength();
 
-            VLOG(3) << "get pulsar message" << msg->getDataAsString()
-                    << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
+            LOG(INFO) << "get pulsar message" << msg->getDataAsString()
+                      << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
 
            Status st = (pulsar_pipe.get()->*append_data)(static_cast<const char*>(msg->getData()),
                                                          static_cast<size_t>(len));
@@ -349,7 +349,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                // len of receive origin message from pulsar
                left_bytes -= len;
                ack_offset[partition] = msg_id;
-               LOG(INFO) << "consume partition" << partition << " - " << msg_id;
+               VLOG(3) << "consume partition" << partition << " - " << msg_id;
            } else {
                // failed to append this msg, we must stop
                LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id << ", errmsg=" << st.to_string();
