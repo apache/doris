@@ -337,10 +337,11 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
         if (res) {
             std::string partition = msg->getProperty("topicName");
             pulsar::MessageId msg_id = msg->getMessageId();
-            std::size_t len = msg->getLength();
+            std::size_t len = msg->getDataAsString().size();
 
             LOG(INFO) << "get pulsar message:" << msg->getDataAsString()
-                      << ", partition: " << partition << ", message id: " << msg_id << ", len: " << len;
+                      << ", partition: " << partition << ", message id: " << msg_id
+                      << ", len: " << len << ", size: " << msg->getDataAsString().size();
 
            Status st = (pulsar_pipe.get()->*append_data)(msg->getDataAsString().c_str(),
                                                          static_cast<size_t>(len));
