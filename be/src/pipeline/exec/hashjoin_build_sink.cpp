@@ -505,8 +505,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 local_state._runtime_filter_slots->copy_to_shared_context(
                         _shared_hash_table_context);
             }
-            _shared_hashtable_controller->signal(node_id());
             _shared_hash_table_context->block = local_state._shared_state->build_block;
+            _shared_hashtable_controller->signal(node_id());
         }
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);

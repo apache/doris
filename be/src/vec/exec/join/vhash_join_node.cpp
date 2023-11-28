@@ -742,11 +742,10 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     }
 
     if (_should_build_hash_table && eos) {
-        if (!_build_side_mutable_block.empty()) {
-            _build_block = std::make_shared<Block>(_build_side_mutable_block.to_block());
-            COUNTER_UPDATE(_build_blocks_memory_usage, _build_block->bytes());
-            RETURN_IF_ERROR(_process_build_block(state, *_build_block));
-        }
+        DCHECK(!_build_side_mutable_block.empty());
+        _build_block = std::make_shared<Block>(_build_side_mutable_block.to_block());
+        COUNTER_UPDATE(_build_blocks_memory_usage, _build_block->bytes());
+        RETURN_IF_ERROR(_process_build_block(state, *_build_block));
         auto ret = std::visit(Overload {[&](std::monostate&) -> Status {
                                             LOG(FATAL) << "FATAL: uninited hash table";
                                             __builtin_unreachable();
