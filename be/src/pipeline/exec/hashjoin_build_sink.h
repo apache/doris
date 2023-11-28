@@ -68,11 +68,11 @@ public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
     using Parent = HashJoinBuildSinkOperatorX;
     HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-    ~HashJoinBuildSinkLocalState() = default;
+    ~HashJoinBuildSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    Status process_build_block(RuntimeState* state, vectorized::Block& block, uint8_t offset);
+    Status process_build_block(RuntimeState* state, vectorized::Block& block);
 
     void init_short_circuit_for_probe();
 
@@ -108,30 +108,20 @@ protected:
 
     std::vector<IRuntimeFilter*> _runtime_filters;
     bool _should_build_hash_table = true;
-    uint8_t _build_block_idx = 0;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
     bool _has_set_need_null_map_for_build = false;
     bool _build_side_ignore_null = false;
-    size_t _build_rf_cardinality = 0;
-    std::unordered_map<const vectorized::Block*, std::vector<int>> _inserted_rows;
+    std::unordered_set<const vectorized::Block*> _inserted_blocks;
     std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _build_table_insert_timer = nullptr;
-    RuntimeProfile::Counter* _build_table_expanse_timer = nullptr;
-    RuntimeProfile::Counter* _build_table_convert_timer = nullptr;
-    RuntimeProfile::Counter* _build_buckets_counter = nullptr;
-    RuntimeProfile::Counter* _build_buckets_fill_counter = nullptr;
-
     RuntimeProfile::Counter* _build_side_compute_hash_timer = nullptr;
     RuntimeProfile::Counter* _build_side_merge_block_timer = nullptr;
-    RuntimeProfile::Counter* _build_runtime_filter_timer = nullptr;
-
-    RuntimeProfile::Counter* _build_collisions_counter = nullptr;
 
     RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
 
