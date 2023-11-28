@@ -345,13 +345,13 @@ Status Lz4BlockDecompressor::init() {
 // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
 // Example:
 // OriginData(The original data will be divided into several large data block.) :
-//      large data chunk1 | large data chunk2 | large data chunk3 | ....
-// The large data chunk will be divided into several small data block.
+//      large data block1 | large data block2 | large data block3 | ....
+// The large data block will be divided into several small data block.
 // Suppose a large data block is divided into three small blocks:
-// large data chunk1:            | small block1 | small block2 | small block3 |
+// large data block1:            | small block1 | small block2 | small block3 |
 // CompressDate:   <A [B1 compress(small block1) ] [B2 compress(small block1) ] [B3 compress(small block1)]>
 //
-// A : original length of the current block of large data chunk.
+// A : original length of the current block of large data block.
 // sizeof(A) = 4 bytes.
 // A = length(small block1) + length(small block2) + length(small block3)
 // Bx : length of  small data block bx.
