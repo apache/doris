@@ -172,9 +172,6 @@ public class StructLiteral extends LiteralExpr {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null) {
-            return false;
-        }
         if (!(o instanceof StructLiteral)) {
             return false;
         }
@@ -183,9 +180,6 @@ public class StructLiteral extends LiteralExpr {
         }
 
         StructLiteral that = (StructLiteral) o;
-        if (that.children.size() != children.size()) {
-            return false;
-        }
         return Objects.equals(children, that.children);
     }
 }
