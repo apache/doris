@@ -879,7 +879,7 @@ public class Coordinator implements CoordInterface {
             String msg = String.format(
                     "timeout before waiting {} rpc, query timeout: {}, already elapsed:{}, left for this:{}",
                         operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
-                        
+
             LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
             throw new UserException(msg);
         }
