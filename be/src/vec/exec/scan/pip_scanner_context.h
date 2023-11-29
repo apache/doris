@@ -81,6 +81,9 @@ public:
             }
         }
         _current_used_bytes -= (*block)->allocated_bytes();
+        if (this->get_num_running_scanners() == 0 && this->should_be_scheduled()) {
+            this->reschedule_scanner_ctx();
+        }
         return Status::OK();
     }
 
