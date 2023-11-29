@@ -176,10 +176,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     private FlightInfo executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
         Preconditions.checkState(null != connectContext);
+        Preconditions.checkState(!query.isEmpty());
         try {
             // After the previous query was executed, there was no getStreamStatement to take away the result.
             connectContext.getFlightSqlChannel().reset();
-            connectContext.getSessionVariable().setDryRunQuery(false);
             final FlightSqlConnectProcessor flightSQLConnectProcessor = new FlightSqlConnectProcessor(connectContext);
 
             flightSQLConnectProcessor.handleQuery(query);
@@ -301,42 +301,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 String preparedStatementId = UUID.randomUUID().toString();
                 final ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
                 connectContext.addPreparedQuery(preparedStatementId, query);
-                connectContext.getSessionVariable().setDryRunQuery(true);
-
-                final FlightSqlConnectProcessor flightSQLConnectProcessor = new FlightSqlConnectProcessor(
-                        connectContext);
-                // TODO Need execute query to get data schema
-                flightSQLConnectProcessor.handleQuery(query);
-                if (connectContext.getState().getStateType() == MysqlStateType.ERR) {
-                    throw new RuntimeException("after createPreparedStatement handleQuery");
-                }
 
                 VectorSchemaRoot emptyVectorSchemaRoot = new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>());
                 final Schema parameterSchema = emptyVectorSchemaRoot.getSchema();
-                Schema metaData;
-                String queryId;
-                if (connectContext.isReturnResultFromLocal()) {
-                    // set/use etc. stmt returns an OK result by default.
-                    if (connectContext.getFlightSqlChannel().resultNum() == 0) {
-                        // a random query id and add empty results
-                        queryId = UUID.randomUUID().toString();
-                        connectContext.getFlightSqlChannel().addOKResult(queryId, query);
-                    } else {
-                        // A Flight Sql request can only contain one statement that returns result,
-                        // otherwise expected thrown exception during execution.
-                        Preconditions.checkState(connectContext.getFlightSqlChannel().resultNum() == 1);
-                        queryId = DebugUtil.printId(connectContext.queryId());
-                    }
-                    metaData = connectContext.getFlightSqlChannel().getResult(queryId).getVectorSchemaRoot()
-                            .getSchema();
-                } else {
-                    // Now only query stmt will pull results from BE.
-                    metaData = flightSQLConnectProcessor.fetchArrowFlightSchema(5000);
-                    if (metaData == null) {
-                        throw CallStatus.INTERNAL.withDescription("fetch arrow flight schema is null")
-                                .toRuntimeException();
-                    }
-                }
+                Schema metaData = connectContext.getFlightSqlChannel()
+                        .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED").getSchema();
                 listener.onNext(new Result(
                         Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData))
                                 .toByteArray()));

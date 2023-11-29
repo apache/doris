@@ -2849,10 +2849,6 @@ public class SessionVariable implements Serializable, Writable {
         this.planNereidsDump = planNereidsDump;
     }
 
-    public void setDryRunQuery(boolean dryRunQuery) {
-        this.dryRunQuery = dryRunQuery;
-    }
-
     public boolean isDumpNereidsMemo() {
         return dumpNereidsMemo;
     }

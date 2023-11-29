@@ -725,8 +725,8 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
         auto st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
-            if (config::arrow_flight_sql_host != "") {
-                result->set_result_ip(config::arrow_flight_sql_host);
+            if (config::public_access_ip != "") {
+                result->set_be_arrow_flight_ip(config::public_access_ip);
             }
         }
         st.to_protobuf(result->mutable_status());
