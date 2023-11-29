@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -30,10 +32,12 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical Union.
@@ -169,5 +173,15 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     @Override
     public LogicalUnion pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withNewOutputs(prunedOutputs);
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        if (qualifier != Qualifier.DISTINCT) {
+            return FunctionalDependencies.EMPTY_FUNC_DEPS;
+        }
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+        return builder.build();
     }
 }

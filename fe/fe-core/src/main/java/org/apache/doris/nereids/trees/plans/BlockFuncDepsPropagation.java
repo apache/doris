@@ -15,38 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.properties;
+package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.expressions.Slot;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
- * LogicalPlan must compute and return non-null LogicalProperties without exception,
- * so UnboundRelation.computeLogicalProperties() return a UnboundLogicalProperties temporary.
+ * Block fd propagation, it always returns an empty fd
  */
-public class UnboundLogicalProperties extends LogicalProperties {
-    public static final UnboundLogicalProperties INSTANCE = new UnboundLogicalProperties();
-
-    private UnboundLogicalProperties() {
-        super(ImmutableList::of, () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
-    }
-
+public interface BlockFuncDepsPropagation extends LogicalPlan {
     @Override
-    public List<Slot> getOutput() {
-        throw new UnboundException("getOutput");
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof UnboundLogicalProperties;
-    }
-
-    @Override
-    public int hashCode() {
-        return 0;
+    default FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        return FunctionalDependencies.EMPTY_FUNC_DEPS;
     }
 }

@@ -160,12 +160,20 @@ public enum JoinType {
         return this == LEFT_ANTI_JOIN;
     }
 
+    public final boolean isLefSemiJoin() {
+        return this == LEFT_SEMI_JOIN;
+    }
+
     public final boolean isRightSemiOrAntiJoin() {
         return this == RIGHT_SEMI_JOIN || this == RIGHT_ANTI_JOIN;
     }
 
     public final boolean isRightAntiJoin() {
         return this == RIGHT_ANTI_JOIN;
+    }
+
+    public final boolean isRightSemiJoin() {
+        return this == RIGHT_SEMI_JOIN;
     }
 
     public final boolean isSemiOrAntiJoin() {
