@@ -69,7 +69,6 @@ Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::
         mutable_block =
                 vectorized::MutableBlock::create_unique(partitioned_block.first->clone_empty());
         get_data(block);
-        *block = mutable_block->to_block();
     } else {
         local_state._dependency->block();
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
