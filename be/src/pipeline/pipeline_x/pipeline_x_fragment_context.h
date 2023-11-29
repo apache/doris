@@ -209,8 +209,8 @@ private:
     std::mutex _state_map_lock;
 
     int _operator_id = 0;
-    int _sink_operator_id = = 0;
-    int _num_instances = = 0;
+    int _sink_operator_id = 0;
+    int _num_instances = 0;
     std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
 };
 
