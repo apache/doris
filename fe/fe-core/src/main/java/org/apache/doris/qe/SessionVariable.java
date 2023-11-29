@@ -434,6 +434,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
+    public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
+
     public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
@@ -1314,6 +1316,13 @@ public class SessionVariable implements Serializable, Writable {
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
     public boolean enableAutoAnalyze = true;
+
+    @VariableMgr.VarAttr(name = AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
+            description = {"参与自动收集的最大表宽度，列数多于这个参数的表不参与自动收集",
+                "Maximum table width to enable auto analyze, "
+                    + "table with more columns than this value will not be auto analyzed."},
+            flag = VariableMgr.GLOBAL)
+    public int autoAnalyzeTableWidthThreshold = 70;
 
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的开始时间",
