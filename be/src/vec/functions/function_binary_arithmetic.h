@@ -521,7 +521,9 @@ private:
                 if (UNLIKELY(Op::template apply<NativeResultType>(a, b, res))) {
                     if constexpr (std::is_same_v<NativeResultType, __int128>) {
                         wide::Int256 res256 = Op::template apply<wide::Int256>(a, b);
-                        res256 /= scale_diff_multiplier.value;
+                        if constexpr (OpTraits::is_multiply) {
+                            res256 /= scale_diff_multiplier.value;
+                        }
                         // check if final result is overflow
                         if (res256 > wide::Int256(max_result_number.value)) {
                             LOG(WARNING) << "check overflow, multiply overflow, result overflow";
