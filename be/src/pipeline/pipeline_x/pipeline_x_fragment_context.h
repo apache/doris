@@ -175,7 +175,7 @@ private:
 #pragma clang diagnostic pop
 #endif
 
-    std::atomic_bool _canceled {false};
+    std::atomic_bool _canceled = false;
 
     // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
     std::map<PipelineId, std::vector<PipelineId>> _dag {};
