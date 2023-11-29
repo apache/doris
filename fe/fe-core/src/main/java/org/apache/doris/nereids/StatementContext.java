@@ -103,9 +103,8 @@ public class StatementContext {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
-    // Notice: it's case-sensitive
-    // Sub-column name -> Paths of sub columns
-    private final Map<String, Map<List<String>, SlotReference>> subColumnSlotRefMap
+    // Root Slot -> Paths -> Sub-column Slots
+    private final Map<Slot, Map<List<String>, SlotReference>> subColumnSlotRefMap
             = Maps.newHashMap();
 
     // Map slot to its relation, currently used in SlotReference to find its original
@@ -164,8 +163,8 @@ public class StatementContext {
     /**
      * Add a slot ref attached with paths in context to avoid duplicated slot
      */
-    public void addPathSlotRef(String var, List<String> paths, SlotReference slotRef) {
-        subColumnSlotRefMap.computeIfAbsent(var, k -> Maps.newTreeMap(
+    public void addPathSlotRef(Slot root, List<String> paths, SlotReference slotRef) {
+        subColumnSlotRefMap.computeIfAbsent(root, k -> Maps.newTreeMap(
                 new Comparator<List<String>>() {
                     public int compare(List<String> lst1, List<String> lst2) {
                         Iterator<String> it1 = lst1.iterator();
@@ -179,11 +178,11 @@ public class StatementContext {
                         return Integer.compare(lst1.size(), lst2.size());
                     }
                 }));
-        subColumnSlotRefMap.get(var).put(paths, slotRef);
+        subColumnSlotRefMap.get(root).put(paths, slotRef);
     }
 
-    public SlotReference getPathSlot(String var, List<String> paths) {
-        Map<List<String>, SlotReference> pathsSlotsMap = subColumnSlotRefMap.getOrDefault(var, null);
+    public SlotReference getPathSlot(Slot root, List<String> paths) {
+        Map<List<String>, SlotReference> pathsSlotsMap = subColumnSlotRefMap.getOrDefault(root, null);
         if (pathsSlotsMap == null) {
             return null;
         }
