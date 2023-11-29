@@ -44,7 +44,9 @@
 #include <ostream>
 
 #include "common/config.h"
+#include "exec/decompressor.h"
 #include "gutil/strings/substitute.h"
+#include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
 
@@ -188,6 +190,31 @@ private:
     static const int32_t ACCELARATION = 1;
 };
 
+class HadoopLz4BlockCompression : public Lz4BlockCompression {
+public:
+    static HadoopLz4BlockCompression* instance() {
+        static HadoopLz4BlockCompression s_instance;
+        return &s_instance;
+    }
+    Status decompress(const Slice& input, Slice* output) override {
+        RETURN_IF_ERROR(Decompressor::create_decompressor(CompressType::LZ4BLOCK, &_decompressor));
+        size_t input_bytes_read = 0;
+        size_t decompressed_len = 0;
+        size_t more_input_bytes = 0;
+        size_t more_output_bytes = 0;
+        bool stream_end = false;
+        auto st = _decompressor->decompress((uint8_t*)input.data, input.size, &input_bytes_read,
+                                            (uint8_t*)output->data, output->size, &decompressed_len,
+                                            &stream_end, &more_input_bytes, &more_output_bytes);
+        //try decompress use hadoopLz4 ,if failed fall back lz4.
+        return (st != Status::OK() || stream_end != true)
+                       ? Lz4BlockCompression::decompress(input, output)
+                       : Status::OK();
+    }
+
+private:
+    Decompressor* _decompressor;
+};
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
 class Lz4fBlockCompression : public BlockCompressionCodec {
 private:
@@ -1086,7 +1113,7 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
         break;
     case tparquet::CompressionCodec::LZ4_RAW: // we can use LZ4 compression algorithm parse LZ4_RAW
     case tparquet::CompressionCodec::LZ4:
-        *codec = Lz4BlockCompression::instance();
+        *codec = HadoopLz4BlockCompression::instance();
         break;
     case tparquet::CompressionCodec::ZSTD:
         *codec = ZstdBlockCompression::instance();
