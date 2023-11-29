@@ -37,6 +37,11 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -442,6 +447,32 @@ public class ExpressionUtils {
         return expressions.stream()
                 .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * extract uniform slot for the given predicate, such as a = 1 and b = 2
+     */
+    public static ImmutableSet<Slot> extractUniformSlot(Expression expression) {
+        ImmutableSet.Builder<Slot> builder = new ImmutableSet.Builder<>();
+        if (expression instanceof And) {
+            builder.addAll(extractUniformSlot(expression.child(0)));
+            builder.addAll(extractUniformSlot(expression.child(1)));
+        }
+        if (expression instanceof EqualTo) {
+            if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
+                builder.add((Slot) expression.child(0));
+            }
+        }
+        return builder.build();
+    }
+
+    // TODO: Add more injective functions
+    public static boolean isInjective(Expression expression) {
+        return expression instanceof Slot;
+    }
+
+    public static boolean isInjectiveAgg(AggregateFunction agg) {
+        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
     }
 
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
