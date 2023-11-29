@@ -462,6 +462,7 @@ public class BackendServiceProxy {
         } catch (Throwable e) {
             LOG.warn("failed to get wal queue size from address={}:{}", address.getHostname(),
                     address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
         }
     }
 

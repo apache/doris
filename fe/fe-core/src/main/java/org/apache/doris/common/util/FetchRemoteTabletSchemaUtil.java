@@ -102,7 +102,7 @@ public class FetchRemoteTabletSchemaUtil {
             try {
                 PFetchRemoteSchemaRequest request = requestBuilder.build();
                 Future<PFetchRemoteSchemaResponse> future = BackendServiceProxy.getInstance()
-                                            .fetchRemoteTabletSchemaAsync(be.getBrpcAdress(), request);
+                                            .fetchRemoteTabletSchemaAsync(be.getBrpcAddress(), request);
                 PFetchRemoteSchemaResponse response = null;
                 try {
                     response = future.get(60, TimeUnit.SECONDS);
@@ -128,12 +128,12 @@ public class FetchRemoteTabletSchemaUtil {
                 } catch (TimeoutException e) {
                     future.cancel(true);
                     // continue to get result
-                    LOG.warn("fetch remote schema result timeout, addr {}", be.getBrpcAdress());
+                    LOG.warn("fetch remote schema result timeout, addr {}", be.getBrpcAddress());
                 }
             } catch (RpcException e) {
-                LOG.warn("fetch remote schema result rpc exception {}, e {}", be.getBrpcAdress(), e);
+                LOG.warn("fetch remote schema result rpc exception {}, e {}", be.getBrpcAddress(), e);
             } catch (ExecutionException e) {
-                LOG.warn("fetch remote schema result execution exception {}, addr {}", e, be.getBrpcAdress());
+                LOG.warn("fetch remote schema result execution exception {}, addr {}", e, be.getBrpcAddress());
             }
         }
         return columns;
