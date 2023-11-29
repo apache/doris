@@ -368,11 +368,13 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             std::lock_guard<std::mutex> l(_status_lock);
             status = _status;
         }
+#ifndef BE_TEST
         if (config::wait_relay_wal_finish && !_runtime_state->relay_wal() &&
             _runtime_state->txn_id() > 0) {
             RETURN_IF_ERROR(_runtime_state->exec_env()->wal_mgr()->wait_relay_wal_finish(
                     _runtime_state->txn_id()));
         }
+#endif
         status = _sink->close(runtime_state(), status);
         RETURN_IF_ERROR(status);
     }

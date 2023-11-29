@@ -1667,6 +1667,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
                                                     block.get(), _block_convertor.get(),
                                                     _tablet_finder.get(), _group_commit));
     }
+#ifndef BE_TEST
     if (config::wait_relay_wal_finish && !_state->relay_wal()) {
         RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_recover_wal(
                 std::to_string(_t_sink.olap_table_sink.db_id),
@@ -1680,6 +1681,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         g_sink_write_rows << 0;
         return Status::OK();
     }
+#endif
 
     // Add block to node channel
     for (size_t i = 0; i < _channels.size(); i++) {
