@@ -129,6 +129,13 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueInFe() {
+        List<String> list = new ArrayList<>(getChildren().size());
+        getChildren().forEach(v -> list.add(v.getStringValueForArray()));
+        return "[" + StringUtils.join(list, ", ") + "]";
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARRAY_LITERAL;
         msg.setChildType(((ArrayType) type).getItemType().getPrimitiveType().toThrift());
