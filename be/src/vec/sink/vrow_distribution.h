@@ -59,17 +59,17 @@ class VRowDistribution {
 public:
     // only used to pass parameters for VRowDistribution
     struct VRowDistributionContext {
-        RuntimeState* state;
-        OlapTableBlockConvertor* block_convertor;
-        OlapTabletFinder* tablet_finder;
-        VOlapTablePartitionParam* vpartition;
-        RuntimeProfile::Counter* add_partition_request_timer;
+        RuntimeState* state = nullptr;
+        OlapTableBlockConvertor* block_convertor = nullptr;
+        OlapTabletFinder* tablet_finder = nullptr;
+        VOlapTablePartitionParam* vpartition = nullptr;
+        RuntimeProfile::Counter* add_partition_request_timer = nullptr;
         int64_t txn_id = -1;
-        ObjectPool* pool;
-        OlapTableLocationParam* location;
-        const VExprContextSPtrs* vec_output_expr_ctxs;
+        ObjectPool* pool = nullptr;
+        OlapTableLocationParam* location = nullptr;
+        const VExprContextSPtrs* vec_output_expr_ctxs = nullptr;
         std::shared_ptr<OlapTableSchemaParam> schema;
-        void* caller;
+        void* caller = nullptr;
         CreatePartitionCallback create_partition_callback;
     };
     friend class VTabletWriter;
@@ -170,12 +170,12 @@ private:
     VOlapTablePartitionParam* _vpartition = nullptr;
     RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
     int64_t _txn_id = -1;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     OlapTableLocationParam* _location = nullptr;
     // int64_t _number_output_rows = 0;
-    const VExprContextSPtrs* _vec_output_expr_ctxs;
+    const VExprContextSPtrs* _vec_output_expr_ctxs = nullptr;
     CreatePartitionCallback _create_partition_callback = nullptr;
-    void* _caller;
+    void* _caller = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema;
 
     // reuse for find_tablet.

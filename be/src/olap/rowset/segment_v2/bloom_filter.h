@@ -172,7 +172,7 @@ public:
 protected:
     // bloom filter data
     // specially add one byte for null flag
-    char* _data;
+    char* _data = nullptr;
     // optimal bloom filter num bytes
     // it is calculated by optimal_bit_num() / 8
     uint32_t _num_bytes;
@@ -180,7 +180,7 @@ protected:
     // last byte is for has_null flag
     uint32_t _size;
     // last byte's pointer in data for null flag
-    bool* _has_null;
+    bool* _has_null = nullptr;
 
 private:
     std::function<void(const void*, const int, const uint64_t, void*)> _hash_func;

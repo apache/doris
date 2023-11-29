@@ -113,7 +113,7 @@ private:
     bool _ready;
     bool _eof;
     int _next_range;
-    vectorized::Block* _src_block_ptr;
+    vectorized::Block* _src_block_ptr = nullptr;
     vectorized::Block _src_block;
     const TDescriptorTable& _t_desc_tbl;
     std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
@@ -126,10 +126,10 @@ private:
 
     std::vector<SlotDescriptor*> _src_slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;
-    const TupleDescriptor* _dest_tuple_desc;
+    const TupleDescriptor* _dest_tuple_desc = nullptr;
 
     std::unique_ptr<RuntimeState> _runtime_state;
-    RuntimeProfile* _runtime_profile;
+    RuntimeProfile* _runtime_profile = nullptr;
     std::unique_ptr<vectorized::GenericReader> _cur_reader;
     bool _cur_reader_eof;
     const TBrokerScanRangeParams& _params;

@@ -34,11 +34,11 @@ public:
     std::vector<size_t> get_index() { return _column_index; }
 
 private:
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
     std::string _wal_path;
     std::string _path_split = "/";
     int64_t _wal_id;
-    std::shared_ptr<doris::WalReader> _wal_reader = nullptr;
+    std::shared_ptr<doris::WalReader> _wal_reader;
     uint32_t _version = 0;
     std::string _col_ids;
     std::vector<size_t> _column_index;

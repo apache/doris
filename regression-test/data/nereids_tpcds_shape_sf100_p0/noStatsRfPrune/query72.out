@@ -17,31 +17,30 @@ PhysicalResultSink
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = d1.d_date_sk) and (d1.d_week_seq = d2.d_week_seq)) otherCondition=() build RFs:RF4 d_week_seq->[d_week_seq];RF5 d_date_sk->[cs_sold_date_sk]
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[inv_date_sk]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF2 cd_demo_sk->[cs_bill_cdemo_sk]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=()
-------------------------------------------PhysicalProject
---------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF0 cs_item_sk->[inv_item_sk]
-----------------------------------------------PhysicalDistribute
-------------------------------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF3
-----------------------------------------------PhysicalDistribute
-------------------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=()
---------------------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=()
-----------------------------------------------------PhysicalProject
-------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF5 RF7
-----------------------------------------------------PhysicalDistribute
-------------------------------------------------------PhysicalProject
---------------------------------------------------------PhysicalOlapScan[promotion]
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=()
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF1 cd_demo_sk->[cs_bill_cdemo_sk]
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF0 cs_item_sk->[inv_item_sk]
+--------------------------------------------PhysicalDistribute
+----------------------------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF3
+--------------------------------------------PhysicalDistribute
+----------------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=()
+------------------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=()
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalOlapScan[catalog_returns]
-------------------------------------------PhysicalDistribute
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[item]
+----------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF5 RF7
+--------------------------------------------------PhysicalDistribute
+----------------------------------------------------PhysicalProject
+------------------------------------------------------PhysicalOlapScan[promotion]
+------------------------------------------------PhysicalProject
+--------------------------------------------------PhysicalOlapScan[catalog_returns]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------filter((customer_demographics.cd_marital_status = 'W'))
+----------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter((customer_demographics.cd_marital_status = 'W'))
-------------------------------------------PhysicalOlapScan[customer_demographics]
+----------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4

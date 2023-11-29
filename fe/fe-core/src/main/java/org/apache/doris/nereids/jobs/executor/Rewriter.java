@@ -48,7 +48,7 @@ import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
-import org.apache.doris.nereids.rules.rewrite.CountLiteralToCountStar;
+import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
@@ -194,7 +194,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topDown(
                     new SimplifyAggGroupBy(),
                     new NormalizeAggregate(),
-                    new CountLiteralToCountStar(),
+                    new CountLiteralRewrite(),
                     new NormalizeSort()
             ),
             topic("Window analysis",

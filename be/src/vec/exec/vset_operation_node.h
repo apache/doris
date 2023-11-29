@@ -82,7 +82,7 @@ private:
     //It's time to abstract out the same methods and provide them directly to others;
     void hash_table_init();
     Status hash_table_build(RuntimeState* state);
-    Status process_build_block(Block& block, uint8_t offset, RuntimeState* state);
+    Status process_build_block(Block& block, RuntimeState* state);
     Status extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs);
     Status extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs, int child_id);
     void refresh_hash_table();
@@ -115,17 +115,16 @@ private:
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
 
-    std::vector<Block> _build_blocks;
+    Block _build_block;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     std::vector<MutableColumnPtr> _mutable_cols;
-    int _build_block_index;
     bool _build_finished;
     std::vector<bool> _probe_finished_children_index;
     MutableBlock _mutable_block;
-    RuntimeProfile::Counter* _build_timer; // time to build hash table
-    RuntimeProfile::Counter* _probe_timer; // time to probe
-    RuntimeProfile::Counter* _pull_timer;  // time to pull data
+    RuntimeProfile::Counter* _build_timer = nullptr; // time to build hash table
+    RuntimeProfile::Counter* _probe_timer = nullptr; // time to probe
+    RuntimeProfile::Counter* _pull_timer = nullptr;  // time to pull data
     Arena _arena;
 
     template <class HashTableContext, bool is_intersected>
