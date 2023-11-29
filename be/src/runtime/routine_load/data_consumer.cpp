@@ -615,7 +615,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
 
 
     LOG(INFO) << "start do ack of msg_id :" << msg_id;
-    Status ack = acknowledge_cumulative(msg_id);
+    pulsar::Result ack = _p_consumer.acknowledgeCumulative(msg_id);
     if (ack != pulsar::ResultOk) {
         LOG(WARNING) << "failed do ack of msg_id :" << msg_id << ", consumer : " << _id;
     } else {
