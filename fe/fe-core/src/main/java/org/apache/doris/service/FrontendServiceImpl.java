@@ -3177,7 +3177,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (partitionNum > Config.max_auto_partition_num) {
             olapTable.writeUnlock();
             String errorMessage = String.format(
-                    "create partition failed. partition numbers %d will exceed limit variable max_auto_partition_num%d",
+                    "create partition failed. partition numbers %d will exceed limit variable "
+                            + "max_auto_partition_num %d",
                     partitionNum, Config.max_auto_partition_num);
             LOG.warn(errorMessage);
             errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
