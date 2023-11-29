@@ -195,7 +195,7 @@ public:
     Status reset() override;
     bool match(std::shared_ptr<StreamLoadContext> ctx) override;
     // acknowledge pulsar message
-    Status acknowledge_cumulative(pulsar::MessageId& message_id) override;
+    Status acknowledge_cumulative(pulsar::MessageId& message_id);
 
     // start the consumer and put msgs to queue
     Status group_consume(BlockingQueue<pulsar::Message*>* queue, int64_t max_running_time_ms);
