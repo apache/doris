@@ -244,6 +244,11 @@ protected:
 
     Status _prepare_scanners(const int query_parallel_instance_num);
 
+    // For some conjunct there is chance to elimate cast operator
+    // Eg. Variant's sub column could eliminate cast in storage layer if
+    // cast dst column type equals storage column type
+    virtual void get_cast_types_for_variants() {}
+
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
 
@@ -270,10 +275,15 @@ protected:
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
 
+    // colname -> cast dst type
+    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
+    // slot id -> SlotDescriptor
+    phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
     // column -> ColumnValueRange
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
