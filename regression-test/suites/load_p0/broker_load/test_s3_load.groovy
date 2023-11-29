@@ -222,13 +222,6 @@ suite("test_s3_load", "load_p0") {
                 "", "", "", "","", true).addProperties("strict_mode", "true"))
     }
 
-    for(String table: basicTables) {
-        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data_with_errors.csv",
-                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
-                "", "", "", "","", true).addProperties("strict_mode", "true").addProperties("load_parallelism", "3"))
-    }
-
-
     attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data_with_errors.csv",
             "agg_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\" ", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", "", true).addProperties("strict_mode","true"))
@@ -386,14 +379,6 @@ suite("test_s3_load", "load_p0") {
                 "${table}", "", "", "FORMAT AS \"json\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
                 "", "", "", "", "PROPERTIES(\"strip_outer_array\" = \"true\", \"fuzzy_parse\" = \"true\")"))
     }
-
-    for (String table : basicTables) {
-        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.json",
-                "${table}", "", "", "FORMAT AS \"json\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
-                "", "", "", "", "PROPERTIES(\"strip_outer_array\" = \"true\", \"fuzzy_parse\" = \"true\")").addProperties("load_parallelism","3"))
-    }
-
-
 
     attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.json",
             "agg_tbl_basic", "", "", "FORMAT AS \"json\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",

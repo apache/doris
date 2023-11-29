@@ -39,8 +39,7 @@ suite("test_s3_load_parallelism", "p1") {
                 "AWS_REGION" = "${s3Region}"
             )
             PROPERTIES(
-                "load_parallelism" = "${paral}",
-                "timeout" = "3600"
+                "load_parallelism" = "${paral}"
             );
         """
         // Waiting for job finished or cancelled
