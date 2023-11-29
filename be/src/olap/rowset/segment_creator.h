@@ -27,6 +27,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "util/spinlock.h"
+#include "vec/core/block.h"
 
 namespace doris {
 namespace vectorized {
@@ -87,13 +88,12 @@ public:
 
     ~SegmentFlusher();
 
-    Status init(const RowsetWriterContext& rowset_writer_context);
+    Status init(RowsetWriterContext& rowset_writer_context);
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_block(const vectorized::Block* block, int32_t segment_id,
-                              int64_t* flush_size = nullptr,
-                              TabletSchemaSPtr flush_schema = nullptr);
+                              int64_t* flush_size = nullptr);
 
     int64_t num_rows_written() const { return _num_rows_written; }
 
@@ -125,7 +125,10 @@ public:
 
     Status create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer, uint32_t segment_id);
 
+    bool need_buffering();
+
 private:
+    Status _expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
@@ -142,7 +145,7 @@ private:
                                  int64_t* flush_size = nullptr);
 
 private:
-    RowsetWriterContext _context;
+    RowsetWriterContext* _context;
 
     mutable SpinLock _lock; // protect following vectors.
     std::vector<io::FileWriterPtr> _file_writers;
@@ -158,7 +161,7 @@ public:
 
     ~SegmentCreator() = default;
 
-    Status init(const RowsetWriterContext& rowset_writer_context);
+    Status init(RowsetWriterContext& rowset_writer_context);
 
     void set_segment_start_id(uint32_t start_id) { _next_segment_id = start_id; }
 
@@ -178,8 +181,7 @@ public:
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_block(const vectorized::Block* block, int32_t segment_id,
-                              int64_t* flush_size = nullptr,
-                              TabletSchemaSPtr flush_schema = nullptr);
+                              int64_t* flush_size = nullptr);
 
     // Flush a block into a single segment, without pre-allocated segment_id.
     // This method is thread-safe.
@@ -193,6 +195,9 @@ private:
     std::atomic<int32_t> _next_segment_id = 0;
     SegmentFlusher _segment_flusher;
     std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
+
+    // Buffer block to num bytes before flushing
+    vectorized::MutableBlock _buffer_block;
 };
 
 } // namespace doris
