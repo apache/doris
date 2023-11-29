@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
+import org.apache.doris.statistics.util.SimpleQueue;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -443,6 +444,18 @@ public class AnalysisManagerTest {
         analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(2).build());
         analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(3).build());
         Assertions.assertEquals(2, analysisManager.autoJobs.size());
+    }
+
+    @Test
+    public void testCreateSimpleQueue() {
+        AnalysisManager analysisManager = new AnalysisManager();
+        ArrayList<AnalysisInfo> jobs = Lists.newArrayList();
+        jobs.add(new AnalysisInfoBuilder().setJobId(1).build());
+        jobs.add(new AnalysisInfoBuilder().setJobId(2).build());
+        SimpleQueue<AnalysisInfo> simpleQueue = analysisManager.createSimpleQueue(jobs, analysisManager);
+        Assertions.assertEquals(2, simpleQueue.size());
+        simpleQueue = analysisManager.createSimpleQueue(null, analysisManager);
+        Assertions.assertEquals(0, simpleQueue.size());
     }
 
 }
