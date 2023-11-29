@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
+#include "runtime/descriptors.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
@@ -77,6 +78,10 @@ public:
         if (_scanner_done) {
             return;
         }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_scanner_done) {
+            return;
+        }
         Dependency::block();
     }
 
@@ -84,15 +89,27 @@ public:
         if (_scanner_done) {
             return;
         }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_scanner_done) {
+            return;
+        }
         _scanner_done = true;
         Dependency::set_ready();
+    }
+
+    std::string debug_string(int indentation_level = 0) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "{}, _scanner_done = {}",
+                       Dependency::debug_string(indentation_level), _scanner_done);
+        return fmt::to_string(debug_string_buffer);
     }
 
     void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
 
 private:
     vectorized::ScannerContext* _scanner_ctx = nullptr;
-    std::atomic<bool> _scanner_done {false};
+    bool _scanner_done {false};
+    std::mutex _always_done_lock;
 };
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
@@ -343,6 +360,14 @@ protected:
     // Submit the scanner to the thread pool and start execution
     Status _start_scanners(const std::list<vectorized::VScannerSPtr>& scanners);
 
+    // For some conjunct there is chance to elimate cast operator
+    // Eg. Variant's sub column could eliminate cast in storage layer if
+    // cast dst column type equals storage column type
+    void get_cast_types_for_variants();
+    void _filter_and_collect_cast_type_for_variant(
+            const vectorized::VExpr* expr,
+            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
@@ -354,6 +379,12 @@ protected:
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
+
+    // colname -> cast dst type
+    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+
+    // slot id -> SlotDescriptor
+    phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts

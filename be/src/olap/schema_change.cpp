@@ -606,6 +606,7 @@ Result<std::pair<RowsetSharedPtr, PendingRowsetGuard>> VSchemaChangeWithSorting:
     context.rowset_state = VISIBLE;
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet->tablet_schema();
+    context.original_tablet_schema = new_tablet->tablet_schema();
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     std::unique_ptr<RowsetWriter> rowset_writer;
@@ -1110,6 +1111,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = new_tablet->tablet_schema();
+        context.original_tablet_schema = new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
@@ -1300,8 +1302,8 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
                 column_new.length() != column_old.length() ||
                 column_new.is_bf_column() != column_old.is_bf_column() ||
                 column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
-                new_tablet_schema->has_inverted_index(column_new.unique_id()) !=
-                        base_tablet_schema->has_inverted_index(column_old.unique_id())) {
+                new_tablet_schema->has_inverted_index(column_new) !=
+                        base_tablet_schema->has_inverted_index(column_old)) {
                 *sc_directly = true;
                 return Status::OK();
             }
