@@ -29,6 +29,7 @@
 #include "CLucene/SharedHeader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "io/io_common.h"
 #include "util/lock.h"
 
 class CLuceneError;
@@ -136,10 +137,12 @@ class DorisCompoundDirectory::FSIndexInput : public lucene::store::BufferedIndex
 
     SharedHandle* _handle;
     int64_t _pos;
+    io::IOContext _io_ctx;
 
     FSIndexInput(SharedHandle* handle, int32_t buffer_size) : BufferedIndexInput(buffer_size) {
         this->_pos = 0;
         this->_handle = handle;
+        this->_io_ctx.reader_type = ReaderType::READER_QUERY;
     }
 
 protected:
