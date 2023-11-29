@@ -764,12 +764,19 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
     if (!has_valid_value) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
+        string col_names;
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
         }
-        RETURN_IF_ERROR(_append_error_msg(objectValue, "All fields is null, this is a invalid row.",
-                                          "", valid));
+        for (auto* slot_desc : slot_descs) {
+            col_names.append(slot_desc->col_name() + ", ");
+        }
+        RETURN_IF_ERROR(_append_error_msg(objectValue,
+                                          "There is no column matching jsonpaths in the json file, "
+                                          "columns:[{}], jsonpaths:{}, please check columns "
+                                          "and jsonpaths",
+                                          col_names, valid));
         return Status::OK();
     }
     *valid = true;
@@ -1314,8 +1321,15 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         has_valid_value = true;
     }
     if (!has_valid_value) {
-        RETURN_IF_ERROR(
-                _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
+        string col_names;
+        for (auto* slot_desc : slot_descs) {
+            col_names.append(slot_desc->col_name() + ", ");
+        }
+        RETURN_IF_ERROR(_append_error_msg(value,
+                                          "There is no column matching jsonpaths in the json file, "
+                                          "columns:[{}], jsonpaths:{}, please check columns "
+                                          "and jsonpaths",
+                                          col_names, valid));
         return Status::OK();
     }
 
@@ -1412,7 +1426,7 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
     std::string err_msg;
     if (!col_name.empty()) {
         fmt::memory_buffer error_buf;
-        fmt::format_to(error_buf, error_msg, col_name);
+        fmt::format_to(error_buf, error_msg, col_name, _jsonpaths);
         err_msg = fmt::to_string(error_buf);
     } else {
         err_msg = error_msg;
@@ -1610,12 +1624,19 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
     if (!has_valid_value) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
+        string col_names;
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
         }
-        RETURN_IF_ERROR(
-                _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
+        for (auto* slot_desc : slot_descs) {
+            col_names.append(slot_desc->col_name() + ", ");
+        }
+        RETURN_IF_ERROR(_append_error_msg(value,
+                                          "There is no column matching jsonpaths in the json file, "
+                                          "columns:[{}], jsonpaths:{}, please check columns "
+                                          "and jsonpaths",
+                                          col_names, valid));
         return Status::OK();
     }
     *valid = true;
