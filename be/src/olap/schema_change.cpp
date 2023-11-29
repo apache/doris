@@ -1182,9 +1182,20 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
          i < new_schema_size; ++i) {
         const TabletColumn& new_column = new_tablet->tablet_schema()->column(i);
-        const std::string& column_name = to_lower(new_column.name());
+        const std::string& column_name = new_column.name();
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
+
+        if (materialized_function_map.find(to_lower(column_name)) !=
+            materialized_function_map.end()) {
+            auto mv_param = materialized_function_map.find(to_lower(column_name))->second;
+            column_mapping->expr = mv_param.expr;
+            int32_t column_index = base_tablet_schema->field_index(mv_param.origin_column_name);
+            column_mapping->ref_column = column_index;
+            if (column_index >= 0 || column_mapping->expr != nullptr) {
+                continue;
+            }
+        }
 
         int32_t column_index = base_tablet_schema->field_index(column_name);
         if (column_index >= 0) {
@@ -1192,23 +1203,17 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             continue;
         }
 
-        if (sc_params.alter_tablet_type == ROLLUP) {
-            if (materialized_function_map.find(column_name) != materialized_function_map.end()) {
-                auto mvParam = materialized_function_map.find(column_name)->second;
-                column_mapping->expr = mvParam.expr;
-                continue;
-            } else if (column_name != to_lower(DELETE_SIGN)) {
-                std::string materialized_function_map_str;
-                for (auto str : materialized_function_map) {
-                    if (!materialized_function_map_str.empty()) {
-                        materialized_function_map_str += ',';
-                    }
-                    materialized_function_map_str += str.first;
+        if (sc_params.alter_tablet_type == ROLLUP && column_name != to_lower(DELETE_SIGN)) {
+            std::string materialized_function_map_str;
+            for (auto str : materialized_function_map) {
+                if (!materialized_function_map_str.empty()) {
+                    materialized_function_map_str += ',';
                 }
-                return Status::InternalError(
-                        "referenced column was missing. [column={},materialized_function_map={}]",
-                        column_name, materialized_function_map_str);
+                materialized_function_map_str += str.first;
             }
+            return Status::InternalError(
+                    "referenced column was missing. [column={},materialized_function_map={}]",
+                    column_name, materialized_function_map_str);
         }
 
         if (column_name.find("__doris_shadow_") == 0) {
@@ -1219,6 +1224,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         // Newly added column go here
         column_mapping->ref_column = -1;
 
+        if (i < base_tablet_schema->num_short_key_columns()) {
+            *sc_directly = true;
+        }
         RETURN_IF_ERROR(
                 _init_column_mapping(column_mapping, new_column, new_column.default_value()));
 
