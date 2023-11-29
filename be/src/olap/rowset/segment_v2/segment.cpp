@@ -483,7 +483,6 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
             return Status::OK();
         }
-<<<<<<< HEAD
         ColumnIterator* it;
         RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
         auto stream_iter = new ExtractReader(
@@ -492,11 +491,6 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                                                std::unique_ptr<ColumnIterator>(it),
                                                root->data.file_column_type));
         iter->reset(stream_iter);
-=======
-        auto cache_iter = new CachedStreamIterator(tablet_column.path_info());
-        RETURN_IF_ERROR(add_stream(cache_iter, node));
-        iter->reset(cache_iter);
->>>>>>> a0c28dc7d6 ([improve](variant)Desc variant (#23111))
     }
     return Status::OK();
 }
