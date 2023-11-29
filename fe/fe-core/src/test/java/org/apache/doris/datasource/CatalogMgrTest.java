@@ -344,7 +344,7 @@ public class CatalogMgrTest extends TestWithFeService {
             Assert.fail("user1 switch to hive with no privilege.");
         } catch (AnalysisException e) {
             Assert.assertEquals(e.getMessage(),
-                    "errCode = 2, detailMessage = Access denied for user 'default_cluster:user1' to catalog 'hive'");
+                    "errCode = 2, detailMessage = Access denied for user 'user1' to catalog 'hive'");
         }
         Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user1Ctx.getDefaultCatalog());
 
@@ -414,7 +414,7 @@ public class CatalogMgrTest extends TestWithFeService {
             Assert.fail("");
         } catch (AnalysisException e) {
             Assert.assertEquals(e.getMessage(),
-                    "errCode = 2, detailMessage = Access denied for user 'default_cluster:user2' to catalog 'iceberg'");
+                    "errCode = 2, detailMessage = Access denied for user 'user2' to catalog 'iceberg'");
         }
 
         //test show create catalog: have permission to hive, have no permission to iceberg;
@@ -431,7 +431,7 @@ public class CatalogMgrTest extends TestWithFeService {
             Assert.fail("");
         } catch (AnalysisException e) {
             Assert.assertEquals(e.getMessage(),
-                    "errCode = 2, detailMessage = Access denied for user 'default_cluster:user2' to catalog 'iceberg'");
+                    "errCode = 2, detailMessage = Access denied for user 'user2' to catalog 'iceberg'");
         }
     }
 
