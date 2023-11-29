@@ -299,12 +299,13 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                       << ", blocking get time(us): " << _queue.total_get_wait_time() / 1000
                       << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000;
 
-            // shutdown queue
-            _queue.shutdown();
             // cancel all consumers
             for (auto& consumer : _consumers) {
                 static_cast<void>(consumer->cancel(ctx));
             }
+
+            // shutdown queue
+            _queue.shutdown();
 
             // waiting all threads finished
             _thread_pool.shutdown();
@@ -327,7 +328,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 ctx->pulsar_info->ack_offset = std::move(ack_offset);
                 ctx->receive_bytes = ctx->max_batch_size - left_bytes;
                 get_backlog_nums(ctx);
-                acknowledge_cumulative(ctx);
+//                acknowledge_cumulative(ctx);
                 return Status::OK();
             }
         }
@@ -412,7 +413,7 @@ void PulsarDataConsumerGroup::acknowledge_cumulative(std::shared_ptr<StreamLoadC
                   << "partition: " << kv.first;
         for (auto& consumer : _consumers) {
             // do ack
-            static_cast<void>(consumer->acknowledge_cumulative(kv.second));
+//            static_cast<void>(consumer->acknowledge_cumulative(kv.second));
         }
         LOG(INFO) << "finish do ack of message_id: " << kv.second
                   << "partition: " << kv.first;

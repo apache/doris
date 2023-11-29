@@ -577,6 +577,12 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                     break;
                 } else if (!queue->blocking_put(&(*new_msg))) {
                     // queue is shutdown
+                    LOG(INFO) << "queue is shutdown, failed to blocking put" << new_msg->getDataAsString()
+                              << ", len: " << new_msg->getLength()
+                              << ", message id: " << msg_id
+                              << ", pulsar consumer: " << _id
+                              << ", grp: " << _grp_id
+                              << ", rows size: " << rows.size();
                     done = true;
                 } else {
                     ++put_rows;
@@ -614,13 +620,13 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
     }
 
 
-//    LOG(INFO) << "start do ack of msg_id :" << msg_id;
-//    pulsar::Result ack = _p_consumer.acknowledgeCumulative(msg_id);
-//    if (ack != pulsar::ResultOk) {
-//        LOG(WARNING) << "failed do ack of msg_id :" << msg_id << ", consumer : " << _id;
-//    } else {
-//        LOG(INFO) << "finish do ack of msg_id :" << msg_id << ", consumer : " << _id;
-//    }
+    LOG(INFO) << "start do ack of msg_id :" << msg_id;
+    pulsar::Result ack = _p_consumer.acknowledgeCumulative(msg_id);
+    if (ack != pulsar::ResultOk) {
+        LOG(WARNING) << "failed do ack of msg_id :" << msg_id << ", consumer : " << _id;
+    } else {
+        LOG(INFO) << "finish do ack of msg_id :" << msg_id << ", consumer : " << _id;
+    }
 
     LOG(INFO) << "pulsar consume done: " << _id << ", grp: " << _grp_id << ". cancelled: " << _cancelled
               << ", left time(ms): " << left_time << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000

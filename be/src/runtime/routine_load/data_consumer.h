@@ -66,8 +66,6 @@ public:
     virtual Status reset() = 0;
     // return true the if the consumer match the need
     virtual bool match(std::shared_ptr<StreamLoadContext> ctx) = 0;
-    // acknowledge pulsar message
-    virtual Status acknowledge_cumulative(pulsar::MessageId& message_id) = 0;
 
     const UniqueId& id() { return _id; }
     time_t last_visit_time() { return _last_visit_time; }
@@ -160,9 +158,6 @@ public:
     Status get_latest_offsets_for_partitions(const std::vector<int32_t>& partition_ids,
                                              std::vector<PIntegerPair>* offsets);
 
-    // acknowledge pulsar message
-    Status acknowledge_cumulative(pulsar::MessageId& message_id) override { return Status::OK(); }
-
 private:
     std::string _brokers;
     std::string _topic;
@@ -200,7 +195,7 @@ public:
     Status reset() override;
     bool match(std::shared_ptr<StreamLoadContext> ctx) override;
     // acknowledge pulsar message
-    Status acknowledge_cumulative(pulsar::MessageId& message_id) override;
+    Status acknowledge_cumulative(pulsar::MessageId& message_id);
 
     // start the consumer and put msgs to queue
     Status group_consume(BlockingQueue<pulsar::Message*>* queue, int64_t max_running_time_ms);
