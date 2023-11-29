@@ -33,7 +33,7 @@
 
 namespace Aws::S3 {
 class S3Client;
-} // namespace Aws
+} // namespace Aws::S3
 namespace Aws::Utils::Threading {
 class Executor;
 } // namespace Aws::Utils::Threading

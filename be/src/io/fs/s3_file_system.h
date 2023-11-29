@@ -129,4 +129,4 @@ private:
     std::shared_ptr<Aws::Utils::Threading::Executor> _executor;
 };
 
-} // namespace doris
+} // namespace doris::io
