@@ -412,7 +412,7 @@ void PulsarDataConsumerGroup::acknowledge_cumulative(std::shared_ptr<StreamLoadC
                   << "partition: " << kv.first;
         for (auto& consumer : _consumers) {
             // do ack
-            static_cast<void>(consumer->acknowledge_cumulative(kv.second));
+            Status st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->acknowledge_cumulative(kv.second);
         }
         LOG(INFO) << "finish do ack of message_id: " << kv.second
                   << "partition: " << kv.first;
