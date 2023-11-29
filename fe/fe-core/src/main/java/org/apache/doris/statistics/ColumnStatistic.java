@@ -31,8 +31,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -175,7 +173,6 @@ public class ColumnStatistic {
             String min = row.get(10);
             String max = row.get(11);
             if (min != null && !min.equalsIgnoreCase("NULL")) {
-                min = new String(Base64.getDecoder().decode(min), StandardCharsets.UTF_8);
                 // Internal catalog get the min/max value using a separate SQL,
                 // and the value is already encoded by base64. Need to handle internal and external catalog separately.
                 if (catalogId != InternalCatalog.INTERNAL_CATALOG_ID && min.equalsIgnoreCase("NULL")) {
@@ -193,7 +190,6 @@ public class ColumnStatistic {
                 columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
             }
             if (max != null && !max.equalsIgnoreCase("NULL")) {
-                max = new String(Base64.getDecoder().decode(max), StandardCharsets.UTF_8);
                 if (catalogId != InternalCatalog.INTERNAL_CATALOG_ID && max.equalsIgnoreCase("NULL")) {
                     columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
                 } else {
