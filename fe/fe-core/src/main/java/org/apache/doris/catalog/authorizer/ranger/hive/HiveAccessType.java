@@ -15,30 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer;
+package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import lombok.extern.slf4j.Slf4j;
-
-import java.util.TimerTask;
-
-@Slf4j
-public class RangerHiveAuditLogFlusher extends TimerTask {
-    private RangerHiveAuditHandler auditHandler;
-
-    public RangerHiveAuditLogFlusher(RangerHiveAuditHandler auditHandler) {
-        this.auditHandler = auditHandler;
-    }
-
-    @Override
-    public void run() {
-        while (true) {
-            this.auditHandler.flushAudit();
-
-            try {
-                Thread.sleep(20000);
-            } catch (InterruptedException e) {
-                log.info("error ", e);
-            }
-        }
-    }
+public enum HiveAccessType {
+    NONE, CREATE, ALTER, DROP, INDEX, LOCK, SELECT, UPDATE, USE, READ, WRITE, ALL, SERVICEADMIN,
+    TEMPUDFADMIN;
 }

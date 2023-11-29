@@ -15,16 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer;
+package org.apache.doris.catalog.authorizer.ranger.hive;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.mysql.privilege.CatalogAccessController;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
+import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.ql.security.authorization.plugin.HiveAccessControlException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,8 +45,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class RangerHiveAccessController implements CatalogAccessController {
-    public static final String CLIENT_TYPE_DORIS = "doris";
+public class RangerHiveAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerHiveAccessController.class);
     private static ScheduledThreadPoolExecutor logFlushTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "ranger-hive-audit-log-flusher-timer", true);
@@ -86,21 +87,11 @@ public class RangerHiveAccessController implements CatalogAccessController {
         for (RangerHiveResource resource : hiveResources) {
             RangerAccessRequestImpl request = createRequest(currentUser, accessType);
             request.setResource(resource);
-
             requests.add(request);
         }
 
         Collection<RangerAccessResult> results = hivePlugin.isAccessAllowed(requests, auditHandler);
-        for (RangerAccessResult result : results) {
-            LOG.debug(String.format("request %s match policy %s", result.getAccessRequest(), result.getPolicyId()));
-            if (!result.getIsAllowed()) {
-                LOG.debug(result.getReason());
-                throw new AuthorizationException(String.format(
-                        "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
-                        result.getAccessRequest().getUser(), accessType.name(),
-                        result.getAccessRequest().getResource().getAsString().replaceAll("/", ".")));
-            }
-        }
+        checkRequestResults(results, accessType.name());
     }
 
     private boolean checkPrivilege(UserIdentity currentUser, HiveAccessType accessType,
@@ -109,23 +100,7 @@ public class RangerHiveAccessController implements CatalogAccessController {
         request.setResource(resource);
 
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
-
-        if (result == null) {
-            LOG.warn(String.format("Error getting authorizer result, please check your ranger config. Make sure "
-                    + "ranger policy engine is initialized. Request: %s", request));
-            return false;
-        }
-
-        if (result.getIsAllowed()) {
-            LOG.debug(String.format("request %s match policy %s", request, result.getPolicyId()));
-            return true;
-        } else {
-            LOG.debug(String.format(
-                    "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
-                    result.getAccessRequest().getUser(), accessType.name(),
-                    result.getAccessRequest().getResource().getAsString()));
-            return false;
-        }
+        return checkRequestResult(request, result, accessType.name());
     }
 
     public String getFilterExpr(UserIdentity currentUser, HiveAccessType accessType,
@@ -147,7 +122,7 @@ public class RangerHiveAccessController implements CatalogAccessController {
                 result.getMaskTypeDef(), result.getMaskedValue()));
     }
 
-    public HiveAccessType convertToAccessType(PrivPredicate predicate) {
+    private HiveAccessType convertToAccessType(PrivPredicate predicate) {
         if (predicate == PrivPredicate.SHOW) {
             return HiveAccessType.USE;
         } else if (predicate == PrivPredicate.SELECT) {
@@ -165,6 +140,14 @@ public class RangerHiveAccessController implements CatalogAccessController {
         } else {
             return HiveAccessType.NONE;
         }
+    }
+
+    @Override
+    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
+        // hive ranger plugin does not support global privilege
+        // use internal access controller to check
+        return Env.getCurrentEnv().getAccessManager().getAccessControllerOrDefault(
+                InternalCatalog.INTERNAL_CATALOG_NAME).checkGlobalPriv(currentUser, wanted);
     }
 
     @Override
@@ -197,5 +180,33 @@ public class RangerHiveAccessController implements CatalogAccessController {
         }
 
         checkPrivileges(currentUser, convertToAccessType(wanted), resources);
+    }
+
+    @Override
+    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
+        return false;
+    }
+
+    @Override
+    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+        return false;
+    }
+
+    @Override
+    public void onRefresh() {
+        hivePlugin.refreshPoliciesAndTags();
+    }
+
+    // For test only, will be removed later
+    public static void main(String[] args) {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("ranger.service.name", "hive");
+        RangerHiveAccessController ac = new RangerHiveAccessController(properties);
+        UserIdentity user = new UserIdentity("yy1", "127.0.0.1");
+        user.setIsAnalyzed();
+        boolean res = ac.checkDbPriv(user, "hive", "tpcds_bin_partitioned_orc_1", PrivPredicate.SHOW);
+        System.out.println("res: " + res);
+        res = ac.checkTblPriv(user, "internal", "tpch1", "customer", PrivPredicate.SELECT);
+        System.out.println("res: " + res);
     }
 }

@@ -29,6 +29,10 @@ public interface CatalogAccessController {
         return hasGlobal || res;
     }
 
+    // ==== Global ====
+    boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted);
+
+    // ==== Catalog ====
     boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted);
 
     // ==== Database ====
@@ -61,6 +65,16 @@ public interface CatalogAccessController {
         }
     }
 
+    // ==== Resource ====
+    boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted);
+
+    // ==== Workload Group ====
+    boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted);
+
     void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl,
             Set<String> cols, PrivPredicate wanted) throws AuthorizationException;
+
+    default void onRefresh() {
+        // do nothing
+    }
 }
