@@ -633,8 +633,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
               << ", len: " << message_str.size()
               << ", message id: " << msg_id
               << ", pulsar consumer: " << _id
-              << ", grp: " << _grp_id
-              << ", rows size: " << rows.size();
+              << ", grp: " << _grp_id;
 
 //    LOG(INFO) << "start do ack of msg_id :" << msg_id;
 //    pulsar::Result ack = _p_consumer.acknowledgeCumulative(msg_id);
