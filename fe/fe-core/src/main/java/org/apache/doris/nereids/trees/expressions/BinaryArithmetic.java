@@ -97,6 +97,7 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
 
     protected DecimalV3Type processDecimalV3OverFlow(int integralPart, int targetScale, int maxIntegralPart) {
         int precision = integralPart + targetScale;
+        int scale = targetScale;
         boolean enableDecimal256 = false;
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
@@ -105,12 +106,14 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
         if (enableDecimal256) {
             if (precision > DecimalV3Type.MAX_DECIMAL256_PRECISION) {
                 precision = DecimalV3Type.MAX_DECIMAL256_PRECISION;
+                scale = precision - maxIntegralPart;
             }
         } else {
             if (precision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
                 precision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
+                scale = precision - maxIntegralPart;
             }
         }
-        return DecimalV3Type.createDecimalV3Type(precision, precision - maxIntegralPart);
+        return DecimalV3Type.createDecimalV3Type(precision, scale);
     }
 }
