@@ -140,6 +140,13 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
     if (block->rows() == 0) {
         return Status::OK();
     }
+    for (int i = 0; i < block->columns(); ++i) {
+        if (block->get_by_position(i).type->is_nullable()) {
+            continue;
+        }
+        block->get_by_position(i).column = make_nullable(block->get_by_position(i).column);
+        block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
+    }
     // add block to queue
     auto _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
     {

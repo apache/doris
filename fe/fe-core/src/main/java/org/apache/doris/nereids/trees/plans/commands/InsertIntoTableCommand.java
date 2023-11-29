@@ -178,12 +178,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
 
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
-        if (ctx.getSessionVariable().isEnableInsertGroupCommit()) {
-            // group commit
-            if (analyzeGroupCommit(sink, physicalOlapTableSink)) {
-                handleGroupCommit(ctx, sink, physicalOlapTableSink);
-                return;
-            }
+        // group commit
+        if (analyzeGroupCommit(sink, physicalOlapTableSink)) {
+            /*handleGroupCommit(ctx, sink, physicalOlapTableSink);
+            return;*/
+            throw new AnalysisException("group commit is not supported in nereids now");
         }
         Preconditions.checkArgument(!isTxnBegin, "an insert command cannot create more than one txn");
         Transaction txn = new Transaction(ctx,
