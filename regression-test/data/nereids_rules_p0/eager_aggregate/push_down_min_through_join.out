@@ -9,9 +9,75 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------hashAgg[LOCAL]
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
+
+-- !groupby_pushdown_left_join --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[min_t]
+----------------PhysicalProject
+------------------PhysicalOlapScan[min_t]
+
+-- !groupby_pushdown_right_join --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalProject
+------------------PhysicalOlapScan[min_t]
+----------------PhysicalOlapScan[min_t]
+
+-- !groupby_pushdown_full_join --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[min_t]
+----------------PhysicalProject
+------------------PhysicalOlapScan[min_t]
+
+-- !groupby_pushdown_left_semi_join --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[min_t]
+----------------PhysicalProject
+------------------PhysicalOlapScan[min_t]
+
+-- !groupby_pushdown_left_anti_join --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[min_t]
+----------------PhysicalProject
+------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_complex_conditions --
 PhysicalResultSink
@@ -22,9 +88,9 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.name < t2.name))
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_with_aggregate --
 PhysicalResultSink
@@ -35,9 +101,9 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_subquery --
 PhysicalResultSink
@@ -49,10 +115,10 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t] apply RFs: RF0
+------------------PhysicalOlapScan[min_t] apply RFs: RF0
 ----------------hashAgg[LOCAL]
-------------------filter((t.score > 10))
---------------------PhysicalOlapScan[t]
+------------------filter((min_t.score > 10))
+--------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_outer_join --
 PhysicalResultSink
@@ -63,9 +129,9 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_deep_subquery --
 PhysicalResultSink
@@ -77,10 +143,10 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t] apply RFs: RF0
+------------------PhysicalOlapScan[min_t] apply RFs: RF0
 ----------------hashAgg[LOCAL]
-------------------filter((t.score > 10))
---------------------PhysicalOlapScan[t]
+------------------filter((min_t.score > 10))
+--------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_having --
 PhysicalResultSink
@@ -93,9 +159,9 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------hashAgg[LOCAL]
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[min_t]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_mixed_aggregates --
 PhysicalResultSink
@@ -106,9 +172,9 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_multi_table_join --
 PhysicalResultSink
@@ -123,12 +189,12 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------------hashAgg[LOCAL]
-------------------------PhysicalOlapScan[t]
+------------------------PhysicalOlapScan[min_t]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[t]
+------------------------PhysicalOlapScan[min_t]
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_with_order_by --
 PhysicalResultSink
@@ -142,9 +208,9 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------------hashAgg[LOCAL]
-----------------------PhysicalOlapScan[t]
+----------------------PhysicalOlapScan[min_t]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t]
+----------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_multiple_equal_conditions --
 PhysicalResultSink
@@ -156,9 +222,9 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 ----------------hashAgg[LOCAL]
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_equal_conditions_with_aggregate --
 PhysicalResultSink
@@ -169,8 +235,8 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
-----------------PhysicalOlapScan[t]
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
+----------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_equal_conditions_non_aggregate_selection --
 PhysicalResultSink
@@ -181,9 +247,9 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_equal_conditions_non_aggregate_selection_with_aggregate --
 PhysicalResultSink
@@ -194,9 +260,9 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 --------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_with_where_clause --
 PhysicalResultSink
@@ -208,10 +274,10 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t] apply RFs: RF0
+------------------PhysicalOlapScan[min_t] apply RFs: RF0
 ----------------hashAgg[LOCAL]
 ------------------filter((t1.score > 50))
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_varied_aggregates --
 PhysicalResultSink
@@ -222,9 +288,9 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_with_order_by_limit --
 PhysicalResultSink
@@ -238,9 +304,9 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------------hashAgg[LOCAL]
-----------------------PhysicalOlapScan[t]
+----------------------PhysicalOlapScan[min_t]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t]
+----------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_alias_multiple_equal_conditions --
 PhysicalResultSink
@@ -252,9 +318,9 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1_alias.id = t2_alias.id) and (t1_alias.name = t2_alias.name)) otherCondition=()
 ----------------hashAgg[LOCAL]
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_complex_join_condition --
 PhysicalResultSink
@@ -265,8 +331,8 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.score = t2.score)) otherCondition=(( not (name = name)))
-----------------PhysicalOlapScan[t]
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[min_t]
+----------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_function_processed_columns --
 PhysicalResultSink
@@ -278,9 +344,9 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_nested_queries --
 PhysicalResultSink
@@ -292,9 +358,9 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ----------------PhysicalProject
-------------------filter((t.id < 100))
---------------------PhysicalOlapScan[t] apply RFs: RF0
+------------------filter((min_t.id < 100))
+--------------------PhysicalOlapScan[min_t] apply RFs: RF0
 ----------------hashAgg[LOCAL]
-------------------filter((t.score > 20) and (t1.id < 100))
---------------------PhysicalOlapScan[t]
+------------------filter((min_t.score > 20) and (t1.id < 100))
+--------------------PhysicalOlapScan[min_t]
 
