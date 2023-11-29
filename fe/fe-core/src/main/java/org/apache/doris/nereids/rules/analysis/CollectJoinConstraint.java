@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
@@ -24,11 +24,11 @@ import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -47,24 +47,17 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            logicalRelation().thenApply(ctx -> {
-                LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                        .getStatementContext().getHintMap().get("Leading");
-                if (leading == null) {
-                    return ctx.root;
-                } else if (leading.isSyntaxError()) {
-                    return ctx.root;
-                }
-                return ctx.root;
-            }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
-
             logicalJoin().thenApply(ctx -> {
-                LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                        .getStatementContext().getHintMap().get("Leading");
-                if (leading == null) {
+                if (!ctx.cascadesContext.isLeadingJoin()) {
                     return ctx.root;
                 }
+                LeadingHint leading = (LeadingHint) ctx.cascadesContext
+                            .getHintMap().get("Leading");
                 LogicalJoin join = ctx.root;
+                if (join.getJoinType().isNullAwareLeftAntiJoin()) {
+                    leading.setStatus(Hint.HintStatus.UNUSED);
+                    leading.setErrorMessage("condition does not matched joinType");
+                }
                 List<Expression> expressions = join.getHashJoinConjuncts();
                 Long totalFilterBitMap = 0L;
                 Long nonNullableSlotBitMap = 0L;
@@ -74,6 +67,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
+                    leading.putConditionJoinType(expression, join.getJoinType());
                 }
                 expressions = join.getOtherJoinConjuncts();
                 for (Expression expression : expressions) {
@@ -82,6 +76,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
+                    leading.putConditionJoinType(expression, join.getJoinType());
                 }
                 Long leftHand = LongBitmap.computeTableBitmap(join.left().getInputRelations());
                 Long rightHand = LongBitmap.computeTableBitmap(join.right().getInputRelations());
@@ -91,28 +86,13 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                 return ctx.root;
             }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
 
-            logicalFilter().thenApply(ctx -> {
-                LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                        .getStatementContext().getHintMap().get("Leading");
-                if (leading == null) {
-                    return ctx.root;
-                }
-                LogicalFilter filter = ctx.root;
-                Set<Expression> expressions = filter.getConjuncts();
-                for (Expression expression : expressions) {
-                    Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
-                    leading.getFilters().add(Pair.of(filterBitMap, expression));
-                }
-                return ctx.root;
-            }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
-
             logicalProject(logicalOlapScan()).thenApply(
                 ctx -> {
-                    LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                            .getStatementContext().getHintMap().get("Leading");
-                    if (leading == null) {
+                    if (!ctx.cascadesContext.isLeadingJoin()) {
                         return ctx.root;
                     }
+                    LeadingHint leading = (LeadingHint) ctx.cascadesContext
+                            .getHintMap().get("Leading");
                     LogicalProject<LogicalOlapScan> project = ctx.root;
                     LogicalOlapScan scan = project.child();
                     leading.getRelationIdToScanMap().put(scan.getRelationId(), project);
@@ -195,15 +175,11 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             if (getNotNullable && slot.nullable()) {
                 continue;
             }
-            if (!slot.isColumnFromTable()) {
+            if (!slot.isColumnFromTable() && (slot.getQualifier() == null || slot.getQualifier().isEmpty())) {
                 // we can not get info from column not from table
                 continue;
             }
-            String tableName = leading.getExprIdToTableNameMap().get(slot.getExprId());
-            if (tableName == null) {
-                tableName = slot.getQualifier().get(slot.getQualifier().size() - 1);
-                leading.getExprIdToTableNameMap().put(slot.getExprId(), tableName);
-            }
+            String tableName = slot.getQualifier().get(slot.getQualifier().size() - 1);
             RelationId id = leading.findRelationIdAndTableName(tableName);
             if (id == null) {
                 leading.setStatus(Hint.HintStatus.SYNTAX_ERROR);

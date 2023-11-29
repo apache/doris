@@ -42,6 +42,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,8 +72,6 @@ public class StatementContext {
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
 
-    private boolean isLeadingJoin = false;
-
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
@@ -90,6 +89,8 @@ public class StatementContext {
 
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
+
+    private final List<Hint> hints = new ArrayList<>();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -148,14 +149,6 @@ public class StatementContext {
         isDpHyp = dpHyp;
     }
 
-    public boolean isLeadingJoin() {
-        return isLeadingJoin;
-    }
-
-    public void setLeadingJoin(boolean leadingJoin) {
-        isLeadingJoin = leadingJoin;
-    }
-
     public boolean isOtherJoinReorder() {
         return isOtherJoinReorder;
     }
@@ -192,10 +185,6 @@ public class StatementContext {
             supplier = cacheSupplier;
         }
         return supplier.get();
-    }
-
-    public Map<String, Hint> getHintMap() {
-        return hintMap;
     }
 
     public ColumnAliasGenerator getColumnAliasGenerator() {
@@ -246,5 +235,13 @@ public class StatementContext {
 
     public List<String> getViewDdlSqls() {
         return ImmutableList.copyOf(viewDdlSqlSet);
+    }
+
+    public void addHint(Hint hint) {
+        this.hints.add(hint);
+    }
+
+    public List<Hint> getHints() {
+        return ImmutableList.copyOf(hints);
     }
 }
