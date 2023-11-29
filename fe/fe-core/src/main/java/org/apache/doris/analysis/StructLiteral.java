@@ -180,9 +180,6 @@ public class StructLiteral extends LiteralExpr {
         }
 
         StructLiteral that = (StructLiteral) o;
-        if (that.children.size() != children.size()) {
-            return false;
-        }
         return Objects.equals(children, that.children);
     }
 }

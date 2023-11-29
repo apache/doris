@@ -142,9 +142,6 @@ public class ArrayLiteral extends LiteralExpr {
             return true;
         }
         ArrayLiteral that = (ArrayLiteral) o;
-        if (that.children.size() != children.size()) {
-            return false;
-        }
         return Objects.equals(children, that.children);
     }
 

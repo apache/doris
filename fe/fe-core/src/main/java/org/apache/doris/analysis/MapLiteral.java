@@ -223,9 +223,6 @@ public class MapLiteral extends LiteralExpr {
         }
 
         MapLiteral that = (MapLiteral) o;
-        if (that.children.size() != children.size()) {
-            return false;
-        }
         return Objects.equals(children, that.children);
     }
 }
