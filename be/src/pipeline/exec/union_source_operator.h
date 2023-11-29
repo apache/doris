@@ -75,6 +75,8 @@ public:
     UnionSourceDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "UnionSourceDependency", query_ctx) {}
     ~UnionSourceDependency() override = default;
+
+    void block() override {}
 };
 
 class UnionSourceOperatorX;

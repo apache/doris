@@ -316,11 +316,11 @@ protected:
     std::shared_ptr<RuntimeProfile> _scanner_profile;
 
     // rows read from the scanner (including those discarded by (pre)filters)
-    RuntimeProfile::Counter* _rows_read_counter;
-    RuntimeProfile::Counter* _byte_read_counter;
+    RuntimeProfile::Counter* _rows_read_counter = nullptr;
+    RuntimeProfile::Counter* _byte_read_counter = nullptr;
     // Wall based aggregate read throughput [rows/sec]
-    RuntimeProfile::Counter* _total_throughput_counter;
-    RuntimeProfile::Counter* _num_scanners;
+    RuntimeProfile::Counter* _total_throughput_counter = nullptr;
+    RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _get_next_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -346,9 +346,9 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
     std::vector<int> _col_distribute_ids;

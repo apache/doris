@@ -56,8 +56,8 @@ private:
     std::unordered_map<UniqueId, LoadStreamSharedPtr> _load_streams_map;
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
-    FifoThreadPool* _heavy_work_pool;
-    FifoThreadPool* _light_work_pool;
+    FifoThreadPool* _heavy_work_pool = nullptr;
+    FifoThreadPool* _light_work_pool = nullptr;
 };
 
 } // namespace doris

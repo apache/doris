@@ -93,7 +93,7 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
 private:
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     bool _group_commit = false;
 

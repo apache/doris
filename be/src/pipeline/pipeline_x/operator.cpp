@@ -76,9 +76,6 @@ template <typename DependencyType>
 std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
-    if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, " Dependency: {}", _dependency->debug_string());
-    }
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -86,9 +83,6 @@ template <typename DependencyType>
 std::string PipelineXSinkLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
-    if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, ", Dependency: {}", _dependency->debug_string());
-    }
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -526,11 +520,6 @@ template <typename Writer, typename Parent>
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              SourceState source_state) {
     return _writer->sink(block, source_state == SourceState::FINISHED);
-}
-
-template <typename Writer, typename Parent>
-Dependency* AsyncWriterSink<Writer, Parent>::write_blocked_by(PipelineXTask* task) {
-    return _writer->write_blocked_by(task);
 }
 
 template <typename Writer, typename Parent>

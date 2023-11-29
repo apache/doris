@@ -1209,6 +1209,11 @@ public class OlapTable extends Table {
     }
 
     @Override
+    public long getCacheRowCount() {
+        return getRowCount();
+    }
+
+    @Override
     public long getAvgRowLength() {
         long rowCount = 0;
         long dataSize = 0;
@@ -1307,14 +1312,7 @@ public class OlapTable extends Table {
 
     @Override
     public boolean isPartitioned() {
-        int numSegs = 0;
-        for (Partition part : getPartitions()) {
-            numSegs += part.getDistributionInfo().getBucketNum();
-            if (numSegs > 1) {
-                return true;
-            }
-        }
-        return false;
+        return !PartitionType.UNPARTITIONED.equals(partitionInfo.getType());
     }
 
     @Override
@@ -2407,6 +2405,17 @@ public class OlapTable extends Table {
     @Override
     public boolean isPartitionColumn(String columnName) {
         return getPartitionInfo().getPartitionColumns().stream()
-            .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
+                .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
+    }
+
+    /**
+     * For olap table, we need to acquire read lock when plan.
+     * Because we need to make sure the partition's version remain unchanged when plan.
+     *
+     * @return
+     */
+    @Override
+    public boolean needReadLockWhenPlan() {
+        return true;
     }
 }

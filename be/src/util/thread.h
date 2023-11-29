@@ -279,7 +279,7 @@ private:
         kDefaultGiveUpAfterMs = -1 // forever
     };
 
-    Thread* _thread;
+    Thread* _thread = nullptr;
 
     int _warn_after_ms;
     int _warn_every_ms;

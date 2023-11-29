@@ -478,6 +478,12 @@ AVX2NEON_NAME=v1.0.0.tar.gz
 AVX2NEON_SOURCE=AvxToNeon-1.0.0
 AVX2NEON_MD5SUM="692d0e0f8b885a86ebc5172a9d8ee8db"
 
+# libdeflate
+LIBDEFLATE_DOWNLOAD="https://github.com/ebiggers/libdeflate/archive/refs/tags/v1.19.tar.gz"
+LIBDEFLATE_NAME=libdeflate-1.19.tar.gz
+LIBDEFLATE_SOURCE=libdeflate-1.19
+LIBDEFLATE_MD5SUM="c69e9193d2975a729068ffa862c81fb6"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -548,6 +554,7 @@ export TP_ARCHIVES=(
     'HADOOP_LIBS'
     'DRAGONBOX'
     'AVX2NEON'
+    'LIBDEFLATE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

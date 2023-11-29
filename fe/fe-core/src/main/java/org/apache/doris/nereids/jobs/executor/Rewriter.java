@@ -48,7 +48,7 @@ import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
-import org.apache.doris.nereids.rules.rewrite.CountLiteralToCountStar;
+import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
@@ -99,6 +99,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownMinMaxThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownSumThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
@@ -193,7 +194,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topDown(
                     new SimplifyAggGroupBy(),
                     new NormalizeAggregate(),
-                    new CountLiteralToCountStar(),
+                    new CountLiteralRewrite(),
                     new NormalizeSort()
             ),
             topic("Window analysis",
@@ -296,7 +297,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PushDownLimit(),
                             new PushDownTopNThroughJoin(),
                             new PushDownLimitDistinctThroughJoin(),
-                            new PushDownTopNThroughWindow()
+                            new PushDownTopNThroughWindow(),
+                            new PushDownTopNThroughUnion()
                     ),
                     topDown(new CreatePartitionTopNFromWindow()),
                     topDown(

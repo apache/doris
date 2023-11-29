@@ -63,7 +63,7 @@ private:
     std::string_view _column_separator;
     std::string_view _line_delimiter;
 
-    doris::io::FileWriter* _file_writer;
+    doris::io::FileWriter* _file_writer = nullptr;
     // Used to buffer the export data of plain text
     // TODO(cmy): I simply use a fmt::memmory_buffer to buffer the data, to avoid calling
     // file writer's write() for every single row.

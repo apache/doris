@@ -130,7 +130,7 @@ private:
         zone_map->pass_all = false;
     }
 
-    Field* _field;
+    Field* _field = nullptr;
     // memory will be managed by Arena
     ZoneMap _page_zone_map;
     ZoneMap _segment_zone_map;

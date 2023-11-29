@@ -161,3 +161,8 @@ if (OS_MACOSX)
     add_thirdparty(iberty)
     add_thirdparty(intl)
 endif()
+
+# Only used on x86 or x86_64
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
+    add_thirdparty(deflate)
+endif()

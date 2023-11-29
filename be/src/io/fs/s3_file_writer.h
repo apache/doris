@@ -76,7 +76,7 @@ private:
     std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
     IFileCache::Key _cache_key;
-    IFileCache* _cache;
+    IFileCache* _cache = nullptr;
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 

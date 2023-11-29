@@ -503,6 +503,24 @@ public class SelectStmt extends QueryStmt {
         }
         fromClause.setNeedToSql(needToSql);
         fromClause.analyze(analyzer);
+
+        if (!isForbiddenMVRewrite()) {
+            Boolean haveMv = false;
+            for (TableRef tbl : fromClause) {
+                if (!tbl.haveDesc() || !(tbl.getTable() instanceof OlapTable)) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) tbl.getTable();
+                if (olapTable.getIndexIds().size() != 1) {
+                    haveMv = true;
+                }
+            }
+
+            if (!haveMv) {
+                forbiddenMVRewrite();
+            }
+        }
+
         // Generate !empty() predicates to filter out empty collections.
         // Skip this step when analyzing a WITH-clause because CollectionTableRefs
         // do not register collection slots in their parent in that context
@@ -554,11 +572,14 @@ public class SelectStmt extends QueryStmt {
                     }
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
                     String columnLabel = null;
-                    // Infer column name when item is expr, both query and ddl
-                    columnLabel = item.toColumnLabel(i);
+                    Class<? extends StatementBase> statementClazz = analyzer.getRootStatementClazz();
+                    if (statementClazz != null
+                            && (!QueryStmt.class.isAssignableFrom(statementClazz) || hasOutFileClause())) {
+                        // Infer column name when item is expr
+                        columnLabel = item.toColumnLabel(i);
+                    }
                     if (columnLabel == null) {
-                        // column label without position is applicative for query and do not infer
-                        // column name when item is expr
+                        // use original column label
                         columnLabel = item.toColumnLabel();
                     }
                     SlotRef aliasRef = new SlotRef(null, columnLabel);

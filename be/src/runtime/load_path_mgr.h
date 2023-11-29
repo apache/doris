@@ -61,7 +61,7 @@ private:
     void clean();
     void process_path(time_t now, const std::string& path, int64_t reserve_hours);
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::mutex _lock;
     std::vector<std::string> _path_vec;
     int _idx;

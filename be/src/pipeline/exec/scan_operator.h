@@ -77,6 +77,10 @@ public:
         if (_scanner_done) {
             return;
         }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_scanner_done) {
+            return;
+        }
         Dependency::block();
     }
 
@@ -84,15 +88,27 @@ public:
         if (_scanner_done) {
             return;
         }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_scanner_done) {
+            return;
+        }
         _scanner_done = true;
         Dependency::set_ready();
+    }
+
+    std::string debug_string(int indentation_level = 0) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "{}, _scanner_done = {}",
+                       Dependency::debug_string(indentation_level), _scanner_done);
+        return fmt::to_string(debug_string_buffer);
     }
 
     void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
 
 private:
-    vectorized::ScannerContext* _scanner_ctx;
-    std::atomic<bool> _scanner_done {false};
+    vectorized::ScannerContext* _scanner_ctx = nullptr;
+    bool _scanner_done {false};
+    std::mutex _always_done_lock;
 };
 
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
@@ -154,15 +170,15 @@ protected:
     RuntimeProfile::Counter* _convert_block_timer = nullptr;
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
-    RuntimeProfile::Counter* _rows_read_counter;
+    RuntimeProfile::Counter* _rows_read_counter = nullptr;
 
     // Wall based aggregate read throughput [rows/sec]
-    RuntimeProfile::Counter* _total_throughput_counter;
-    RuntimeProfile::Counter* _num_scanners;
+    RuntimeProfile::Counter* _total_throughput_counter = nullptr;
+    RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _wait_for_data_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_scanner_done_timer = nullptr;
