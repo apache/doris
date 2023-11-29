@@ -867,13 +867,6 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                                                       PFetchRemoteSchemaResponse* response,
                                                       google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([request, response, done]() {
-        auto merge_schema =
-                [](const std::vector<TabletSchemaSPtr>& input_schema) -> TabletSchemaSPtr {
-            TabletSchemaSPtr merged_schema = std::make_shared<TabletSchema>();
-            vectorized::schema_util::get_least_common_schema(input_schema, merged_schema);
-            return merged_schema;
-        };
-
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         if (request->is_coordinator()) {
@@ -920,7 +913,8 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             }
             if (!schemas.empty() && st.ok()) {
                 // merge all
-                TabletSchemaSPtr merged_schema = merge_schema(schemas);
+                TabletSchemaSPtr merged_schema =
+                        vectorized::schema_util::get_least_common_schema(schemas, nullptr);
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 merged_schema->to_schema_pb(response->mutable_merged_schema());
             }
@@ -952,7 +946,8 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             }
             if (!tablet_schemas.empty()) {
                 // merge all
-                TabletSchemaSPtr merged_schema = merge_schema(tablet_schemas);
+                TabletSchemaSPtr merged_schema =
+                        vectorized::schema_util::get_least_common_schema(tablet_schemas, nullptr);
                 merged_schema->to_schema_pb(response->mutable_merged_schema());
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
             }
