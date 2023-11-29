@@ -217,6 +217,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return true;
     }
 
+    // TabletStatMgr will invoke every olap table's tryWriteLock,
+    // we can set Config.check_table_lock_leaky = true
+    // and check log to find out whether if the table has lock leaky.
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
             boolean res = this.rwLock.writeLock().tryLock(timeout, unit);
