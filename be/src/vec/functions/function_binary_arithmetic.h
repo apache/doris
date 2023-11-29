@@ -246,7 +246,7 @@ private:
         // TODO: handle overflow of decimalv2
         if constexpr (OpTraits::is_multiply && IsDecimalV2<A> && IsDecimalV2<B> &&
                       IsDecimalV2<ResultType>) {
-            Op::vector_vector<check_overflow>(a, b, c, size);
+            Op::template vector_vector<check_overflow>(a, b, c, size);
         } else {
             for (size_t i = 0; i < size; i++) {
                 c[i] = typename ArrayC::value_type(
@@ -397,8 +397,9 @@ public:
         auto column_result = ColumnDecimal<ResultType>::create(
                 1, assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type).get_scale());
 
-        if constexpr (!is_to_null_type && ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) ||
-                                           IsDecimalV2<A> || IsDecimalV2<B>)) {
+        if constexpr (check_overflow && !is_to_null_type &&
+                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) || IsDecimalV2<A> ||
+                       IsDecimalV2<B>)) {
             LOG(FATAL) << "Invalid function type!";
             return column_result;
         } else if constexpr (is_to_null_type) {
@@ -422,8 +423,9 @@ public:
                 assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type).get_scale());
         DCHECK(column_left_ptr != nullptr);
 
-        if constexpr (!is_to_null_type && ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) ||
-                                           IsDecimalV2<A> || IsDecimalV2<B>)) {
+        if constexpr (check_overflow && !is_to_null_type &&
+                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) || IsDecimalV2<A> ||
+                       IsDecimalV2<B>)) {
             LOG(FATAL) << "Invalid function type!";
             return column_result;
         } else if constexpr (is_to_null_type) {
@@ -448,8 +450,9 @@ public:
                 assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type).get_scale());
         DCHECK(column_right_ptr != nullptr);
 
-        if constexpr (!is_to_null_type && ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) ||
-                                           IsDecimalV2<A> || IsDecimalV2<B>)) {
+        if constexpr (check_overflow && !is_to_null_type &&
+                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) || IsDecimalV2<A> ||
+                       IsDecimalV2<B>)) {
             LOG(FATAL) << "Invalid function type!";
             return column_result;
         } else if constexpr (is_to_null_type) {
@@ -478,8 +481,9 @@ public:
                 ColumnDecimal<ResultType>::create(column_left->size(), type_result.get_scale());
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
-        if constexpr (!is_to_null_type && ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) ||
-                                           IsDecimalV2<A> || IsDecimalV2<B>)) {
+        if constexpr (check_overflow && !is_to_null_type &&
+                      ((!OpTraits::is_multiply && !OpTraits::is_plus_minus) || IsDecimalV2<A> ||
+                       IsDecimalV2<B>)) {
             LOG(FATAL) << "Invalid function type!";
             return column_result;
         } else if constexpr (is_to_null_type) {
