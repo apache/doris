@@ -849,6 +849,16 @@ BaseCompaction:546859:
 * 默认值： 100
 * 可动态修改：是
 
+#### `olap_table_sink_send_interval_microseconds`.
+
+* 描述： 数据导入时，Coordinator 的 sink 节点有一个轮询线程持续向对应BE发送数据。该线程将每隔 `olap_table_sink_send_interval_microseconds` 微秒检查是否有数据要发送。
+* 默认值：1000
+
+#### `olap_table_sink_send_interval_auto_partition_factor`.
+
+* 描述： 如果我们向一个启用了自动分区的表导入数据，那么 `olap_table_sink_send_interval_microseconds` 的时间间隔就会太慢。在这种情况下，实际间隔将乘以该系数。
+* 默认值：0.001
+
 ### 线程
 
 #### `delete_worker_count`
@@ -1524,13 +1534,3 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: BE 是否开启使用java-jni，开启后允许 c++ 与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
 * 默认值: true
-
-#### `olap_table_sink_send_interval_microseconds`.
-
-* 描述： 数据导入时，Coordinator 的 sink 节点有一个轮询线程持续向对应BE发送数据。该线程将每隔 `olap_table_sink_send_interval_microseconds` 微秒检查是否有数据要发送。
-* 默认值：1000
-
-#### `olap_table_sink_send_interval_auto_partition_factor`.
-
-* 描述： 如果我们向一个启用了自动分区的表导入数据，那么 `olap_table_sink_send_interval_microseconds` 的时间间隔就会太慢。在这种情况下，实际间隔将乘以该系数。
-* 默认值：0.001
