@@ -46,13 +46,13 @@ suite("test_crud_wlg") {
 
     sql "create workload group if not exists normal " +
             "properties ( " +
-            "    'cpu_share'='10', " +
+            "    'cpu_share'='1024', " +
             "    'memory_limit'='50%', " +
             "    'enable_memory_overcommit'='true' " +
             ");"
 
     // reset normal group property
-    sql "alter workload group normal properties ( 'cpu_share'='10' );"
+    sql "alter workload group normal properties ( 'cpu_share'='1024' );"
     sql "alter workload group normal properties ( 'memory_limit'='50%' );"
     sql "alter workload group normal properties ( 'enable_memory_overcommit'='true' );"
     sql "alter workload group normal properties ( 'max_concurrency'='2147483647' );"
@@ -258,4 +258,26 @@ suite("test_crud_wlg") {
         sql """ select 1; """
     }
 
+    // test query queue limit
+    sql "set workload_group=test_group;"
+    sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
+    sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
+    try {
+        sql "select 1;"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("query waiting queue is full"));
+    }
+
+    sql "alter workload group test_group properties ( 'max_queue_size'='1' );"
+    sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
+    try {
+        sql "select 1;"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("query wait timeout"));
+    }
+
+    sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
+    sql "select 1;"
+    sql "set workload_group=normal;"
+    sql "drop workload group test_group;"
 }
