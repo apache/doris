@@ -24,6 +24,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "pipeline/pipeline_x/pipeline_x_task.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 
 namespace doris::pipeline {
@@ -153,57 +154,6 @@ void RuntimeFilterTimer::call_has_release() {
     // so there is no need to take any action.
 }
 
-struct RuntimeFilterTimerQueue {
-    constexpr static int64_t interval = 50;
-    void start() {
-        while (true) {
-            std::unique_lock<std::mutex> lk(cv_m);
-
-            cv.wait(lk, [this] { return !_que.empty(); });
-            {
-                std::unique_lock<std::mutex> lc(_que_lock);
-                std::list<std::shared_ptr<RuntimeFilterTimer>> new_que;
-                for (auto& it : _que) {
-                    if (it.use_count() == 1) {
-                        it->call_has_release();
-                    } else if (it->has_ready()) {
-                        it->call_has_ready();
-                    } else {
-                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
-                        if (ms_since_registration > it->wait_time_ms()) {
-                            it->call_timeout();
-                        } else {
-                            new_que.push_back(std::move(it));
-                        }
-                    }
-                }
-                new_que.swap(_que);
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
-        }
-    }
-    ~RuntimeFilterTimerQueue() { _thread.detach(); }
-    RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
-    static void push_filter_timer(std::shared_ptr<RuntimeFilterTimer> filter) {
-        static RuntimeFilterTimerQueue timer_que;
-
-        timer_que.push(filter);
-    }
-
-    void push(std::shared_ptr<RuntimeFilterTimer> filter) {
-        std::unique_lock<std::mutex> lc(_que_lock);
-        _que.push_back(filter);
-        cv.notify_all();
-    }
-
-    std::thread _thread;
-    std::condition_variable cv;
-    std::mutex cv_m;
-    std::mutex _que_lock;
-
-    std::list<std::shared_ptr<RuntimeFilterTimer>> _que;
-};
-
 void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
     _filters++;
     int64_t registration_time = runtime_filter->registration_time();
@@ -212,7 +162,7 @@ void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
             registration_time, wait_time_ms,
             std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()), runtime_filter);
     runtime_filter->set_filter_timer(filter_timer);
-    RuntimeFilterTimerQueue::push_filter_timer(filter_timer);
+    ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(filter_timer);
 }
 
 void RuntimeFilterDependency::sub_filters() {
