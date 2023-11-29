@@ -17,11 +17,6 @@
 
 #include "olap/schema_change.h"
 
-#include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/Exprs_types.h>
-#include <gen_cpp/olap_file.pb.h>
-#include <thrift/protocol/TDebugProtocol.h>
-
 #include <algorithm>
 #include <exception>
 #include <map>
@@ -84,7 +79,7 @@ class CollectionValue;
 
 using namespace ErrorCode;
 
-constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
+constexpr int ALTER_TABLE_BATCH_SIZE = 4064;
 
 class MultiBlockMerger {
 public:
