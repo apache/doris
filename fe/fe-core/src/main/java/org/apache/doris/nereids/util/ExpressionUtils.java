@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.exploration.mv.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -298,6 +299,19 @@ public class ExpressionUtils {
      */
     public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
         return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
+    }
+
+    /**
+     * replace NameExpression.
+     */
+    public static NamedExpression replace(NamedExpression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        Expression newExpr = expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
+        if (newExpr instanceof NamedExpression) {
+            return (NamedExpression) newExpr;
+        } else {
+            return new Alias(expr.getExprId(), newExpr, expr.getName());
+        }
     }
 
     public static List<Expression> replace(List<Expression> exprs,
