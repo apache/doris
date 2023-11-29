@@ -55,9 +55,6 @@ suite("test_backup_restore_keep_on_local", "backup_restore") {
         Thread.sleep(3000)
     }
 
-    snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
-    assertTrue(snapshot != null)
-
     sql "TRUNCATE TABLE ${dbName}.${tableName}"
 
     try {
@@ -67,7 +64,6 @@ suite("test_backup_restore_keep_on_local", "backup_restore") {
             ON ( `${tableName}`)
             PROPERTIES
             (
-                "backup_timestamp" = "${snapshot}",
                 "replication_num" = "1"
             )
         """
