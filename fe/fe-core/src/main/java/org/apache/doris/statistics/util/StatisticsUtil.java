@@ -788,7 +788,9 @@ public class StatisticsUtil {
         if (str == null) {
             return null;
         }
-        return org.apache.commons.lang3.StringUtils.replace(str, "'", "''");
+        return str.replace("'", "''")
+                .replace("\\", "\\\\")
+                .replace("\"", "\"\"");
     }
 
     public static boolean isExternalTable(String catalogName, String dbName, String tblName) {

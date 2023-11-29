@@ -142,4 +142,12 @@ public class StatisticsUtilTest {
                 .encodeToString("a".getBytes(StandardCharsets.UTF_8)), StatisticsUtil.encodeValue(row, 1));
         Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(row, 2));
     }
+
+    @Test
+    public void testEscape() {
+        // \'"
+        String origin = "\\'\"";
+        // \\''""
+        Assertions.assertEquals("\\\\''\"\"", StatisticsUtil.escapeSQL(origin));
+    }
 }

@@ -269,8 +269,8 @@ public class StatisticsRepository {
         params.put("count", String.valueOf(columnStatistic.count));
         params.put("ndv", String.valueOf(columnStatistic.ndv));
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
-        params.put("min", StatisticsUtil.encodeString(min));
-        params.put("max", StatisticsUtil.encodeString(max));
+        params.put("min", StatisticsUtil.escapeSQL(min));
+        params.put("max", StatisticsUtil.escapeSQL(max));
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
 
         if (partitionIds.isEmpty()) {

@@ -92,8 +92,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             // Get basic stats, including min and max.
             ResultRow basicStats = collectBasicStat(r);
             long rowCount = tbl.getRowCount();
-            String min = StatisticsUtil.encodeValue(basicStats, 0);
-            String max = StatisticsUtil.encodeValue(basicStats, 1);
+            String min = StatisticsUtil.escapeSQL(basicStats.get(0));
+            String max = StatisticsUtil.escapeSQL(basicStats.get(1));
 
             boolean limitFlag = false;
             long rowsToSample = pair.second;
