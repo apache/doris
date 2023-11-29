@@ -77,7 +77,7 @@ User can directly deploy Doris by [examples](https://github.com/selectdb/doris-o
 ```shell
 kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml  
 ```
-Or download [doriscluster-sample](https://github.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml) a custom resource that tells the Operator how to configure the Kubernetes cluster, and custom resource as [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) and 
+Or download [doriscluster-sample](https://github.com/selectdb/doris-operator/tree/master/doc/examples/doriscluster-sample.yaml) a custom resource that tells the Operator how to configure the Kubernetes cluster, and custom resource as [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) and 
 [how_to_use](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) docs. Instead of using the command below, apply the customized resource.
 ```shell
 kubeectl apply -f doriscluster-sample.yaml  
