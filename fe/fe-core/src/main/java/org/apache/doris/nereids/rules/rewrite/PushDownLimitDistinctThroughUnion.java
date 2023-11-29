@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -25,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -35,10 +34,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * <pre>
- * TopN-Distinct
+ * LIMIT-Distinct
  * -> Union All
  * -> child plan1
  * -> child plan2
@@ -46,26 +46,27 @@ import java.util.Map;
  *
  * rewritten to
  *
- * TopN-Distinct
+ * LIMIT-Distinct
  * -> Union All
- *   -> TopN-Distinct
+ *   -> LIMIT-Distinct
  *     -> child plan1
+ *   -> LIMIT-Distinct
+ *     -> LIMIT plan2
  *   -> TopN-Distinct
- *     -> child plan2
- *   -> TopN-Distinct
- *     -> child plan3
+ *     -> LIMIT plan3
  * </pre>
  */
-public class PushDownTopNDistinctThroughUnion implements RewriteRuleFactory {
+public class PushDownLimitDistinctThroughUnion implements RewriteRuleFactory {
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalTopN(logicalAggregate(logicalUnion().when(union -> union.getQualifier() == Qualifier.ALL))
+                logicalLimit(logicalAggregate(logicalUnion().when(union -> union.getQualifier() == Qualifier.ALL))
                         .when(agg -> agg.isDistinct()))
-                        .then(topN -> {
-                            LogicalAggregate<LogicalUnion> agg = topN.child();
+                        .then(limit -> {
+                            LogicalAggregate<LogicalUnion> agg = limit.child();
                             LogicalUnion union = agg.child();
+
                             List<Plan> newChildren = new ArrayList<>();
                             for (Plan child : union.children()) {
                                 Map<Expression, Expression> replaceMap = new HashMap<>();
@@ -74,19 +75,26 @@ public class PushDownTopNDistinctThroughUnion implements RewriteRuleFactory {
                                     replaceMap.put(output, child.getOutput().get(i));
                                 }
 
-                                List<OrderKey> orderKeys = topN.getOrderKeys().stream()
-                                        .map(orderKey -> orderKey.withExpression(
-                                                ExpressionUtils.replace(orderKey.getExpr(), replaceMap)))
-                                        .collect(ImmutableList.toImmutableList());
-                                newChildren.add(
-                                        new LogicalTopN<>(orderKeys, topN.getLimit() + topN.getOffset(), 0, child));
+                                List<Expression> newGroupBy = agg.getGroupByExpressions().stream()
+                                        .map(expr -> ExpressionUtils.replace(expr, replaceMap))
+                                        .collect(Collectors.toList());
+                                List<NamedExpression> newOutputs = agg.getOutputs().stream()
+                                        .map(expr -> ExpressionUtils.replace(expr, replaceMap))
+                                        .collect(Collectors.toList());
+
+                                LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(newGroupBy, newOutputs, child);
+                                LogicalLimit<Plan> newLimit = limit.withLimitChild(limit.getLimit() + limit.getOffset(),
+                                        0, newAgg);
+
+                                newChildren.add(newLimit);
                             }
+
                             if (union.children().equals(newChildren)) {
                                 return null;
                             }
-                            return topN.withChildren(agg.withChildren(union.withChildren(newChildren)));
+                            return limit.withChildren(agg.withChildren(union.withChildren(newChildren)));
                         })
-                        .toRule(RuleType.PUSH_DOWN_TOP_N_THROUGH_UNION)
+                        .toRule(RuleType.PUSH_DOWN_LIMIT_DISTINCT_THROUGH_UNION)
         );
     }
 }
