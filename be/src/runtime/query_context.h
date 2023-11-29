@@ -29,6 +29,7 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "task_group/task_group.h"
@@ -59,6 +60,7 @@ struct ReportStatusRequest {
     RuntimeState* runtime_state;
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+    std::shared_ptr<QueryStatistics> query_statistics;
 };
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large

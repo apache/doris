@@ -915,7 +915,8 @@ Status PipelineFragmentContext::send_report(bool done) {
              _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)},
+                       std::placeholders::_2),
+             _dml_query_statistics()},
             shared_from_this());
 }
 
