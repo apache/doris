@@ -57,5 +57,32 @@ suite("test_compress_type", "p2,external,hive,external_remote,external_remote_hi
         qt_q32 """select count(*) from test_compress_partitioned"""
         order_qt_q33 """select * from test_compress_partitioned where watchid=4611870011201662970"""
         sql """set file_split_size=0"""
+
+
+        order_qt_q42 """ select count(*) from parquet_lz4_compression ;       """
+        order_qt_q43 """ select * from parquet_lz4_compression 
+            order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        """
+        
+        order_qt_q44 """ select * from parquet_lz4_compression where col_int = 17 
+            order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal        
+            """
+
+        order_qt_q45 """ select * from parquet_lz4_compression where col_bigint >= 10738473173
+            order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal        
+            """
+        
+        order_qt_q46 """ select * from parquet_lz4_compression  where col_boolean = 1 and col_char='C'
+            order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal        
+             """
+
+        order_qt_q47 """ select * from parquet_lz4_compression  where col_decimal >= 1000
+            order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal        
+            """
+        
+        order_qt_q48 """ select * from parquet_lz4_compression where col_string != "Random"
+            order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal        
+             """
+
     }
 }
