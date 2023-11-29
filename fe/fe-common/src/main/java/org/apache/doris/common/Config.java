@@ -2290,4 +2290,8 @@ public class Config extends ConfigBase {
     @ConfField(description = {"nereids trace文件的存放路径。",
             "The path of the nereids trace file."})
     public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
+
+    @ConfField(description = {"是否开启通过http接口获取log文件的功能",
+            "Whether to enable the function of getting log files through http interface"})
+    public static boolean enable_get_log_file_api = false;
 }
