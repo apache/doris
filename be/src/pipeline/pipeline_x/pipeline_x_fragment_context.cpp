@@ -1032,7 +1032,8 @@ Status PipelineXFragmentContext::send_report(bool done) {
              _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)},
+                       std::placeholders::_2),
+             nullptr},
             shared_from_this());
 }
 
