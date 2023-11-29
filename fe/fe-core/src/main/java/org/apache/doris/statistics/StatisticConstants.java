@@ -98,6 +98,8 @@ public class StatisticConstants {
 
     public static final int SUBMIT_JOB_LIMIT = 5;
 
+    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 70;
+
     static {
         SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);
