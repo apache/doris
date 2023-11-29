@@ -93,6 +93,8 @@ private:
                                       const std::vector<FunctionFilter>& function_filters);
 
     [[nodiscard]] Status _init_return_columns();
+    vectorized::PathInData _build_path(SlotDescriptor* slot, const std::string& root_name);
+    [[nodiscard]] Status _init_variant_columns();
 
     std::vector<OlapScanRange*> _key_ranges;
 

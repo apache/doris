@@ -337,7 +337,18 @@ public:
         return finalized;
     }
 
+    void finalize_if_not();
+
     void clear() override;
+
+    void clear_subcolumns_data();
+
+    std::string get_name() const override {
+        if (is_scalar_variant()) {
+            return "var_scalar(" + get_root()->get_name() + ")";
+        }
+        return "variant";
+    }
 
     /// Part of interface
     const char* get_family_name() const override { return "Variant"; }
@@ -447,9 +458,7 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
-        LOG(FATAL) << "not support";
-    }
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;

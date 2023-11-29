@@ -135,6 +135,8 @@ public:
         std::vector<TCondition> conditions_except_leafnode_of_andnode;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
+        // slots that cast may be eliminated in storage layer
+        std::map<std::string, PrimitiveType> target_cast_type_for_variants;
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
@@ -257,6 +259,14 @@ protected:
     Status _init_return_columns(const ReaderParams& read_params);
 
     const BaseTabletSPtr& tablet() { return _tablet; }
+    // If original column is a variant type column, and it's predicate is normalized
+    // so in order to get the real type of column predicate, we need to reset type
+    // according to the related type in `target_cast_type_for_variants`.Since variant is not
+    // an predicate applicable type.Otherwise return the original tablet column.
+    // Eg. `where cast(v:a as bigint) > 1` will elimate cast, and materialize this variant column
+    // to type bigint
+    TabletColumn materialize_column(const TabletColumn& orig);
+
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
     std::unique_ptr<vectorized::Arena> _predicate_arena;
