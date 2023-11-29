@@ -1174,6 +1174,8 @@ DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 // then the new created tablet will not locate in the high use disk.
 // range: 0 ~ 100
 DECLARE_mInt32(disk_diff_usage_percentage_for_create_tablet);
+// whether to enable /api/snapshot api
+DECLARE_Bool(enable_snapshot_action);
 
 #ifdef BE_TEST
 // test s3
