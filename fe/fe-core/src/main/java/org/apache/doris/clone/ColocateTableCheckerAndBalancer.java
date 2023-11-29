@@ -530,6 +530,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
                                     if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
                                         counter.tabletNotReady++;
+                                        idx++;
                                         continue;
                                     }
 
