@@ -41,7 +41,7 @@ Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::
     PartitionedBlock partitioned_block;
     std::unique_ptr<vectorized::MutableBlock> mutable_block = nullptr;
 
-    auto get_data = [&]() {
+    auto get_data = [&](vectorized::Block* result_block) {
         do {
             const auto* offset_start = &((
                     *std::get<0>(partitioned_block.second))[std::get<1>(partitioned_block.second)]);
@@ -50,7 +50,7 @@ Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::
         } while (mutable_block->rows() < state->batch_size() &&
                  local_state._shared_state->data_queue[local_state._channel_id].try_dequeue(
                          partitioned_block));
-        *block = mutable_block->to_block();
+        *result_block = mutable_block->to_block();
     };
     if (local_state._shared_state->running_sink_operators == 0) {
         if (local_state._shared_state->data_queue[local_state._channel_id].try_dequeue(
@@ -58,7 +58,7 @@ Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::
             SCOPED_TIMER(local_state._copy_data_timer);
             mutable_block =
                     vectorized::MutableBlock::create_unique(partitioned_block.first->clone_empty());
-            get_data();
+            get_data(block);
         } else {
             COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
             source_state = SourceState::FINISHED;
@@ -68,7 +68,7 @@ Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::
         SCOPED_TIMER(local_state._copy_data_timer);
         mutable_block =
                 vectorized::MutableBlock::create_unique(partitioned_block.first->clone_empty());
-        get_data();
+        get_data(block);
         *block = mutable_block->to_block();
     } else {
         local_state._dependency->block();
