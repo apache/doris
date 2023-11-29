@@ -65,7 +65,7 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
     sql "truncate table var_with_index"
     // set back configs
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-    set_be_config.call("variant_threshold_rows_to_estimate_sparse_column", "100")
+    set_be_config.call("variant_threshold_rows_to_estimate_sparse_column", "1000")
     // sql "truncate table ${table_name}"
     sql """insert into var_with_index values(1, '{"a1" : 0, "b1": 3}', 'hello world'), (2, '{"a2" : 123}', 'world'),(3, '{"a3" : 123}', 'hello world')"""
     sql """insert into var_with_index values(4, '{"b1" : 0, "b2": 3}', 'hello world'), (5, '{"b2" : 123}', 'world'),(6, '{"b3" : 123}', 'hello world')"""
