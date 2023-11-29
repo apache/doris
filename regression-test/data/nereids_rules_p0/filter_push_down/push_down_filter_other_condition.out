@@ -26,13 +26,13 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------filter((t2.id > 1))
-----------PhysicalOlapScan[t2] apply RFs: RF0
+------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------PhysicalProject
+----------filter((t1.id > 1))
+------------PhysicalOlapScan[t1] apply RFs: RF0
 --------PhysicalDistribute
-----------PhysicalProject
-------------filter((t1.id > 1))
---------------PhysicalOlapScan[t1]
+----------filter((t2.id > 1))
+------------PhysicalOlapScan[t2]
 
 -- !pushdown_left_outer_join --
 PhysicalResultSink
@@ -48,11 +48,12 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t2]
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalDistribute
 ----------filter((t1.id > 1))
 ------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t2]
 
 -- !pushdown_full_outer_join --
 PhysicalResultSink
@@ -79,12 +80,13 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t2]
+------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalDistribute
 ----------PhysicalProject
 ------------filter((t1.id > 1))
 --------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t2]
 
 -- !pushdown_cross_join --
 PhysicalResultSink
@@ -133,13 +135,13 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
---------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-----------filter((t2.id < 10) and (t2.id > 1))
-------------PhysicalOlapScan[t2] apply RFs: RF0 RF1
+--------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+----------PhysicalProject
+------------filter((t1.id < 10) and (t1.id > 1))
+--------------PhysicalOlapScan[t1] apply RFs: RF0
 ----------PhysicalDistribute
-------------PhysicalProject
---------------filter((t1.id < 10) and (t1.id > 1))
-----------------PhysicalOlapScan[t1]
+------------filter((t2.id < 10) and (t2.id > 1))
+--------------PhysicalOlapScan[t2] apply RFs: RF1
 --------PhysicalDistribute
 ----------filter((t3.id < 10) and (t3.id > 1))
 ------------PhysicalOlapScan[t3]
@@ -163,13 +165,14 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
---------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------filter((t2.id < 10))
-------------PhysicalOlapScan[t2] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ----------PhysicalDistribute
 ------------filter((t1.id < 10) and (t1.id > 1))
---------------PhysicalOlapScan[t1]
+--------------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalDistribute
+------------filter((t2.id < 10))
+--------------PhysicalOlapScan[t2] apply RFs: RF1
 --------PhysicalDistribute
 ----------filter((t3.id < 10))
 ------------PhysicalOlapScan[t3]
@@ -178,13 +181,14 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
---------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------filter((t2.id < 10))
-------------PhysicalOlapScan[t2] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ----------PhysicalDistribute
 ------------filter((t1.id < 10) and (t1.id > 1))
---------------PhysicalOlapScan[t1]
+--------------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalDistribute
+------------filter((t2.id < 10))
+--------------PhysicalOlapScan[t2] apply RFs: RF1
 --------PhysicalDistribute
 ----------filter((t3.id < 10))
 ------------PhysicalOlapScan[t3]
@@ -209,14 +213,15 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
---------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------filter((t2.id < 10))
-------------PhysicalOlapScan[t2] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+--------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ----------PhysicalDistribute
 ------------PhysicalProject
 --------------filter((t1.id < 10) and (t1.id > 1))
-----------------PhysicalOlapScan[t1]
+----------------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalDistribute
+------------filter((t2.id < 10))
+--------------PhysicalOlapScan[t2] apply RFs: RF1
 --------PhysicalDistribute
 ----------filter((t3.id < 10))
 ------------PhysicalOlapScan[t3]
@@ -226,11 +231,12 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
---------NestedLoopJoin[CROSS_JOIN]
-----------PhysicalOlapScan[t1]
-----------PhysicalDistribute
-------------filter((t2.id < 10))
---------------PhysicalOlapScan[t2] apply RFs: RF0
+--------PhysicalDistribute
+----------NestedLoopJoin[CROSS_JOIN]
+------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------filter((t2.id < 10))
+----------------PhysicalOlapScan[t2] apply RFs: RF0
 --------PhysicalDistribute
 ----------filter((t3.id < 10))
 ------------PhysicalOlapScan[t3]
@@ -248,18 +254,20 @@ PhysicalResultSink
 
 -- !pushdown_inner_join_subquery --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as BIGINT) = sum(id))) otherCondition=()
-------filter((sum(id) = 1))
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
-------PhysicalDistribute
---------PhysicalProject
-----------filter((cast(id as BIGINT) = 1) and (t1.id = 1))
-------------PhysicalOlapScan[t1]
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as BIGINT) = sum(id))) otherCondition=() build RFs:RF0 sum(id)->[id]
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((cast(id as BIGINT) = 1) and (t1.id = 1))
+--------------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalDistribute
+----------filter((sum(id) = 1))
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 
 -- !pushdown_left_semi_join_subquery --
 PhysicalResultSink
@@ -299,14 +307,14 @@ PhysicalResultSink
 
 -- !pushdown_cross_subquery --
 PhysicalResultSink
---PhysicalProject
-----NestedLoopJoin[RIGHT_SEMI_JOIN]
-------PhysicalDistribute
---------PhysicalProject
-----------PhysicalOlapScan[t2]
-------PhysicalDistribute
+--PhysicalDistribute
+----PhysicalProject
+------NestedLoopJoin[LEFT_SEMI_JOIN]
 --------filter((t1.id > 1))
 ----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalProject
+------------PhysicalOlapScan[t2]
 
 -- !pushdown_inner_join_subquery_outer --
 PhysicalResultSink
@@ -360,14 +368,15 @@ PhysicalResultSink
 
 -- !pushdown_cross_join_subquery_outer --
 PhysicalResultSink
---PhysicalProject
-----NestedLoopJoin[CROSS_JOIN]
-------PhysicalLimit[GLOBAL]
---------PhysicalDistribute
-----------PhysicalLimit[LOCAL]
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
-------PhysicalDistribute
+--PhysicalDistribute
+----PhysicalProject
+------NestedLoopJoin[CROSS_JOIN]
 --------filter((t1.id > 1))
 ----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalLimit[GLOBAL]
+------------PhysicalDistribute
+--------------PhysicalLimit[LOCAL]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 

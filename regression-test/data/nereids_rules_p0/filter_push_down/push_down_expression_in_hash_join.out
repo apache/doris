@@ -25,12 +25,13 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
 --------PhysicalDistribute
 ----------PhysicalProject
 ------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalProject
+------------PhysicalOlapScan[t2]
 
 -- !push_arithmetic_left_outer_join --
 PhysicalResultSink
@@ -47,12 +48,13 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
 --------PhysicalDistribute
 ----------PhysicalProject
 ------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalProject
+------------PhysicalOlapScan[t2]
 
 -- !push_arithmetic_full_outer_join --
 PhysicalResultSink
@@ -81,12 +83,13 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_ANTI_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
 --------PhysicalDistribute
 ----------PhysicalProject
 ------------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalProject
+------------PhysicalOlapScan[t2]
 
 -- !pushdown_null_aware_anti_join_combined --
 PhysicalResultSink
