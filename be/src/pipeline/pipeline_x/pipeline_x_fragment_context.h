@@ -178,7 +178,7 @@ private:
     std::atomic_bool _canceled = false;
 
     // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
-    std::map<PipelineId, std::vector<PipelineId>> _dag {};
+    std::map<PipelineId, std::vector<PipelineId>> _dag;
 
     // We use preorder traversal to create an operator tree. When we meet a join node, we should
     // build probe operator and build operator in separate pipelines. To do this, we should build
@@ -205,13 +205,13 @@ private:
         void clear() { _build_side_pipelines.clear(); }
     } _pipeline_parent_map;
 
-    std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state {};
+    std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
 
-    int _operator_id {0};
-    int _sink_operator_id = {0};
-    int _num_instances = {0};
-    std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state {};
+    int _operator_id = 0;
+    int _sink_operator_id = = 0;
+    int _num_instances = = 0;
+    std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
 };
 
 } // namespace pipeline

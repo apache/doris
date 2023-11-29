@@ -261,25 +261,25 @@ protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;
-    const int _operator_id {};
-    const int _node_id {}; // unique w/in single plan tree
+    const int _operator_id;
+    const int _node_id; // unique w/in single plan tree
     TPlanNodeType::type _type;
     ObjectPool* _pool = nullptr;
-    std::vector<TupleId> _tuple_ids {};
+    std::vector<TupleId> _tuple_ids;
 
-    vectorized::VExprContextSPtrs _conjuncts {};
+    vectorized::VExprContextSPtrs _conjuncts;
 
     RowDescriptor _row_descriptor;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
-    vectorized::VExprContextSPtrs _projections {};
+    vectorized::VExprContextSPtrs _projections;
 
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;
 
-    int64_t _limit {}; // -1: no limit
+    int64_t _limit; // -1: no limit
 
-    std::string _op_name {};
+    std::string _op_name;
 };
 
 template <typename LocalStateType>
