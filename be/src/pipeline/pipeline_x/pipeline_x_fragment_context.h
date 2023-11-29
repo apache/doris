@@ -125,7 +125,7 @@ private:
     void _close_fragment_instance() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
     Status _add_local_exchange(ObjectPool* pool, OperatorXPtr& op, PipelinePtr& cur_pipe,
-                               const std::vector<TExpr>& texprs);
+                               const TPlanNode& tnode, const std::vector<TExpr>& texprs);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
@@ -154,15 +154,15 @@ private:
 
     bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
-    OperatorXPtr _root_op = nullptr;
+    OperatorXPtr _root_op {nullptr};
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
+    std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks {};
 
     // Local runtime states for each pipeline task.
-    std::vector<std::unique_ptr<RuntimeState>> _runtime_states;
+    std::vector<std::unique_ptr<RuntimeState>> _runtime_states {};
 
     // It is used to manage the lifecycle of RuntimeFilterMergeController
-    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
+    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers {};
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
@@ -170,15 +170,15 @@ private:
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
-    DataSinkOperatorXPtr _sink;
+    DataSinkOperatorXPtr _sink {nullptr};
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
 
-    std::atomic_bool _canceled = false;
+    std::atomic_bool _canceled {false};
 
     // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
-    std::map<PipelineId, std::vector<PipelineId>> _dag;
+    std::map<PipelineId, std::vector<PipelineId>> _dag {};
 
     // We use preorder traversal to create an operator tree. When we meet a join node, we should
     // build probe operator and build operator in separate pipelines. To do this, we should build
@@ -205,12 +205,13 @@ private:
         void clear() { _build_side_pipelines.clear(); }
     } _pipeline_parent_map;
 
-    std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
+    std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state {};
     std::mutex _state_map_lock;
 
-    int _operator_id = 0;
-    int _sink_operator_id = 0;
-    std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
+    int _operator_id {0};
+    int _sink_operator_id = {0};
+    int _num_instances = {0};
+    std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state {};
 };
 
 } // namespace pipeline
