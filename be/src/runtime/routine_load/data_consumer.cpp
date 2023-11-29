@@ -684,7 +684,7 @@ Status PulsarDataConsumer::acknowledge_cumulative(pulsar::MessageId& message_id)
     if (res != pulsar::ResultOk) {
         std::stringstream ss;
         ss << "failed to acknowledge pulsar message : " << res;
-        LOG(WARNING) << ss
+        LOG(WARNING) << "failed to acknowledge pulsar message : " << res
                      << ",pulsar consumer :" << _id
                      << ",pulsar group :" << _grp_id;
         return Status::InternalError(ss.str());
