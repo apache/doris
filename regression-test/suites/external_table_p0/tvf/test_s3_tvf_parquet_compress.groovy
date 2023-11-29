@@ -35,7 +35,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_bigint > 607 and col_string = 'CyGmiNdrY' order by col_bigint , col_string limit 10 ;
+                )where col_bigint > 607 and col_string = 'CyGmiNdrY' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_gzip_2 """
     select * from 
@@ -45,7 +45,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_bigint > 752 and  col_float = 0.3 order by col_bigint , col_float limit 10 ;
+                )where col_bigint > 752 and  col_float = 0.3 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_gzip_3 """
     select * from 
@@ -55,7 +55,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_char = 'TaOCwaPcNfGeNxMqi' and col_boolean = 680 and col_int = 1953 order by col_char , col_boolean , col_int limit 10 ;
+                )where col_char = 'TaOCwaPcNfGeNxMqi' and col_boolean = 680 and col_int = 1953 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_gzip_4 """
     select * from 
@@ -65,7 +65,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_tinyint < 1423 order by col_tinyint limit 10 ;
+                )where col_tinyint < 1423 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_gzip_5 """
     select * from 
@@ -75,7 +75,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_float = 2.5 order by col_float limit 10 ;
+                )where  col_float = 2.5 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_lz42_1 """
     select * from 
@@ -85,7 +85,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_decimal = 0.8 order by col_decimal limit 10 ;
+                )where  col_decimal = 0.8 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_lz42_2 """
     select * from 
@@ -95,7 +95,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_char = 'MVAhYjsZf' and  col_decimal < 2.3 and  col_float = 2.7 order by col_char , col_decimal , col_float limit 10 ;
+                )where col_char = 'MVAhYjsZf' and  col_decimal < 2.3 and  col_float = 2.7 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_lz42_3 """
     select * from 
@@ -105,7 +105,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_tinyint < 32 and col_char = 'Ja' order by col_tinyint , col_char limit 10 ;
+                )where col_tinyint < 32 and col_char = 'Ja' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_lz42_4 """
     select * from 
@@ -115,7 +115,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_decimal > 1.6 order by col_decimal limit 10 ;
+                )where  col_decimal > 1.6 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_none_1 """
     select * from 
@@ -125,7 +125,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_varchar = 'gLmEXgvqlm' and col_smallint < 1271 order by col_varchar , col_smallint limit 10 ;
+                )where col_varchar = 'gLmEXgvqlm' and col_smallint < 1271 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_none_2 """
     select * from 
@@ -135,7 +135,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_tinyint > 1288 order by col_tinyint limit 10 ;
+                )where col_tinyint > 1288 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_none_3 """
     select * from 
@@ -145,7 +145,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_string = 'jTFdDLHZK' and year(col_date)=2016 order by col_string , col_date limit 10 ;
+                )where col_string = 'jTFdDLHZK' and year(col_date)=2016 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_none_4 """
     select * from 
@@ -155,7 +155,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where year(col_timestamp)=2016 order by col_timestamp limit 10 ;
+                )where year(col_timestamp)=2016 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_none_5 """
     select * from 
@@ -165,7 +165,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_char = 'qHqL' order by col_char limit 10 ;
+                )where col_char = 'qHqL' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none_1 """
     select * from 
@@ -175,7 +175,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_float = 0.3 order by col_float limit 10 ;
+                )where  col_float = 0.3 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none_2 """
     select * from 
@@ -185,7 +185,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_bigint < 50 and  col_float < 1.6 order by col_bigint , col_float limit 10 ;
+                )where col_bigint < 50 and  col_float < 1.6 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none_3 """
     select * from 
@@ -195,7 +195,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_boolean > 314 order by col_boolean limit 10 ;
+                )where col_boolean > 314 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none_4 """
     select * from 
@@ -205,7 +205,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_boolean = 1240 and  col_decimal < 0.8 and  col_float < 1.4 order by col_boolean , col_decimal , col_float limit 10 ;
+                )where col_boolean = 1240 and  col_decimal < 0.8 and  col_float < 1.4 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none_5 """
     select * from 
@@ -215,7 +215,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_char = 'doB' order by col_char limit 10 ;
+                )where col_char = 'doB' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none_6 """
     select * from 
@@ -225,7 +225,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_double = 2.4 and col_varchar = 'OlykmDCvDpdh' and col_boolean > 1449 order by col_double , col_varchar , col_boolean limit 10 ;
+                )where  col_double = 2.4 and col_varchar = 'OlykmDCvDpdh' and col_boolean > 1449 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_snappy2_1 """
     select * from 
@@ -235,7 +235,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where year(col_timestamp)=2016 and col_boolean > 1011 and col_smallint < 780 order by col_timestamp , col_boolean , col_smallint limit 10 ;
+                )where year(col_timestamp)=2016 and col_boolean > 1011 and col_smallint < 780 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_snappy2_2 """
     select * from 
@@ -245,7 +245,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_decimal = 1.4 order by col_decimal limit 10 ;
+                )where  col_decimal = 1.4 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_snappy2_3 """
     select * from 
@@ -255,7 +255,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_float > 1.8 and  col_double < 2.0 order by col_float , col_double limit 10 ;
+                )where  col_float > 1.8 and  col_double < 2.0 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_snappy2_4 """
     select * from 
@@ -265,7 +265,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_double = 1.0 and col_varchar = 'YpajmCZhNSTaHwOriViw' and col_char = 'Syavtn' order by col_double , col_varchar , col_char limit 10 ;
+                )where  col_double = 1.0 and col_varchar = 'YpajmCZhNSTaHwOriViw' and col_char = 'Syavtn' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_gzip2_1 """
     select * from 
@@ -275,7 +275,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_int = 1795 and col_smallint > 1239 order by col_int , col_smallint limit 10 ;
+                )where col_int = 1795 and col_smallint > 1239 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_gzip2_2 """
     select * from 
@@ -285,7 +285,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_int = 1812 and col_bigint < 1976 and  col_float < 2.2 order by col_int , col_bigint , col_float limit 10 ;
+                )where col_int = 1812 and col_bigint < 1976 and  col_float < 2.2 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_gzip2_3 """
     select * from 
@@ -295,7 +295,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_float > 1.4 and col_tinyint > 1799 and  col_decimal > 0.3 order by col_float , col_tinyint , col_decimal limit 10 ;
+                )where  col_float > 1.4 and col_tinyint > 1799 and  col_decimal > 0.3 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_gzip2_4 """
     select * from 
@@ -305,7 +305,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where year(col_timestamp)=2016 and col_bigint > 1938 order by col_timestamp , col_bigint limit 10 ;
+                )where year(col_timestamp)=2016 and col_bigint > 1938 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_gzip_1 """
     select * from 
@@ -315,7 +315,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_bigint = 1426 and col_varchar = 'NcXlcfnRpO' order by col_bigint , col_varchar limit 10 ;
+                )where col_bigint = 1426 and col_varchar = 'NcXlcfnRpO' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_gzip_2 """
     select * from 
@@ -325,7 +325,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_float = 1.8 and col_string = 'khbrpZBfNbFP' order by col_float , col_string limit 10 ;
+                )where  col_float = 1.8 and col_string = 'khbrpZBfNbFP' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_gzip_3 """
     select * from 
@@ -335,7 +335,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_double < 0.3 and  col_float < 0.3 and col_bigint < 1642 order by col_double , col_float , col_bigint limit 10 ;
+                )where  col_double < 0.3 and  col_float < 0.3 and col_bigint < 1642 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_snappy_1 """
     select * from 
@@ -345,7 +345,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_varchar = 'DdYENcTybQV' and col_boolean < 1004 order by col_varchar , col_boolean limit 10 ;
+                )where col_varchar = 'DdYENcTybQV' and col_boolean < 1004 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_snappy_2 """
     select * from 
@@ -355,7 +355,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_char = 'bcuSohgIFYKTMVv' and year(col_date)=2016 order by col_char , col_date limit 10 ;
+                )where col_char = 'bcuSohgIFYKTMVv' and year(col_date)=2016 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_snappy_3 """
     select * from 
@@ -365,7 +365,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_tinyint = 693 and col_varchar = 'qHnjmUWAaKcpAn' and year(col_timestamp)=2016 order by col_tinyint , col_varchar , col_timestamp limit 10 ;
+                )where col_tinyint = 693 and col_varchar = 'qHnjmUWAaKcpAn' and year(col_timestamp)=2016 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_snappy_4 """
     select * from 
@@ -375,7 +375,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_double > 2.3 order by col_double limit 10 ;
+                )where  col_double > 2.3 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none2_1 """
     select * from 
@@ -385,7 +385,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_decimal < 0.2 order by col_decimal limit 10 ;
+                )where  col_decimal < 0.2 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none2_2 """
     select * from 
@@ -395,7 +395,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_boolean > 1693 and col_varchar = 'YowzLFscqYmYB' and col_char = 'CJ' order by col_boolean , col_varchar , col_char limit 10 ;
+                )where col_boolean > 1693 and col_varchar = 'YowzLFscqYmYB' and col_char = 'CJ' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none2_3 """
     select * from 
@@ -405,7 +405,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_char = 'WGSpFnLYSPVTlyl' and year(col_date)=2016 and col_string = 'fmhUKNb' order by col_char , col_date , col_string limit 10 ;
+                )where col_char = 'WGSpFnLYSPVTlyl' and year(col_date)=2016 and col_string = 'fmhUKNb' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none2_4 """
     select * from 
@@ -415,7 +415,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_bigint > 1841 order by col_bigint limit 10 ;
+                )where col_bigint > 1841 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_none2_5 """
     select * from 
@@ -425,7 +425,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where year(col_date)=2016 order by col_date limit 10 ;
+                )where year(col_date)=2016 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_zstd2_1 """
     select * from 
@@ -435,7 +435,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where year(col_timestamp)=2016 and col_smallint = 130 order by col_timestamp , col_smallint limit 10 ;
+                )where year(col_timestamp)=2016 and col_smallint = 130 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_zstd2_2 """
     select * from 
@@ -445,7 +445,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_decimal > 2.0 and col_tinyint = 1662 and col_bigint < 1224 order by col_decimal , col_tinyint , col_bigint limit 10 ;
+                )where  col_decimal > 2.0 and col_tinyint = 1662 and col_bigint < 1224 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_zstd2_3 """
     select * from 
@@ -455,7 +455,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_smallint > 615 and col_int > 1410 order by col_smallint , col_int limit 10 ;
+                )where col_smallint > 615 and col_int > 1410 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_zstd2_4 """
     select * from 
@@ -465,7 +465,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_boolean < 128 order by col_boolean limit 10 ;
+                )where col_boolean < 128 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_lz4_1 """
     select * from 
@@ -475,7 +475,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_varchar = 'qirvWjuTAgAPrzjlcU' and  col_float < 0.9 order by col_varchar , col_float limit 10 ;
+                )where col_varchar = 'qirvWjuTAgAPrzjlcU' and  col_float < 0.9 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_lz4_2 """
     select * from 
@@ -485,7 +485,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_char = 'YNT' and col_string = 'iLZNgqK' order by col_char , col_string limit 10 ;
+                )where col_char = 'YNT' and col_string = 'iLZNgqK' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_lz4_3 """
     select * from 
@@ -495,7 +495,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where year(col_date)=2016 and col_tinyint > 1491 and col_int > 342 order by col_date , col_tinyint , col_int limit 10 ;
+                )where year(col_date)=2016 and col_tinyint > 1491 and col_int > 342 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_lz4_1 """
     select * from 
@@ -505,7 +505,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_decimal > 2.5 and year(col_timestamp)=2016 order by col_decimal , col_timestamp limit 10 ;
+                )where  col_decimal > 2.5 and year(col_timestamp)=2016 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_lz4_2 """
     select * from 
@@ -515,7 +515,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where year(col_date)=2016 and col_int > 166 order by col_date , col_int limit 10 ;
+                )where year(col_date)=2016 and col_int > 166 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_lz4_3 """
     select * from 
@@ -525,7 +525,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_char = 'YN' and col_string = 'XBnUNfbPCijQSaxwKLh' order by col_char , col_string limit 10 ;
+                )where col_char = 'YN' and col_string = 'XBnUNfbPCijQSaxwKLh' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_lz4_4 """
     select * from 
@@ -535,7 +535,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_boolean = 27 and col_string = 'VYDMZZ' and year(col_date)=2016 order by col_boolean , col_string , col_date limit 10 ;
+                )where col_boolean = 27 and col_string = 'VYDMZZ' and year(col_date)=2016 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_zstd_1 """
     select * from 
@@ -545,7 +545,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_int = 1361 order by col_int limit 10 ;
+                )where col_int = 1361 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_zstd_2 """
     select * from 
@@ -555,7 +555,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_bigint = 516 and col_varchar = 'rxqicLIhJEykBOEmr' and col_char = 'sioJZDxWfjFkTsO' order by col_bigint , col_varchar , col_char limit 10 ;
+                )where col_bigint = 516 and col_varchar = 'rxqicLIhJEykBOEmr' and col_char = 'sioJZDxWfjFkTsO' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_zstd_3 """
     select * from 
@@ -565,7 +565,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where year(col_timestamp)=2016 and col_char = 'NSKJPkGHUSXVDD' order by col_timestamp , col_char limit 10 ;
+                )where year(col_timestamp)=2016 and col_char = 'NSKJPkGHUSXVDD' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_zstd_4 """
     select * from 
@@ -575,7 +575,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_bigint < 886 and year(col_timestamp)=2016 order by col_bigint , col_timestamp limit 10 ;
+                )where col_bigint < 886 and year(col_timestamp)=2016 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_zstd_5 """
     select * from 
@@ -585,7 +585,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_float > 0.5 order by col_float limit 10 ;
+                )where  col_float > 0.5 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_no_null_zstd_6 """
     select * from 
@@ -595,7 +595,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_char = 'VyUYzxhFtq' and col_varchar = 'OJfigYX' and col_string = 'EzFjFJEWXuOdG' order by col_char , col_varchar , col_string limit 10 ;
+                )where col_char = 'VyUYzxhFtq' and col_varchar = 'OJfigYX' and col_string = 'EzFjFJEWXuOdG' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_snappy_1 """
     select * from 
@@ -605,7 +605,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_float = 1.0 and year(col_timestamp)=2016 and col_boolean < 1328 order by col_float , col_timestamp , col_boolean limit 10 ;
+                )where  col_float = 1.0 and year(col_timestamp)=2016 and col_boolean < 1328 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_snappy_2 """
     select * from 
@@ -615,7 +615,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where  col_float < 1.8 and year(col_date)=2016 order by col_float , col_date limit 10 ;
+                )where  col_float < 1.8 and year(col_date)=2016 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_snappy_3 """
     select * from 
@@ -625,7 +625,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_bigint = 949 order by col_bigint limit 10 ;
+                )where col_bigint = 949 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_snappy_4 """
     select * from 
@@ -635,7 +635,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_string = 'rq' and col_varchar = 'pinxLaVk' and  col_decimal < 2.3 order by col_string , col_varchar , col_decimal limit 10 ;
+                )where col_string = 'rq' and col_varchar = 'pinxLaVk' and  col_decimal < 2.3 order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
     order_qt_snappy_5 """
     select * from 
@@ -645,7 +645,7 @@ suite("test_s3_tvf_parquet_compress", "p0") {
                 "s3.secret_key" = "${sk}",     
                 "REGION" = "${region}",    
                 "FORMAT" = "parquet"
-                )where col_tinyint > 628 and col_varchar = 'xQWHzZPhLlCM' order by col_tinyint , col_varchar limit 10 ;
+                )where col_tinyint > 628 and col_varchar = 'xQWHzZPhLlCM' order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_decimal,col_date,col_timestamp limit 10;
     """
 
 }
