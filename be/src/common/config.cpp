@@ -888,7 +888,7 @@ DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
     return config == "" || config == "file_block_cache";
 });
 
-DEFINE_Int32(s3_transfer_executor_pool_size, "2");
+DEFINE_Int32(aws_io_executor_pool_size, "200");
 
 DEFINE_Bool(enable_time_lut, "true");
 DEFINE_mBool(enable_simdjson_reader, "true");

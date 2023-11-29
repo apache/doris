@@ -939,7 +939,7 @@ DECLARE_Int32(concurrency_per_dir);
 // "whole_file_cache": the whole file.
 DECLARE_mString(file_cache_type);
 
-DECLARE_Int32(s3_transfer_executor_pool_size);
+DECLARE_Int32(aws_io_executor_pool_size);
 
 DECLARE_Bool(enable_time_lut);
 DECLARE_mBool(enable_simdjson_reader);

@@ -31,11 +31,12 @@
 #include "common/status.h"
 #include "gutil/hash/hash.h"
 
-namespace Aws {
-namespace S3 {
+namespace Aws::S3 {
 class S3Client;
-} // namespace S3
 } // namespace Aws
+namespace Aws::Utils::Threading {
+class Executor;
+} // namespace Aws::Utils::Threading
 namespace bvar {
 template <typename T>
 class Adder;
@@ -78,6 +79,7 @@ struct S3Conf {
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
     bool use_virtual_addressing = true;
+    std::shared_ptr<Aws::Utils::Threading::Executor> executor;
 
     std::string to_string() const {
         return fmt::format(

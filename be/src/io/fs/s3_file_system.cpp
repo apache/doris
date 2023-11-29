@@ -65,6 +65,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/fs/aws_io_executor.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
@@ -72,6 +73,7 @@
 #include "io/fs/s3_file_writer.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
+#include "util/threadpool.h"
 
 namespace doris {
 namespace io {
@@ -95,14 +97,37 @@ namespace io {
     RETURN_IF_ERROR(get_key(path, &key));
 #endif
 
-Status S3FileSystem::create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs) {
-    (*fs).reset(new S3FileSystem(std::move(s3_conf), std::move(id)));
+namespace {
+std::shared_ptr<AwsIOExecutor> default_aws_io_executor() {
+    static std::once_flag allocate_thread_pool;
+    static std::shared_ptr<AwsIOExecutor> default_aws_io_executor;
+    std::call_once(allocate_thread_pool, [&]() mutable {
+        std::unique_ptr<ThreadPool> thread_pool;
+        if (auto s = ThreadPoolBuilder("AwsIOThreadPool")
+                             .set_min_threads(64)
+                             .set_max_threads(config::aws_io_executor_pool_size)
+                             .build(&thread_pool);
+            !s.ok()) {
+            LOG_FATAL("create aws io thread pool failed due to {}", s);
+        }
+        std::shared_ptr<ThreadPool> shared_thread_pool(thread_pool.release());
+        default_aws_io_executor = std::make_shared<AwsIOExecutor>(std::move(shared_thread_pool),
+                                                                  "default aws io executor");
+    });
+    return default_aws_io_executor;
+}
+} // namespace
+
+Status S3FileSystem::create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs,
+                            std::shared_ptr<ThreadPool> executor) {
+    (*fs).reset(new S3FileSystem(std::move(s3_conf), std::move(id), std::move(executor)));
     return (*fs)->connect();
 }
 
-S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
+S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id, std::shared_ptr<ThreadPool> executor)
         : RemoteFileSystem(s3_conf.prefix, std::move(id), FileSystemType::S3),
-          _s3_conf(std::move(s3_conf)) {
+          _s3_conf(std::move(s3_conf)),
+          _thread_pool(std::move(executor)) {
     // FIXME(plat1ko): Normalize prefix
     // remove the first and last '/'
     if (!_s3_conf.prefix.empty()) {
@@ -113,8 +138,12 @@ S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
             _s3_conf.prefix.pop_back();
         }
     }
-    _executor = Aws::MakeShared<Aws::Utils::Threading::PooledThreadExecutor>(
-            id.c_str(), config::s3_transfer_executor_pool_size);
+    if (nullptr == _thread_pool) {
+        _executor = default_aws_io_executor();
+    } else {
+        _executor = std::make_shared<AwsIOExecutor>(std::move(_thread_pool), _id);
+    }
+    _s3_conf.executor = _executor;
 }
 
 S3FileSystem::~S3FileSystem() = default;
@@ -436,7 +465,7 @@ Status S3FileSystem::direct_upload_impl(const Path& remote_file, const std::stri
         return Status::IOError("failed to direct upload {}: failed to read from string",
                                remote_file.native());
     }
-    Aws::S3::Model::PutObjectOutcome response = _client->PutObject(request);
+    Aws::S3::Model::PutObjectOutcome response = _client->PutObjectCallable(request).get();
     s3_bvar::s3_put_total << 1;
     if (response.IsSuccess()) {
         return Status::OK();
@@ -457,7 +486,7 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     GET_KEY(key, remote_file);
     Aws::S3::Model::GetObjectRequest request;
     request.WithBucket(_s3_conf.bucket).WithKey(key);
-    Aws::S3::Model::GetObjectOutcome response = _client->GetObject(request);
+    Aws::S3::Model::GetObjectOutcome response = _client->GetObjectCallable(request).get();
     s3_bvar::s3_get_total << 1;
     if (response.IsSuccess()) {
         Aws::OFStream local_file_s;
@@ -481,7 +510,7 @@ Status S3FileSystem::direct_download_impl(const Path& remote, std::string* conte
     Aws::S3::Model::GetObjectRequest request;
     GET_KEY(key, remote);
     request.WithBucket(_s3_conf.bucket).WithKey(key);
-    Aws::S3::Model::GetObjectOutcome response = _client->GetObject(request);
+    Aws::S3::Model::GetObjectOutcome response = _client->GetObjectCallable(request).get();
     s3_bvar::s3_get_total << 1;
     if (response.IsSuccess()) {
         std::stringstream ss;
@@ -502,7 +531,7 @@ Status S3FileSystem::copy(const Path& src, const Path& dst) {
     request.WithCopySource(_s3_conf.bucket + "/" + src_key)
             .WithKey(dst_key)
             .WithBucket(_s3_conf.bucket);
-    Aws::S3::Model::CopyObjectOutcome response = _client->CopyObject(request);
+    Aws::S3::Model::CopyObjectOutcome response = _client->CopyObjectCallable(request).get();
     s3_bvar::s3_copy_object_total << 1;
     if (response.IsSuccess()) {
         return Status::OK();

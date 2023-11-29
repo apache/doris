@@ -181,6 +181,8 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
 
+    aws_config.executor = s3_conf.executor;
+
     std::shared_ptr<Aws::S3::S3Client> new_client = std::make_shared<Aws::S3::S3Client>(
             std::move(aws_cred), std::move(aws_config),
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,

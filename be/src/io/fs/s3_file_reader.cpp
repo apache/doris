@@ -94,7 +94,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
-    auto outcome = client->GetObject(request);
+    auto outcome = client->GetObjectCallable(request).get();
     s3_bvar::s3_get_total << 1;
     if (!outcome.IsSuccess()) {
         return Status::IOError("failed to read from {}: {}, exception {}, error code {}",

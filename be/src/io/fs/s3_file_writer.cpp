@@ -125,7 +125,7 @@ Status S3FileWriter::_create_multi_upload_request() {
                 _bucket, _path.native(), _upload_id);
     });
 
-    auto outcome = _client->CreateMultipartUpload(create_request);
+    auto outcome = _client->CreateMultipartUploadCallable(create_request).get();
     s3_bvar::s3_multi_part_upload_total << 1;
 
     if (outcome.IsSuccess()) {
@@ -177,7 +177,7 @@ Status S3FileWriter::abort() {
     _wait_until_finish("Abort");
     AbortMultipartUploadRequest request;
     request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
-    auto outcome = _client->AbortMultipartUpload(request);
+    auto outcome = _client->AbortMultipartUploadCallable(request).get();
     s3_bvar::s3_multi_part_upload_total << 1;
     if (outcome.IsSuccess() ||
         outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_UPLOAD ||
@@ -418,7 +418,7 @@ Status S3FileWriter::_complete() {
         LOG_WARNING(s.to_string());
         return s;
     });
-    auto compute_outcome = _client->CompleteMultipartUpload(complete_request);
+    auto compute_outcome = _client->CompleteMultipartUploadCallable(complete_request).get();
     s3_bvar::s3_multi_part_upload_total << 1;
 
     if (!compute_outcome.IsSuccess()) {
@@ -472,7 +472,7 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         LOG(WARNING) << _st;
         return;
     });
-    auto response = _client->PutObject(request);
+    auto response = _client->PutObjectCallable(request).get();
     s3_bvar::s3_put_total << 1;
     if (!response.IsSuccess()) {
         _st = Status::InternalError(

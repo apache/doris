@@ -31,16 +31,16 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "util/s3_util.h"
+#include "util/threadpool.h"
 
 namespace Aws::S3 {
 class S3Client;
 } // namespace Aws::S3
 namespace Aws::Utils::Threading {
-class PooledThreadExecutor;
+class Executor;
 } // namespace Aws::Utils::Threading
 
-namespace doris {
-namespace io {
+namespace doris::io {
 struct FileInfo;
 
 // File system for S3 compatible object storage
@@ -56,7 +56,8 @@ struct FileInfo;
 // This class is thread-safe.(Except `set_xxx` method)
 class S3FileSystem final : public RemoteFileSystem {
 public:
-    static Status create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs);
+    static Status create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs,
+                         std::shared_ptr<ThreadPool> executor = nullptr);
     ~S3FileSystem() override;
     // Guarded by external lock.
     void set_conf(S3Conf s3_conf) { _s3_conf = std::move(s3_conf); }
@@ -106,7 +107,7 @@ protected:
     }
 
 private:
-    S3FileSystem(S3Conf&& s3_conf, std::string&& id);
+    S3FileSystem(S3Conf&& s3_conf, std::string&& id, std::shared_ptr<ThreadPool> executor);
 
     template <typename AwsOutcome>
     std::string error_msg(const std::string& key, const AwsOutcome& outcome) const;
@@ -122,8 +123,10 @@ private:
     // TODO(cyx): We can use std::atomic<std::shared_ptr> since c++20.
     mutable std::mutex _client_mu;
     std::shared_ptr<Aws::S3::S3Client> _client;
-    std::shared_ptr<Aws::Utils::Threading::PooledThreadExecutor> _executor;
+    // The aws executor is one wrapper for thread_pool, this thread pool
+    // shoule never be accessed after the executor is contructed
+    std::shared_ptr<ThreadPool> _thread_pool;
+    std::shared_ptr<Aws::Utils::Threading::Executor> _executor;
 };
 
-} // namespace io
 } // namespace doris
