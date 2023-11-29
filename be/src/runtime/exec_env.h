@@ -46,6 +46,7 @@ class DeltaWriterV2Pool;
 namespace pipeline {
 class TaskScheduler;
 class BlockedTaskScheduler;
+struct RuntimeFilterTimerQueue;
 } // namespace pipeline
 namespace taskgroup {
 class TaskGroupManager;
@@ -271,6 +272,10 @@ public:
         return _global_block_scheduler;
     }
 
+    doris::pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
+        return _runtime_filter_timer_queue;
+    }
+
 private:
     ExecEnv();
 
@@ -382,6 +387,8 @@ private:
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
     // used for query with workload group cpu soft limit
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
+
+    doris::pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 };
 
 template <>

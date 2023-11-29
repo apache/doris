@@ -297,6 +297,8 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 
     _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
     RETURN_IF_ERROR(_global_block_scheduler->start("GlobalBlockSche"));
+    _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
+    _runtime_filter_timer_queue->run();
     return Status::OK();
 }
 
@@ -550,6 +552,7 @@ void ExecEnv::destroy() {
 
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
+    SAFE_STOP(_runtime_filter_timer_queue);
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
     _new_load_stream_mgr.reset();
     _stream_load_executor.reset();
@@ -617,6 +620,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_with_group_task_scheduler);
     SAFE_DELETE(_without_group_task_scheduler);
     SAFE_DELETE(_file_cache_factory);
+    SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
