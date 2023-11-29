@@ -74,6 +74,5 @@ suite("test_backup_restore_keep_on_local", "backup_restore") {
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
-    sql "DROP REPOSITORY `${repoName}`"
 }
 
