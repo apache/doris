@@ -215,9 +215,6 @@ public class MapLiteral extends LiteralExpr {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null) {
-            return false;
-        }
         if (!(o instanceof MapLiteral)) {
             return false;
         }
