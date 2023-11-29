@@ -28,6 +28,7 @@ import org.apache.doris.job.disruptor.TimerJobEvent;
 import org.apache.doris.job.executor.DefaultTaskExecutorHandler;
 import org.apache.doris.job.executor.DispatchTaskHandler;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.task.AbstractTask;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
@@ -58,13 +59,18 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
             ? Config.job_dispatch_timer_job_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
     private static final int DISPATCH_INSERT_THREAD_NUM = Config.job_insert_task_consumer_thread_num > 0
-            ? Config.job_insert_task_consumer_thread_num : DEFAULT_RING_BUFFER_SIZE;
+            ? Config.job_insert_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
+
+    private static final int DISPATCH_MTMV_THREAD_NUM = Config.job_mtmv_task_consumer_thread_num > 0
+            ? Config.job_mtmv_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
     private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
+    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
 
 
     public void init() {
         registerInsertDisruptor();
+        registerMTMVDisruptor();
         //when all task queue is ready, dispatch task to registered task executor
         registerDispatchDisruptor();
     }
@@ -98,6 +104,23 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
                 insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.INSERT, insertDisruptor);
+    }
+
+    private void registerMTMVDisruptor() {
+        EventFactory<ExecuteTaskEvent<MTMVTask>> mtmvEventFactory = ExecuteTaskEvent.factory();
+        ThreadFactory mtmvTaskThreadFactory = new CustomThreadFactory("mtmv-task-execute");
+        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_MTMV_THREAD_NUM];
+        for (int i = 0; i < DISPATCH_MTMV_THREAD_NUM; i++) {
+            insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<MTMVTask>();
+        }
+        EventTranslatorVararg<ExecuteTaskEvent<MTMVTask>> eventTranslator =
+                (event, sequence, args) -> {
+                    event.setTask((MTMVTask) args[0]);
+                    event.setJobConfig((JobExecutionConfiguration) args[1]);
+                };
+        TaskDisruptor mtmvDisruptor = new TaskDisruptor<>(mtmvEventFactory, DISPATCH_MTMV_TASK_QUEUE_SIZE,
+                mtmvTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
+        disruptorMap.put(JobType.MTMV, mtmvDisruptor);
     }
 
     public void dispatchTimerJob(AbstractJob<T> job) {

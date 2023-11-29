@@ -121,9 +121,11 @@ suite("test_stream_load", "p0") {
             assertEquals(1, json.NumberFilteredRows)
         }
     }
-    qt_sql_strict_mode_ratio "select * from ${tableName} order by k1, k2"
 
     sql "sync"
+
+    qt_sql_strict_mode_ratio "select * from ${tableName} order by k1, k2"
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -1019,7 +1021,7 @@ suite("test_stream_load", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    sql """create USER common_user@'%' IDENTIFIED BY '123456'"""
+    sql """create USER common_user@'%' IDENTIFIED BY '123456test!'"""
     sql """GRANT LOAD_PRIV ON *.* TO 'common_user'@'%';"""
 
     streamLoad {
@@ -1028,7 +1030,7 @@ suite("test_stream_load", "p0") {
         set 'column_separator', '|'
         set 'columns', 'k1, k2, v1, v2, v3'
         set 'strict_mode', 'true'
-        set 'Authorization', 'Basic  Y29tbW9uX3VzZXI6MTIzNDU2'
+        set 'Authorization', 'Basic  Y29tbW9uX3VzZXI6MTIzNDU2dGVzdCE='
 
         file 'test_auth.csv'
         time 10000 // limit inflight 10s
@@ -1124,8 +1126,8 @@ suite("test_stream_load", "p0") {
 
     sql "sync"
     def res = sql "select * from ${tableName14}"
-    def time = res[0][5].toString().split("T")[0].split("-")
-    def year = time[0].toString()
+    def ts = res[0][5].toString().split("T")[0].split("-")
+    def year = ts[0].toString()
     SimpleDateFormat sdf= new SimpleDateFormat("yyyy-MM-dd")
     def now = sdf.format(new Date()).toString().split("-")
 

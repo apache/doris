@@ -51,11 +51,11 @@ template class SetSourceOperator<false>;
 
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
-    std::shared_ptr<typename SetDependency::SharedState> ss = nullptr;
-    ss.reset(new typename SetDependency::SharedState());
-    auto& deps = info.dependencys;
+    std::shared_ptr<typename SetSourceDependency::SharedState> ss = nullptr;
+    auto& deps = info.upstream_dependencies;
+    ss.reset(new typename SetSourceDependency::SharedState(deps.size()));
     for (auto& dep : deps) {
-        ((SetDependency*)dep.get())->set_shared_state(ss);
+        ((SetSourceDependency*)dep.get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
     return Status::OK();
@@ -65,7 +65,7 @@ template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(PipelineXLocalState<SetDependency>::open(state));
+    RETURN_IF_ERROR(PipelineXLocalState<SetSourceDependency>::open(state));
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
     auto output_data_types = vectorized::VectorizedUtils::get_data_types(
@@ -180,12 +180,12 @@ void SetSourceOperatorX<is_intersect>::_add_result_columns(
         SetSourceLocalState<is_intersect>& local_state, vectorized::RowRefListWithFlags& value,
         int& block_size) {
     auto& build_col_idx = local_state._shared_state->build_col_idx;
-    auto& build_blocks = local_state._shared_state->build_blocks;
+    auto& build_block = local_state._shared_state->build_block;
 
     auto it = value.begin();
     for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
-        auto& column = *build_blocks[it->block_offset].get_by_position(idx->first).column;
-        if (local_state._mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
+        auto& column = *build_block.get_by_position(idx->first).column;
+        if (local_state._mutable_cols[idx->second]->is_nullable() ^ column.is_nullable()) {
             DCHECK(local_state._mutable_cols[idx->second]->is_nullable());
             ((vectorized::ColumnNullable*)(local_state._mutable_cols[idx->second].get()))
                     ->insert_from_not_nullable(column, it->row_num);

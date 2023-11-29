@@ -32,8 +32,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
-import lombok.Getter;
-
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -44,11 +42,8 @@ import java.util.Set;
 public class PhysicalFileScan extends PhysicalCatalogRelation {
 
     private final DistributionSpec distributionSpec;
-    @Getter
     private final Set<Expression> conjuncts;
-    @Getter
     private final SelectedPartitions selectedPartitions;
-    @Getter
     private final Optional<TableSample> tableSample;
 
     /**
@@ -79,6 +74,22 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         this.conjuncts = conjuncts;
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
+    }
+
+    public DistributionSpec getDistributionSpec() {
+        return distributionSpec;
+    }
+
+    public Set<Expression> getConjuncts() {
+        return conjuncts;
+    }
+
+    public SelectedPartitions getSelectedPartitions() {
+        return selectedPartitions;
+    }
+
+    public Optional<TableSample> getTableSample() {
+        return tableSample;
     }
 
     @Override

@@ -64,8 +64,8 @@ public:
     void set_written_len(int64_t written_len);
 
 private:
-    doris::io::FileWriter* _file_writer; // not owned
-    int64_t _cur_pos = 0;                // current write position
+    doris::io::FileWriter* _file_writer = nullptr; // not owned
+    int64_t _cur_pos = 0;                          // current write position
     bool _is_closed = false;
     int64_t _written_len = 0;
     const std::string _name;
@@ -91,7 +91,7 @@ public:
 private:
     std::unique_ptr<orc::ColumnVectorBatch> _create_row_batch(size_t sz);
 
-    doris::io::FileWriter* _file_writer;
+    doris::io::FileWriter* _file_writer = nullptr;
     std::unique_ptr<orc::OutputStream> _output_stream;
     std::unique_ptr<orc::WriterOptions> _write_options;
     const std::string& _schema_str;

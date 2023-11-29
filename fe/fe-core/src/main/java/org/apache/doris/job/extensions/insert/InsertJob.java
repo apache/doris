@@ -17,53 +17,93 @@
 
 package org.apache.doris.job.extensions.insert;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Data
+@Slf4j
 public class InsertJob extends AbstractJob<InsertTask> {
 
-    @SerializedName(value = "labelPrefix")
+    @SerializedName(value = "lp")
     String labelPrefix;
+
+    InsertIntoTableCommand command;
+
+    StmtExecutor stmtExecutor;
+
+    ConnectContext ctx;
+
+    @SerializedName("tis")
+    ConcurrentLinkedQueue<Long> taskIdList;
+
+    // max save task num, do we need to config it?
+    private static final int MAX_SAVE_TASK_NUM = 50;
 
 
     @Override
     public List<InsertTask> createTasks(TaskType taskType) {
-        InsertTask task = new InsertTask(null, null, null, null, null);
+        InsertTask task = new InsertTask(null, getCurrentDbName(), getExecuteSql(), getCreateUser());
         task.setJobId(getJobId());
         task.setTaskType(taskType);
         task.setTaskId(Env.getCurrentEnv().getNextId());
         ArrayList<InsertTask> tasks = new ArrayList<>();
         tasks.add(task);
         super.initTasks(tasks);
-        getRunningTasks().addAll(tasks);
+        addNewTask(task.getTaskId());
         return tasks;
     }
 
+    public void addNewTask(long id) {
+
+        if (CollectionUtils.isEmpty(taskIdList)) {
+            taskIdList = new ConcurrentLinkedQueue<>();
+            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
+            taskIdList.add(id);
+            return;
+        }
+        taskIdList.add(id);
+        if (taskIdList.size() >= MAX_SAVE_TASK_NUM) {
+            taskIdList.poll();
+        }
+        Env.getCurrentEnv().getEditLog().logUpdateJob(this);
+    }
+
     @Override
-    public void cancel(long taskId) throws JobException {
-        super.cancel();
+    public void cancelTaskById(long taskId) throws JobException {
+        super.cancelTaskById(taskId);
     }
 
 
     @Override
-    public void cancel() throws JobException {
-        super.cancel();
+    public void cancelAllTasks() throws JobException {
+        super.cancelAllTasks();
     }
 
     @Override
@@ -74,16 +114,41 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     protected void checkJobParamsInternal() {
-
-    }
-
-    public static InsertJob readFields(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), InsertJob.class);
+        if (command == null && StringUtils.isBlank(getExecuteSql())) {
+            throw new IllegalArgumentException("command or sql is null,must be set");
+        }
+        if (null != command && !getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+            throw new IllegalArgumentException("command must be null when executeType is not instant");
+        }
     }
 
     @Override
     public List<InsertTask> queryTasks() {
-        return null;
+        if (CollectionUtils.isEmpty(taskIdList)) {
+            return new ArrayList<>();
+        }
+        //TODO it's will be refactor, we will storage task info in job inner and query from it
+        List<Long> taskIdList = new ArrayList<>(this.taskIdList);
+        Collections.reverse(taskIdList);
+        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIdList);
+        if (CollectionUtils.isEmpty(loadJobs)) {
+            return new ArrayList<>();
+        }
+        List<InsertTask> tasks = new ArrayList<>();
+        loadJobs.forEach(loadJob -> {
+            InsertTask task;
+            try {
+                task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
+            } catch (MetaNotFoundException e) {
+                log.warn("load job not found,job id is {}", loadJob.getId());
+                return;
+            }
+            task.setJobId(getJobId());
+            task.setTaskId(loadJob.getId());
+            task.setLoadJob(loadJob);
+            tasks.add(task);
+        });
+        return tasks;
     }
 
     @Override
@@ -93,12 +158,12 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     public ShowResultSetMetaData getJobMetaData() {
-        return null;
+        return super.getJobMetaData();
     }
 
     @Override
     public ShowResultSetMetaData getTaskMetaData() {
-        return null;
+        return TASK_META_DATA;
     }
 
     @Override
@@ -108,18 +173,32 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     public void onTaskSuccess(InsertTask task) {
-        getRunningTasks().remove(task);
+        super.onTaskSuccess(task);
     }
 
     @Override
-    public void onTaskCancel(InsertTask task) {
-        getRunningTasks().remove(task);
+    public List<String> getShowInfo() {
+        return super.getCommonShowInfo();
     }
-
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, JobType.INSERT.name());
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
+
+    private static final ShowResultSetMetaData TASK_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("TaskId", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Label", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Status", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("EtlInfo", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("TaskInfo", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ErrorMsg", ScalarType.createVarchar(20)))
+
+                    .addColumn(new Column("CreateTimeMs", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("FinishTimeMs", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("TrackingUrl", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("LoadStatistic", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("User", ScalarType.createVarchar(20)))
+                    .build();
 }

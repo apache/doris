@@ -63,7 +63,7 @@ suite("view") {
     qt_select_3 """
         select *
         from v3
-        order by v3.c_custkey, v3.lo_orderkey
+        order by v3.c_custkey, v3.lo_orderkey,lo_tax
     """
 
     qt_select_4 """
@@ -83,7 +83,7 @@ suite("view") {
             from v2
             ) t 
         on l.lo_custkey = t.lo_custkey
-        order by l.lo_custkey, t.lo_custkey, l.lo_linenumber, l.lo_tax
+        order by l.lo_custkey, t.lo_custkey, l.lo_linenumber, t.lo_linenumber, t.lo_shipmode,t.lo_tax
     """
 
     qt_select_6 """

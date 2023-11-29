@@ -423,6 +423,20 @@ public class TypeCoercionUtils {
         }
     }
 
+    /**
+     * like castIfNotSameType does, but varchar or char type would be cast to target length exactly
+     */
+    public static Expression castIfNotSameTypeStrict(Expression input, DataType targetType) {
+        if (input.isNullLiteral()) {
+            return new NullLiteral(targetType);
+        } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)) {
+            return input;
+        } else {
+            checkCanCastTo(input.getDataType(), targetType);
+            return unSafeCast(input, targetType);
+        }
+    }
+
     private static boolean isSubqueryAndDataTypeIsBitmap(Expression input) {
         return input instanceof SubqueryExpr && input.getDataType().isBitmapType();
     }
@@ -453,6 +467,11 @@ public class TypeCoercionUtils {
                 if (promoted != null) {
                     return promoted;
                 }
+            }
+            // adapt scale when from string to datetimev2 with float
+            if (type.isStringLikeType() && dataType.isDateTimeV2Type()) {
+                return recordTypeCoercionForSubQuery(input,
+                        DateTimeV2Type.forTypeFromString(((Literal) input).getStringValue()));
             }
         }
         return recordTypeCoercionForSubQuery(input, dataType);
@@ -1009,19 +1028,9 @@ public class TypeCoercionUtils {
     public static Expression processCompoundPredicate(CompoundPredicate compoundPredicate) {
         // check
         compoundPredicate.checkLegalityBeforeTypeCoercion();
-
-        compoundPredicate.children().forEach(e -> {
-                    if (!e.getDataType().isBooleanType() && !e.getDataType().isNullType()
-                            && !(e instanceof SubqueryExpr)) {
-                        throw new AnalysisException(String.format(
-                                "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
-                                        + "returns type '%s'.",
-                                e.toSql(), compoundPredicate.toSql(), e.getDataType()));
-                    }
-                }
-        );
         List<Expression> children = compoundPredicate.children().stream()
-                .map(e -> e.getDataType().isNullType() ? new NullLiteral(BooleanType.INSTANCE) : e)
+                .map(e -> e.getDataType().isNullType() ? new NullLiteral(BooleanType.INSTANCE)
+                        : castIfNotSameType(e, BooleanType.INSTANCE))
                 .collect(Collectors.toList());
         return compoundPredicate.withChildren(children);
     }

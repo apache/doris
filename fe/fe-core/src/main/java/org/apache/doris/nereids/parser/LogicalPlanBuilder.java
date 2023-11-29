@@ -492,9 +492,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 bucketNum, ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
+
         return new CreateMTMVCommand(new CreateMTMVInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts),
                 ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
-                ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null,
+                comment,
                 desc, properties, logicalPlan, querySql,
                 new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols)
@@ -513,8 +516,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public SimpleColumnDefinition visitSimpleColumnDef(SimpleColumnDefContext ctx) {
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         return new SimpleColumnDefinition(ctx.colName.getText().toLowerCase(),
-                ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null);
+                comment);
     }
 
     /**
@@ -987,22 +992,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             SelectClauseContext selectCtx = ctx.selectClause();
             LogicalPlan selectPlan;
+            LogicalPlan relation;
             if (ctx.fromClause() == null) {
                 SelectColumnClauseContext columnCtx = selectCtx.selectColumnClause();
                 if (columnCtx.EXCEPT() != null) {
                     throw new ParseException("select-except cannot be used in one row relation", selectCtx);
                 }
-                selectPlan = withOneRowRelation(columnCtx);
+                relation = withOneRowRelation(columnCtx);
             } else {
-                LogicalPlan relation = visitFromClause(ctx.fromClause());
-                selectPlan = withSelectQuerySpecification(
-                        ctx, relation,
-                        selectCtx,
-                        Optional.ofNullable(ctx.whereClause()),
-                        Optional.ofNullable(ctx.aggClause()),
-                        Optional.ofNullable(ctx.havingClause())
-                );
+                relation = visitFromClause(ctx.fromClause());
             }
+            selectPlan = withSelectQuerySpecification(
+                    ctx, relation,
+                    selectCtx,
+                    Optional.ofNullable(ctx.whereClause()),
+                    Optional.ofNullable(ctx.aggClause()),
+                    Optional.ofNullable(ctx.havingClause()));
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
@@ -2156,6 +2161,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isNotNull = ctx.NOT() != null;
         String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
         Optional<DefaultValue> defaultValue = Optional.empty();
+        Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
             if (ctx.INTEGER_VALUE() != null) {
                 defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
@@ -2164,12 +2170,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else if (ctx.nullValue != null) {
                 defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
             } else if (ctx.CURRENT_TIMESTAMP() != null) {
-                if (ctx.precision == null) {
+                if (ctx.defaultValuePrecision == null) {
                     defaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
                 } else {
                     defaultValue = Optional.of(DefaultValue
-                            .currentTimeStampDefaultValueWithPrecision(Long.valueOf(ctx.precision.getText())));
+                            .currentTimeStampDefaultValueWithPrecision(
+                                    Long.valueOf(ctx.defaultValuePrecision.getText())));
                 }
+            }
+        }
+        if (ctx.UPDATE() != null) {
+            if (ctx.onUpdateValuePrecision == null) {
+                onUpdateDefaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
+            } else {
+                onUpdateDefaultValue = Optional.of(DefaultValue
+                        .currentTimeStampDefaultValueWithPrecision(
+                                Long.valueOf(ctx.onUpdateValuePrecision.getText())));
             }
         }
         AggregateType aggType = null;
@@ -2182,7 +2198,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         String comment = ctx.comment != null ? ctx.comment.getText() : "";
-        return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
+        return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue,
+                onUpdateDefaultValue, comment);
     }
 
     @Override

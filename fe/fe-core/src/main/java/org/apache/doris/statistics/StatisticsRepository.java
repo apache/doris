@@ -269,8 +269,8 @@ public class StatisticsRepository {
         params.put("count", String.valueOf(columnStatistic.count));
         params.put("ndv", String.valueOf(columnStatistic.ndv));
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
-        params.put("min", min == null ? "NULL" : min);
-        params.put("max", max == null ? "NULL" : max);
+        params.put("min", StatisticsUtil.encodeString(min));
+        params.put("max", StatisticsUtil.encodeString(max));
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
 
         if (partitionIds.isEmpty()) {
@@ -278,7 +278,7 @@ public class StatisticsRepository {
             params.put("partId", "NULL");
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
             Env.getCurrentEnv().getStatisticsCache()
-                    .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
+                    .updateColStatsCache(objects.table.getId(), -1, colName, columnStatistic);
         } else {
             // update partition granularity statistics
             for (Long partitionId : partitionIds) {

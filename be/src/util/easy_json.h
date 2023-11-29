@@ -182,7 +182,7 @@ private:
 
     // A pointer to the underlying Value in the object
     // tree owned by alloc_.
-    rapidjson::Value* value_;
+    rapidjson::Value* value_ = nullptr;
 };
 
 } // namespace doris

@@ -54,6 +54,7 @@ Status VOlapTableSinkV2::init(const TDataSink& t_sink) {
 }
 
 Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(_exec_timer);
     if (_closed) {
         return _close_status;
     }

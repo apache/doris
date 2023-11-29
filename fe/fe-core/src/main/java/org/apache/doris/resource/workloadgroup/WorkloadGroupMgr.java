@@ -125,13 +125,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 throw new UserException("Workload group " + groupName + " does not exist");
             }
             workloadGroups.add(workloadGroup.toThrift());
-            // note(wb) -1 to tell be no need to not use cpu hard limit
-            int cpuHardLimitThriftVal = -1;
-            if (Config.enable_cpu_hard_limit && workloadGroup.getCpuHardLimit() > 0) {
-                cpuHardLimitThriftVal = workloadGroup.getCpuHardLimit();
-            }
-            workloadGroups.get(0).getProperties().put(WorkloadGroup.CPU_HARD_LIMIT,
-                    String.valueOf(cpuHardLimitThriftVal));
             context.setWorkloadGroupName(groupName);
         } finally {
             readUnlock();
@@ -190,7 +183,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 return;
             }
             Map<String, String> properties = Maps.newHashMap();
-            properties.put(WorkloadGroup.CPU_SHARE, "10");
+            properties.put(WorkloadGroup.CPU_SHARE, "1024");
             properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
             properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
             defaultWorkloadGroup = WorkloadGroup.create(DEFAULT_GROUP_NAME, properties);

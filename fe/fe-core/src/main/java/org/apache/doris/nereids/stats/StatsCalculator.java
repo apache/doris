@@ -640,8 +640,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache;
-            if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableStats
-                    || !FeConstants.enableInternalSchemaDb
+            if (!FeConstants.enableInternalSchemaDb
                     || shouldIgnoreThisCol) {
                 cache = ColumnStatistic.UNKNOWN;
             } else {
@@ -663,7 +662,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     cache = columnStatisticBuilder.build();
                 }
             }
-            columnStatisticMap.put(slotReference, cache);
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
+                columnStatisticMap.put(slotReference, cache);
+            } else {
+                columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+            }
         }
         return new Statistics(rowCount, columnStatisticMap);
     }

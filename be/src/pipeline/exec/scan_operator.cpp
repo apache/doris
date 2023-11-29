@@ -32,6 +32,7 @@
 #include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
@@ -122,12 +123,10 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
 
-    _source_dependency = OrDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
+    _scan_dependency = ScanDependency::create_shared(PipelineXLocalState<>::_parent->operator_id(),
+                                                     PipelineXLocalState<>::_parent->node_id(),
+                                                     state->get_query_ctx());
 
-    _open_dependency = OpenDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
-    _source_dependency->add_child(_open_dependency);
-    _eos_dependency = EosDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
-    _source_dependency->add_child(_eos_dependency);
     auto& p = _parent->cast<typename Derived::Parent>();
     set_scan_ranges(state, info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
@@ -150,10 +149,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     RETURN_IF_ERROR(_init_profile());
     // if you want to add some profile in scan node, even it have not new VScanner object
     // could add here, not in the _init_profile() function
-    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
-
     _prepare_rf_timer(_runtime_profile.get());
-    _alloc_resource_timer = ADD_TIMER(_runtime_profile, "AllocateResourceTime");
 
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER(_runtime_profile, timer_name);
@@ -168,21 +164,20 @@ template <typename Derived>
 Status ScanLocalState<Derived>::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    if (_open_dependency == nullptr) {
+    if (_opened) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
 
-    auto status =
-            _eos_dependency->read_blocked_by() == nullptr ? Status::OK() : _prepare_scanners();
+    auto status = _eos ? Status::OK() : _prepare_scanners();
     if (_scanner_ctx) {
-        DCHECK(_eos_dependency->read_blocked_by() != nullptr && _num_scanners->value() > 0);
+        _finish_dependency->block();
+        DCHECK(!_eos && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
         RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
     }
-    _source_dependency->remove_first_child();
-    _open_dependency = nullptr;
+    _opened = true;
     return status;
 }
 
@@ -192,24 +187,14 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
 
-    for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
-
-        auto type = slots[slot_idx]->type().type;
-        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
-            type = slots[slot_idx]->type().children[0].type;
-            if (type == TYPE_ARRAY) {
-                continue;
-            }
-        }
+    auto init_value_range = [&](SlotDescriptor* slot, PrimitiveType type) {
         switch (type) {
-#define M(NAME)                                                                              \
-    case TYPE_##NAME: {                                                                      \
-        ColumnValueRange<TYPE_##NAME> range(                                                 \
-                slots[slot_idx]->col_name(), slots[slot_idx]->is_nullable(),                 \
-                slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);           \
-        _slot_id_to_value_range[slots[slot_idx]->id()] = std::pair {slots[slot_idx], range}; \
-        break;                                                                               \
+#define M(NAME)                                                                          \
+    case TYPE_##NAME: {                                                                  \
+        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(),       \
+                                            slot->type().precision, slot->type().scale); \
+        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};                   \
+        break;                                                                           \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
     M(TINYINT)                      \
@@ -234,11 +219,29 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
             APPLY_FOR_PRIMITIVE_TYPE(M)
 #undef M
         default: {
-            VLOG_CRITICAL << "Unsupported Normalize Slot [ColName=" << slots[slot_idx]->col_name()
-                          << "]";
+            VLOG_CRITICAL << "Unsupported Normalize Slot [ColName=" << slot->col_name() << "]";
             break;
         }
         }
+    };
+
+    for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
+        _slot_id_to_slot_desc[slots[slot_idx]->id()] = slots[slot_idx];
+
+        auto type = slots[slot_idx]->type().type;
+        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
+            type = slots[slot_idx]->type().children[0].type;
+            if (type == TYPE_ARRAY) {
+                continue;
+            }
+        }
+        init_value_range(slots[slot_idx], slots[slot_idx]->type().type);
+    }
+
+    get_cast_types_for_variants();
+    for (const auto& [colname, type] : _cast_types_for_variants) {
+        init_value_range(_slot_id_to_slot_desc[_colname_to_slot_id[colname]], type);
     }
 
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
@@ -266,7 +269,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
         std::visit(
                 [&](auto&& range) {
                     if (range.is_empty_value_range()) {
-                        _eos_dependency->set_ready_for_read();
+                        _eos = true;
+                        _scan_dependency->set_ready();
                     }
                 },
                 it.second.second);
@@ -328,6 +332,16 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 output_expr = nullptr;
                 return Status::OK();
             }
+            std::shared_ptr<vectorized::VSlotRef> slotref;
+            for (const auto& child : cur_expr->children()) {
+                if (vectorized::VExpr::expr_without_cast(child)->node_type() !=
+                    TExprNodeType::SLOT_REF) {
+                    // not a slot ref(column)
+                    continue;
+                }
+                slotref = std::dynamic_pointer_cast<vectorized::VSlotRef>(
+                        vectorized::VExpr::expr_without_cast(child));
+            }
             if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
                 Status status = Status::OK();
@@ -383,6 +397,14 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 TExprNodeType::MATCH_PRED == cur_expr->node_type()) {
                 // remaining it in the expr tree, in order to filter by function if the pushdown
                 // match_predicate failed to apply inverted index in the storage layer
+                output_expr = conjunct_expr_root; // remaining in conjunct tree
+                return Status::OK();
+            }
+
+            if (pdt == vectorized::VScanNode::PushDownType::ACCEPTABLE && slotref != nullptr &&
+                slotref->type().is_variant_type()) {
+                // remaining it in the expr tree, in order to filter by function if the pushdown
+                // predicate is not applied
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -511,6 +533,12 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
     if (_slot_id_to_value_range.end() == entry) {
         return false;
     }
+    // if the slot is a complex type(array/map/struct), we do not push down the predicate, because
+    // we delete pack these type into predict column, and origin pack action is wrong. we should
+    // make sense to push down this complex type after we delete predict column.
+    if (is_complex_type(remove_nullable(slot_ref->data_type()))) {
+        return false;
+    }
     *slot_desc = entry->second.first;
     DCHECK(child_contains_slot != nullptr);
     if (child_contains_slot->type().type != (*slot_desc)->type().type ||
@@ -533,6 +561,10 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
 template <typename Derived>
 bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr) {
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
+        return true;
+    }
+    // Variant slot cast could be eliminated
+    if (slot->type().is_variant_type()) {
         return true;
     }
     if (slot->type().is_array_type()) {
@@ -559,7 +591,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                 *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
-                _eos_dependency->set_ready_for_read();
+                _eos = true;
+                _scan_dependency->set_ready();
             }
         } else if (const vectorized::ColumnVector<vectorized::UInt8>* bool_column =
                            check_and_get_column<vectorized::ColumnVector<vectorized::UInt8>>(
@@ -576,7 +609,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                 constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
                 if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                     *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
-                    _eos_dependency->set_ready_for_read();
+                    _eos = true;
+                    _scan_dependency->set_ready();
                 }
             } else {
                 LOG(WARNING) << "Constant predicate in scan node should return a bool column with "
@@ -773,7 +807,8 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
         if (!is_fixed_range && state->null_in_set) {
-            _eos_dependency->set_ready_for_read();
+            _eos = true;
+            _scan_dependency->set_ready();
         }
         while (iter->has_next()) {
             // column not in (nullptr) is always true
@@ -943,7 +978,7 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
         DCHECK(expr->children().size() == 2);
 
         auto noneq_checker = [](const std::string& fn_name) {
-            return fn_name != "ne" && fn_name != "eq";
+            return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";
         };
         StringRef value;
         int slot_ref_child = -1;
@@ -1166,7 +1201,8 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
     std::list<vectorized::VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     if (scanners.empty()) {
-        _eos_dependency->set_ready_for_read();
+        _eos = true;
+        _scan_dependency->set_ready();
     } else {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(scanners));
@@ -1181,15 +1217,8 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
                                                     p._col_distribute_ids, 1);
-    _scanner_done_dependency =
-            ScannerDoneDependency::create_shared(p.operator_id(), _scanner_ctx.get());
-    _source_dependency->add_child(_scanner_done_dependency);
-    _data_ready_dependency =
-            DataReadyDependency::create_shared(p.operator_id(), _scanner_ctx.get());
-    _source_dependency->add_child(_data_ready_dependency);
-
-    _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency,
-                                 _finish_dependency);
+    _scan_dependency->set_scanner_ctx(_scanner_ctx.get());
+    _scanner_ctx->set_dependency(_scan_dependency, _finish_dependency);
     return Status::OK();
 }
 
@@ -1268,6 +1297,52 @@ Status ScanLocalState<Derived>::_init_profile() {
     return Status::OK();
 }
 
+template <typename Derived>
+void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
+        const vectorized::VExpr* expr,
+        phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types) {
+    const auto* cast_expr = dynamic_cast<const vectorized::VCastExpr*>(expr);
+    if (cast_expr != nullptr) {
+        const auto* src_slot =
+                cast_expr->get_child(0)->node_type() == TExprNodeType::SLOT_REF
+                        ? dynamic_cast<const vectorized::VSlotRef*>(cast_expr->get_child(0).get())
+                        : nullptr;
+        if (src_slot == nullptr) {
+            return;
+        }
+        std::vector<SlotDescriptor*> slots = output_tuple_desc()->slots();
+        SlotDescriptor* src_slot_desc = _slot_id_to_slot_desc[src_slot->slot_id()];
+        PrimitiveType cast_dst_type =
+                cast_expr->get_target_type()->get_type_as_type_descriptor().type;
+        if (src_slot_desc->type().is_variant_type()) {
+            colname_to_cast_types[src_slot_desc->col_name()].push_back(cast_dst_type);
+        }
+    }
+    for (const auto& child : expr->children()) {
+        _filter_and_collect_cast_type_for_variant(child.get(), colname_to_cast_types);
+    }
+}
+
+template <typename Derived>
+void ScanLocalState<Derived>::get_cast_types_for_variants() {
+    phmap::flat_hash_map<std::string, std::vector<PrimitiveType>> colname_to_cast_types;
+    for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
+        auto& conjunct = *it;
+        if (conjunct->root()) {
+            _filter_and_collect_cast_type_for_variant(conjunct->root().get(),
+                                                      colname_to_cast_types);
+        }
+        ++it;
+    }
+    // cast to one certain type for variant could utilize fully predicates performance
+    // when storage layer type equals to cast type
+    for (const auto& [slotid, types] : colname_to_cast_types) {
+        if (types.size() == 1) {
+            _cast_types_for_variants[slotid] = types[0];
+        }
+    }
+}
+
 template <typename LocalStateType>
 ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                              int operator_id, const DescriptorTbl& descs)
@@ -1341,23 +1416,12 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
         return Status::OK();
     }
     SCOPED_TIMER(_close_timer);
-    if (_data_ready_dependency) {
-        COUNTER_UPDATE(_wait_for_data_timer, _data_ready_dependency->read_watcher_elapse_time());
-        COUNTER_UPDATE(exec_time_counter(), _data_ready_dependency->read_watcher_elapse_time());
-    }
-    if (_eos_dependency) {
-        COUNTER_SET(_wait_for_eos_timer, _eos_dependency->read_watcher_elapse_time());
-        COUNTER_UPDATE(exec_time_counter(), _eos_dependency->read_watcher_elapse_time());
-    }
-    if (_scanner_done_dependency) {
-        COUNTER_SET(_wait_for_scanner_done_timer,
-                    _scanner_done_dependency->read_watcher_elapse_time());
-        COUNTER_UPDATE(exec_time_counter(), _scanner_done_dependency->read_watcher_elapse_time());
-    }
+
     SCOPED_TIMER(exec_time_counter());
     if (_scanner_ctx.get()) {
         _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
     }
+    COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
 
     return PipelineXLocalState<>::close(state);
 }
@@ -1366,7 +1430,6 @@ template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                 SourceState& source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state._get_next_timer);
     SCOPED_TIMER(local_state.exec_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
     // we built some temporary columns into block, these columns only used in scan node level,
@@ -1392,7 +1455,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         }
     }
 
-    if (local_state._eos_dependency->read_blocked_by() == nullptr) {
+    if (local_state._eos) {
         source_state = SourceState::FINISHED;
         return Status::OK();
     }

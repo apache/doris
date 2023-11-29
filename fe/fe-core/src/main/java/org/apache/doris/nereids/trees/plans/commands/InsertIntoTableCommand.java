@@ -80,7 +80,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 
 /**
  * insert into select command implementation
@@ -95,10 +94,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
     private final LogicalPlan logicalQuery;
-    private final Optional<String> labelName;
+
+    private Optional<String> labelName;
     private final boolean isOverwrite;
     private NereidsPlanner planner;
     private boolean isTxnBegin = false;
+
+    /**
+     * When source it's from job scheduler,it will be set.
+     */
+    private long jobId;
 
     /**
      * constructor
@@ -109,6 +114,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 "logicalQuery cannot be null in InsertIntoTableCommand");
         this.labelName = labelName;
         this.isOverwrite = isOverwrite;
+    }
+
+    public void setLabelName(Optional<String> labelName) {
+        this.labelName = labelName;
+    }
+
+    public void setJobId(long jobId) {
+        this.jobId = jobId;
     }
 
     public NereidsPlanner getPlanner() {
@@ -204,7 +217,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         LOG.info("Nereids start to execute the insert command, query id: {}, txn id: {}",
                 ctx.queryId(), txn.getTxnId());
 
-        txn.executeInsertIntoTableCommand(executor);
+        txn.executeInsertIntoTableCommand(executor, jobId);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -391,8 +404,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
         GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner(physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), null, ctx.queryId());
-        Future<PGroupCommitInsertResponse> future = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
-        PGroupCommitInsertResponse response = future.get();
+        PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
         if (code == TStatusCode.DATA_QUALITY_ERROR) {
             LOG.info("group commit insert failed. query id: {}, backend id: {}, status: {}, "

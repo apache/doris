@@ -161,6 +161,43 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     }
 }
 
+void ColumnString::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                            const uint32_t* indices_end) {
+    const ColumnString& src_str = assert_cast<const ColumnString&>(src);
+    auto src_offset_data = src_str.offsets.data();
+
+    auto old_char_size = chars.size();
+    size_t total_chars_size = old_char_size;
+
+    auto dst_offsets_pos = offsets.size();
+    offsets.resize(offsets.size() + indices_end - indices_begin);
+    auto* dst_offsets_data = offsets.data();
+
+    for (auto x = indices_begin; x != indices_end; ++x) {
+        if (*x != 0) {
+            total_chars_size += src_offset_data[*x] - src_offset_data[*x - 1];
+        }
+        dst_offsets_data[dst_offsets_pos++] = total_chars_size;
+    }
+    check_chars_length(total_chars_size, offsets.size());
+
+    chars.resize(total_chars_size);
+
+    auto* src_data_ptr = src_str.chars.data();
+    auto* dst_data_ptr = chars.data();
+
+    size_t dst_chars_pos = old_char_size;
+    for (auto x = indices_begin; x != indices_end; ++x) {
+        if (*x != 0) {
+            const size_t size_to_append = src_offset_data[*x] - src_offset_data[*x - 1];
+            const size_t offset = src_offset_data[*x - 1];
+            memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
+                                                     src_data_ptr + offset, size_to_append);
+            dst_chars_pos += size_to_append;
+        }
+    }
+}
+
 void ColumnString::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
                                           uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {

@@ -205,6 +205,11 @@ public:
                              PGroupCommitInsertResponse* response,
                              google::protobuf::Closure* done) override;
 
+    void get_wal_queue_size(google::protobuf::RpcController* controller,
+                            const PGetWalQueueSizeRequest* request,
+                            PGetWalQueueSizeResponse* response,
+                            google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -247,7 +252,7 @@ private:
                                        google::protobuf::Closure* done);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     // every brpc service request should put into thread pool
     // the reason see issue #16634

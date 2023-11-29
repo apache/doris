@@ -1,8 +1,8 @@
 ---
 Checks: |
+  -*,
   clang-diagnostic-*,
   clang-analyzer-*,
-  -*,
   bugprone-redundant-branch-condition,
   modernize-*,
   -modernize-use-trailing-return-type,
@@ -30,3 +30,4 @@ CheckOptions:
     value:           '80'
   - key:             readability-function-cognitive-complexity.Threshold
     value:           '50'
+

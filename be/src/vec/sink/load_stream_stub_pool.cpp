@@ -30,11 +30,11 @@ LoadStreams::LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStre
 void LoadStreams::release() {
     int num_use = --_use_cnt;
     if (num_use == 0) {
-        LOG(INFO) << "releasing streams for load_id = " << _load_id << ", dst_id = " << _dst_id;
+        LOG(INFO) << "releasing streams, load_id=" << _load_id << ", dst_id=" << _dst_id;
         _pool->erase(_load_id, _dst_id);
     } else {
-        LOG(INFO) << "no releasing streams for load_id = " << _load_id << ", dst_id = " << _dst_id
-                  << ", use_cnt = " << num_use;
+        LOG(INFO) << "keeping streams, load_id=" << _load_id << ", dst_id=" << _dst_id
+                  << ", use_cnt=" << num_use;
     }
 }
 

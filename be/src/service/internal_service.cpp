@@ -79,6 +79,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
+#include "olap/wal_manager.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/define_primitive_type.h"
@@ -358,8 +359,8 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::StreamOptions stream_options;
 
-        LOG(INFO) << "open load stream, load_id = " << request->load_id()
-                  << ", src_id = " << request->src_id();
+        LOG(INFO) << "open load stream, load_id=" << request->load_id()
+                  << ", src_id=" << request->src_id();
 
         for (const auto& req : request->tablets()) {
             TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
@@ -1421,14 +1422,16 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                 for (auto index_size : segment_indices_size.index_sizes()) {
                     auto index_id = index_size.indexid();
                     auto size = index_size.size();
+                    auto suffix_path = index_size.suffix_path();
                     std::string remote_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(remote_file_path,
-                                                                         index_id);
+                            InvertedIndexDescriptor::get_index_file_name(remote_file_path, index_id,
+                                                                         suffix_path);
                     std::string remote_inverted_index_file_url = construct_url(
                             get_host_port(host, http_port), token, remote_inverted_index_file);
 
                     std::string local_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id);
+                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id,
+                                                                         suffix_path);
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);
                     if (!st.ok()) {
@@ -1689,8 +1692,10 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
-            RETURN_IF_ERROR(
-                    segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
+            StorageReadOptions storage_read_opt;
+            storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+            RETURN_IF_ERROR(segment->new_column_iterator(full_read_schema.column(index),
+                                                         &column_iterator, &storage_read_opt));
             segment_v2::ColumnIteratorOptions opt {
                     .use_page_cache = !config::disable_storage_page_cache,
                     .file_reader = segment->file_reader().get(),
@@ -1795,8 +1800,8 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
         ctx->pipe = pipe;
         Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
         if (st.ok()) {
-            doris::Mutex mutex;
-            doris::ConditionVariable cv;
+            std::mutex mutex;
+            std::condition_variable cv;
             bool handled = false;
             try {
                 st = _exec_plan_fragment_impl(
@@ -1848,5 +1853,20 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
         return;
     }
 };
+
+void PInternalServiceImpl::get_wal_queue_size(google::protobuf::RpcController* controller,
+                                              const PGetWalQueueSizeRequest* request,
+                                              PGetWalQueueSizeResponse* response,
+                                              google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = Status::OK();
+        st = _exec_env->wal_mgr()->get_wal_status_queue_size(request, response);
+        response->mutable_status()->set_status_code(st.code());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+    }
+}
 
 } // namespace doris

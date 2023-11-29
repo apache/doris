@@ -399,7 +399,7 @@ private:
     friend class TabletSchema;
 
     const TupleId _id;
-    TableDescriptor* _table_desc;
+    TableDescriptor* _table_desc = nullptr;
     int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;

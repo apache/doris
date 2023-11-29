@@ -130,7 +130,9 @@ private:
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
 
-    void _build_tablet_node_mapping();
+    Status _send_new_partition_batch();
+
+    Status _build_tablet_node_mapping();
 
     void _generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                    RowsForTablet& rows_for_tablet);
@@ -148,7 +150,7 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 
     TDataSink _t_sink;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     // unique load id
     PUniqueId _load_id;

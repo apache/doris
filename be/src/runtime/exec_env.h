@@ -143,10 +143,8 @@ public:
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
-    pipeline::TaskScheduler* pipeline_task_scheduler() { return _pipeline_task_scheduler; }
-    pipeline::TaskScheduler* pipeline_task_group_scheduler() {
-        return _pipeline_task_group_scheduler;
-    }
+    pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
+    pipeline::TaskScheduler* pipeline_task_group_scheduler() { return _with_group_task_scheduler; }
     taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
 
     // using template to simplify client cache management
@@ -305,7 +303,7 @@ private:
     // Ideally, all threads are expected to attach to the specified tracker, so that "all memory has its own ownership",
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
-    MemTrackerLimiter* _orphan_mem_tracker_raw;
+    MemTrackerLimiter* _orphan_mem_tracker_raw = nullptr;
     std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
     // page size not in cache, data page/index page/etc.
     std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
@@ -328,8 +326,8 @@ private:
     // ThreadPoolToken -> buffer
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     FragmentMgr* _fragment_mgr = nullptr;
-    pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
-    pipeline::TaskScheduler* _pipeline_task_group_scheduler = nullptr;
+    pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
+    pipeline::TaskScheduler* _with_group_task_scheduler = nullptr;
     taskgroup::TaskGroupManager* _task_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;

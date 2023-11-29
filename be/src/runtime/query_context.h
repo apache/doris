@@ -22,7 +22,6 @@
 
 #include <atomic>
 #include <memory>
-#include <sstream>
 #include <string>
 
 #include "common/config.h"
@@ -40,12 +39,17 @@
 #include "vec/runtime/shared_scanner_controller.h"
 
 namespace doris {
+
+namespace pipeline {
+class PipelineFragmentContext;
+} // namespace pipeline
+
 struct ReportStatusRequest {
     bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile;
-    RuntimeProfile* load_channel_profile;
+    RuntimeProfile* profile = nullptr;
+    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -65,38 +69,9 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options)
-            : fragment_num(total_fragment_num),
-              timeout_second(-1),
-              _query_id(query_id),
-              _exec_env(exec_env),
-              _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
-              _query_options(query_options) {
-        _start_time = VecDateTimeValue::local_time();
-        _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-        _shared_scanner_controller.reset(new vectorized::SharedScannerController());
-    }
+                 const TQueryOptions& query_options);
 
-    ~QueryContext() {
-        // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
-        // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
-        // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
-        // on query mem tracker, released on other trackers.
-        std::string mem_tracker_msg {""};
-        if (query_mem_tracker->peak_consumption() != 0) {
-            mem_tracker_msg = fmt::format(
-                    ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
-                    "PeakUsed={}",
-                    print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
-                    MemTracker::print_bytes(query_mem_tracker->consumption()),
-                    MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
-        }
-        if (_task_group) {
-            _task_group->remove_mem_tracker_limiter(query_mem_tracker);
-        }
-
-        LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
-    }
+    ~QueryContext();
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
@@ -125,29 +100,10 @@ public:
 
     ThreadPoolToken* get_token() { return _thread_token.get(); }
 
-    void set_ready_to_execute(bool is_cancelled) {
-        {
-            std::lock_guard<std::mutex> l(_start_lock);
-            _is_cancelled = is_cancelled;
-            _ready_to_execute = true;
-        }
-        if (query_mem_tracker && is_cancelled) {
-            query_mem_tracker->set_is_query_cancelled(is_cancelled);
-        }
-        _start_cond.notify_all();
-    }
+    void set_ready_to_execute(bool is_cancelled);
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
-    bool cancel(bool v, std::string msg, Status new_status) {
-        if (_is_cancelled) {
-            return false;
-        }
-        set_exec_status(new_status);
-        _is_cancelled.store(v);
-
-        set_ready_to_execute(true);
-        return true;
-    }
+    bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
         if (new_status.ok()) {
@@ -165,13 +121,7 @@ public:
         return _exec_status;
     }
 
-    void set_ready_to_execute_only() {
-        {
-            std::lock_guard<std::mutex> l(_start_lock);
-            _ready_to_execute = true;
-        }
-        _start_cond.notify_all();
-    }
+    void set_ready_to_execute_only();
 
     bool is_ready_to_execute() {
         std::lock_guard<std::mutex> l(_start_lock);
@@ -245,8 +195,10 @@ public:
 
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
+    pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
+
 public:
-    DescriptorTbl* desc_tbl;
+    DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
     std::string group;
@@ -267,6 +219,8 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
     std::vector<TUniqueId> fragment_instance_ids;
+    std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
+    std::mutex pipeline_lock;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -274,7 +228,7 @@ public:
 
 private:
     TUniqueId _query_id;
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
@@ -306,6 +260,7 @@ private:
 
     pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
+    std::unique_ptr<pipeline::Dependency> _execution_dependency;
 };
 
 } // namespace doris
