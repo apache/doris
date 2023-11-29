@@ -65,8 +65,7 @@ public class ElementAtToSlot extends DefaultExpressionRewriter<ExpressionRewrite
         List<String> fullPaths = elementAt.collectToList(node -> node instanceof VarcharLiteral).stream()
                 .map(node -> ((VarcharLiteral) node).getValue())
                 .collect(Collectors.toList());
-        String qualifiedName = topColumnSlot.getQualifiedName();
-        SlotReference targetColumnSlot = ctx.getPathSlot(qualifiedName, fullPaths);
+        SlotReference targetColumnSlot = ctx.getPathSlot(topColumnSlot, fullPaths);
         if (targetColumnSlot != null) {
             // avoid duplicated slots
             return targetColumnSlot;
@@ -76,7 +75,7 @@ public class ElementAtToSlot extends DefaultExpressionRewriter<ExpressionRewrite
                 topColumnSlot.nullable(), topColumnSlot.getQualifier(),
                 topColumnSlot.getColumn().get(), Optional.of(topColumnSlot.getInternalName()),
                 fullPaths);
-        ctx.addPathSlotRef(qualifiedName, fullPaths, slotRef);
+        ctx.addPathSlotRef(topColumnSlot, fullPaths, slotRef);
         ctx.addSlotToRelation(slotRef, ctx.getRelationBySlot(topColumnSlot));
 
         return slotRef;

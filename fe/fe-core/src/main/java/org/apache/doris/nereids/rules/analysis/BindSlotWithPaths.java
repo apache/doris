@@ -80,7 +80,6 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
                                         Collectors.toList());
                                 Supplier<List<Slot>> mergedSupplier = () -> {
                                     Set<Slot> mergedList = new HashSet<>(outputSlots);
-                                    System.out.println("brainfuck");
                                     mergedList.addAll(olapScanPathSlots);
                                     return new ArrayList<>(mergedList);
                                 };
