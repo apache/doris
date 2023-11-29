@@ -23,6 +23,7 @@
 #include <ostream>
 #include <string>
 #include <utility>
+#include <chrono> // IWYU pragma: keep
 
 #include "common/logging.h"
 #include "librdkafka/rdkafkacpp.h"
@@ -304,6 +305,8 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 static_cast<void>(consumer->cancel(ctx));
             }
 
+            // sleep 3s for waitting consumer cancel done
+            std::this_thread::sleep_for(std::chrono::seconds(3));
             // shutdown queue
             _queue.shutdown();
 
