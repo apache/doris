@@ -183,6 +183,9 @@ private:
     // true if prepare() returned OK
     bool _prepared;
 
+    // true if open() returned OK
+    bool _opened;
+
     // true if close() has been called
     bool _closed;
 
