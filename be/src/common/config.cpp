@@ -1122,6 +1122,8 @@ DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
 
+DEFINE_Bool(enable_snapshot_action, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
