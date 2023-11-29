@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.exploration.mv.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -35,10 +37,16 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -194,6 +202,31 @@ public class ExpressionUtils {
         return distinctExpressions.stream()
                 .reduce(type == And.class ? And::new : Or::new)
                 .orElse(BooleanLiteral.of(type == And.class));
+    }
+
+    /**
+     * Replace the slot in expression with the lineage identifier from specified
+     * baseTable sets or target table types.
+     * <p>
+     * For example as following:
+     * select a + 10 as a1, d from (
+     * select b - 5 as a, d from table
+     * );
+     * after shuttle a1, d in select will be b - 5 + 10, d
+     */
+    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expression,
+            Plan plan,
+            Set<TableType> targetTypes,
+            Set<String> tableIdentifiers) {
+        return ImmutableList.of();
+    }
+
+    /**
+     * Replace the slot in expressions according to the slotMapping
+     * if any slot cannot be mapped then return null
+     */
+    public static List<? extends Expression> permute(List<? extends Expression> expressions, SlotMapping slotMapping) {
+        return ImmutableList.of();
     }
 
     /**
@@ -414,6 +447,32 @@ public class ExpressionUtils {
         return expressions.stream()
                 .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * extract uniform slot for the given predicate, such as a = 1 and b = 2
+     */
+    public static ImmutableSet<Slot> extractUniformSlot(Expression expression) {
+        ImmutableSet.Builder<Slot> builder = new ImmutableSet.Builder<>();
+        if (expression instanceof And) {
+            builder.addAll(extractUniformSlot(expression.child(0)));
+            builder.addAll(extractUniformSlot(expression.child(1)));
+        }
+        if (expression instanceof EqualTo) {
+            if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
+                builder.add((Slot) expression.child(0));
+            }
+        }
+        return builder.build();
+    }
+
+    // TODO: Add more injective functions
+    public static boolean isInjective(Expression expression) {
+        return expression instanceof Slot;
+    }
+
+    public static boolean isInjectiveAgg(AggregateFunction agg) {
+        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
     }
 
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,

@@ -1,0 +1,18 @@
+--ERROR: crash column.h:496] not support
+-- SELECT
+--     cast(repo:name as string),
+--     count() AS pushes,
+--     count(distinct cast(actor:login as string)) AS authors
+-- FROM github_events
+-- WHERE (type = 'PushEvent') AND (cast(repo:name as string) IN
+-- (
+--     SELECT cast(repo:name as string)
+--     FROM github_events
+--     WHERE type = 'WatchEvent'
+--     GROUP BY cast(repo:name as string)
+--     ORDER BY count() DESC
+--     LIMIT 10000
+-- ))
+-- GROUP BY cast(repo:name as string)
+-- ORDER BY count() DESC
+-- LIMIT 50

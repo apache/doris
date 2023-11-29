@@ -376,6 +376,18 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 是否开启单BE的多标签功能
 
+#### `initial_root_password`
+
+设置 root 用户初始化2阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。后续 root 用户的 `set password` 操作会将 root 初始化密码覆盖。
+
+示例：如要配置密码的明文是 `root@123`，可在Doris执行SQL `select password('root@123')` 获取加密密码 `*A00C34073A26B40AB4307650BFB9309D6BFA6999`。
+
+默认值：空字符串
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：true
+
 ### 服务
 
 #### `query_port`
@@ -2240,6 +2252,16 @@ tablet 状态更新间隔
 是否为 Master FE 节点独有的配置项：true
 
 与 `tablet_create_timeout_second` 含义相同，但在删除 tablet 时使用
+
+#### `delete_job_max_timeout_second`
+
+默认值: 300(s)
+
+是否可以动态配置: true
+
+是否为 Master FE 节点独有的配置项: true
+
+Delete 操作的最大超时时间，单位是秒
 
 #### `alter_table_timeout_second`
 

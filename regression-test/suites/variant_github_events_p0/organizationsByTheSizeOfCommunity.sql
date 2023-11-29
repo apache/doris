@@ -1,0 +1,23 @@
+-- SELECT
+--     lower(split_part(cast(v:repo.name as string), '/', 1)) AS org,
+--     count(distinct cast(v:actor.login as string)) AS authors,
+--     count(distinct pr_author) AS pr_authors,
+--     count(distinct issue_author) AS issue_authors,
+--     count(distinct comment_author) AS comment_authors,
+--     count(distinct review_author) AS review_authors,
+--     count(distinct push_author) AS push_authors
+-- FROM
+-- (
+-- SELECT
+--     cast(v:repo.name as string),
+--     cast(v:actor.login as string),
+--     CASE WHEN cast(v:type as string) = 'PullRequestEvent' THEN cast(v:actor.login as string) ELSE NULL END pr_author,
+--     CASE WHEN cast(v:type as string) = 'IssuesEvent' THEN cast(v:actor.login as string) ELSE NULL END issue_author,
+--     CASE WHEN cast(v:type as string) = 'IssueCommentEvent' THEN cast(v:actor.login as string) ELSE NULL END comment_author,
+--     CASE WHEN cast(v:type as string) = 'PullRequestReviewCommentEvent' THEN cast(v:actor.login as string) ELSE NULL END review_author,
+--     CASE WHEN cast(v:type as string) = 'PushEvent' THEN cast(v:actor.login as string) ELSE NULL END push_author
+-- FROM github_events
+-- WHERE cast(v:type as string) IN ('PullRequestEvent', 'IssuesEvent', 'IssueCommentEvent', 'PullRequestReviewCommentEvent', 'PushEvent')
+-- ) t
+-- GROUP BY org
+-- ORDER BY authors DESC

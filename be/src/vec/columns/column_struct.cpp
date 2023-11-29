@@ -233,6 +233,15 @@ void ColumnStruct::insert_indices_from(const IColumn& src, const int* indices_be
     }
 }
 
+void ColumnStruct::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                            const uint32_t* indices_end) {
+    const ColumnStruct& src_concrete = assert_cast<const ColumnStruct&>(src);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        columns[i]->insert_indices_from_join(src_concrete.get_column(i), indices_begin,
+                                             indices_end);
+    }
+}
+
 void ColumnStruct::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {

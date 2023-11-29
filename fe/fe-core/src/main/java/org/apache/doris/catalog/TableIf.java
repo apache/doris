@@ -121,6 +121,10 @@ public interface TableIf {
 
     long getRowCount();
 
+    // Get the exact number of rows in the internal table;
+    // Get the number of cached rows or estimated rows in the external table, if not, return -1.
+    long getCacheRowCount();
+
     long getDataLength();
 
     long getAvgRowLength();
@@ -148,6 +152,15 @@ public interface TableIf {
     List<Long> getChunkSizes();
 
     void write(DataOutput out) throws IOException;
+
+    /**
+     * return true if this kind of table need read lock when doing query plan.
+     *
+     * @return
+     */
+    default boolean needReadLockWhenPlan() {
+        return false;
+    }
 
     /**
      * Doris table type.

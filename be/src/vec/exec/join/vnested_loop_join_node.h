@@ -53,7 +53,7 @@ struct RuntimeFilterBuild {
     Status operator()(RuntimeState* state);
 
 private:
-    Parent* _parent;
+    Parent* _parent = nullptr;
 };
 
 // Node for nested loop joins.
@@ -99,9 +99,13 @@ public:
 
     std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
     VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
-    RuntimeProfile::Counter* push_compute_timer() { return _push_compute_timer; }
+    RuntimeProfile::Counter* runtime_filter_compute_timer() {
+        return _runtime_filter_compute_timer;
+    }
     Blocks& build_blocks() { return _build_blocks; }
-    RuntimeProfile::Counter* push_down_timer() { return _push_down_timer; }
+    RuntimeProfile::Counter* publish_runtime_filter_timer() {
+        return _publish_runtime_filter_timer;
+    }
 
 private:
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
@@ -274,7 +278,7 @@ private:
     std::stack<uint16_t> _build_offset_stack;
     std::stack<uint16_t> _probe_offset_stack;
     VExprContextSPtrs _join_conjuncts;
-    RuntimeProfile::Counter* _loop_join_timer;
+    RuntimeProfile::Counter* _loop_join_timer = nullptr;
     template <typename Parent>
     friend struct RuntimeFilterBuild;
 };

@@ -183,7 +183,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 return;
             }
             Map<String, String> properties = Maps.newHashMap();
-            properties.put(WorkloadGroup.CPU_SHARE, "10");
+            properties.put(WorkloadGroup.CPU_SHARE, "1024");
             properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
             properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
             defaultWorkloadGroup = WorkloadGroup.create(DEFAULT_GROUP_NAME, properties);

@@ -63,13 +63,14 @@ protected:
     RuntimeProfile::Counter* _load_jar_timer = nullptr;
     RuntimeProfile::Counter* _init_connector_timer = nullptr;
     RuntimeProfile::Counter* _get_data_timer = nullptr;
-    RuntimeProfile::Counter* _call_jni_next_timer = nullptr;
-    RuntimeProfile::Counter* _convert_batch_timer = nullptr;
+    RuntimeProfile::Counter* _get_block_address_timer = nullptr;
+    RuntimeProfile::Counter* _fill_block_timer = nullptr;
     RuntimeProfile::Counter* _check_type_timer = nullptr;
     RuntimeProfile::Counter* _execte_read_timer = nullptr;
     RuntimeProfile::Counter* _connector_close_timer = nullptr;
 
 private:
+    void _init_profile(const std::shared_ptr<RuntimeProfile>& profile);
     void _update_profile();
 
     bool _jdbc_eos;
@@ -79,7 +80,7 @@ private:
     // SQL
     std::string _query_string;
     // Descriptor of tuples read from JDBC table.
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
     // the sql query database type: like mysql, PG...
     TOdbcTableType::type _table_type;
     // Scanner of JDBC.

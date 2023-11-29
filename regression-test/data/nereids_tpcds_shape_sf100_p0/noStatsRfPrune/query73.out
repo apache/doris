@@ -6,9 +6,8 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((dj.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 ss_customer_sk->[c_customer_sk]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[customer] apply RFs: RF3
+------------PhysicalProject
+--------------PhysicalOlapScan[customer] apply RFs: RF3
 ------------PhysicalDistribute
 --------------filter((dj.cnt <= 5) and (dj.cnt >= 1))
 ----------------hashAgg[GLOBAL]

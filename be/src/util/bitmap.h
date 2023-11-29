@@ -187,7 +187,7 @@ private:
 private:
     size_t offset_;
     size_t num_bits_;
-    const uint8_t* map_;
+    const uint8_t* map_ = nullptr;
 };
 
 /// Bitmap vector utility class.

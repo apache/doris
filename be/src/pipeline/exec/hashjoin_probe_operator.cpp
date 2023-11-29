@@ -89,7 +89,9 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
 
 void HashJoinProbeLocalState::prepare_for_next() {
     _probe_index = 0;
+    _build_index = 0;
     _ready_probe = false;
+    _last_probe_match = -1;
     _prepare_probe_block();
 }
 
