@@ -31,6 +31,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class ArrayLiteral extends LiteralExpr {
 
@@ -129,29 +130,25 @@ public class ArrayLiteral extends LiteralExpr {
 
     @Override
     public int hashCode() {
-        int code =  31 * super.hashCode();
-        for (Expr c : children) {
-            code = code + c.hashCode();
-        }
-        return code;
+        return Objects.hashCode(children);
     }
 
     @Override
     public boolean equals(Object o) {
+        if (o == null) {
+            return false;
+        }
         if (!(o instanceof ArrayLiteral)) {
             return false;
         }
         if (this == o) {
             return true;
         }
-
         ArrayLiteral that = (ArrayLiteral) o;
-        for (int i = 0; i < children.size(); i++) {
-            if (!children.get(i).equals(that.children.get(i))) {
-                return false;
-            }
+        if (that.children.size() != children.size()) {
+            return false;
         }
-        return true;
+        return Objects.equals(children, that.children);
     }
 
     @Override

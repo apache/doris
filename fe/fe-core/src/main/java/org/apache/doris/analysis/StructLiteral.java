@@ -32,6 +32,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class StructLiteral extends LiteralExpr {
     // only for persist
@@ -166,15 +167,14 @@ public class StructLiteral extends LiteralExpr {
     }
 
     public int hashCode() {
-        int code =  31 * super.hashCode();
-        for (Expr c : children) {
-            code = code + c.hashCode();
-        }
-        return code;
+        return Objects.hashCode(children);
     }
 
     @Override
     public boolean equals(Object o) {
+        if (o == null) {
+            return false;
+        }
         if (!(o instanceof StructLiteral)) {
             return false;
         }
@@ -183,11 +183,9 @@ public class StructLiteral extends LiteralExpr {
         }
 
         StructLiteral that = (StructLiteral) o;
-        for (int i = 0; i < children.size(); i++) {
-            if (!children.get(i).equals(that.children.get(i))) {
-                return false;
-            }
+        if (that.children.size() != children.size()) {
+            return false;
         }
-        return true;
+        return Objects.equals(children, that.children);
     }
 }
