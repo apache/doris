@@ -264,14 +264,14 @@ protected:
     const int _operator_id {};
     const int _node_id {}; // unique w/in single plan tree
     TPlanNodeType::type _type;
-    ObjectPool* _pool = {nullptr};
+    ObjectPool* _pool = nullptr;
     std::vector<TupleId> _tuple_ids {};
 
     vectorized::VExprContextSPtrs _conjuncts {};
 
     RowDescriptor _row_descriptor;
 
-    std::unique_ptr<RowDescriptor> _output_row_descriptor {nullptr};
+    std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
     vectorized::VExprContextSPtrs _projections {};
 
     /// Resource information sent from the frontend.

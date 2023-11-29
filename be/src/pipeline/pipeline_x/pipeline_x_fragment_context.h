@@ -154,7 +154,7 @@ private:
 
     bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
-    OperatorXPtr _root_op {nullptr};
+    OperatorXPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks {};
 
@@ -170,7 +170,7 @@ private:
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
-    DataSinkOperatorXPtr _sink {nullptr};
+    DataSinkOperatorXPtr _sink = nullptr;
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif

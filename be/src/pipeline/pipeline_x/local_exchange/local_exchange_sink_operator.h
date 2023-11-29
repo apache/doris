@@ -49,10 +49,10 @@ public:
 private:
     friend class LocalExchangeSinkOperatorX;
 
-    RuntimeProfile::Counter* _compute_hash_value_timer {nullptr};
-    RuntimeProfile::Counter* _distribute_timer {nullptr};
+    RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
+    RuntimeProfile::Counter* _distribute_timer = nullptr;
     std::vector<RuntimeProfile::Counter*> _num_rows_in_queue {};
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner {nullptr};
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
     std::vector<size_t> _partition_rows_histogram {};
 };
 
