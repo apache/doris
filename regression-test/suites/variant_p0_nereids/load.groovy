@@ -308,7 +308,7 @@ suite("regression_test_variant", "variant_type"){
         sql "truncate table ${table_name}"
 
         // always sparse column
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         sql "truncate table ${table_name}"
@@ -368,7 +368,7 @@ suite("regression_test_variant", "variant_type"){
         // sql "select * from ${table_name}"
 
         // test all sparse columns
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "all_sparse_columns"
         create_table.call(table_name, "1")
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
@@ -395,7 +395,7 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_38 "select * from ${table_name} order by k"
 
         // read text from sparse col
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_31 """select cast(v["xxxx"] as string) from sparse_columns where cast(v["xxxx"] as string) != 'null' limit 1;"""

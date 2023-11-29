@@ -29,6 +29,7 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
             properties("replication_num" = "1", "disable_auto_compaction" = "true");
         """
     }
+    sql "set experimental_enable_nereids_planner = false"
     table_name = "complexjson"
     create_table table_name
     sql """insert into ${table_name} values (1, '{
