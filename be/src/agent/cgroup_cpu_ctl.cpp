@@ -17,6 +17,7 @@
 
 #include "agent/cgroup_cpu_ctl.h"
 
+#include <dirent.h>
 #include <fmt/format.h>
 
 namespace doris {
@@ -100,9 +101,32 @@ Status CgroupV1CpuCtl::init() {
         int ret = mkdir(_cgroup_v1_cpu_query_path.c_str(), S_IRWXU);
         if (ret != 0) {
             LOG(ERROR) << "cgroup v1 mkdir query failed, path=" << _cgroup_v1_cpu_query_path;
-            return Status::InternalError<false>("cgroup v1 mkdir query failed, path=",
+            return Status::InternalError<false>("cgroup v1 mkdir query failed, path={}",
                                                 _cgroup_v1_cpu_query_path);
         }
+    }
+
+    // check whether current user specified path is a valid cgroup path
+    std::string query_path_tasks = _cgroup_v1_cpu_query_path + "/tasks";
+    std::string query_path_cpu_shares = _cgroup_v1_cpu_query_path + "/cpu.shares";
+    std::string query_path_quota = _cgroup_v1_cpu_query_path + "/cpu.cfs_quota_us";
+    if (access(query_path_tasks.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("invalid cgroup path, not find task file");
+    }
+    if (access(query_path_cpu_shares.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("invalid cgroup path, not find cpu share file");
+    }
+    if (access(query_path_quota.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("invalid cgroup path, not find cpu quota file");
+    }
+
+    if (_tg_id == -1) {
+        // means current cgroup cpu ctl is just used to clear dir,
+        // it does not contains task group.
+        // todo(wb) rethinking whether need to refactor cgroup_cpu_ctl
+        _init_succ = true;
+        LOG(INFO) << "init cgroup cpu query path succ, path=" << _cgroup_v1_cpu_query_path;
+        return Status::OK();
     }
 
     // workload group path
@@ -157,4 +181,45 @@ Status CgroupV1CpuCtl::add_thread_to_cgroup() {
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_task_file, tid, msg, true);
 #endif
 }
+
+Status CgroupV1CpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) {
+    if (!_init_succ) {
+        return Status::InternalError<false>(
+                "cgroup cpu ctl init failed, delete can not be executed");
+    }
+    // 1 get all wg id
+    std::set<std::string> unused_wg_ids;
+    DIR* query_path_dir = opendir(_cgroup_v1_cpu_query_path.c_str());
+    struct dirent* de;
+    while ((de = readdir(query_path_dir))) {
+        std::string f_name = de->d_name;
+        if (!f_name.empty() && std::all_of(f_name.begin(), f_name.end(), ::isdigit)) {
+            uint64_t id_in_path = std::stoll(f_name);
+            if (used_wg_ids.find(id_in_path) == used_wg_ids.end()) {
+                unused_wg_ids.insert(f_name);
+            }
+        }
+    }
+    closedir(query_path_dir);
+
+    // 2 delete unused cgroup path
+    int failed_count = 0;
+    std::string query_path = _cgroup_v1_cpu_query_path.back() != '/'
+                                     ? _cgroup_v1_cpu_query_path + "/"
+                                     : _cgroup_v1_cpu_query_path;
+    for (const std::string& unused_wg_id : unused_wg_ids) {
+        std::string wg_path = query_path + unused_wg_id;
+        int ret = rmdir(wg_path.c_str());
+        if (ret < 0) {
+            LOG(WARNING) << "rmdir failed, path=" << wg_path;
+            failed_count++;
+        }
+    }
+    if (failed_count != 0) {
+        return Status::InternalError<false>("error happens when delete unused path, count={}",
+                                            failed_count);
+    }
+    return Status::OK();
+}
+
 } // namespace doris
