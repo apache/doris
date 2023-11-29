@@ -1159,6 +1159,9 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
 
+// whether to enable /api/snapshot api
+DECLARE_Bool(enable_snapshot_action);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
