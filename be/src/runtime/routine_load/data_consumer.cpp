@@ -523,6 +523,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
     int64_t received_rows = 0;
     int64_t put_rows = 0;
     Status st = Status::OK();
+    pulsar::MessageId msg_id;
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
     watch.start();
@@ -552,10 +553,11 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
             //filter invalid prefix of json
             filter_data = substring_prefix_json(msg.get()->getDataAsString());
             rows = convert_rows(filter_data.c_str());
+            msg_id = msg.get()->getMessageId();
             if (msg.get()->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
                 LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
                           << ", len: " << msg.get()->getLength()
-                          << ", message id: " << msg.get()->getMessageId()
+                          << ", message id: " << msg_id
                           << ", pulsar consumer: " << _id
                           << ", grp: " << _grp_id
                           << ", rows size: " << rows.size();
@@ -566,7 +568,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
                 messageBuilder.setContent(row, row_len);
                 messageBuilder.setProperty("topicName",msg.get()->getTopicName());
                 new_msg = new pulsar::Message(messageBuilder.build());
-                new_msg->setMessageId(msg.get()->getMessageId());
+                new_msg->setMessageId(msg_id);
 
                 if (new_msg->getDataAsString().find("{\"") == std::string::npos) {
                     // ignore msg with length 0.
@@ -609,6 +611,15 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         if (done) {
             break;
         }
+    }
+
+
+    LOG(INFO) << "start do ack of msg_id :" << msg_id;
+    Status ack = acknowledge_cumulative(msg_id);
+    if (ack != pulsar::ResultOk) {
+        LOG(WARNING) << "failed do ack of msg_id :" << msg_id << ", consumer : " _id;
+    } else {
+        LOG(INFO) << "finish do ack of msg_id :" << msg_id << ", consumer : " _id;
     }
 
     LOG(INFO) << "pulsar consume done: " << _id << ", grp: " << _grp_id << ". cancelled: " << _cancelled
