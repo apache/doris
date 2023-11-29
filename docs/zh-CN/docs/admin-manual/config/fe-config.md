@@ -2253,6 +2253,16 @@ tablet 状态更新间隔
 
 与 `tablet_create_timeout_second` 含义相同，但在删除 tablet 时使用
 
+#### `delete_job_max_timeout_second`
+
+默认值: 300(s)
+
+是否可以动态配置: true
+
+是否为 Master FE 节点独有的配置项: true
+
+Delete 操作的最大超时时间，单位是秒
+
 #### `alter_table_timeout_second`
 
 默认值：86400 * 30 （1月）
