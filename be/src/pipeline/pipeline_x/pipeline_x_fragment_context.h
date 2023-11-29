@@ -156,13 +156,13 @@ private:
 
     OperatorXPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks {};
+    std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
 
     // Local runtime states for each pipeline task.
-    std::vector<std::unique_ptr<RuntimeState>> _runtime_states {};
+    std::vector<std::unique_ptr<RuntimeState>> _runtime_states;
 
     // It is used to manage the lifecycle of RuntimeFilterMergeController
-    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers {};
+    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
