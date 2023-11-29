@@ -614,18 +614,19 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
     }
 
 
-    LOG(INFO) << "start do ack of msg_id :" << msg_id;
-    pulsar::Result ack = _p_consumer.acknowledgeCumulative(msg_id);
-    if (ack != pulsar::ResultOk) {
-        LOG(WARNING) << "failed do ack of msg_id :" << msg_id << ", consumer : " << _id;
-    } else {
-        LOG(INFO) << "finish do ack of msg_id :" << msg_id << ", consumer : " << _id;
-    }
+//    LOG(INFO) << "start do ack of msg_id :" << msg_id;
+//    pulsar::Result ack = _p_consumer.acknowledgeCumulative(msg_id);
+//    if (ack != pulsar::ResultOk) {
+//        LOG(WARNING) << "failed do ack of msg_id :" << msg_id << ", consumer : " << _id;
+//    } else {
+//        LOG(INFO) << "finish do ack of msg_id :" << msg_id << ", consumer : " << _id;
+//    }
 
     LOG(INFO) << "pulsar consume done: " << _id << ", grp: " << _grp_id << ". cancelled: " << _cancelled
               << ", left time(ms): " << left_time << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000
               << ", consume cost(ms): " << consumer_watch.elapsed_time() / 1000 / 1000
-              << ", received rows: " << received_rows << ", put rows: " << put_rows;
+              << ", received rows: " << received_rows << ", put rows: " << put_rows
+              << ", last message id: " << msg_id;
 
     return st;
 }
@@ -683,8 +684,14 @@ Status PulsarDataConsumer::acknowledge_cumulative(pulsar::MessageId& message_id)
     if (res != pulsar::ResultOk) {
         std::stringstream ss;
         ss << "failed to acknowledge pulsar message : " << res;
+        LOG(WARNING) << ss
+                     << ",pulsar consumer :" << _id
+                     << ",pulsar group :" << _grp_id;
         return Status::InternalError(ss.str());
     }
+    LOG(INFO) << "message_id :" << message_id
+              << ",pulsar consumer :" << _id
+              << ",pulsar group :" << _grp_id;
     return Status::OK();
 }
 

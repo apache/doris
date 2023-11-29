@@ -327,7 +327,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 ctx->pulsar_info->ack_offset = std::move(ack_offset);
                 ctx->receive_bytes = ctx->max_batch_size - left_bytes;
                 get_backlog_nums(ctx);
-//                acknowledge_cumulative(ctx);
+                acknowledge_cumulative(ctx);
                 return Status::OK();
             }
         }
@@ -408,18 +408,14 @@ void PulsarDataConsumerGroup::get_backlog_nums(std::shared_ptr<StreamLoadContext
 
 void PulsarDataConsumerGroup::acknowledge_cumulative(std::shared_ptr<StreamLoadContext> ctx) {
     for (auto& kv : ctx->pulsar_info->ack_offset) {
-        LOG(INFO) << "start do ack of kv :" << kv;
+        LOG(INFO) << "start do ack of message_id: " << kv.second
+                  << "partition: " << kv.first;
         for (auto& consumer : _consumers) {
-            Status st;
             // do ack
-            st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->acknowledge_cumulative(kv.second);
-            if (!st.ok()) {
-                // Pulsar Offset Acknowledgement is idempotent, Failure should not block the normal process
-                // So just print a warning
-                LOG(WARNING) << "consumer id : " << consumer->id() << "can not ack" << st;
-            }
+            static_cast<void>(consumer->acknowledge_cumulative(kv.second));
         }
-        LOG(INFO) << "finish do ack of kv :" << kv;
+        LOG(INFO) << "finish do ack of message_id: " << kv.second
+                  << "partition: " << kv.first;
     }
 }
 
