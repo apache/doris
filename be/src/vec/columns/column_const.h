@@ -111,13 +111,8 @@ public:
         s += length;
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
-        s += (indices_end - indices_begin);
-    }
-
-    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
-                                  const uint32_t* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         s += (indices_end - indices_begin);
     }
 

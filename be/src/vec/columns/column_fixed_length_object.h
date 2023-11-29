@@ -81,30 +81,8 @@ public:
         return res;
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
-        const Self& src_vec = assert_cast<const Self&>(src);
-        auto origin_size = size();
-        auto new_size = indices_end - indices_begin;
-        if (_item_size == 0) {
-            _item_size = src_vec._item_size;
-        }
-        DCHECK(_item_size == src_vec._item_size) << "dst and src should have the same _item_size";
-        resize(origin_size + new_size);
-
-        for (int i = 0; i < new_size; ++i) {
-            int offset = indices_begin[i];
-            if (offset > -1) {
-                memcpy(&_data[(origin_size + i) * _item_size], &src_vec._data[offset * _item_size],
-                       _item_size);
-            } else {
-                memset(&_data[(origin_size + i) * _item_size], 0, _item_size);
-            }
-        }
-    }
-
-    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
-                                  const uint32_t* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         const Self& src_vec = assert_cast<const Self&>(src);
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
@@ -115,13 +93,8 @@ public:
         resize(origin_size + new_size);
 
         for (uint32_t i = 0; i < new_size; ++i) {
-            auto offset = indices_begin[i];
-            if (offset) {
-                memcpy(&_data[(origin_size + i) * _item_size], &src_vec._data[offset * _item_size],
-                       _item_size);
-            } else {
-                memset(&_data[(origin_size + i) * _item_size], 0, _item_size);
-            }
+            memcpy(&_data[(origin_size + i) * _item_size],
+                   &src_vec._data[indices_begin[i] * _item_size], _item_size);
         }
     }
 
