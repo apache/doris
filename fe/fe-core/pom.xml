@@ -700,6 +700,10 @@ under the License.
             <artifactId>grpc-core</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>flight-sql-jdbc-driver</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-context</artifactId>
         </dependency>

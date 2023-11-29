@@ -66,8 +66,7 @@ public interface FlightSessionsManager {
 
         connectContext.setConnectScheduler(ExecuteEnv.getInstance().getScheduler());
         if (!ExecuteEnv.getInstance().getScheduler().registerConnection(connectContext)) {
-            connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
-                    "Reach limit of connections");
+            connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, "Reach limit of connections");
             throw CallStatus.UNAUTHENTICATED.withDescription("Reach limit of connections").toRuntimeException();
         }
         return connectContext;

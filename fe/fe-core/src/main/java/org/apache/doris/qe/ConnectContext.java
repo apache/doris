@@ -112,6 +112,7 @@ public class ConnectContext {
     protected volatile long loginTime;
     // for arrow flight
     protected volatile String peerIdentity;
+    private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private TNetworkAddress resultFlightServerAddr;
     private TNetworkAddress resultInternalServiceAddr;
@@ -609,6 +610,18 @@ public class ConnectContext {
 
     public void resetLoginTime() {
         this.loginTime = System.currentTimeMillis();
+    }
+
+    public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
+        preparedQuerys.put(preparedStatementId, preparedQuery);
+    }
+
+    public String getPreparedQuery(String preparedStatementId) {
+        return preparedQuerys.get(preparedStatementId);
+    }
+
+    public void removePreparedQuery(String preparedStatementId) {
+        preparedQuerys.remove(preparedStatementId);
     }
 
     public void setRunningQuery(String runningQuery) {

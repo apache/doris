@@ -605,9 +605,6 @@ public class StmtExecutor {
     }
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
-        if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            context.setReturnResultFromLocal(false);
-        }
         // queue query here
         syncJournalIfNeeded();
         QueueOfferToken offerRet = null;
@@ -641,6 +638,9 @@ public class StmtExecutor {
                         AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                                 DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                         context.setQueryId(newQueryId);
+                    }
+                    if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
+                        context.setReturnResultFromLocal(false);
                     }
                     handleQueryStmt();
                     break;
@@ -2305,18 +2305,23 @@ public class StmtExecutor {
     }
 
     public void handleExplainStmt(String result, boolean isNereids) throws IOException {
-        // TODO support arrow flight sql
         ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
                 .addColumn(new Column("Explain String" + (isNereids ? "(Nereids Planner)" : "(Old Planner)"),
                         ScalarType.createVarchar(20)))
                 .build();
-        sendMetaData(metaData);
+        if (context.getConnectType() == ConnectType.MYSQL) {
+            sendMetaData(metaData);
 
-        // Send result set.
-        for (String item : result.split("\n")) {
-            serializer.reset();
-            serializer.writeLenEncodedString(item);
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            // Send result set.
+            for (String item : result.split("\n")) {
+                serializer.reset();
+                serializer.writeLenEncodedString(item);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
+        } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
+            context.getFlightSqlChannel()
+                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), metaData, result);
+            context.setReturnResultFromLocal(true);
         }
         context.getState().setEof();
     }

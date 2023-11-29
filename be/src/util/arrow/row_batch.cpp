@@ -168,12 +168,13 @@ Status convert_to_arrow_schema(const RowDescriptor& row_desc,
 Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
                                       std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    for (auto expr_ctx : output_vexpr_ctxs) {
+    for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        auto root_expr = expr_ctx->root();
+        auto root_expr = output_vexpr_ctxs.at(i)->root();
         RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type));
-        auto field_name = root_expr->is_slot_ref() ? root_expr->expr_name()
-                                                   : root_expr->data_type()->get_name();
+        auto field_name = root_expr->is_slot_ref() && !root_expr->expr_name().empty()
+                                  ? root_expr->expr_name()
+                                  : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);
         fields.push_back(
                 std::make_shared<arrow::Field>(field_name, arrow_type, root_expr->is_nullable()));
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenDetails;
@@ -37,18 +38,23 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
 
     @Override
     public ConnectContext getConnectContext(String peerIdentity) {
-        ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getContext(peerIdentity);
-        if (null == connectContext) {
-            connectContext = createConnectContext(peerIdentity);
+        try {
+            ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getContext(peerIdentity);
             if (null == connectContext) {
-                flightTokenManager.invalidateToken(peerIdentity);
-                String err = "UserSession expire after access, need reauthorize.";
-                LOG.error(err);
-                throw CallStatus.UNAUTHENTICATED.withDescription(err).toRuntimeException();
+                connectContext = createConnectContext(peerIdentity);
+                if (null == connectContext) {
+                    flightTokenManager.invalidateToken(peerIdentity);
+                    String err = "UserSession expire after access, need reauthorize.";
+                    LOG.error(err);
+                    throw CallStatus.UNAUTHENTICATED.withDescription(err).toRuntimeException();
+                }
+                return connectContext;
             }
             return connectContext;
+        } catch (Exception e) {
+            LOG.warn("getConnectContext failed, " + e.getMessage(), e);
+            throw CallStatus.INTERNAL.withDescription(Util.getRootCauseMessage(e)).withCause(e).toRuntimeException();
         }
-        return connectContext;
     }
 
     @Override
