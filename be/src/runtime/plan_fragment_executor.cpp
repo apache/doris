@@ -661,7 +661,7 @@ void PlanFragmentExecutor::close() {
         }
 
         if (_sink != nullptr) {
-            if (_opened) {
+            if (_prepared && _opened) {
                 Status status;
                 {
                     std::lock_guard<std::mutex> l(_status_lock);
@@ -669,8 +669,9 @@ void PlanFragmentExecutor::close() {
                 }
                 static_cast<void>(_sink->close(runtime_state(), status));
             } else {
-                static_cast<void>(
-                        _sink->close(runtime_state(), Status::InternalError("open failed")));
+                static_cast<void>(_sink->close(
+                        runtime_state(),
+                        Status::InternalError(!_prepared ? "prepare failed" : "open failed")));
             }
         }
 
