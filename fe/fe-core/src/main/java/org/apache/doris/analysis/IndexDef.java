@@ -219,7 +219,8 @@ public class IndexDef {
                 colType = ((ArrayType) column.getType()).getItemType().getPrimitiveType();
             }
             if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isDecimalV3Type()
-                    || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
+                    || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN
+                    || colType.isVariantType())) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid column: " + indexColName);
             } else if (indexType == IndexType.INVERTED

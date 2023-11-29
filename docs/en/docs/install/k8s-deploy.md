@@ -54,14 +54,14 @@ kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/maste
 ```
 **2. Install Doris-Operator**  
 If you want to use the defaults operator resource:
-   ```shell
-   kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml
-   ```  
+```shell
+kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml
+```  
 The user defined deployment in github repo are simply:  
 Instead of using the command below, apply your local version of the Operator manifest to the cluster when you custom operator resource.
-   ```shell
-   kubectl apply -f operator.yaml  
-   ```  
+```shell
+kubectl apply -f operator.yaml  
+```  
 **3. Validate The Operator is Running**  
 Using the command `kubectl -n {namespace} get pods` get the status of deployed operator. 
 ```shell
@@ -77,7 +77,7 @@ User can directly deploy Doris by [examples](https://github.com/selectdb/doris-o
 ```shell
 kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml  
 ```
-Or download [doriscluster-sample](https://github.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml) a custom resource that tells the Operator how to configure the Kubernetes cluster, and custom resource as [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) and 
+Or download [doriscluster-sample](https://github.com/selectdb/doris-operator/tree/master/doc/examples/doriscluster-sample.yaml) a custom resource that tells the Operator how to configure the Kubernetes cluster, and custom resource as [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) and 
 [how_to_use](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) docs. Instead of using the command below, apply the customized resource.
 ```shell
 kubeectl apply -f doriscluster-sample.yaml  
@@ -107,7 +107,7 @@ doriscluster-sample-be-service    ClusterIP   10.152.183.141   <none>           
 Service created by Doris-Operator have two types, suffix is `-internal` or `-service`. Service have the `-internal` suffix for communicating in Doris components, Service have `-service` suffix for user to access.  
 
 - In Kubernetes  
-In kubernetes, Using `CLUSTER-IP`  is recommended. For example, the fe service's `CLUSTER-IP`  is `10.152.183.37` that displayed by above command. Using below command to access fe service.
+  In kubernetes, Using `CLUSTER-IP`  is recommended. For example, the fe service's `CLUSTER-IP`  is `10.152.183.37` that displayed by above command. Using below command to access fe service.
 
   ```shell
   mysql -h 10.152.183.37 -uroot -P9030
@@ -117,5 +117,5 @@ In kubernetes, Using `CLUSTER-IP`  is recommended. For example, the fe service's
 Using `EXTERNAL-IP` to access fe from Kubernetes external. In default, Doris-Operator not provided `EXTERNAL-IP` mode. If you want to use `EXTERNAL-IP`, should custom resource `Service` field, reference the doc [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) to deploy.
 
 :::tip
-If the doc not cover your requirements, Pleaser reference the docs [Doris-Operator](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) and the api document to custom [DorisCluster](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) resource to deploy.
+If the doc not cover your requirements, Pleaser reference the docs [how_to_use.md](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md) and [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) to custom `DorisCluster` resource to deploy.
 :::

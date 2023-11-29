@@ -53,8 +53,9 @@ Status NullPredicate::evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
     return Status::OK();
 }
 
-Status NullPredicate::evaluate(const Schema& schema, InvertedIndexIterator* iterator,
-                               uint32_t num_rows, roaring::Roaring* bitmap) const {
+Status NullPredicate::evaluate(const vectorized::NameAndTypePair& name_with_type,
+                               InvertedIndexIterator* iterator, uint32_t num_rows,
+                               roaring::Roaring* bitmap) const {
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL
     //  and be treated as false in WHERE
     InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
