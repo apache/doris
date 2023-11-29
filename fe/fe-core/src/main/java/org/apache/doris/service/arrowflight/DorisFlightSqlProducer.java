@@ -304,6 +304,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
                 VectorSchemaRoot emptyVectorSchemaRoot = new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>());
                 final Schema parameterSchema = emptyVectorSchemaRoot.getSchema();
+                // TODO FE does not have the ability to convert root fragment output expr into arrow schema.
+                // However, the metaData schema returned by createPreparedStatement is usually not used by the client,
+                // but it cannot be empty, otherwise it will be mistaken by the client as an updata statement.
+                // see: https://github.com/apache/arrow/issues/38911
                 Schema metaData = connectContext.getFlightSqlChannel()
                         .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED").getSchema();
                 listener.onNext(new Result(
