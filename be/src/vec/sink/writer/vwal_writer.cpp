@@ -81,6 +81,17 @@ Status VWalWriter::init() {
     RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->create_wal_writer(_wal_id, _wal_writer));
     _state->exec_env()->wal_mgr()->add_wal_status_queue(_tb_id, _wal_id,
                                                         WalManager::WAL_STATUS::CREATE);
+#ifndef BE_TEST
+    if (config::wait_relay_wal_finish) {
+        LOG(INFO) << "add wal " << wal_writer()->file_name();
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_recover_wal(
+                std::to_string(_db_id), std::to_string(_tb_id),
+                std::vector<std::string> {wal_writer()->file_name()}));
+        std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+        std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_cv_map(_wal_id, lock, cv));
+    }
+#endif
     std::stringstream ss;
     for (auto slot_desc : _output_tuple_desc->slots()) {
         ss << std::to_string(slot_desc->col_unique_id()) << ",";

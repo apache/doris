@@ -1669,14 +1669,15 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     }
 #ifndef BE_TEST
     if (config::wait_relay_wal_finish && !_state->relay_wal()) {
-        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_recover_wal(
-                std::to_string(_t_sink.olap_table_sink.db_id),
-                std::to_string(_t_sink.olap_table_sink.table_id),
-                std::vector<std::string> {_v_wal_writer->wal_writer()->file_name()}));
-        std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
-        std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
-        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_cv_map(
-                _t_sink.olap_table_sink.txn_id, lock, cv));
+//        LOG(INFO) << "add wal " << _v_wal_writer->wal_writer()->file_name();
+//        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_recover_wal(
+//                std::to_string(_t_sink.olap_table_sink.db_id),
+//                std::to_string(_t_sink.olap_table_sink.table_id),
+//                std::vector<std::string> {_v_wal_writer->wal_writer()->file_name()}));
+//        std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+//        std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
+//        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_cv_map(
+//                _t_sink.olap_table_sink.txn_id, lock, cv));
         g_sink_write_bytes << 0;
         g_sink_write_rows << 0;
         return Status::OK();

@@ -59,12 +59,13 @@ void WalTable::add_wals(std::vector<std::string> wals) {
 }
 Status WalTable::replay_wals() {
     std::vector<std::string> need_replay_wals;
+    std::vector<std::string> need_erase_wals;
     {
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
         if (_replay_wal_map.empty()) {
             return Status::OK();
         }
-        VLOG_DEBUG << "Start replay wals for db=" << _db_id << ", table=" << _table_id
+        LOG(INFO) << "Start replay wals for db=" << _db_id << ", table=" << _table_id
                    << ", wal size=" << _replay_wal_map.size();
         for (auto& [wal, info] : _replay_wal_map) {
             auto& [retry_num, start_ts, replaying] = info;
@@ -78,7 +79,8 @@ Status WalTable::replay_wals() {
                 std::string rename_path = _get_tmp_path(wal);
                 LOG(INFO) << "rename wal from " << wal << " to " << rename_path;
                 std::rename(wal.c_str(), rename_path.c_str());
-                _replay_wal_map.erase(wal);
+                //_replay_wal_map.erase(wal);
+                need_erase_wals.push_back(wal);
                 if (config::wait_relay_wal_finish) {
                     std::shared_ptr<std::pair<int64_t, std::string>> pair = nullptr;
                     RETURN_IF_ERROR(_get_wal_info(wal, pair));
@@ -92,6 +94,13 @@ Status WalTable::replay_wals() {
             }
         }
         std::sort(need_replay_wals.begin(), need_replay_wals.end());
+        for (const auto& wal : need_erase_wals) {
+            if (_replay_wal_map.erase(wal)) {
+                LOG(INFO) << "erase wal " << wal << " from _replay_wal_map";
+            } else {
+                LOG(WARNING) << "fail to erase wal " << wal << " from _replay_wal_map";
+            }
+        }
     }
     for (const auto& wal : need_replay_wals) {
         {
