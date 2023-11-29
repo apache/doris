@@ -263,8 +263,8 @@ public class SlotRef extends Expr {
 
         StringBuilder sb = new StringBuilder();
         String subColumnPaths = "";
-        if (subColPaths != null && !subColPaths.isEmpty()) {
-            subColumnPaths = "." + String.join(".", subColPaths);
+        if (subColPath != null && !subColPath.isEmpty()) {
+            subColumnPaths = "." + String.join(".", subColPath);
         }
         if (tblName != null) {
             return tblName.toSql() + "." + label + subColumnPaths;

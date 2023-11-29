@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -84,7 +85,8 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
                                     return new ArrayList<>(mergedList);
                                 };
                                 logicalOlapScan.setMutableLogicalProperties(
-                                                   new LogicalProperties(mergedSupplier));
+                                                   new LogicalProperties(mergedSupplier,
+                                                           () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
 
                             } else if (child instanceof AbstractPlan) {
                                 ((AbstractPlan) child).initMutableLogicalProperties();
