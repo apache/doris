@@ -248,7 +248,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
 
-    _query_statistics.reset(new QueryStatistics());
+    _query_statistics.reset(new QueryStatistics(request.query_options.query_type));
     if (_sink != nullptr) {
         _sink->set_query_statistics(_query_statistics);
     }
@@ -440,7 +440,25 @@ bool PlanFragmentExecutor::is_timeout(const VecDateTimeValue& now) const {
 
 void PlanFragmentExecutor::_collect_query_statistics() {
     _query_statistics->clear();
-    Status status = _plan->collect_query_statistics(_query_statistics.get());
+    Status status;
+    /// TODO(yxc):
+    // The judgment of enable_local_exchange here is a bug, it should not need to be checked. I will fix this later.
+    bool _is_local = false;
+    if (_runtime_state->query_options().__isset.enable_local_exchange) {
+        _is_local = _runtime_state->query_options().enable_local_exchange;
+    }
+
+    if (_is_local) {
+        if (_runtime_state->num_per_fragment_instances() == 1) {
+            status = _plan->collect_query_statistics(_query_statistics.get());
+        } else {
+            status = _plan->collect_query_statistics(_query_statistics.get(),
+                                                     _runtime_state->per_fragment_instance_idx());
+        }
+    } else {
+        status = _plan->collect_query_statistics(_query_statistics.get());
+    }
+
     if (!status.ok()) {
         LOG(INFO) << "collect query statistics failed, st=" << status;
         return;
@@ -548,7 +566,8 @@ void PlanFragmentExecutor::send_report(bool done) {
             _runtime_state.get(),
             std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
             std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
-                      std::placeholders::_2)};
+                      std::placeholders::_2),
+            _dml_query_statistics()};
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
