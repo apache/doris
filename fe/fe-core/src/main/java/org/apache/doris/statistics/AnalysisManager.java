@@ -1058,7 +1058,7 @@ public class AnalysisManager implements Writable {
                 a -> {
                     // DO NOTHING
                     return null;
-                }, null);
+                }, collection);
     }
 
     // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
