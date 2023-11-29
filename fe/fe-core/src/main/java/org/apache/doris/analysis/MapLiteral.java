@@ -227,9 +227,6 @@ public class MapLiteral extends LiteralExpr {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null) {
-            return false;
-        }
         if (!(o instanceof MapLiteral)) {
             return false;
         }
@@ -238,9 +235,6 @@ public class MapLiteral extends LiteralExpr {
         }
 
         MapLiteral that = (MapLiteral) o;
-        if (that.children.size() != children.size()) {
-            return false;
-        }
         return Objects.equals(children, that.children);
     }
 }
