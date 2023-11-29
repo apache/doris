@@ -66,7 +66,6 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import lombok.Setter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -96,7 +95,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     private final LogicalPlan logicalQuery;
 
-    @Setter
     private Optional<String> labelName;
     private final boolean isOverwrite;
     private NereidsPlanner planner;
@@ -105,7 +103,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     /**
      * When source it's from job scheduler,it will be set.
      */
-    @Setter
     private long jobId;
 
     /**
@@ -117,6 +114,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 "logicalQuery cannot be null in InsertIntoTableCommand");
         this.labelName = labelName;
         this.isOverwrite = isOverwrite;
+    }
+
+    public void setLabelName(Optional<String> labelName) {
+        this.labelName = labelName;
+    }
+
+    public void setJobId(long jobId) {
+        this.jobId = jobId;
     }
 
     public NereidsPlanner getPlanner() {
