@@ -269,6 +269,7 @@ public enum RuleType {
     // limit distinct push down
     PUSH_DOWN_LIMIT_DISTINCT_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_DOWN_LIMIT_DISTINCT_THROUGH_PROJECT_JOIN(RuleTypeClass.REWRITE),
+    PUSH_DOWN_LIMIT_DISTINCT_THROUGH_UNION(RuleTypeClass.REWRITE),
     // adjust nullable
     ADJUST_NULLABLE(RuleTypeClass.REWRITE),
     ADJUST_CONJUNCTS_RETURN_TYPE(RuleTypeClass.REWRITE),
