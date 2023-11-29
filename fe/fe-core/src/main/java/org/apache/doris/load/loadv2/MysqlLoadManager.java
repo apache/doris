@@ -26,6 +26,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -72,7 +73,7 @@ import java.util.concurrent.TimeUnit;
 public class MysqlLoadManager {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadManager.class);
 
-    private final ThreadPoolExecutor mysqlLoadPool;
+    private  ThreadPoolExecutor mysqlLoadPool;
     private final TokenManager tokenManager;
 
     private static class MySqlLoadContext {
@@ -137,14 +138,20 @@ public class MysqlLoadManager {
     }
 
     private final Map<String, MySqlLoadContext> loadContextMap = new ConcurrentHashMap<>();
-    private final EvictingQueue<MySqlLoadFailRecord> failedRecords;
-    private ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1);
+    private  EvictingQueue<MySqlLoadFailRecord> failedRecords;
+    private ScheduledExecutorService periodScheduler;
 
     public MysqlLoadManager(TokenManager tokenManager) {
+        this.tokenManager = tokenManager;
+    }
+
+    public void start() {
+        this.periodScheduler = Executors.newScheduledThreadPool(1,
+                new CustomThreadFactory("mysql-load-fail-record-cleaner"));
         int poolSize = Config.mysql_load_thread_pool;
         // MySqlLoad pool can accept 4 + 4 * 5 = 24  requests by default.
-        this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(poolSize, poolSize * 5, "Mysql Load", true);
-        this.tokenManager = tokenManager;
+        this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(poolSize, poolSize * 5,
+                "Mysql Load", true);
         this.failedRecords = EvictingQueue.create(Config.mysql_load_in_memory_record);
         this.periodScheduler.scheduleAtFixedRate(this::cleanFailedRecords, 1, 24, TimeUnit.HOURS);
     }
@@ -173,7 +180,7 @@ public class MysqlLoadManager {
         boolean clientLocal = dataDesc.isClientLocal();
         MySqlLoadContext loadContext = new MySqlLoadContext();
         loadContextMap.put(loadId, loadContext);
-        LOG.info("execute MySqlLoadJob for id: {}.", loadId);
+        LOG.info("Executing mysql load with id: {}.", loadId);
         try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
             for (String file : filePaths) {
                 InputStreamEntity entity = getInputStreamEntity(context, clientLocal, file, loadId);
@@ -186,7 +193,8 @@ public class MysqlLoadManager {
                         String errorUrl = Optional.ofNullable(result.get("ErrorURL"))
                                 .map(JsonElement::getAsString).orElse("");
                         failedRecords.offer(new MySqlLoadFailRecord(loadId, errorUrl));
-                        LOG.warn("Execute mysql data load failed with request: {} and response: {}", request, body);
+                        LOG.warn("Execute mysql load failed with request: {} and response: {}, job id: {}",
+                                request, body, loadId);
                         throw new LoadException(result.get("Message").getAsString() + " with load id " + loadId);
                     }
                     loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
@@ -194,10 +202,10 @@ public class MysqlLoadManager {
                 }
             }
         } catch (Throwable t) {
-            LOG.warn("Execute mysql load {} failed", loadId, t);
+            LOG.warn("Execute mysql load {} failed, msg: {}", loadId, t);
             // drain the data from client conn util empty packet received, otherwise the connection will be reset
             if (clientLocal && loadContextMap.containsKey(loadId) && !loadContextMap.get(loadId).isFinished()) {
-                LOG.warn("not drained yet, try reading left data from client connection for load {}.", loadId);
+                LOG.warn("Not drained yet, try reading left data from client connection for load {}.", loadId);
                 ByteBuffer buffer = context.getMysqlChannel().fetchOnePacket();
                 // MySql client will send an empty packet when eof
                 while (buffer != null && buffer.limit() != 0) {
@@ -212,6 +220,7 @@ public class MysqlLoadManager {
                 throw t;
             }
         } finally {
+            LOG.info("Mysql load job {} finished, loaded records: {}", loadId, loadResult.getRecords());
             loadContextMap.remove(loadId);
         }
         return loadResult;

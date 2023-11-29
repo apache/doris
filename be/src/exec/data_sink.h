@@ -20,9 +20,8 @@
 
 #pragma once
 
-#include <opentelemetry/trace/span.h>
 #include <stddef.h>
-// IWYU pragma: no_include <opentelemetry/nostd/shared_ptr.h>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,7 +29,6 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 
 namespace doris {
 
@@ -84,7 +82,6 @@ public:
     // It must be okay to call this multiple times. Subsequent calls should
     // be ignored.
     virtual Status close(RuntimeState* state, Status exec_status) {
-        profile()->add_to_span(_span);
         _closed = true;
         return Status::OK();
     }
@@ -130,7 +127,15 @@ protected:
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
 
-    OpentelemetrySpan _span {};
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _output_rows_counter = nullptr;
+
+    void init_sink_common_profile() {
+        _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
+        _output_rows_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
+        _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
+    }
 };
 
 } // namespace doris

@@ -18,17 +18,17 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryDetail;
@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
+import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -55,10 +56,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -67,12 +65,9 @@ import org.jetbrains.annotations.NotNull;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-
-
 
 public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
@@ -101,6 +96,9 @@ public class MetadataGenerator {
                 break;
             case CATALOGS:
                 result = catalogsMetadataResult(params);
+                break;
+            case MATERIALIZED_VIEWS:
+                result = mtmvMetadataResult(params);
                 break;
             case QUERIES:
                 result = queriesMetadataResult(params, request);
@@ -158,6 +156,7 @@ public class MetadataGenerator {
                     }
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.operation()));
                     trow.addToColumnValue(new TCell().setStringVal(snapshot.manifestListLocation()));
+                    trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(snapshot.summary())));
 
                     dataBatch.add(trow);
                 }
@@ -352,11 +351,17 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         for (List<String> rGroupsInfo : workloadGroupsInfo) {
             TRow trow = new TRow();
-            Long id = Long.valueOf(rGroupsInfo.get(0));
-            trow.addToColumnValue(new TCell().setLongVal(id));
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1)));
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(2)));
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3)));
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(0))));  // id
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1)));             // name
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(2)))); // cpu_share
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3)));             // mem_limit
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4)));             //mem overcommit
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(5)))); // max concurrent
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(6)))); // max queue size
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // queue timeout
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(8)));             // cpu hard limit
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // running query num
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(10)))); // waiting query num
             dataBatch.add(trow);
         }
 
@@ -474,26 +479,50 @@ public class MetadataGenerator {
         result.setDataBatch(filterColumnsRows);
     }
 
-    private static org.apache.iceberg.Table getIcebergTable(HMSExternalCatalog catalog, String db, String tbl)
-            throws MetaNotFoundException {
-        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = new HdfsConfiguration();
-        Map<String, String> properties = catalog.getCatalogProperty().getHadoopProperties();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        hiveCatalog.setConf(conf);
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, catalog.getHiveMetastoreUris());
-        catalogProperties.put("uri", catalog.getHiveMetastoreUris());
-        hiveCatalog.initialize("hive", catalogProperties);
-        return hiveCatalog.loadTable(TableIdentifier.of(db, tbl));
-    }
-
     private static long convertToDateTimeV2(
             int year, int month, int day, int hour, int minute, int second, int microsecond) {
         return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
+    private static TFetchSchemaTableDataResult mtmvMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetMaterializedViewsMetadataParams()) {
+            return errorResult("MaterializedViews metadata params is not set.");
+        }
+
+        TMaterializedViewsMetadataParams mtmvMetadataParams = params.getMaterializedViewsMetadataParams();
+        String dbName = mtmvMetadataParams.getDatabase();
+        List<TRow> dataBatch = Lists.newArrayList();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<Table> tables;
+        try {
+            tables = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(InternalCatalog.INTERNAL_CATALOG_NAME)
+                    .getDbOrAnalysisException(dbName).getTables();
+        } catch (AnalysisException e) {
+            return errorResult(e.getMessage());
+        }
+
+        for (Table table : tables) {
+            if (table instanceof MTMV) {
+                MTMV mv = (MTMV) table;
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getName()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getJobInfo().getJobName()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getStatus().getState().name()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getStatus().getSchemaChangeDetail()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getStatus().getRefreshState().name()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getRefreshInfo().toString()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getQuerySql()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getEnvInfo().toString()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
+                dataBatch.add(trow);
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
     }
 }
 

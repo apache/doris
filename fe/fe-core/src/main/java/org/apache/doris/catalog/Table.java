@@ -26,7 +26,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -345,6 +344,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return 0;
     }
 
+    public long getCacheRowCount() {
+        return getRowCount();
+    }
+
     public long getAvgRowLength() {
         return 0;
     }
@@ -364,7 +367,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         if (type == TableType.OLAP) {
             table = new OlapTable();
         } else if (type == TableType.MATERIALIZED_VIEW) {
-            table = new MaterializedView();
+            table = new MTMV();
         } else if (type == TableType.ODBC) {
             table = new OdbcTable();
         } else if (type == TableType.MYSQL) {
@@ -377,10 +380,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             table = new EsTable();
         } else if (type == TableType.HIVE) {
             table = new HiveTable();
-        } else if (type == TableType.ICEBERG) {
-            table = new IcebergTable();
-        } else if (type == TableType.HUDI) {
-            table = new HudiTable();
         } else if (type == TableType.JDBC) {
             table = new JdbcTable();
         } else {

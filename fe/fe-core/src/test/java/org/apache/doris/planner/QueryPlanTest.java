@@ -67,6 +67,7 @@ public class QueryPlanTest extends TestWithFeService {
         // create database
         createDatabase("test");
         connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+        Config.enable_odbc_mysql_broker_table = true;
 
         createTable("create table test.test1\n"
                 + "(\n"
@@ -564,20 +565,20 @@ public class QueryPlanTest extends TestWithFeService {
         // disable cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.hll_table;",
-                "Invalid type cast of `id2` from HLL to VARCHAR(*)"
+                "Invalid type cast of `id2` from HLL to VARCHAR(65533)"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.bitmap_table;",
-                "Invalid type cast of `id2` from BITMAP to VARCHAR(*)"
+                "Invalid type cast of `id2` from BITMAP to VARCHAR(65533)"
         );
         // disable implicit cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.hll_table;",
-                "No matching function with signature: length(hll)"
+                "No matching function with signature: length(HLL)"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.bitmap_table;",
-                "No matching function with signature: length(bitmap)"
+                "No matching function with signature: length(BITMAP)"
         );
     }
 

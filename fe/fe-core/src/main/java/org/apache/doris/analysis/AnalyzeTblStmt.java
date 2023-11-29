@@ -34,7 +34,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -105,13 +104,17 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     public AnalyzeTblStmt(AnalyzeProperties analyzeProperties, TableName tableName, List<String> columnNames, long dbId,
-            TableIf table) {
+            TableIf table) throws AnalysisException {
         super(analyzeProperties);
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.dbId = dbId;
         this.table = table;
         this.isAllColumns = columnNames == null;
+        String catalogName = tableName.getCtl();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(catalogName);
+        this.catalogId = catalog.getId();
     }
 
     @Override
@@ -189,7 +192,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                         colName, FeNameFormat.getColumnNameRegex());
             }
-            if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
+            if (StatisticsUtil.isUnsupportedType(column.getType())) {
                 containsUnsupportedTytpe = true;
             }
         }

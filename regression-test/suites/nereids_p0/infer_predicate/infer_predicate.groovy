@@ -41,7 +41,7 @@ suite("test_infer_predicate") {
 
     explain {
         sql "select * from infer_tb1 inner join infer_tb2 where cast(infer_tb2.k4 as int) = infer_tb1.k2  and infer_tb2.k4 = 1;"
-        notContains "PREDICATES: k2"
+        contains "PREDICATES: k2"
     }
 
     explain {

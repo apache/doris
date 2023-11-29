@@ -67,14 +67,31 @@ private:
     int _child_id;
 };
 
+class SetProbeSinkDependency final : public Dependency {
+public:
+    using SharedState = SetSharedState;
+    SetProbeSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SetProbeSinkDependency", true, query_ctx) {}
+    ~SetProbeSinkDependency() override = default;
+
+    void set_cur_child_id(int id) {
+        _child_idx = id;
+        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
+        block();
+    }
+
+private:
+    int _child_idx {0};
+};
+
 template <bool is_intersect>
 class SetProbeSinkOperatorX;
 
 template <bool is_intersect>
-class SetProbeSinkLocalState final : public PipelineXSinkLocalState<SetDependency> {
+class SetProbeSinkLocalState final : public PipelineXSinkLocalState<SetProbeSinkDependency> {
 public:
     ENABLE_FACTORY_CREATOR(SetProbeSinkLocalState);
-    using Base = PipelineXSinkLocalState<SetDependency>;
+    using Base = PipelineXSinkLocalState<SetProbeSinkDependency>;
     using Parent = SetProbeSinkOperatorX<is_intersect>;
 
     SetProbeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -99,7 +116,8 @@ template <bool is_intersect>
 class SetProbeSinkOperatorX final : public DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>> {
 public:
     using Base = DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>;
-    using DataSinkOperatorXBase::id;
+    using DataSinkOperatorXBase::operator_id;
+    using Base::get_local_state;
     using typename Base::LocalState;
 
     friend class SetProbeSinkLocalState<is_intersect>;
@@ -121,8 +139,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);

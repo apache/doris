@@ -42,7 +42,7 @@ suite("test_stream_load_properties", "p0") {
                   "mow_tbl_array",
                  ]
 
-    def columns = [ 
+    def columns = [
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -52,8 +52,8 @@ suite("test_stream_load_properties", "p0") {
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                   ]
 
-    def timezoneColumns = 
-                  [ 
+    def timezoneColumns =
+                  [
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
@@ -124,11 +124,11 @@ suite("test_stream_load_properties", "p0") {
                  "basic_array_data_by_line.json",
                 ]
 
-    def loadedRows = [12,12,12,12,8,8,15]
+    def loadedRows = [12,12,12,12,15,15,15]
 
     def jsonLoadedRows = [20,20,20,20,18,18,18]
 
-    def filteredRows = [8,8,8,8,12,12,5]
+    def filteredRows = [8,8,8,8,5,5,5]
 
     def maxFilterRatio = [0.4,0.4,0.4,0.4,0.6,0.6,0.6]
 
@@ -276,6 +276,8 @@ suite("test_stream_load_properties", "p0") {
                         throw exception
                     }
                     log.info("Stream load result: ${result}".toString())
+                    log.info("Stream load table==============: ${table}".toString())
+                    log.info("Stream load i==============: ${i}".toString())
                     def json = parseJson(result)
                     assertEquals("fail", json.Status.toLowerCase())
                     assertEquals(20, json.NumberTotalRows)
@@ -373,6 +375,37 @@ suite("test_stream_load_properties", "p0") {
         sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
     }
 
+    try {
+        sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
+        sql new File("""${context.file.parent}/ddl/dup_tbl_basic_create_random_bucket.sql""").text
+
+        streamLoad {
+            table 'stream_load_dup_tbl_basic_random_bucket'
+            set 'column_separator', '|'
+            set 'columns', columns[0]
+            set 'load_to_single_tablet', 'false'
+            file files[0]
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+        // def res = sql "show tablets from stream_load_dup_tbl_basic_random_bucket"
+        // assertEquals(res[0][10].toString(), "20")
+    } finally {
+        sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
+    }
+
     // sequence
     try {
             sql new File("""${context.file.parent}/ddl/uniq_tbl_basic_drop_sequence.sql""").text
@@ -453,7 +486,7 @@ suite("test_stream_load_properties", "p0") {
             }
         }
         def tableName1 = "stream_load_" + tableName
-        qt_sql_merge_type "select * from ${tableName1} order by k00,k01"                  
+        qt_sql_merge_type "select * from ${tableName1} order by k00,k01"
     } finally {
         sql new File("""${context.file.parent}/ddl/mow_tbl_basic_drop.sql""").text
     }
@@ -590,7 +623,7 @@ suite("test_stream_load_properties", "p0") {
                 sleep(1000)
                 count++
             }
-            
+
             if (i <= 3) {
                 qt_sql_2pc_commit "select * from ${tableName1} order by k00,k01"
             } else {
@@ -606,7 +639,7 @@ suite("test_stream_load_properties", "p0") {
         }
     }
 
-    // compress_type 
+    // compress_type
     // gz/bz2/lz4
     // todo lzo/deflate
     // i = 0
@@ -827,7 +860,7 @@ suite("test_stream_load_properties", "p0") {
                 set 'format', 'json'
                 set 'columns', columns[i]
                 set 'strip_outer_array', 'true'
-                set 'jsonpath', '[\"$.k00\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\", \"$.k18\"]'
+                set 'jsonpaths', '[\"$.k00\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\", \"$.k18\"]'
                 if (i <= 3) {
                     file json_files[0]
                 } else {
@@ -898,6 +931,216 @@ suite("test_stream_load_properties", "p0") {
                 qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
             } else {
                 qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    // EXEC_MEM_LIMIT illegal number
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'exec_mem_limit', 'a'
+                set 'columns', columns[i]
+                set 'read_json_by_line', 'true'
+                if (i <= 3) {
+                    file json_by_line_files[0]
+                } else {
+                    file json_by_line_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("fail", json.Status.toLowerCase())
+                    assertEquals("[INVALID_ARGUMENT]Invalid mem limit format, stoll", json.Message)
+                }
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    // test read_json_by_line with enable_simdjson_reader=false/true
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def get_be_param = { paramName ->
+        // assuming paramName on all BEs have save value
+        String backend_id = backendId_to_backendIP.keySet()[0]
+        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+        assertEquals(code, 0)
+        def configList = parseJson(out.trim())
+        assert configList instanceof List
+        for (Object ele in (List) configList) {
+            assert ele instanceof List<String>
+            if (((List<String>) ele)[0] == paramName) {
+                return ((List<String>) ele)[2]
+            }
+        }
+    }
+
+    def set_be_param = { paramName, paramValue ->
+        // for eache BE node, set paramName=paramValue
+        for (String id in backendId_to_backendIP.keySet()) {
+            def beIp = backendId_to_backendIP.get(id)
+            def bePort = backendId_to_backendHttpPort.get(id)
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assertTrue(out.contains("OK"))
+        }
+    }
+
+    // read and save original value of enable_simdjson_reader
+    boolean enable_simdjson_reader = Boolean.parseBoolean(get_be_param.call("enable_simdjson_reader"))
+
+    i = 0
+    try {
+        // set enable_simdjson_reader=false and test
+        set_be_param.call("enable_simdjson_reader", "false")
+
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'columns', columns[i]
+                set 'read_json_by_line', 'true'
+                if (i <= 3) {
+                    file json_by_line_files[0]
+                } else {
+                    file json_by_line_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            def tableName1 =  "stream_load_" + tableName
+            if (i <= 3) {
+                qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    i = 0
+    try {
+        // set enable_simdjson_reader=true and test
+        set_be_param.call("enable_simdjson_reader", "true")
+
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'columns', columns[i]
+                set 'read_json_by_line', 'true'
+                if (i <= 3) {
+                    file json_by_line_files[0]
+                } else {
+                    file json_by_line_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            def tableName1 =  "stream_load_" + tableName
+            if (i <= 3) {
+                qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+    // restore BEs to original value
+    set_be_param.call("enable_simdjson_reader", enable_simdjson_reader ? "true" : "false")
+
+    // test invalid jsonpaths
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'columns', columns[i]
+                set 'strip_outer_array', 'true'
+                set 'jsonpaths', '[\"$.invalid\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\", \"$.k18\"]'
+                if (i <= 3) {
+                    file json_files[0]
+                } else {
+                    file json_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("fail", json.Status.toLowerCase())
+                    assertTrue(json.Message.contains("too many filtered rows"))
+                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
+                    assertEquals(0, json.NumberLoadedRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberFilteredRows)
+                }
             }
             i++
         }

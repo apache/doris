@@ -590,6 +590,7 @@ public class ReportHandler extends Daemon {
     private static void sync(Map<Long, TTablet> backendTablets, ListMultimap<Long, Long> tabletSyncMap,
                              long backendId, long backendReportVersion) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        OUTER:
         for (Long dbId : tabletSyncMap.keySet()) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -612,11 +613,11 @@ public class ReportHandler extends Daemon {
                     continue;
                 }
 
-                if (backendReportVersion < Env.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
-                    break;
-                }
-
                 try {
+                    if (backendReportVersion < Env.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
+                        break OUTER;
+                    }
+
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -978,6 +979,9 @@ public class ReportHandler extends Daemon {
             for (int i = 0; i < tabletMetaList.size(); i++) {
                 long tabletId = tabletIds.get(i);
                 TabletMeta tabletMeta = tabletMetaList.get(i);
+                if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                    continue;
+                }
                 // always get old schema hash(as effective one)
                 int effectiveSchemaHash = tabletMeta.getOldSchemaHash();
                 StorageMediaMigrationTask task = new StorageMediaMigrationTask(backendId, tabletId,

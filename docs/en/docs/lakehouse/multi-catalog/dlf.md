@@ -67,23 +67,25 @@ Doris supports accessing Hive/Iceberg/Hudi metadata in DLF.
 ### Use OSS-HDFS as the datasource
 
 1. Enable OSS-HDFS. [Grant access to OSS or OSS-HDFS](https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-hdfsnew)
-2. Download the SDK. [JindoData SDK](https://github.com/aliyun/alibabacloud-jindodata/blob/master/docs/user/5.x/5.0.0-beta7/jindodata_download.md)
-3. Decompress the jindosdk.tar.gz, and then enter its lib directory and put `jindo-core.jar, jindo-sdk.jar` to both `${DORIS_HOME}/fe/lib` and `${DORIS_HOME}/be/lib/java_extensions`.
+2. Download the SDK. [JindoData SDK](https://github.com/aliyun/alibabacloud-jindodata/blob/master/docs/user/5.x/5.0.0-beta7/jindodata_download.md). If the Jindo SDK directory already exists on the cluster, skip this step.
+3. Decompress the jindosdk.tar.gz or locate the Jindo SDK directory on the cluster, and then enter its lib directory and put `jindo-core.jar, jindo-sdk.jar` to both `${DORIS_HOME}/fe/lib` and `${DORIS_HOME}/be/lib/java_extensions/preload-extensions`.
 4. Create DLF Catalog, set `oss.hdfs.enabled` as `true`：
 
-```sql
-CREATE CATALOG dlf_oss_hdfs PROPERTIES (
-   "type"="hms",
-   "hive.metastore.type" = "dlf",
-   "dlf.proxy.mode" = "DLF_ONLY",
-   "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
-   "dlf.region" = "cn-beijing",
-   "dlf.uid" = "uid",
-   "dlf.access_key" = "ak",
-   "dlf.secret_key" = "sk",
-   "oss.hdfs.enabled" = "true"
-);
-```
+    ```sql
+    CREATE CATALOG dlf_oss_hdfs PROPERTIES (
+       "type"="hms",
+       "hive.metastore.type" = "dlf",
+       "dlf.proxy.mode" = "DLF_ONLY",
+       "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
+       "dlf.region" = "cn-beijing",
+       "dlf.uid" = "uid",
+       "dlf.access_key" = "ak",
+       "dlf.secret_key" = "sk",
+       "oss.hdfs.enabled" = "true"
+    );
+    ```
+
+5. When the Jindo SDK version is inconsistent with the version used on the EMR cluster, will reported `Plugin not found` and the Jindo SDK  needs to be replaced with the corresponding version.
 
 ### DLF Iceberg Catalog
 

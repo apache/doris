@@ -82,8 +82,8 @@ public:
     }
 
     std::string get_name() const override;
+    bool is_column_struct() const override { return true; }
     const char* get_family_name() const override { return "Struct"; }
-    bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
@@ -124,6 +124,9 @@ public:
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
 
+    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override;
+
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
@@ -160,6 +163,9 @@ public:
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
     }
+
+    MutableColumnPtr get_shrinked_column() override;
+
     void reserve(size_t n) override;
     void resize(size_t n) override;
     size_t byte_size() const override;

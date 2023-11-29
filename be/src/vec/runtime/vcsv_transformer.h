@@ -40,8 +40,9 @@ namespace doris::vectorized {
 
 class VCSVTransformer final : public VFileFormatTransformer {
 public:
-    VCSVTransformer(doris::io::FileWriter* file_writer, const VExprContextSPtrs& output_vexpr_ctxs,
-                    bool output_object_data, std::string_view header_type, std::string_view header,
+    VCSVTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                    const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data,
+                    std::string_view header_type, std::string_view header,
                     std::string_view column_separator, std::string_view line_delimiter);
 
     ~VCSVTransformer() = default;
@@ -62,7 +63,7 @@ private:
     std::string_view _column_separator;
     std::string_view _line_delimiter;
 
-    doris::io::FileWriter* _file_writer;
+    doris::io::FileWriter* _file_writer = nullptr;
     // Used to buffer the export data of plain text
     // TODO(cmy): I simply use a fmt::memmory_buffer to buffer the data, to avoid calling
     // file writer's write() for every single row.

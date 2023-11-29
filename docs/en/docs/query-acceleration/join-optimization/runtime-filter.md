@@ -95,7 +95,7 @@ For query options related to Runtime Filter, please refer to the following secti
 
   - `runtime_filter_mode`: Used to adjust the push-down strategy of Runtime Filter, including three strategies of OFF, LOCAL, and GLOBAL. The default setting is the GLOBAL strategy
 
-  - `runtime_filter_wait_time_ms`: the time that ScanNode in the left table waits for each Runtime Filter, the default is 1000ms
+  - `runtime_filter_wait_time_ms`: The time that ScanNode in the left table waits for each Runtime Filter, the default is 1000ms
 
   - `runtime_filters_max_num`: The maximum number of Bloom Filters in the Runtime Filter that can be applied to each query, the default is 10
 
@@ -106,6 +106,8 @@ For query options related to Runtime Filter, please refer to the following secti
   - `runtime_bloom_filter_size`: The default length of Bloom Filter in Runtime Filter, the default is 2097152 (2M)
 
   - `runtime_filter_max_in_num`: If the number of rows in the right table of the join is greater than this value, we will not generate an IN predicate, the default is 1024
+
+  - `runtime_filter_wait_infinitely`: If the parameter is true, the scan node of the left table will wait until it receives a runtime filter or the query times out, default is false
 
 The query options are further explained below.
 

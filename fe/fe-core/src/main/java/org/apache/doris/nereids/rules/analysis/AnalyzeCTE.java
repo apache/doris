@@ -34,11 +34,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Register CTE, includes checking columnAliases, checking CTE name, analyzing each CTE and store the
@@ -52,6 +54,18 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
     public Rule build() {
         return logicalCTE().thenApply(ctx -> {
             LogicalCTE<Plan> logicalCTE = ctx.root;
+
+            // step 0. check duplicate cte name
+            Set<String> uniqueAlias = Sets.newHashSet();
+            List<String> aliases = logicalCTE.getAliasQueries().stream()
+                    .map(LogicalSubQueryAlias::getAlias)
+                    .collect(Collectors.toList());
+            for (String alias : aliases) {
+                if (uniqueAlias.contains(alias)) {
+                    throw new AnalysisException("CTE name [" + alias + "] cannot be used more than once.");
+                }
+                uniqueAlias.add(alias);
+            }
 
             // step 1. analyzed all cte plan
             Pair<CTEContext, List<LogicalCTEProducer<Plan>>> result = analyzeCte(logicalCTE, ctx.cascadesContext);
@@ -76,17 +90,10 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         List<LogicalSubQueryAlias<Plan>> aliasQueries = logicalCTE.getAliasQueries();
         List<LogicalCTEProducer<Plan>> cteProducerPlans = new ArrayList<>();
         for (LogicalSubQueryAlias<Plan> aliasQuery : aliasQueries) {
-            String cteName = aliasQuery.getAlias();
-            if (outerCteCtx.containsCTE(cteName)) {
-                throw new AnalysisException("CTE name [" + cteName + "] cannot be used more than once.");
-            }
-
             // we should use a chain to ensure visible of cte
-            CTEContext innerCteCtx = outerCteCtx;
-
             LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
             CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
-                    cascadesContext, parsedCtePlan, innerCteCtx);
+                    cascadesContext, parsedCtePlan, outerCteCtx);
             innerCascadesCtx.newAnalyzer().analyze();
             LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
             checkColumnAlias(aliasQuery, analyzedCtePlan.getOutput());

@@ -64,7 +64,6 @@ private:
 
     std::string _bucket;
     std::string _key;
-    bool _closed = false;
     bool _aborted = false;
 
     std::shared_ptr<Aws::S3::S3Client> _client;
@@ -77,7 +76,7 @@ private:
     std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
     IFileCache::Key _cache_key;
-    IFileCache* _cache;
+    IFileCache* _cache = nullptr;
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 

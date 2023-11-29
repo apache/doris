@@ -19,31 +19,41 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Types_types.h>
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <functional>
 #include <ostream>
 #include <utility>
 
 #include "common/status.h"
+#include "exec/schema_scanner.h"
+#include "gen_cpp/descriptors.pb.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/slice.h"
+#include "util/timezone_utils.h"
+#include "vec/columns/column.h"
 #include "vec/common/typeid_cast.h"
-#include "vec/exec/format/format_common.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
 #include "vec/exec/format/parquet/vparquet_group_reader.h"
 #include "vec/exec/format/parquet/vparquet_page_index.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
@@ -296,6 +306,12 @@ void ParquetReader::_init_file_description() {
     }
 }
 
+void ParquetReader::iceberg_sanitize(const std::vector<std::string>& read_columns) {
+    if (_file_metadata != nullptr) {
+        _file_metadata->iceberg_sanitize(read_columns);
+    }
+}
+
 Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         const std::vector<std::string>& missing_column_names,
@@ -406,7 +422,7 @@ Status ParquetReader::set_fill_columns(
         _lazy_read_ctx.all_read_columns.emplace_back(read_col);
         PrimitiveType column_type = schema.get_column(read_col)->type.type;
         if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
-            _has_complex_type = true;
+            _lazy_read_ctx.has_complex_type = true;
         }
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_col);
@@ -440,7 +456,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!_has_complex_type && _enable_lazy_mat &&
+    if (!_lazy_read_ctx.has_complex_type && _enable_lazy_mat &&
         _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
@@ -457,18 +473,6 @@ Status ParquetReader::set_fill_columns(
 
     _fill_all_columns = true;
     return Status::OK();
-}
-
-std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type() {
-    std::unordered_map<std::string, TypeDescriptor> map;
-    const auto& schema_desc = _file_metadata->schema();
-    std::unordered_set<std::string> column_names;
-    schema_desc.get_column_names(&column_names);
-    for (auto& name : column_names) {
-        auto field = schema_desc.get_column(name);
-        map.emplace(name, field->type);
-    }
-    return map;
 }
 
 Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
@@ -532,15 +536,14 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
-    {
-        SCOPED_RAW_TIMER(&_statistics.column_read_time);
-        Status batch_st =
-                _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
-        if (!batch_st.ok()) {
-            return Status::InternalError("Read parquet file {} failed, reason = {}",
-                                         _scan_range.path, batch_st.to_string());
-        }
+    SCOPED_RAW_TIMER(&_statistics.column_read_time);
+    Status batch_st =
+            _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
+    if (!batch_st.ok()) {
+        return Status::InternalError("Read parquet file {} failed, reason = {}", _scan_range.path,
+                                     batch_st.to_string());
     }
+
     if (_row_group_eof) {
         auto column_st = _current_group_reader->statistics();
         _column_statistics.merge(column_st);
@@ -739,7 +742,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if (_has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
+    if (_lazy_read_ctx.has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
         _colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();

@@ -31,7 +31,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
@@ -174,15 +173,12 @@ struct ToBitmapWithCheck {
                     if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
                         res_data[i].add(int_value);
                     } else {
-                        std::stringstream ss;
-                        ss << "The input: " << std::string(raw_str, str_size)
-                           << " is not valid, to_bitmap only support bigint value from 0 to "
-                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
-                              "column with negative values or cannot load negative values to "
-                              "column "
-                              "with to_bitmap MV on it.";
-                        LOG(WARNING) << ss.str();
-                        return Status::InternalError(ss.str());
+                        return Status::InvalidArgument(
+                                "The input: {} is not valid, to_bitmap only support bigint value "
+                                "from 0 to 18446744073709551615 currently, cannot create MV with "
+                                "to_bitmap on column with negative values or cannot load negative "
+                                "values to column with to_bitmap MV on it.",
+                                std::string(raw_str, str_size));
                     }
                 }
             }
@@ -199,20 +195,17 @@ struct ToBitmapWithCheck {
                     if (LIKELY(int_value >= 0)) {
                         res_data[i].add(int_value);
                     } else {
-                        std::stringstream ss;
-                        ss << "The input: " << int_value
-                           << " is not valid, to_bitmap only support bigint value from 0 to "
-                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
-                              "column with negative values or cannot load negative values to "
-                              "column "
-                              "with to_bitmap MV on it.";
-                        LOG(WARNING) << ss.str();
-                        return Status::InternalError(ss.str());
+                        return Status::InvalidArgument(
+                                "The input: {} is not valid, to_bitmap only support bigint value "
+                                "from 0 to 18446744073709551615 currently, cannot create MV with "
+                                "to_bitmap on column with negative values or cannot load negative "
+                                "values to column with to_bitmap MV on it.",
+                                int_value);
                     }
                 }
             }
         } else {
-            return Status::InternalError("not support type");
+            return Status::InvalidArgument("not support type");
         }
         return Status::OK();
     }
@@ -584,7 +577,7 @@ struct BitmapAndNot {
             mid_data &= rvec[i];
             res[i] = lvec[i];
             res[i] -= mid_data;
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
@@ -595,7 +588,7 @@ struct BitmapAndNot {
             mid_data &= rval;
             res[i] = lvec[i];
             res[i] -= mid_data;
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
@@ -606,7 +599,7 @@ struct BitmapAndNot {
             mid_data &= rvec[i];
             res[i] = lval;
             res[i] -= mid_data;
-            mid_data.clear();
+            mid_data.reset();
         }
     }
 };
@@ -630,7 +623,7 @@ struct BitmapAndNotCount {
             mid_data = lvec[i];
             mid_data &= rvec[i];
             res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData* res) {
@@ -640,7 +633,7 @@ struct BitmapAndNotCount {
             mid_data = lval;
             mid_data &= rvec[i];
             res[i] = lval.andnot_cardinality(mid_data);
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData* res) {
@@ -650,7 +643,7 @@ struct BitmapAndNotCount {
             mid_data = lvec[i];
             mid_data &= rval;
             res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.clear();
+            mid_data.reset();
         }
     }
 };

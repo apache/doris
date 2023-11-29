@@ -25,20 +25,26 @@ Status CgroupCpuCtl::init() {
     _doris_cgroup_cpu_path = config::doris_cgroup_cpu_path;
     if (_doris_cgroup_cpu_path.empty()) {
         LOG(INFO) << "doris cgroup cpu path is not specify, path=" << _doris_cgroup_cpu_path;
-        return Status::InternalError("doris cgroup cpu path {} is not specify.",
-                                     _doris_cgroup_cpu_path);
+        return Status::InternalError<false>("doris cgroup cpu path {} is not specify.",
+                                            _doris_cgroup_cpu_path);
     }
 
     if (access(_doris_cgroup_cpu_path.c_str(), F_OK) != 0) {
         LOG(ERROR) << "doris cgroup cpu path not exists, path=" << _doris_cgroup_cpu_path;
-        return Status::InternalError("doris cgroup cpu path {} not exists.",
-                                     _doris_cgroup_cpu_path);
+        return Status::InternalError<false>("doris cgroup cpu path {} not exists.",
+                                            _doris_cgroup_cpu_path);
     }
 
     if (_doris_cgroup_cpu_path.back() != '/') {
         _doris_cgroup_cpu_path = _doris_cgroup_cpu_path + "/";
     }
     return Status::OK();
+}
+
+void CgroupCpuCtl::get_cgroup_cpu_info(uint64_t* cpu_shares, uint64_t* cpu_hard_limit) {
+    std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
+    *cpu_shares = this->_cpu_shares;
+    *cpu_hard_limit = this->_cpu_hard_limit;
 }
 
 void CgroupCpuCtl::update_cpu_hard_limit(int cpu_hard_limit) {
@@ -54,19 +60,32 @@ void CgroupCpuCtl::update_cpu_hard_limit(int cpu_hard_limit) {
     }
 }
 
+void CgroupCpuCtl::update_cpu_soft_limit(int cpu_shares) {
+    if (!_init_succ) {
+        return;
+    }
+    std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
+    if (_cpu_shares != cpu_shares) {
+        Status ret = modify_cg_cpu_soft_limit_no_lock(cpu_shares);
+        if (ret.ok()) {
+            _cpu_shares = cpu_shares;
+        }
+    }
+}
+
 Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, int value, std::string msg,
                                        bool is_append) {
     int fd = open(file_path.c_str(), is_append ? O_RDWR | O_APPEND : O_RDWR);
     if (fd == -1) {
         LOG(ERROR) << "open path failed, path=" << file_path;
-        return Status::InternalError("open path failed, path={}", file_path);
+        return Status::InternalError<false>("open path failed, path={}", file_path);
     }
 
     auto str = fmt::format("{}\n", value);
     int ret = write(fd, str.c_str(), str.size());
     if (ret == -1) {
         LOG(ERROR) << msg << " write sys file failed";
-        return Status::InternalError("{} write sys file failed", msg);
+        return Status::InternalError<false>("{} write sys file failed", msg);
     }
     LOG(INFO) << msg << " success";
     return Status::OK();
@@ -81,8 +100,8 @@ Status CgroupV1CpuCtl::init() {
         int ret = mkdir(_cgroup_v1_cpu_query_path.c_str(), S_IRWXU);
         if (ret != 0) {
             LOG(ERROR) << "cgroup v1 mkdir query failed, path=" << _cgroup_v1_cpu_query_path;
-            return Status::InternalError("cgroup v1 mkdir query failed, path=",
-                                         _cgroup_v1_cpu_query_path);
+            return Status::InternalError<false>("cgroup v1 mkdir query failed, path=",
+                                                _cgroup_v1_cpu_query_path);
         }
     }
 
@@ -92,14 +111,16 @@ Status CgroupV1CpuCtl::init() {
         int ret = mkdir(_cgroup_v1_cpu_tg_path.c_str(), S_IRWXU);
         if (ret != 0) {
             LOG(ERROR) << "cgroup v1 mkdir workload group failed, path=" << _cgroup_v1_cpu_tg_path;
-            return Status::InternalError("cgroup v1 mkdir workload group failed, path=",
-                                         _cgroup_v1_cpu_tg_path);
+            return Status::InternalError<false>("cgroup v1 mkdir workload group failed, path=",
+                                                _cgroup_v1_cpu_tg_path);
         }
     }
 
-    // quota path
+    // quota file
     _cgroup_v1_cpu_tg_quota_file = _cgroup_v1_cpu_tg_path + "/cpu.cfs_quota_us";
-    // task path
+    // cpu.shares file
+    _cgroup_v1_cpu_tg_shares_file = _cgroup_v1_cpu_tg_path + "/cpu.shares";
+    // task file
     _cgroup_v1_cpu_tg_task_file = _cgroup_v1_cpu_tg_path + "/tasks";
     LOG(INFO) << "cgroup v1 cpu path init success"
               << ", query tg path=" << _cgroup_v1_cpu_tg_path
@@ -108,6 +129,11 @@ Status CgroupV1CpuCtl::init() {
               << ", core num=" << _cpu_core_num;
     _init_succ = true;
     return Status::OK();
+}
+
+Status CgroupV1CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_shares) {
+    std::string msg = "modify cpu shares to " + std::to_string(cpu_shares);
+    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_shares_file, cpu_shares, msg, false);
 }
 
 Status CgroupV1CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
@@ -120,9 +146,14 @@ Status CgroupV1CpuCtl::add_thread_to_cgroup() {
     if (!_init_succ) {
         return Status::OK();
     }
+#if defined(__APPLE__)
+    //unsupported now
+    return Status::OK();
+#else
     int tid = static_cast<int>(syscall(SYS_gettid));
     std::string msg = "add thread " + std::to_string(tid) + " to group";
     std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_task_file, tid, msg, true);
+#endif
 }
 } // namespace doris

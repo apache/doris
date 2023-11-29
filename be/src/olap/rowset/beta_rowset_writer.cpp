@@ -28,7 +28,6 @@
 #include <sstream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -49,11 +48,11 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/time.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
-#include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -122,8 +121,6 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    _context.schema_change_recorder =
-            std::make_shared<vectorized::schema_util::LocalSchemaChangeRecorder>();
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BetaRowsetWriter>>(this);
     RETURN_IF_ERROR(_segment_creator.init(_context));
@@ -323,17 +320,19 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     int ret;
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (_context.tablet_schema->has_inverted_index(column.unique_id())) {
-            auto index_id =
-                    _context.tablet_schema->get_inverted_index(column.unique_id())->index_id();
+        if (_context.tablet_schema->has_inverted_index(column)) {
+            auto index_info = _context.tablet_schema->get_inverted_index(column);
+            auto index_id = index_info->index_id();
             auto src_idx_path =
                     begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
-                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id)
+                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id,
+                                        index_info->get_index_suffix())
                               : InvertedIndexDescriptor::local_inverted_index_path_segcompacted(
                                         _context.rowset_dir, _context.rowset_id, begin, end,
-                                        index_id);
+                                        index_id, index_info->get_index_suffix());
             auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
-                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id);
+                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id,
+                    index_info->get_index_suffix());
             VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
                        << dst_idx_path;
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
@@ -362,7 +361,10 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
+    // leave _check_and_set_is_doing_segcompaction as the last condition
+    // otherwise _segcompacting_cond will never get notified
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
+        !_context.tablet_schema->cluster_key_idxes().empty() ||
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
@@ -426,6 +428,13 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
     }
+    // Update the tablet schema in the rowset metadata if the tablet schema contains a variant.
+    // During the build process, _context.tablet_schema will be used as the rowset schema.
+    // This situation may arise in the event of a linked schema change. If this schema is not set,
+    // the subcolumns of the variant will be lost.
+    if (_context.tablet_schema->num_variant_columns() > 0 && rowset->tablet_schema() != nullptr) {
+        _context.tablet_schema = rowset->tablet_schema();
+    }
     return Status::OK();
 }
 
@@ -444,11 +453,9 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
         return Status::OK();
     }
 
-    TabletSchemaSPtr flush_schema;
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
-        RETURN_IF_ERROR(
-                _segment_creator.flush_single_block(block, segment_id, flush_size, flush_schema));
+        RETURN_IF_ERROR(_segment_creator.flush_single_block(block, segment_id, flush_size));
     }
     return Status::OK();
 }
@@ -521,6 +528,11 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
     }
 
+    // update rowset meta tablet schema if tablet schema updated
+    if (_context.tablet_schema->num_variant_columns() > 0) {
+        _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    }
+
     RETURN_NOT_OK_STATUS_WITH_WARN(
             RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
                                          &rowset),
@@ -541,6 +553,23 @@ bool BetaRowsetWriter::_is_segment_overlapping(
         last = cur_max;
     }
     return false;
+}
+
+// update tablet schema when meet variant columns, before commit_txn
+// Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
+// _tabelt->tablet_schema:  A(bigint), B(double)
+//  => update_schema:       A(bigint), B(double), C(int), D(int)
+void BetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
+    std::lock_guard<std::mutex> lock(*(_context.schema_lock));
+    TabletSchemaSPtr update_schema = vectorized::schema_util::get_least_common_schema(
+            {_context.tablet_schema, flush_schema}, nullptr);
+    CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
+            << "Rowset merge schema columns count is " << update_schema->num_columns()
+            << ", but flush_schema is larger " << flush_schema->num_columns()
+            << " update_schema: " << update_schema->dump_structure()
+            << " flush_schema: " << flush_schema->dump_structure();
+    _context.tablet_schema.swap(update_schema);
+    VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
 }
 
 void BetaRowsetWriter::_build_rowset_meta_with_spec_field(
@@ -677,6 +706,8 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
 
 Status BetaRowsetWriter::_check_segment_number_limit() {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
+    DBUG_EXECUTE_IF("BetaRowsetWriter._check_segment_number_limit_too_many_segments",
+                    { total_segment_num = dp->param("segnum", 1024); });
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
@@ -688,7 +719,7 @@ Status BetaRowsetWriter::_check_segment_number_limit() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     uint32_t segid_offset = segment_id - _segment_start_id;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
@@ -745,79 +776,6 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     writer->reset();
 
-    return Status::OK();
-}
-
-Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block,
-                                                TabletSchemaSPtr& flush_schema) {
-    if (block.rows() == 0) {
-        return Status::OK();
-    }
-
-    // Sanitize block to match exactly from the same type of frontend meta
-    vectorized::schema_util::FullBaseSchemaView schema_view;
-    schema_view.table_id = _context.tablet_schema->table_id();
-    vectorized::ColumnWithTypeAndName* variant_column =
-            block.try_get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
-    if (!variant_column) {
-        return Status::OK();
-    }
-    auto base_column = variant_column->column;
-    vectorized::ColumnObject& object_column =
-            assert_cast<vectorized::ColumnObject&>(base_column->assume_mutable_ref());
-    if (object_column.empty()) {
-        block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
-        return Status::OK();
-    }
-    object_column.finalize();
-    // Has extended columns
-    RETURN_IF_ERROR(vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
-    // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
-    //  static   dynamic
-    // | ----- | ------- |
-    // The static ones are original _tablet_schame columns
-    flush_schema = std::make_shared<TabletSchema>(*_context.tablet_schema);
-    vectorized::Block flush_block(std::move(block));
-    // The dynamic ones are auto generated and extended, append them the the orig_block
-    for (auto& entry : object_column.get_subcolumns()) {
-        const std::string& column_name = entry->path.get_path();
-        auto column_iter = schema_view.column_name_to_column.find(column_name);
-        if (UNLIKELY(column_iter == schema_view.column_name_to_column.end())) {
-            // Column maybe dropped by light weight schema change DDL
-            continue;
-        }
-        TabletColumn column(column_iter->second);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                column, column.is_nullable());
-        // Dynamic generated columns does not appear in original tablet schema
-        if (_context.tablet_schema->field_index(column.name()) < 0) {
-            flush_schema->append_column(column);
-            flush_block.insert({data_type->create_column(), data_type, column.name()});
-        }
-    }
-
-    // Ensure column are all present at this schema version.Otherwise there will be some senario:
-    //  Load1 -> version(10) with schema [a, b, c, d, e], d & e is new added columns and schema version became 10
-    //  Load2 -> version(10) with schema [a, b, c] and has no extended columns and fetched the schema at version 10
-    //  Load2 will persist meta with [a, b, c] but Load1 will persist meta with [a, b, c, d, e]
-    // So we should make sure that rowset at the same schema version alawys contain the same size of columns.
-    // so that all columns at schema_version is in either _context.tablet_schema or schema_change_recorder
-    for (const auto& [name, column] : schema_view.column_name_to_column) {
-        if (_context.tablet_schema->field_index(name) == -1) {
-            const auto& tcolumn = schema_view.column_name_to_column[name];
-            TabletColumn new_column(tcolumn);
-            _context.schema_change_recorder->add_extended_columns(column,
-                                                                  schema_view.schema_version);
-        }
-    }
-
-    // Last schema alignment before flush to disk, due to the schema maybe variant before this procedure
-    // Eg. add columnA(INT) -> drop ColumnA -> add ColumnA(Double), then columnA could be type of `Double`,
-    // unfold will cast to Double type
-    RETURN_IF_ERROR(vectorized::schema_util::unfold_object(
-            flush_block.get_position_by_name(BeConsts::DYNAMIC_COLUMN_NAME), flush_block, true));
-    flush_block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
-    block.swap(flush_block);
     return Status::OK();
 }
 

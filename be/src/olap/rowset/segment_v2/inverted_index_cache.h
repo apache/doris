@@ -17,7 +17,14 @@
 
 #pragma once
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include <CLucene.h> // IWYU pragma: keep
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/util/Misc.h>
 #include <butil/macros.h>
@@ -121,7 +128,7 @@ private:
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
 
 private:
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValue>;

@@ -45,6 +45,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -227,7 +228,6 @@ public class ExportJob implements Writable {
     public void generateOutfileStatement() throws UserException {
         exportTable.readLock();
         try {
-            // generateQueryStmtOld
             generateQueryStmt();
         } finally {
             exportTable.readUnlock();
@@ -616,6 +616,9 @@ public class ExportJob implements Writable {
         setExportJobState(ExportJobState.CANCELLED);
         finishTimeMs = System.currentTimeMillis();
         failMsg = new ExportFailMsg(type, msg);
+        if (FeConstants.runningUnitTest) {
+            return;
+        }
         Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.CANCELLED);
     }
 

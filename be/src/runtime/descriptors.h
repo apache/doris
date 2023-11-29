@@ -32,7 +32,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
@@ -400,7 +399,7 @@ private:
     friend class TabletSchema;
 
     const TupleId _id;
-    TableDescriptor* _table_desc;
+    TableDescriptor* _table_desc = nullptr;
     int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;

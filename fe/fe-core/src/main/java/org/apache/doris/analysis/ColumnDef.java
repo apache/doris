@@ -181,6 +181,7 @@ public class ColumnDef {
     private DefaultValue defaultValue;
     private String comment;
     private boolean visible;
+    private int clusterKeyId = -1;
 
     public ColumnDef(String name, TypeDef typeDef) {
         this(name, typeDef, false, null, false, false, DefaultValue.NOT_SET, "");
@@ -306,27 +307,15 @@ public class ColumnDef {
         return visible;
     }
 
+    public void setClusterKeyId(int clusterKeyId) {
+        this.clusterKeyId = clusterKeyId;
+    }
+
     public void analyze(boolean isOlap) throws AnalysisException {
         if (name == null || typeDef == null) {
             throw new AnalysisException("No column name or column type in column definition.");
         }
         FeNameFormat.checkColumnName(name);
-
-        // When string type length is not assigned, it needs to be assigned to 1.
-        if (typeDef.getType().isScalarType()) {
-            final ScalarType targetType = (ScalarType) typeDef.getType();
-            if (targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet()) {
-                if (targetType.getPrimitiveType() == PrimitiveType.VARCHAR) {
-                    // always set varchar length MAX_VARCHAR_LENGTH
-                    targetType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
-                } else if (targetType.getPrimitiveType() == PrimitiveType.STRING) {
-                    // always set text length MAX_STRING_LENGTH
-                    targetType.setLength(ScalarType.MAX_STRING_LENGTH);
-                } else {
-                    targetType.setLength(1);
-                }
-            }
-        }
 
         typeDef.analyze(null);
 
@@ -500,6 +489,7 @@ public class ColumnDef {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
@@ -593,7 +583,8 @@ public class ColumnDef {
         }
 
         return new Column(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue.value, comment,
-                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue());
+                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
+                clusterKeyId);
     }
 
     @Override

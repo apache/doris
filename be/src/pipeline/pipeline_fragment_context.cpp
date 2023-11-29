@@ -21,10 +21,6 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/span_context.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
@@ -99,7 +95,6 @@
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
-#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exec/join/vhash_join_node.h"
@@ -131,7 +126,8 @@ PipelineFragmentContext::PipelineFragmentContext(
           _call_back(call_back),
           _is_report_on_cancel(true),
           _report_status_cb(report_status_cb),
-          _group_commit(group_commit) {
+          _group_commit(group_commit),
+          _create_time(MonotonicNanos()) {
     if (_query_ctx->get_task_group()) {
         _task_group_entity = _query_ctx->get_task_group()->task_entity();
     }
@@ -142,7 +138,7 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     auto st = _query_ctx->exec_status();
     if (_runtime_state != nullptr) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_ATTACH_TASK(_runtime_state.get());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         _call_back(_runtime_state.get(), &st);
         _runtime_state.reset();
     } else {
@@ -166,8 +162,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             LOG(WARNING) << "PipelineFragmentContext "
-                         << PrintInstanceStandardInfo(_query_id, _fragment_id,
-                                                      _fragment_instance_id)
+                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
                          << " is canceled, cancel message: " << msg;
 
         } else {
@@ -212,25 +207,19 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     SCOPED_TIMER(_prepare_timer);
 
     auto* fragment_context = this;
-    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
-    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_id));
-    }
 
-    LOG_INFO("PipelineFragmentContext::prepare")
-            .tag("query_id", print_id(_query_id))
-            .tag("fragment_id", _fragment_id)
-            .tag("instance_id", print_id(local_params.fragment_instance_id))
-            .tag("backend_num", local_params.backend_num)
-            .tag("pthread_id", (uintptr_t)pthread_self());
+    LOG_INFO("Preparing instance {}|{}, backend_num {}", print_id(_query_id),
+             print_id(local_params.fragment_instance_id), local_params.backend_num);
 
     // 1. init _runtime_state
-    _runtime_state = RuntimeState::create_unique(local_params, request.query_id,
-                                                 request.fragment_id, request.query_options,
-                                                 _query_ctx->query_globals, _exec_env);
+    _runtime_state = RuntimeState::create_unique(
+            local_params.fragment_instance_id, request.query_id, request.fragment_id,
+            request.query_options, _query_ctx->query_globals, _exec_env);
+    if (local_params.__isset.runtime_filter_params) {
+        _runtime_state->set_runtime_filter_params(local_params.runtime_filter_params);
+    }
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-    _runtime_state->set_tracer(std::move(tracer));
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -254,13 +243,19 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         fragment_context->set_is_report_success(request.query_options.is_report_success);
     }
 
-    auto* desc_tbl = _query_ctx->desc_tbl;
-    _runtime_state->set_desc_tbl(desc_tbl);
+    if (request.is_simplified_param) {
+        _desc_tbl = _query_ctx->desc_tbl;
+    } else {
+        DCHECK(request.__isset.desc_tbl);
+        RETURN_IF_ERROR(
+                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
+    }
+    _runtime_state->set_desc_tbl(_desc_tbl);
 
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
-                                  request.fragment.plan, *desc_tbl, &_root_plan));
+                                  request.fragment.plan, *_desc_tbl, &_root_plan));
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;
@@ -278,8 +273,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     std::vector<ExecNode*> scan_nodes;
     std::vector<TScanRangeParams> no_scan_ranges;
     _root_plan->collect_scan_nodes(&scan_nodes);
-    VLOG_CRITICAL << "scan_nodes.size()=" << scan_nodes.size();
-    VLOG_CRITICAL << "params.per_node_scan_ranges.size()="
+    VLOG_CRITICAL << "query " << print_id(get_query_id())
+                  << " scan_nodes.size()=" << scan_nodes.size();
+    VLOG_CRITICAL << "query " << print_id(get_query_id()) << " params.per_node_scan_ranges.size()="
                   << local_params.per_node_scan_ranges.size();
 
     // set scan range in ScanNode
@@ -297,29 +293,35 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
                                                  no_scan_ranges);
             const bool shared_scan =
                     find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
-            scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges);
             scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
-            static_cast<void>(scan_node->set_scan_ranges(scan_ranges));
-            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
+            static_cast<void>(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
+            VLOG_CRITICAL << "query " << print_id(get_query_id())
+                          << " scan_node_id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }
     }
 
     _runtime_state->set_per_fragment_instance_idx(local_params.sender_id);
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
+    _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
+    _runtime_state->set_total_load_streams(request.total_load_streams);
+    _runtime_state->set_num_local_sink(request.num_local_sink);
 
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 _runtime_state->obj_pool(), request.fragment.output_sink,
                 request.fragment.output_exprs, request, idx, _root_plan->row_desc(),
-                _runtime_state.get(), &_sink, *desc_tbl));
+                _runtime_state.get(), &_sink, *_desc_tbl));
     }
 
     _root_pipeline = fragment_context->add_pipeline();
+    _root_pipeline->set_is_root_pipeline();
+    _root_pipeline->set_collect_query_statistics_with_every_batch();
     RETURN_IF_ERROR(_build_pipelines(_root_plan, _root_pipeline));
     if (_sink) {
         RETURN_IF_ERROR(_create_sink(request.local_params[idx].sender_id,
@@ -700,9 +702,18 @@ Status PipelineFragmentContext::submit() {
     for (auto& task : _tasks) {
         st = scheduler->schedule_task(task.get());
         if (!st) {
-            std::lock_guard<std::mutex> l(_status_lock);
-            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
-            _total_tasks = submit_tasks;
+            {
+                std::lock_guard<std::mutex> l(_status_lock);
+                cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
+            }
+            {
+                // The fragment instance may contains 10 tasks, maybe 8 of them is in scheduler running
+                // and the 9th failed to add to scheduler, then it will update total_tasks.
+                // But the previous 8 tasks may finished and try to access total_tasks. So that
+                // has to use a lock to protect it.
+                std::lock_guard<std::mutex> l(_task_mutex);
+                _total_tasks = submit_tasks;
+            }
             break;
         }
         submit_tasks++;
@@ -710,7 +721,7 @@ Status PipelineFragmentContext::submit() {
     if (!st.ok()) {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
-            std::call_once(_close_once_flag, [this] { _close_action(); });
+            _close_fragment_instance();
         }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
@@ -742,7 +753,8 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
-        WARN_IF_ERROR(task->close(Status::OK()), "close_if_prepare_failed failed: ");
+        WARN_IF_ERROR(task->close(Status::OK()),
+                      fmt::format("Query {} closed since prepare failed", print_id(_query_id)));
         close_a_pipeline();
     }
 }
@@ -846,7 +858,13 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     return _root_pipeline->set_sink(sink_);
 }
 
-void PipelineFragmentContext::_close_action() {
+// If all pipeline tasks binded to the fragment instance are finished, then we could
+// close the fragment instance.
+void PipelineFragmentContext::_close_fragment_instance() {
+    if (_is_fragment_instance_closed) {
+        return;
+    }
+    Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
@@ -857,7 +875,7 @@ void PipelineFragmentContext::close_a_pipeline() {
     std::lock_guard<std::mutex> l(_task_mutex);
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
-        std::call_once(_close_once_flag, [this] { _close_action(); });
+        _close_fragment_instance();
     }
 }
 

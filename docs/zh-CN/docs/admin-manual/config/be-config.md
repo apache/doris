@@ -197,7 +197,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 * 类型：string
 * 描述：限制BE进程使用服务器最大内存百分比。用于防止BE内存挤占太多的机器内存，该参数必须大于0，当百分大于100%之后，该值会默认为100%。
-* 默认值：80%
+* 默认值：90%
 
 #### `cluster_id`
 
@@ -747,7 +747,7 @@ BaseCompaction:546859:
 #### `enable_single_replica_load`
 
 * 描述: 是否启动单副本数据导入功能
-* 默认值: false
+* 默认值: true
 
 #### `load_error_log_reserve_hours`
 
@@ -1493,11 +1493,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: 存放 jdbc driver 的默认目录。
 * 默认值: `${DORIS_HOME}/jdbc_drivers`
 
-#### `enable_parse_multi_dimession_array`
-
-* 描述: 在动态表中是否解析多维数组，如果是false遇到多维数组则会报错。
-* 默认值: true
-
 #### `enable_simdjson_reader`
 
 * 描述: 是否在导入json数据时用simdjson来解析。
@@ -1527,5 +1522,15 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 #### `enable_java_support`
 
-* Description: BE 是否开启使用java-jni，开启后允许 c++  与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
-* Default value: true
+* 描述: BE 是否开启使用java-jni，开启后允许 c++ 与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
+* 默认值: true
+
+#### `olap_table_sink_send_interval_microseconds`.
+
+* 描述： 数据导入时，Coordinator 的 sink 节点有一个轮询线程持续向对应BE发送数据。该线程将每隔 `olap_table_sink_send_interval_microseconds` 微秒检查是否有数据要发送。
+* 默认值：1000
+
+#### `olap_table_sink_send_interval_auto_partition_factor`.
+
+* 描述： 如果我们向一个启用了自动分区的表导入数据，那么 `olap_table_sink_send_interval_microseconds` 的时间间隔就会太慢。在这种情况下，实际间隔将乘以该系数。
+* 默认值：0.001

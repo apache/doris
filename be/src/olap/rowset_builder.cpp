@@ -26,18 +26,19 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gutil/strings/numbers.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -53,6 +54,7 @@
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -112,8 +114,7 @@ Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context)
     std::lock_guard<std::shared_mutex> lck(tablet->get_header_lock());
     int64_t cur_max_version = tablet->max_version_unlocked().second;
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+    if (tablet->tablet_state() == TABLET_NOTREADY) {
         // Disable 'partial_update' when the tablet is undergoing a 'schema changing process'
         if (_req.table_schema_param->is_partial_update()) {
             return Status::InternalError(
@@ -122,7 +123,7 @@ Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context)
         }
         _rowset_ids.clear();
     } else {
-        _rowset_ids = tablet->all_rs_id(cur_max_version);
+        RETURN_IF_ERROR(tablet->all_rs_id(cur_max_version, &_rowset_ids));
     }
     _delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
     mow_context =
@@ -193,6 +194,7 @@ Status RowsetBuilder::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
+    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _tablet->tablet_id();
     context.tablet = _tablet;
@@ -200,9 +202,8 @@ Status RowsetBuilder::init() {
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
-    std::unique_ptr<RowsetWriter> rowset_writer;
-    RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &rowset_writer));
-    _rowset_writer = std::move(rowset_writer);
+    _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
+    _pending_rs_guard = StorageEngine::instance()->pending_local_rowsets().add(context.rowset_id);
 
     if (config::cloud_mode) {
         // TODO(plat1ko)
@@ -238,8 +239,7 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(tablet->tablet_id())) {
+    if (tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                      "tablet_id: "
                   << tablet->tablet_id() << " txn_id: " << _req.txn_id;
@@ -248,11 +248,6 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
     auto beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(tablet->tablet_id())) {
-        return Status::OK();
-    }
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(
@@ -280,7 +275,6 @@ Status RowsetBuilder::wait_calc_delete_bitmap() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_wait_delete_bitmap_timer);
     RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
-    RETURN_IF_ERROR(_calc_delete_bitmap_token->get_delete_bitmap(_delete_bitmap));
     LOG(INFO) << "Got result of calc delete bitmap task from executor, tablet_id: "
               << _tablet->tablet_id() << ", txn_id: " << _req.txn_id;
     return Status::OK();
@@ -294,8 +288,7 @@ Status RowsetBuilder::commit_txn() {
     auto tablet = static_cast<Tablet*>(_tablet.get());
     if (tablet->enable_unique_key_merge_on_write() &&
         config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0 &&
-        !(tablet->tablet_state() == TABLET_NOTREADY &&
-          SchemaChangeHandler::tablet_in_converting(tablet->tablet_id()))) {
+        tablet->tablet_state() != TABLET_NOTREADY) {
         auto st = tablet->check_delete_bitmap_correctness(
                 _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, _rowset_ids);
         if (!st.ok()) {
@@ -310,8 +303,18 @@ Status RowsetBuilder::commit_txn() {
     auto storage_engine = StorageEngine::instance();
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
+    if (_tablet->tablet_schema()->num_variant_columns() > 0) {
+        // update tablet schema when meet variant columns, before commit_txn
+        // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
+        // _tabelt->tablet_schema:  A(bigint), B(double)
+        //  => update_schema:       A(bigint), B(double), C(int), D(int)
+        const RowsetWriterContext& rw_ctx = _rowset_writer->context();
+        _tablet->update_by_least_common_schema(rw_ctx.tablet_schema);
+    }
+    // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
     Status res = storage_engine->txn_manager()->commit_txn(_req.partition_id, *tablet, _req.txn_id,
-                                                           _req.load_id, _rowset, false);
+                                                           _req.load_id, _rowset,
+                                                           std::move(_pending_rs_guard), false);
 
     if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id

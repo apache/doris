@@ -78,7 +78,10 @@ public:
     void prepare() { static_cast<void>(io::global_local_filesystem()->create_directory(wal_dir)); }
 
     void createWal(const std::string& wal_path) {
-        auto wal_writer = WalWriter(wal_path);
+        std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes =
+                std::make_shared<std::atomic_size_t>(0);
+        std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
+        auto wal_writer = WalWriter(wal_path, _all_wal_disk_bytes, cv);
         static_cast<void>(wal_writer.init());
         static_cast<void>(wal_writer.finalize());
     }

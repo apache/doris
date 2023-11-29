@@ -167,7 +167,7 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
-### `grpc_threadmgr_threads_nums`
+#### `grpc_threadmgr_threads_nums`
 
 Default: 4096
 
@@ -375,6 +375,18 @@ Is it possible to dynamically configure: false
 Is it a configuration item unique to the Master FE node: true
 
 Whether to enable the multi-tags function of a single BE
+
+#### `initial_root_password`
+
+Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. Subsequent `set password` operations for root user will overwrite the initial root password.
+
+Example: If you want to configure a plaintext password `root@123`. You can execute Doris SQL `select password('root@123')` to generate encrypted password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`.
+
+Default: empty string
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
 
 ### Service
 
@@ -666,43 +678,6 @@ Default：1048576  （1M）
 
 http header size configuration parameter, the default value is 1M.
 
-#### `enable_tracing`
-
-Default：false
-
-IsMutable：false
-
-MasterOnly：false
-
-Whether to enable tracking
-
-If this configuration is enabled, you should also specify the trace_export_url.
-
-#### `trace_exporter`
-
-Default：zipkin
-
-IsMutable：false
-
-MasterOnly：false
-
-Current support for exporting traces:
-  zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-  collector: The collector can be used to receive and process traces and support export to a variety of third-party systems.
-If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-
-#### `trace_export_url`
-
-Default：`http://127.0.0.1:9411/api/v2/spans`
-
-IsMutable：false
-
-MasterOnly：false
-
-trace export to zipkin like: `http://127.0.0.1:9411/api/v2/spans`
-
-trace export to collector like: `http://127.0.0.1:4318/v1/traces`
-
 ### Query Engine
 
 #### `default_max_query_instances`
@@ -866,7 +841,7 @@ In order to avoid occupying too much memory, the maximum data size of rows that 
 
 #### `cache_last_version_interval_second`
 
-Default：900
+Default：30
 
 IsMutable：true
 
@@ -1378,6 +1353,17 @@ MasterOnly：true
 
 Default stream load pre-submission timeout
 
+#### `stream_load_default_memtable_on_sink_node`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：false
+
+Enable memtable on sink node for stream load by default.
+When HTTP header `memtable_on_sink_node` is not set.
+
 #### `insert_load_default_timeout_second`
 
 Default：3600（1 hour）
@@ -1754,6 +1740,12 @@ Default: false
 
 If true, will compress fe.audit.log by gzip
 
+#### `nereids_trace_log_dir`
+
+Default: DorisFE.DORIS_HOME_DIR + "/log/nereids_trace"
+
+Used to specify the directory of the nereids trace log
+
 ### Storage
 
 #### `min_replication_num_per_tablet`
@@ -1813,20 +1805,6 @@ MasterOnly：true
 In some very special circumstances, such as code bugs, or human misoperation, etc., all replicas of some tablets may be lost. In this case, the data has been substantially lost. However, in some scenarios, the business still hopes to ensure that the query will not report errors even if there is data loss, and reduce the perception of the user layer. At this point, we can use the blank Tablet to fill the missing replica to ensure that the query can be executed normally.
 
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing
-
-#### `recover_with_skip_missing_version`
-
-Default：disable
-
-IsMutable：true
-
-MasterOnly：true
-
-In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be. In this case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
-This configuration has three values:
-* disable : If an exception occurs, an error will be reported normally.
-* ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
-* ignore_all: In addition to ignore_version, when encountering no queryable replica, skip it directly instead of throwing an exception
 
 #### `min_clone_task_timeout_sec` `And max_clone_task_timeout_sec`
 
@@ -2096,11 +2074,17 @@ Only for Master FE: true
 
 The data size threshold used to judge whether replica is too large
 
-#### `schedule_slot_num_per_path`
+#### `schedule_slot_num_per_hdd_path`
 
-Default：2
+Default：4
 
-the default slot number per path in tablet scheduler , remove this config and dynamically adjust it by clone task statistic
+the default slot number per path in tablet scheduler for hdd , remove this config and dynamically adjust it by clone task statistic
+
+#### `schedule_slot_num_per_ssd_path`
+
+Default：8
+
+the default slot number per path in tablet scheduler for ssd , remove this config and dynamically adjust it by clone task statistic
 
 #### `tablet_repair_delay_factor_second`
 
@@ -2268,6 +2252,16 @@ MasterOnly：true
 
 Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
 
+#### `delete_job_max_timeout_second`
+
+Default: 300(s)
+
+Mutable: true
+
+Master only: true
+
+Maximal timeout for delete job, in seconds.
+
 #### `alter_table_timeout_second`
 
 Default：86400 * 30（1 month）
@@ -2330,60 +2324,15 @@ MasterOnly：false
 
 multi catalog concurrent file scan size
 
-#### `enable_odbc_table`
+#### `enable_odbc_mysql_broker_table`
 
 Default：false
 
 IsMutable：true
 
-MasterOnly：true
-
-Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it.
-
-This parameter can be set by: ADMIN SET FRONTEND CONFIG("key"="value")
-
-**Note:** This parameter has been deleted in version 1.2. The ODBC External Table is enabled by default, and the ODBC External Table will be deleted in a later version. It is recommended to use the JDBC External Table
-
-#### `disable_iceberg_hudi_table`
-
-Default：true
-
-IsMutable：true
-
 MasterOnly：false
 
-Starting from version 1.2, we no longer support create hudi and iceberg External Table. Please use the multi catalog.
-
-#### `iceberg_table_creation_interval_second`
-
-Default：10 (s)
-
-IsMutable：true
-
-MasterOnly：false
-
-fe will create iceberg table every iceberg_table_creation_interval_second
-
-#### `iceberg_table_creation_strict_mode`
-
-Default：true
-
-IsMutable：true
-
-MasterOnly：true
-
-If set to TRUE, the column definitions of iceberg table and the doris table must be consistent
-If set to FALSE, Doris only creates columns of supported data types.
-
-#### `max_iceberg_table_creation_record_size`
-
-Default max number of recent iceberg database table creation record that can be stored in memory.
-
-Default：2000
-
-IsMutable：true
-
-MasterOnly：true
+Starting from version 2.1, we no longer support create odbc, jdbc and broker external table. For odbc and mysql external table, use jdbc table or jdbc catalog instead. For broker table, use table valued function instead.
 
 #### `max_hive_partition_cache_num`
 
@@ -2777,3 +2726,9 @@ Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file 
 Default: mysql
 
 To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. If this database conflicts with a user's own database, please modify this field to replace the name of the Doris built-in MySQL database with a different name.
+
+#### `max_auto_partition_num`
+
+Default value: 2000
+
+For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000.

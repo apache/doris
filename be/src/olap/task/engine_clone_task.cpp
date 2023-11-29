@@ -75,6 +75,58 @@ using strings::SkipWhitespace;
 namespace doris {
 using namespace ErrorCode;
 
+namespace {
+/// if binlog file exist, then check if binlog file md5sum equal
+/// if equal, then skip link file
+/// if not equal, then return error
+/// return value: if binlog file not exist, then return to binlog file path
+Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
+                                            const std::string& clone_file, bool* skip_link_file) {
+    // change clone_file suffix .binlog to .dat
+    std::string new_clone_file = clone_file;
+    new_clone_file.replace(clone_file.size() - 7, 7, ".dat");
+    auto to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
+
+    // check to to file exist
+    bool exists = true;
+    auto status = io::global_local_filesystem()->exists(to, &exists);
+    if (!status.ok()) {
+        return ResultError(std::move(status));
+    }
+
+    if (!exists) {
+        return to;
+    }
+
+    LOG(WARNING) << "binlog file already exist. "
+                 << "tablet_dir=" << tablet_dir << ", clone_file=" << clone_file;
+
+    std::string clone_file_md5sum;
+    status = io::global_local_filesystem()->md5sum(clone_file, &clone_file_md5sum);
+    if (!status.ok()) {
+        return ResultError(std::move(status));
+    }
+    std::string to_file_md5sum;
+    status = io::global_local_filesystem()->md5sum(to, &to_file_md5sum);
+    if (!status.ok()) {
+        return ResultError(std::move(status));
+    }
+
+    if (clone_file_md5sum == to_file_md5sum) {
+        // if md5sum equal, then skip link file
+        *skip_link_file = true;
+        return to;
+    } else {
+        auto err_msg = fmt::format(
+                "binlog file already exist, but md5sum not equal. "
+                "tablet_dir={}, clone_file={}",
+                tablet_dir, clone_file);
+        LOG(WARNING) << err_msg;
+        return ResultError(Status::InternalError(std::move(err_msg)));
+    }
+}
+} // namespace
+
 #define RETURN_IF_ERROR_(status, stmt) \
     do {                               \
         status = (stmt);               \
@@ -116,6 +168,16 @@ Status EngineCloneTask::_do_clone() {
     // Check local tablet exist or not
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
+
+    // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
+    // change failure. It should not provide normal read and write, so drop it here.
+    if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
+        LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
+                     << tablet->tablet_id();
+        RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
+                tablet->tablet_id(), tablet->replica_id(), false));
+        tablet.reset();
+    }
     bool is_new_tablet = tablet == nullptr;
     // try to incremental clone
     std::vector<Version> missed_versions;
@@ -269,7 +331,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                                                      TBackend* src_host, string* snapshot_path,
                                                      const std::vector<Version>& missed_versions,
                                                      bool* allow_incremental_clone) {
-    Status status = Status::OK();
+    Status status;
 
     const auto& token = _master_info.token;
 
@@ -278,21 +340,13 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         timeout_s = _clone_req.timeout_s;
     }
 
-    for (auto& src : _clone_req.src_backends) {
+    for (auto&& src : _clone_req.src_backends) {
         // Make snapshot in remote olap engine
         *src_host = src;
         // make snapshot
         status = _make_snapshot(src.host, src.be_port, _clone_req.tablet_id, _clone_req.schema_hash,
                                 timeout_s, missed_versions, snapshot_path, allow_incremental_clone);
-        if (status.ok()) {
-            LOG_INFO("successfully make snapshot in remote BE")
-                    .tag("host", src.host)
-                    .tag("port", src.be_port)
-                    .tag("tablet", _clone_req.tablet_id)
-                    .tag("snapshot_path", *snapshot_path)
-                    .tag("signature", _signature)
-                    .tag("missed_versions", missed_versions);
-        } else {
+        if (!status.ok()) [[unlikely]] {
             LOG_WARNING("failed to make snapshot in remote BE")
                     .tag("host", src.host)
                     .tag("port", src.be_port)
@@ -300,13 +354,28 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                     .tag("signature", _signature)
                     .tag("missed_versions", missed_versions)
                     .error(status);
-            continue;
+            continue; // Try another BE
         }
-
+        LOG_INFO("successfully make snapshot in remote BE")
+                .tag("host", src.host)
+                .tag("port", src.be_port)
+                .tag("tablet", _clone_req.tablet_id)
+                .tag("snapshot_path", *snapshot_path)
+                .tag("signature", _signature)
+                .tag("missed_versions", missed_versions);
+        Defer defer {[host = src.host, port = src.be_port, &snapshot_path = *snapshot_path, this] {
+            // TODO(plat1ko): Async release snapshot
+            auto st = _release_snapshot(host, port, snapshot_path);
+            if (!st.ok()) [[unlikely]] {
+                LOG_WARNING("failed to release snapshot in remote BE")
+                        .tag("host", host)
+                        .tag("port", port)
+                        .tag("snapshot_path", snapshot_path)
+                        .error(st);
+            }
+        }};
         std::string remote_url_prefix;
         {
-            // TODO(zc): if snapshot path has been returned from source, it is some strange to
-            // concat tablet_id and schema hash here.
             std::stringstream ss;
             if (snapshot_path->back() == '/') {
                 ss << "http://" << get_host_port(src.host, src.http_port) << HTTP_REQUEST_PREFIX
@@ -317,37 +386,21 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                    << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
                    << "/" << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
             }
-
             remote_url_prefix = ss.str();
         }
 
         status = _download_files(&data_dir, remote_url_prefix, local_data_path);
-        // when there is an error, keep this program executing to release snapshot
-
-        if (status.ok()) {
-            // change all rowset ids because they maybe its id same with local rowset
-            status = SnapshotManager::instance()->convert_rowset_ids(
-                    local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
-                    _clone_req.partition_id, _clone_req.schema_hash);
-        } else {
+        if (!status.ok()) [[unlikely]] {
             LOG_WARNING("failed to download snapshot from remote BE")
                     .tag("url", remote_url_prefix)
                     .error(status);
+            continue; // Try another BE
         }
-
-        // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
-        auto st = _release_snapshot(src.host, src.be_port, *snapshot_path);
-        if (!st.ok()) {
-            LOG_WARNING("failed to release snapshot in remote BE")
-                    .tag("host", src.host)
-                    .tag("port", src.be_port)
-                    .tag("snapshot_path", *snapshot_path)
-                    .error(status);
-            // DON'T change the status
-        }
-        if (status.ok()) {
-            break;
-        }
+        // No need to try again with another BE
+        _pending_rs_guards = DORIS_TRY(SnapshotManager::instance()->convert_rowset_ids(
+                local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
+                _clone_req.partition_id, _clone_req.schema_hash));
+        break;
     } // clone copy from one backend
     return status;
 }
@@ -598,6 +651,8 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     /// Traverse all downloaded clone files in CLONE dir.
     /// If it does not exist in local tablet dir, link the file to local tablet dir
     /// And save all linked files in linked_success_files.
+    /// if binlog exist in clone dir and md5sum equal, then skip link file
+    bool skip_link_file = false;
     for (const string& clone_file : clone_file_names) {
         if (local_file_names.find(clone_file) != local_file_names.end()) {
             VLOG_NOTICE << "find same file when clone, skip it. "
@@ -614,19 +669,30 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
                 break;
             }
 
-            // change clone_file suffix .binlog to .dat
-            std::string new_clone_file = clone_file;
-            new_clone_file.replace(clone_file.size() - 7, 7, ".dat");
-            to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
+            if (auto&& result = check_dest_binlog_valid(tablet_dir, clone_file, &skip_link_file);
+                result) {
+                to = std::move(result.value());
+            } else {
+                status = std::move(result.error());
+                return status;
+            }
         } else {
             to = fmt::format("{}/{}", tablet_dir, clone_file);
         }
 
-        RETURN_IF_ERROR(io::global_local_filesystem()->link_file(from, to));
-        linked_success_files.emplace_back(std::move(to));
+        if (!skip_link_file) {
+            status = io::global_local_filesystem()->link_file(from, to);
+            if (!status.ok()) {
+                return status;
+            }
+            linked_success_files.emplace_back(std::move(to));
+        }
     }
     if (contain_binlog) {
-        RETURN_IF_ERROR(tablet->ingest_binlog_metas(&rowset_binlog_metas_pb));
+        status = tablet->ingest_binlog_metas(&rowset_binlog_metas_pb);
+        if (!status.ok()) {
+            return status;
+        }
     }
 
     // clone and compaction operation should be performed sequentially

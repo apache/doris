@@ -555,7 +555,7 @@ public class NumericArithmetic {
         DecimalV3Type t2 = (DecimalV3Type) second.getDataType();
         int precision = t1.getPrecision() + t2.getPrecision();
         int scale = t1.getScale() + t2.getScale();
-        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(precision, scale), result);
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(precision, scale), result);
     }
 
     /**
@@ -590,7 +590,7 @@ public class NumericArithmetic {
         DecimalV3Type t1 = (DecimalV3Type) first.getDataType();
         DecimalV3Type t2 = (DecimalV3Type) second.getDataType();
         BigDecimal result = first.getValue().divide(second.getValue());
-        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(
                 t1.getPrecision(), t1.getScale() - t2.getScale()), result);
     }
 }

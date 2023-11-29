@@ -17,166 +17,176 @@
 // under the License.
 
 suite("test_primary_key_partial_update", "p0") {
-    def tableName = "test_primary_key_partial_update"
 
-    // create table
-    sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """
-            CREATE TABLE ${tableName} (
-                `id` int(11) NOT NULL COMMENT "用户 ID",
-                `name` varchar(65533) NOT NULL COMMENT "用户姓名",
-                `score` int(11) NOT NULL COMMENT "用户得分",
-                `test` int(11) NULL COMMENT "null test",
-                `dft` int(11) DEFAULT "4321")
-                UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-                PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
-    """
-    // insert 2 lines
-    sql """
-        insert into ${tableName} values(2, "doris2", 2000, 223, 1)
-    """
+    String db = context.config.getDbNameByFile(context.file)
+    sql "select 1;" // to create database
 
-    sql """
-        insert into ${tableName} values(1, "doris", 1000, 123, 1)
-    """
+    for (def use_row_store : [false, true]) {
+        logger.info("current params: use_row_store: ${use_row_store}")
 
-    // skip 3 lines and file have 4 lines
-    streamLoad {
-        table "${tableName}"
+        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            sql "use ${db};"
+            def tableName = "test_primary_key_partial_update"
+            // create table
+            sql """ DROP TABLE IF EXISTS ${tableName} """
+            sql """ CREATE TABLE ${tableName} (
+                        `id` int(11) NOT NULL COMMENT "用户 ID",
+                        `name` varchar(65533) NOT NULL COMMENT "用户姓名",
+                        `score` int(11) NOT NULL COMMENT "用户得分",
+                        `test` int(11) NULL COMMENT "null test",
+                        `dft` int(11) DEFAULT "4321")
+                        UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+                        "store_row_column" = "${use_row_store}"); """
 
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'true'
-        set 'columns', 'id,score'
+            // insert 2 lines
+            sql """
+                insert into ${tableName} values(2, "doris2", 2000, 223, 1)
+            """
 
-        file 'basic.csv'
-        time 10000 // limit inflight 10s
-    }
+            sql """
+                insert into ${tableName} values(1, "doris", 1000, 123, 1)
+            """
 
-    sql "sync"
+            // skip 3 lines and file have 4 lines
+            streamLoad {
+                table "${tableName}"
 
-    qt_select_default """
-        select * from ${tableName} order by id;
-    """
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'partial_columns', 'true'
+                set 'columns', 'id,score'
 
-    // partial update a row multiple times in one stream load
-    streamLoad {
-        table "${tableName}"
+                file 'basic.csv'
+                time 10000 // limit inflight 10s
+            }
 
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'true'
-        set 'columns', 'id,score'
+            sql "sync"
 
-        file 'basic_with_duplicate.csv'
-        time 10000 // limit inflight 10s
-    }
+            qt_select_default """
+                select * from ${tableName} order by id;
+            """
 
-    sql "sync"
+            // partial update a row multiple times in one stream load
+            streamLoad {
+                table "${tableName}"
 
-    qt_partial_update_in_one_stream_load """
-        select * from ${tableName} order by id;
-    """
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'partial_columns', 'true'
+                set 'columns', 'id,score'
 
-    streamLoad {
-        table "${tableName}"
+                file 'basic_with_duplicate.csv'
+                time 10000 // limit inflight 10s
+            }
 
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'true'
-        set 'columns', 'id,score'
+            sql "sync"
 
-        file 'basic_with_duplicate2.csv'
-        time 10000 // limit inflight 10s
-    }
+            qt_partial_update_in_one_stream_load """
+                select * from ${tableName} order by id;
+            """
 
-    sql "sync"
+            streamLoad {
+                table "${tableName}"
 
-    qt_partial_update_in_one_stream_load """
-        select * from ${tableName} order by id;
-    """
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'partial_columns', 'true'
+                set 'columns', 'id,score'
 
-    streamLoad {
-        table "${tableName}"
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'true'
-        set 'columns', 'id,name,score'
+                file 'basic_with_duplicate2.csv'
+                time 10000 // limit inflight 10s
+            }
 
-        file 'basic_with_new_keys.csv'
-        time 10000 // limit inflight 10s
-    }
+            sql "sync"
 
-    sql "sync"
+            qt_partial_update_in_one_stream_load """
+                select * from ${tableName} order by id;
+            """
 
-    qt_partial_update_in_one_stream_load """
-        select * from ${tableName} order by id;
-    """
+            streamLoad {
+                table "${tableName}"
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'partial_columns', 'true'
+                set 'columns', 'id,name,score'
 
-    streamLoad {
-        table "${tableName}"
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'false'
-        set 'columns', 'id,name,score'
+                file 'basic_with_new_keys.csv'
+                time 10000 // limit inflight 10s
+            }
 
-        file 'basic_with_new_keys.csv'
-        time 10000 // limit inflight 10s
-    }
+            sql "sync"
 
-    sql "sync"
+            qt_partial_update_in_one_stream_load """
+                select * from ${tableName} order by id;
+            """
 
-    qt_partial_update_in_one_stream_load """
-        select * from ${tableName} order by id;
-    """
+            streamLoad {
+                table "${tableName}"
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'partial_columns', 'false'
+                set 'columns', 'id,name,score'
 
-    streamLoad {
-        table "${tableName}"
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'true'
-        set 'columns', 'id,name,score'
+                file 'basic_with_new_keys.csv'
+                time 10000 // limit inflight 10s
+            }
 
-        file 'basic_with_new_keys_and_invalid.csv'
-        time 10000// limit inflight 10s
+            sql "sync"
 
-        check {result, exception, startTime, endTime ->
-            assertTrue(exception == null)
-            def json = parseJson(result)
-            assertEquals("Fail", json.Status)
+            qt_partial_update_in_one_stream_load """
+                select * from ${tableName} order by id;
+            """
+
+            streamLoad {
+                table "${tableName}"
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'partial_columns', 'true'
+                set 'columns', 'id,name,score'
+
+                file 'basic_with_new_keys_and_invalid.csv'
+                time 10000// limit inflight 10s
+
+                check {result, exception, startTime, endTime ->
+                    assertTrue(exception == null)
+                    def json = parseJson(result)
+                    assertEquals("Fail", json.Status)
+                }
+            }
+
+            qt_partial_update_in_one_stream_load """
+                select * from ${tableName} order by id;
+            """
+
+            streamLoad {
+                table "${tableName}"
+                set 'column_separator', ','
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'partial_columns', 'true'
+                set 'columns', 'id,score'
+
+                file 'basic_invalid.csv'
+                time 10000// limit inflight 10s
+
+                check {result, exception, startTime, endTime ->
+                    assertTrue(exception == null)
+                    def json = parseJson(result)
+                    assertEquals("Fail", json.Status)
+                    assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
+                    assertEquals(3, json.NumberTotalRows)
+                    assertEquals(1, json.NumberLoadedRows)
+                    assertEquals(2, json.NumberFilteredRows)
+                }
+            }
+            sql "sync"
+            qt_partial_update_in_one_stream_load """
+                select * from ${tableName} order by id;
+            """
+
+            // drop drop
+            sql """ DROP TABLE IF EXISTS ${tableName} """
         }
     }
-
-    qt_partial_update_in_one_stream_load """
-        select * from ${tableName} order by id;
-    """
-
-    streamLoad {
-        table "${tableName}"
-        set 'column_separator', ','
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'true'
-        set 'columns', 'id,score'
-
-        file 'basic_invalid.csv'
-        time 10000// limit inflight 10s
-
-        check {result, exception, startTime, endTime ->
-            assertTrue(exception == null)
-            def json = parseJson(result)
-            assertEquals("Fail", json.Status)
-            assertTrue(json.Message.contains("[INTERNAL_ERROR]too many filtered rows"))
-            assertEquals(3, json.NumberTotalRows)
-            assertEquals(1, json.NumberLoadedRows)
-            assertEquals(2, json.NumberFilteredRows)
-        }
-    }
-    sql "sync"
-    qt_partial_update_in_one_stream_load """
-        select * from ${tableName} order by id;
-    """
-
-    // drop drop
-    sql """ DROP TABLE IF EXISTS ${tableName} """
 }

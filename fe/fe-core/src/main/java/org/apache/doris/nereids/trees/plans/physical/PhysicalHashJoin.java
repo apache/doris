@@ -25,7 +25,7 @@ import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -43,16 +43,14 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Physical hash join plan.
@@ -115,22 +113,25 @@ public class PhysicalHashJoin<
      * Return pair of left used slots and right used slots.
      */
     public Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
-        List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
-        List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
+        int size = hashJoinConjuncts.size();
+
+        List<ExprId> exprIds1 = new ArrayList<>(size);
+        List<ExprId> exprIds2 = new ArrayList<>(size);
 
         Set<ExprId> leftExprIds = left().getOutputExprIdSet();
         Set<ExprId> rightExprIds = right().getOutputExprIdSet();
 
         for (Expression expr : hashJoinConjuncts) {
-            expr.getInputSlotExprIds().forEach(exprId -> {
+            for (ExprId exprId : expr.getInputSlotExprIds()) {
                 if (leftExprIds.contains(exprId)) {
                     exprIds1.add(exprId);
                 } else if (rightExprIds.contains(exprId)) {
                     exprIds2.add(exprId);
                 } else {
-                    throw new RuntimeException("Could not generate valid equal on clause slot pairs for join");
+                    throw new RuntimeException("Invalid ExprId found: " + exprId
+                            + ". Cannot generate valid equal on clause slot pairs for join.");
                 }
-            });
+            }
         }
         return Pair.of(exprIds1, exprIds2);
     }
@@ -212,7 +213,7 @@ public class PhysicalHashJoin<
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
             if (!this.equals(builderNode) && this.getJoinType() == JoinType.INNER_JOIN) {
                 for (Expression expr : this.getHashJoinConjuncts()) {
-                    EqualTo equalTo = (EqualTo) expr;
+                    EqualPredicate equalTo = (EqualPredicate) expr;
                     if (probeExpr.equals(equalTo.left())) {
                         probExprList.add(equalTo.right());
                     } else if (probeExpr.equals(equalTo.right())) {
@@ -246,11 +247,6 @@ public class PhysicalHashJoin<
         return pushedDown;
     }
 
-    public Set<Slot> getConditionSlot() {
-        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
-                .flatMap(expr -> expr.getInputSlots().stream()).collect(ImmutableSet.toImmutableSet());
-    }
-
     @Override
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder();
@@ -259,7 +255,11 @@ public class PhysicalHashJoin<
         builder.append(hashJoinConjuncts.stream().map(conjunct -> conjunct.shapeInfo())
                 .sorted().collect(Collectors.joining(" and ", " hashCondition=(", ")")));
         builder.append(otherJoinConjuncts.stream().map(cond -> cond.shapeInfo())
-                .sorted().collect(Collectors.joining(" and ", "otherCondition=(", ")")));
+                .sorted().collect(Collectors.joining(" and ", " otherCondition=(", ")")));
+        if (!runtimeFilters.isEmpty()) {
+            builder.append(" build RFs:").append(runtimeFilters.stream()
+                    .map(rf -> rf.shapeInfo()).collect(Collectors.joining(";")));
+        }
         return builder.toString();
     }
 

@@ -221,8 +221,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Plan plan = groupExpression.getPlan();
         Statistics newStats = plan.accept(this, null);
         newStats.enforceValid();
+
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
+            boolean isReliable = groupExpression.getPlan().getExpressions().stream()
+                    .noneMatch(e -> newStats.isInputSlotsUnknown(e.getInputSlots()));
+            groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(newStats);
             groupExpression.setEstOutputRowCount(newStats.getRowCount());
         } else {
@@ -565,6 +569,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+            return ColumnStatistic.UNKNOWN;
+        }
         long catalogId;
         long dbId;
         try {
@@ -632,8 +640,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache;
-            if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableStats
-                    || !FeConstants.enableInternalSchemaDb
+            if (!FeConstants.enableInternalSchemaDb
                     || shouldIgnoreThisCol) {
                 cache = ColumnStatistic.UNKNOWN;
             } else {
@@ -655,7 +662,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     cache = columnStatisticBuilder.build();
                 }
             }
-            columnStatisticMap.put(slotReference, cache);
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
+                columnStatisticMap.put(slotReference, cache);
+            } else {
+                columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+            }
         }
         return new Statistics(rowCount, columnStatisticMap);
     }

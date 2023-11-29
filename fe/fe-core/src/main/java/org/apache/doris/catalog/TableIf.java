@@ -27,6 +27,7 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -120,6 +121,10 @@ public interface TableIf {
 
     long getRowCount();
 
+    // Get the exact number of rows in the internal table;
+    // Get the number of cached rows or estimated rows in the external table, if not, return -1.
+    long getCacheRowCount();
+
     long getDataLength();
 
     long getAvgRowLength();
@@ -149,13 +154,22 @@ public interface TableIf {
     void write(DataOutput out) throws IOException;
 
     /**
+     * return true if this kind of table need read lock when doing query plan.
+     *
+     * @return
+     */
+    default boolean needReadLockWhenPlan() {
+        return false;
+    }
+
+    /**
      * Doris table type.
      */
     enum TableType {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, DELTALAKE_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -192,10 +206,17 @@ public interface TableIf {
                     return "iceberg";
                 case HUDI_EXTERNAL_TABLE:
                     return "hudi";
-                case DELTALAKE_EXTERNAL_TABLE:
-                    return "deltalake";
                 default:
                     return null;
+            }
+        }
+
+        public TableType getParentType() {
+            switch (this) {
+                case MATERIALIZED_VIEW:
+                    return OLAP;
+                default:
+                    return this;
             }
         }
 
@@ -222,7 +243,6 @@ public interface TableIf {
                 case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
-                case DELTALAKE_EXTERNAL_TABLE:
                     return "EXTERNAL TABLE";
                 default:
                     return null;
@@ -253,6 +273,18 @@ public interface TableIf {
     default long getDataSize(boolean singleReplica) {
         // TODO: Each tableIf should impl it by itself.
         return 0;
+    }
+
+    default boolean isDistributionColumn(String columnName) {
+        return false;
+    }
+
+    default boolean isPartitionColumn(String columnName) {
+        return false;
+    }
+
+    default Set<String> getDistributionColumnNames() {
+        return Sets.newHashSet();
     }
 }
 

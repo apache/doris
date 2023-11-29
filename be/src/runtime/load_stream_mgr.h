@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
+#include <runtime/load_stream.h>
 #include <stdint.h>
 
 #include <condition_variable>
@@ -25,8 +26,6 @@
 #include <mutex>
 #include <unordered_map>
 #include <utility>
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
-#include <runtime/load_stream.h>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
@@ -39,7 +38,7 @@ public:
                   FifoThreadPool* light_work_pool);
     ~LoadStreamMgr();
 
-    Status open_load_stream(const POpenStreamSinkRequest* request,
+    Status open_load_stream(const POpenLoadStreamRequest* request,
                             LoadStreamSharedPtr& load_stream);
     void clear_load(UniqueId loadid);
     std::unique_ptr<ThreadPoolToken> new_token() {
@@ -53,12 +52,12 @@ public:
     FifoThreadPool* light_work_pool() { return _light_work_pool; }
 
 private:
-    bthread::Mutex _lock;
+    std::mutex _lock;
     std::unordered_map<UniqueId, LoadStreamSharedPtr> _load_streams_map;
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
-    FifoThreadPool* _heavy_work_pool;
-    FifoThreadPool* _light_work_pool;
+    FifoThreadPool* _heavy_work_pool = nullptr;
+    FifoThreadPool* _light_work_pool = nullptr;
 };
 
 } // namespace doris

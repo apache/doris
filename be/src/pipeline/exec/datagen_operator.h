@@ -68,7 +68,8 @@ private:
 
 class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {
 public:
-    DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                           const DescriptorTbl& descs);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
@@ -83,7 +84,7 @@ private:
     TupleId _tuple_id;
 
     // Descriptor of tuples generated
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };

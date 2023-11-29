@@ -53,10 +53,10 @@ protected:
     vectorized::MutableColumnPtr _tuple_is_null_left_flag_column;
     vectorized::MutableColumnPtr _tuple_is_null_right_flag_column;
 
-    RuntimeProfile::Counter* _probe_timer;
-    RuntimeProfile::Counter* _probe_rows_counter;
-    RuntimeProfile::Counter* _join_filter_timer;
-    RuntimeProfile::Counter* _build_output_block_timer;
+    RuntimeProfile::Counter* _probe_timer = nullptr;
+    RuntimeProfile::Counter* _probe_rows_counter = nullptr;
+    RuntimeProfile::Counter* _join_filter_timer = nullptr;
+    RuntimeProfile::Counter* _build_output_block_timer = nullptr;
 
     std::unique_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
@@ -66,7 +66,8 @@ template <typename LocalStateType>
 class JoinProbeOperatorX : public StatefulOperatorX<LocalStateType> {
 public:
     using Base = StatefulOperatorX<LocalStateType>;
-    JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                       const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status open(doris::RuntimeState* state) override;

@@ -103,6 +103,12 @@ struct UInt128 {
         high = 0;
         return *this;
     }
+
+    operator uint128_t() const {
+        uint128_t value = static_cast<uint128_t>(high) << 64;
+        value |= low;
+        return value;
+    }
 };
 
 template <>

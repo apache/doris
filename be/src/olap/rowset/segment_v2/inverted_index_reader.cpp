@@ -47,7 +47,14 @@
 #include <roaring/roaring.hh>
 #include <set>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -181,8 +188,8 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         // try to get query bitmap result from cache and return immediately on cache hit
         io::Path path(_path);
         auto index_dir = path.parent_path();
-        auto index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename(),
-                                                                            _index_meta.index_id());
+        auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
+                path.filename(), _index_meta.index_id(), _index_meta.get_index_suffix());
         auto index_file_path = index_dir / index_file_name;
         InvertedIndexQueryCache::CacheKey cache_key {
                 index_file_path, "", InvertedIndexQueryType::UNKNOWN_QUERY, "null_bitmap"};
@@ -244,8 +251,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
 
     io::Path path(_path);
     auto index_dir = path.parent_path();
-    auto index_file_name =
-            InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_meta.index_id());
+    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
+            path.filename(), _index_meta.index_id(), _index_meta.get_index_suffix());
     auto index_file_path = index_dir / index_file_name;
     InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
     inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(
@@ -282,10 +289,12 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                     "inverted index path: {} not exist.", index_file_path.string());
         }
 
-        InvertedIndexCacheHandle inverted_index_cache_handle;
-        static_cast<void>(InvertedIndexSearcherCache::instance()->get_index_searcher(
-                _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats));
-        auto index_searcher = inverted_index_cache_handle.get_index_searcher();
+        auto get_index_search = [this, &index_dir, &index_file_name, &stats]() {
+            InvertedIndexCacheHandle inverted_index_cache_handle;
+            static_cast<void>(InvertedIndexSearcherCache::instance()->get_index_searcher(
+                    _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats));
+            return inverted_index_cache_handle.get_index_searcher();
+        };
 
         std::unique_ptr<lucene::search::Query> query;
         std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
@@ -315,6 +324,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                 term_match_bitmap = cache_handle.get_bitmap();
             } else {
                 stats->inverted_index_query_cache_miss++;
+
+                auto index_searcher = get_index_search();
 
                 term_match_bitmap = std::make_shared<roaring::Roaring>();
 
@@ -363,6 +374,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                     term_match_bitmap = cache_handle.get_bitmap();
                 } else {
                     stats->inverted_index_query_cache_miss++;
+
+                    auto index_searcher = get_index_search();
 
                     term_match_bitmap = std::make_shared<roaring::Roaring>();
                     // unique_ptr with custom deleter
@@ -512,8 +525,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
 
     io::Path path(_path);
     auto index_dir = path.parent_path();
-    auto index_file_name =
-            InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_meta.index_id());
+    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
+            path.filename(), _index_meta.index_id(), _index_meta.get_index_suffix());
     auto index_file_path = index_dir / index_file_name;
 
     // try to get query bitmap result from cache and return immediately on cache hit
@@ -629,8 +642,8 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
         : InvertedIndexReader(fs, path, index_meta), _compoundReader(nullptr) {
     io::Path io_path(_path);
     auto index_dir = io_path.parent_path();
-    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(io_path.filename(),
-                                                                        index_meta->index_id());
+    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
+            io_path.filename(), index_meta->index_id(), index_meta->get_index_suffix());
 
     // check index file existence
     auto index_file = index_dir / index_file_name;

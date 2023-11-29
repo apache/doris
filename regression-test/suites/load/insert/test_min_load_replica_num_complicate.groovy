@@ -16,7 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
-import org.apache.doris.regression.suite.NodeType
+import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
 
 class InjectCase {

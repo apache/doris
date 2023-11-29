@@ -39,6 +39,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,6 +47,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Materialized view is performed to materialize the results of query.
@@ -298,6 +300,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (tableRefList.size() != 1) {
             throw new AnalysisException("The materialized view only support one table in from clause.");
         }
+        if (!isReplay && tableRefList.get(0).hasExplicitAlias()) {
+            throw new AnalysisException("The materialized view not support table with alias.");
+        }
         TableName tableName = tableRefList.get(0).getName();
         if (tableName == null) {
             throw new AnalysisException("table in from clause is invalid, please check if it's single table "
@@ -339,19 +344,19 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             }
         }
 
-        for (Expr groupExpr : groupingExprs) {
-            boolean match = false;
-            String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
-            for (Expr expr : selectExprs) {
-                String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
-                if (lhs.equalsIgnoreCase(rhs)) {
-                    match = true;
-                    break;
-                }
+        Set<String> selectExprNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (Expr expr : selectExprs) {
+            String selectExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            if (selectExprNames.contains(selectExprName)) {
+                throw new AnalysisException("The select expr " + selectExprName + " is duplicated.");
             }
+            selectExprNames.add(selectExprName);
+        }
 
-            if (!match) {
-                throw new AnalysisException("The grouping expr " + rhs + " not in select list.");
+        for (Expr expr : groupingExprs) {
+            String groupExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            if (!selectExprNames.contains(groupExprName)) {
+                throw new AnalysisException("The grouping expr " + groupExprName + " not in select list.");
             }
         }
     }
@@ -515,6 +520,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 break;
             default:
                 mvAggregateType = AggregateType.GENERIC_AGGREGATION;
+                if (functionCallExpr.getParams().isDistinct() || functionCallExpr.getParams().isStar()) {
+                    throw new AnalysisException(
+                            "The Materialized-View's generic aggregation not support star or distinct");
+                }
                 defineExpr = Function.convertToStateCombinator(functionCallExpr);
                 type = defineExpr.type;
         }

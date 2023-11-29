@@ -198,6 +198,8 @@ public:
                 _execute_number<ColumnDecimal64>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_decimal128i()) {
                 _execute_number<ColumnDecimal128I>(data_columns, *offsets, null_map, dst_values);
+            } else if (which.is_decimal256()) {
+                _execute_number<ColumnDecimal256>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_date_time_v2()) {
                 _execute_number<ColumnDateTimeV2>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_decimal128()) {

@@ -19,20 +19,16 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.job.common.JobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.scheduler.constants.JobCategory;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import lombok.Getter;
-import org.apache.commons.lang3.StringUtils;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -47,19 +43,12 @@ public class ShowJobStmt extends ShowStmt {
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("Id")
-                    .add("Db")
                     .add("Name")
                     .add("Definer")
-                    .add("TimeZone")
                     .add("ExecuteType")
-                    .add("ExecuteAt")
-                    .add("ExecuteInterval")
-                    .add("ExecuteIntervalUnit")
-                    .add("Starts")
-                    .add("Ends")
+                    .add("RecurringStrategy")
                     .add("Status")
-                    .add("LastExecuteFinishTime")
-                    .add("ErrorMsg")
+                    .add("ExecuteSql")
                     .add("CreateTime")
                     .add("Comment")
                     .build();
@@ -73,31 +62,29 @@ public class ShowJobStmt extends ShowStmt {
     private String dbFullName; // optional
 
     @Getter
-    private JobCategory jobCategory; // optional
+    private JobType jobType; // optional
 
-    private String jobCategoryName; // optional
+    /**
+     * Supported job types, if we want to support more job types, we need to add them here.
+     */
+    @Getter
+    private List<JobType> jobTypes = Arrays.asList(JobType.INSERT); // optional
 
     @Getter
     private String name; // optional
     @Getter
     private String pattern; // optional
 
-    public ShowJobStmt(String category, LabelName labelName, String pattern) {
+    public ShowJobStmt(LabelName labelName, JobType jobType) {
         this.labelName = labelName;
-        this.pattern = pattern;
-        this.jobCategoryName = category;
+        this.jobType = jobType;
+        this.name = labelName == null ? null : labelName.getLabelName();
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         checkAuth();
-        checkLabelName(analyzer);
-        if (StringUtils.isBlank(jobCategoryName)) {
-            this.jobCategory = JobCategory.SQL;
-        } else {
-            this.jobCategory = JobCategory.valueOf(jobCategoryName.toUpperCase());
-        }
     }
 
     private void checkAuth() throws AnalysisException {
@@ -105,19 +92,6 @@ public class ShowJobStmt extends ShowStmt {
         if (!userIdentity.isRootUser()) {
             throw new AnalysisException("only root user can operate");
         }
-    }
-
-    private void checkLabelName(Analyzer analyzer) throws AnalysisException {
-        String dbName = labelName == null ? null : labelName.getDbName();
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbFullName = analyzer.getContext().getDatabase();
-            if (Strings.isNullOrEmpty(dbFullName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbFullName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        }
-        name = labelName == null ? null : labelName.getLabelName();
     }
 
     public static List<String> getTitleNames() {
@@ -129,9 +103,6 @@ public class ShowJobStmt extends ShowStmt {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
         for (String title : TITLE_NAMES) {
-            if (this.jobCategory.equals(JobCategory.MTMV) && title.equals(NAME_TITLE)) {
-                builder.addColumn(new Column(MTMV_NAME_TITLE, ScalarType.createVarchar(30)));
-            }
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();

@@ -24,7 +24,6 @@
 #include <cstring>
 #include <ostream>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/port.h"
@@ -267,6 +266,7 @@ inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
     case 8:
     case 12:
     case 16:
+    case 32:
         break;
     default:
         return Status::InternalError("invalid size_of_elem:{}", size_of_element);

@@ -59,7 +59,7 @@ suite("test_materialized_view_struct", "rollup") {
         create_test_table.call(tableName)
         test {
             sql "CREATE MATERIALIZED VIEW idx AS select k2,k1, k3, k4, k5 from ${tableName}"
-            exception "errCode = 2, detailMessage = The STRUCT column[`mv_k2` STRUCT<f1:smallint(6)> NULL] not support to create materialized view"
+            exception "errCode = 2, detailMessage = The STRUCT column[`mv_k2` STRUCT<f1:SMALLINT> NULL] not support to create materialized view"
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")

@@ -102,7 +102,7 @@ public class ConnectScheduler {
             return false;
         }
         connectionMap.put(ctx.getConnectionId(), ctx);
-        if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT)) {
+        if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
             flightToken2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
         }
         return true;
@@ -116,7 +116,7 @@ public class ConnectScheduler {
                 conns.decrementAndGet();
             }
             numberConnection.decrementAndGet();
-            if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT)) {
+            if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 flightToken2ConnectionId.remove(ctx.getPeerIdentity());
             }
         }

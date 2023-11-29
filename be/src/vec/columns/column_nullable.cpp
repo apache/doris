@@ -44,10 +44,6 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
         nested_column = assert_cast<ColumnNullable&>(*nested_column).get_nested_column_ptr();
     }
 
-    if (!get_nested_column().can_be_inside_nullable()) {
-        LOG(FATAL) << get_nested_column().get_name() << " cannot be inside Nullable column";
-    }
-
     if (is_column_const(*null_map)) {
         LOG(FATAL) << "ColumnNullable cannot have constant null map";
     }
@@ -308,6 +304,16 @@ void ColumnNullable::insert_indices_from(const IColumn& src, const int* indices_
     _need_update_has_null = true;
 }
 
+void ColumnNullable::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                              const uint32_t* indices_end) {
+    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
+    get_nested_column().insert_indices_from_join(src_concrete.get_nested_column(), indices_begin,
+                                                 indices_end);
+    _get_null_map_column().insert_indices_from_join(src_concrete.get_null_map_column(),
+                                                    indices_begin, indices_end);
+    _need_update_has_null = true;
+}
+
 void ColumnNullable::insert(const Field& x) {
     if (x.is_null()) {
         get_nested_column().insert_default();
@@ -564,9 +570,7 @@ bool ColumnNullable::has_null(size_t size) const {
 }
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
-    if (is_column_nullable(*column)) {
-        return column;
-    }
+    if (is_column_nullable(*column)) return column;
 
     if (is_column_const(*column)) {
         return ColumnConst::create(

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -36,12 +37,12 @@ import java.util.Optional;
  * Used in {@link org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator},
  * as a place-holder when do match root.
  */
-public class GroupPlan extends LogicalLeaf {
+public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
 
     private final Group group;
 
     public GroupPlan(Group group) {
-        super(PlanType.GROUP_PLAN, Optional.empty(), Optional.of(group.getLogicalProperties()));
+        super(PlanType.GROUP_PLAN, Optional.empty(), Suppliers.ofInstance(group.getLogicalProperties()), true);
         this.group = group;
     }
 

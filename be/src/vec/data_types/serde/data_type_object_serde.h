@@ -36,26 +36,25 @@ class Arena;
 
 class DataTypeObjectSerDe : public DataTypeSerDe {
 public:
+    DataTypeObjectSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                      FormatOptions& options,
-                                      int nesting_level = 1) const override {
+                                      FormatOptions& options) const override {
         return Status::NotSupported("serialize_one_cell_to_json with type [{}]", column.get_name());
     }
 
     Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                    BufferWritable& bw, FormatOptions& options,
-                                    int nesting_level = 1) const override {
+                                    BufferWritable& bw, FormatOptions& options) const override {
         return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
     }
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options,
-                                          int nesting_level = 1) const override {
+                                          const FormatOptions& options) const override {
         return Status::NotSupported("deserialize_one_cell_from_text with type " +
                                     column.get_name());
     }
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized, const FormatOptions& options,
-                                               int nesting_level = 1) const override {
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override {
         return Status::NotSupported("deserialize_column_from_text_vector with type " +
                                     column.get_name());
     }
@@ -96,13 +95,14 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return Status::NotSupported("write_column_to_mysql with type " + column.get_name());
-    }
+                                 int row_idx, bool col_const) const override;
 
-    Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
-                               std::vector<StringRef>& buffer_list) const override;
+    Status write_column_to_orc(const std::string& timezone, const IColumn& column,
+                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               int start, int end,
+                               std::vector<StringRef>& buffer_list) const override {
+        return Status::NotSupported("write_column_to_orc with type " + column.get_name());
+    }
 };
 } // namespace vectorized
 } // namespace doris

@@ -27,7 +27,6 @@
 #include <ostream>
 #include <string>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
@@ -132,7 +131,6 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
-    _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
 
     for (int i = 0; i < read_params.rs_splits.size(); ++i) {

@@ -24,7 +24,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -358,6 +357,7 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
 }
 
 int64_t MemTableWriter::active_memtable_mem_consumption() {
+    std::lock_guard<std::mutex> l(_lock);
     return _mem_table != nullptr ? _mem_table->memory_usage() : 0;
 }
 

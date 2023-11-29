@@ -175,7 +175,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     } else {
         pipe_id = runtime_state->fragment_instance_id();
     }
-    *file_reader = multi_table_pipe->getPipe(pipe_id);
+    *file_reader = multi_table_pipe->get_pipe(pipe_id);
     LOG(INFO) << "create pipe reader for fragment instance: " << pipe_id
               << " pipe: " << (*file_reader).get();
 

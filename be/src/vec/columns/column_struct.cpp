@@ -233,6 +233,15 @@ void ColumnStruct::insert_indices_from(const IColumn& src, const int* indices_be
     }
 }
 
+void ColumnStruct::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                            const uint32_t* indices_end) {
+    const ColumnStruct& src_concrete = assert_cast<const ColumnStruct&>(src);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        columns[i]->insert_indices_from_join(src_concrete.get_column(i), indices_begin,
+                                             indices_end);
+    }
+}
+
 void ColumnStruct::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -292,6 +301,21 @@ void ColumnStruct::replicate(const uint32_t* indexs, size_t target_size, IColumn
     for (size_t i = 0; i != columns.size(); ++i) {
         columns[i]->replicate(indexs, target_size, *res.columns[i]);
     }
+}
+
+MutableColumnPtr ColumnStruct::get_shrinked_column() {
+    const size_t tuple_size = columns.size();
+    MutableColumns new_columns(tuple_size);
+
+    for (size_t i = 0; i < tuple_size; ++i) {
+        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
+            columns[i]->is_column_map() || columns[i]->is_column_struct()) {
+            new_columns[i] = columns[i]->get_shrinked_column();
+        } else {
+            new_columns[i] = columns[i]->get_ptr();
+        }
+    }
+    return ColumnStruct::create(std::move(new_columns));
 }
 
 MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {

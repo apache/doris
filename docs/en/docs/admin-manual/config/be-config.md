@@ -188,7 +188,7 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying too the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-* Default value: 80%
+* Default value: 90%
 
 #### `cluster_id`
 
@@ -721,7 +721,7 @@ BaseCompaction:546859:
 #### `enable_single_replica_load`
 
 * Description: Whether to enable the single-copy data import function
-* Default value: false
+* Default value: true
 
 #### `load_error_log_reserve_hours`
 
@@ -1464,11 +1464,6 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: Default dirs to put jdbc drivers.
 * Default value: `${DORIS_HOME}/jdbc_drivers`
 
-#### `enable_parse_multi_dimession_array`
-
-* Description: Whether parse multidimensional array, if false encountering will return ERROR
-* Default value: true
-
 #### `enable_simdjson_reader`
 
 * Description: Whether enable simdjson to parse json while stream load
@@ -1500,3 +1495,13 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
 * Default value: true
+
+#### `olap_table_sink_send_interval_microseconds`
+
+* Description: While loading data, there's a polling thread keep sending data to corresponding BE from Coordinator's sink node. This thread will check whether there's data to send every `olap_table_sink_send_interval_microseconds` microseconds.
+* Default value: 1000
+
+#### `olap_table_sink_send_interval_auto_partition_factor`
+
+* Description: If we load data to a table which enabled auto partition. the interval of `olap_table_sink_send_interval_microseconds` is too slow. In that case the real interval will multiply this factor.
+* Default value: 0.001

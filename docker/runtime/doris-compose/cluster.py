@@ -132,18 +132,19 @@ class Node(object):
     TYPE_BE = "be"
     TYPE_ALL = [TYPE_FE, TYPE_BE]
 
-    def __init__(self, cluster_name, id, subnet, meta):
+    def __init__(self, cluster_name, coverage_dir, id, subnet, meta):
         self.cluster_name = cluster_name
+        self.coverage_dir = coverage_dir
         self.id = id
         self.subnet = subnet
         self.meta = meta
 
     @staticmethod
-    def new(cluster_name, node_type, id, subnet, meta):
+    def new(cluster_name, coverage_dir, node_type, id, subnet, meta):
         if node_type == Node.TYPE_FE:
-            return FE(cluster_name, id, subnet, meta)
+            return FE(cluster_name, coverage_dir, id, subnet, meta)
         elif node_type == Node.TYPE_BE:
-            return BE(cluster_name, id, subnet, meta)
+            return BE(cluster_name, coverage_dir, id, subnet, meta)
         else:
             raise Exception("Unknown node type {}".format(node_type))
 
@@ -226,67 +227,78 @@ class Node(object):
                                                       self.get_name()))
 
     def docker_env(self):
-        return {
+        enable_coverage = self.coverage_dir
+
+        envs = {
             "MY_IP": self.get_ip(),
             "MY_ID": self.id,
             "FE_QUERY_PORT": FE_QUERY_PORT,
             "FE_EDITLOG_PORT": FE_EDITLOG_PORT,
             "BE_HEARTBEAT_PORT": BE_HEARTBEAT_PORT,
             "DORIS_HOME": os.path.join(DOCKER_DORIS_PATH, self.node_type()),
+            "STOP_GRACE": 1 if enable_coverage else 0,
         }
+
+        if enable_coverage:
+            outfile = "{}/coverage/{}-coverage-{}-{}".format(
+                DOCKER_DORIS_PATH, self.node_type(), self.cluster_name,
+                self.id)
+            if self.node_type() == Node.TYPE_FE:
+                envs["JACOCO_COVERAGE_OPT"] = "-javaagent:/jacoco/lib/jacocoagent.jar" \
+                    "=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format" \
+                    ":com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format," \
+                    "output=file,append=true,destfile=" + outfile
+            elif self.node_type() == Node.TYPE_BE:
+                envs["LLVM_PROFILE_FILE_PREFIX"] = outfile
+
+        return envs
 
     def docker_ports(self):
         raise Exception("No implemented")
 
     def compose(self):
+        volumes = [
+            "{}:{}/{}/{}".format(os.path.join(self.get_path(), sub_dir),
+                                 DOCKER_DORIS_PATH, self.node_type(), sub_dir)
+            for sub_dir in self.expose_sub_dirs()
+        ] + [
+            "{}:{}:ro".format(LOCAL_RESOURCE_PATH, DOCKER_RESOURCE_PATH),
+            "{}:{}/{}/status".format(get_status_path(self.cluster_name),
+                                     DOCKER_DORIS_PATH, self.node_type()),
+        ] + [
+            "{0}:{0}:ro".format(path)
+            for path in ("/etc/localtime", "/etc/timezone",
+                         "/usr/share/zoneinfo") if os.path.exists(path)
+        ]
+        if self.coverage_dir:
+            volumes.append("{}:{}/coverage".format(self.coverage_dir,
+                                                   DOCKER_DORIS_PATH))
+
         return {
             "cap_add": ["SYS_PTRACE"],
-            "hostname":
-            self.get_name(),
-            "container_name":
-            self.service_name(),
-            "command":
-            self.docker_command(),
-            "environment":
-            self.docker_env(),
-            "image":
-            self.get_image(),
+            "hostname": self.get_name(),
+            "container_name": self.service_name(),
+            "entrypoint": self.entrypoint(),
+            "environment": self.docker_env(),
+            "image": self.get_image(),
             "networks": {
                 utils.with_doris_prefix(self.cluster_name): {
                     "ipv4_address": self.get_ip(),
                 }
             },
-            "ports":
-            self.docker_ports(),
+            "ports": self.docker_ports(),
             "ulimits": {
                 "core": -1
             },
             "security_opt": ["seccomp:unconfined"],
-            "volumes": [
-                "{}:{}/{}/{}".format(os.path.join(self.get_path(),
-                                                  sub_dir), DOCKER_DORIS_PATH,
-                                     self.node_type(), sub_dir)
-                for sub_dir in self.expose_sub_dirs()
-            ] + [
-                "{}:{}:ro".format(LOCAL_RESOURCE_PATH, DOCKER_RESOURCE_PATH),
-                "{}:{}/{}/status".format(get_status_path(self.cluster_name),
-                                         DOCKER_DORIS_PATH, self.node_type()),
-            ] + [
-                "{0}:{0}:ro".format(path)
-                for path in ("/etc/localtime", "/etc/timezone",
-                             "/usr/share/zoneinfo") if os.path.exists(path)
-            ],
+            "volumes": volumes,
         }
 
 
 class FE(Node):
 
-    def docker_command(self):
-        return [
-            "bash",
-            os.path.join(DOCKER_RESOURCE_PATH, "init_fe.sh"),
-            #"{}/fe/bin/init_fe.sh".format(DOCKER_DORIS_PATH),
-        ]
+    def entrypoint(self):
+        return ["bash", os.path.join(DOCKER_RESOURCE_PATH, "init_fe.sh")]
 
     def docker_ports(self):
         return [FE_HTTP_PORT, FE_EDITLOG_PORT, FE_RPC_PORT, FE_QUERY_PORT]
@@ -300,12 +312,8 @@ class FE(Node):
 
 class BE(Node):
 
-    def docker_command(self):
-        return [
-            "bash",
-            os.path.join(DOCKER_RESOURCE_PATH, "init_be.sh"),
-            #"{}/be/bin/init_be.sh".format(DOCKER_DORIS_PATH),
-        ]
+    def entrypoint(self):
+        return ["bash", os.path.join(DOCKER_RESOURCE_PATH, "init_be.sh")]
 
     def docker_ports(self):
         return [BE_WEBSVR_PORT, BE_BRPC_PORT, BE_HEARTBEAT_PORT, BE_PORT]
@@ -316,38 +324,64 @@ class BE(Node):
     def expose_sub_dirs(self):
         return super().expose_sub_dirs() + ["storage"]
 
-    def init_disk(self, be_disk_num):
-        if not be_disk_num or be_disk_num <= 1:
-            return
+    def init_disk(self, be_disks):
         path = self.get_path()
-        for i in range(1, be_disk_num + 1):
-            os.makedirs("{}/storage/disk{}".format(path, i), exist_ok=True)
+        dirs = []
+        dir_descs = []
+        index = 0
+        for disks in be_disks:
+            parts = disks.split(",")
+            if len(parts) != 1 and len(parts) != 2:
+                raise Exception("be disks has error: {}".format(disks))
+            type_and_num = parts[0].split("=")
+            if len(type_and_num) != 2:
+                raise Exception("be disks has error: {}".format(disks))
+            tp = type_and_num[0].strip().upper()
+            if tp != "HDD" and tp != "SSD":
+                raise Exception(
+                    "error be disk type: '{}', should be 'HDD' or 'SSD'".
+                    format(tp))
+            num = int(type_and_num[1].strip())
+            capactity = int(parts[1].strip()) if len(parts) >= 2 else -1
+            capactity_desc = "_{}gb".format(capactity) if capactity > 0 else ""
+
+            for i in range(num):
+                index += 1
+                dir_name = "{}{}.{}".format(index, capactity_desc, tp)
+                dirs.append("{}/storage/{}".format(path, dir_name))
+                dir_descs.append("${{DORIS_HOME}}/storage/{}{}".format(
+                    dir_name,
+                    ",capacity:" + str(capactity) if capactity > 0 else ""))
+
+        for dir in dirs:
+            os.makedirs(dir, exist_ok=True)
+
         with open("{}/conf/{}".format(path, self.conf_file_name()), "a") as f:
-            f.write("storage_root_path = " + ";".join([
-                "${{DORIS_HOME}}/storage/disk{}".format(i)
-                for i in range(1, be_disk_num + 1)
-            ]) + "\n")
+            storage_root_path = ";".join(dir_descs) if dir_descs else '""'
+            f.write("storage_root_path = {}\n".format(storage_root_path))
 
 
 class Cluster(object):
 
-    def __init__(self, name, subnet, image, fe_config, be_config, be_disk_num):
+    def __init__(self, name, subnet, image, fe_config, be_config, be_disks,
+                 coverage_dir):
         self.name = name
         self.subnet = subnet
         self.image = image
         self.fe_config = fe_config
         self.be_config = be_config
-        self.be_disk_num = be_disk_num
+        self.be_disks = be_disks
+        self.coverage_dir = coverage_dir
         self.groups = {
             node_type: Group(node_type)
             for node_type in Node.TYPE_ALL
         }
 
     @staticmethod
-    def new(name, image, fe_config, be_config, be_disk_num):
+    def new(name, image, fe_config, be_config, be_disks, coverage_dir):
         subnet = gen_subnet_prefix16()
-        cluster = Cluster(name, subnet, image, fe_config, be_config,
-                          be_disk_num)
+        cluster = Cluster(name, subnet, image, fe_config, be_config, be_disks,
+                          coverage_dir)
         os.makedirs(cluster.get_path(), exist_ok=True)
         os.makedirs(get_status_path(name), exist_ok=True)
         return cluster
@@ -400,15 +434,16 @@ class Cluster(object):
         meta = group.get_node(id)
         if not meta:
             raise Exception("No found {} with id {}".format(node_type, id))
-        return Node.new(self.name, node_type, id, self.subnet, meta)
+        return Node.new(self.name, self.coverage_dir, node_type, id,
+                        self.subnet, meta)
 
     def get_all_nodes(self, node_type):
         group = self.groups.get(node_type, None)
         if not group:
             raise Exception("Unknown node_type: {}".format(node_type))
         return [
-            Node.new(self.name, node_type, id, self.subnet, meta)
-            for id, meta in group.get_all_nodes().items()
+            Node.new(self.name, self.coverage_dir, node_type, id, self.subnet,
+                     meta) for id, meta in group.get_all_nodes().items()
         ]
 
     def get_all_nodes_num(self):
@@ -426,7 +461,7 @@ class Cluster(object):
                 node.init_conf(self.fe_config)
             elif node.is_be():
                 node.init_conf(self.be_config)
-                node.init_disk(self.be_disk_num)
+                node.init_disk(self.be_disks)
             else:
                 node.init_conf([])
         return node

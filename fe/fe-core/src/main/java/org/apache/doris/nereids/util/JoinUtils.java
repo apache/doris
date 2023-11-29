@@ -24,7 +24,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -66,9 +67,10 @@ public class JoinUtils {
      * check if the row count of the left child in the broadcast join is less than a threshold value.
      */
     public static boolean checkBroadcastJoinStats(PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
-        double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
-        double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
-        double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        double memLimit = sessionVariable.getMaxExecMemByte();
+        double rowsLimit = sessionVariable.getBroadcastRowCountLimit();
+        double brMemlimit = sessionVariable.getBroadcastHashtableMemLimitPercentage();
         double datasize = join.getGroupExpression().get().child(1).getStatistics().computeSize();
         double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
         return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
@@ -86,22 +88,6 @@ public class JoinUtils {
             rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
         }
 
-        JoinSlotCoverageChecker(Set<ExprId> left, Set<ExprId> right) {
-            leftExprIds = left;
-            rightExprIds = right;
-        }
-
-        /**
-         * PushDownExpressionInHashConjuncts ensure the "slots" is only one slot.
-         */
-        boolean isCoveredByLeftSlots(ExprId slot) {
-            return leftExprIds.contains(slot);
-        }
-
-        boolean isCoveredByRightSlots(ExprId slot) {
-            return rightExprIds.contains(slot);
-        }
-
         /**
          * consider following cases:
          * 1# A=1 => not for hash table
@@ -110,25 +96,20 @@ public class JoinUtils {
          * 4# t1.a=t2.a or t1.b=t2.b not for hash table
          * 5# t1.a > 1 not for hash table
          *
-         * @param equalTo a conjunct in on clause condition
+         * @param equal a conjunct in on clause condition
          * @return true if the equal can be used as hash join condition
          */
-        public boolean isHashJoinCondition(EqualTo equalTo) {
-            Set<Slot> equalLeft = equalTo.left().collect(Slot.class::isInstance);
-            if (equalLeft.isEmpty()) {
+        public boolean isHashJoinCondition(EqualPredicate equal) {
+            Set<ExprId> equalLeftExprIds = equal.left().getInputSlotExprIds();
+            if (equalLeftExprIds.isEmpty()) {
                 return false;
             }
 
-            Set<Slot> equalRight = equalTo.right().collect(Slot.class::isInstance);
-            if (equalRight.isEmpty()) {
+            Set<ExprId> equalRightExprIds = equal.right().getInputSlotExprIds();
+            if (equalRightExprIds.isEmpty()) {
                 return false;
             }
 
-            List<ExprId> equalLeftExprIds = equalLeft.stream()
-                    .map(Slot::getExprId).collect(Collectors.toList());
-
-            List<ExprId> equalRightExprIds = equalRight.stream()
-                    .map(Slot::getExprId).collect(Collectors.toList());
             return leftExprIds.containsAll(equalLeftExprIds) && rightExprIds.containsAll(equalRightExprIds)
                     || leftExprIds.containsAll(equalRightExprIds) && rightExprIds.containsAll(equalLeftExprIds);
         }
@@ -145,9 +126,8 @@ public class JoinUtils {
     public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(List<Slot> leftSlots,
             List<Slot> rightSlots, List<Expression> onConditions) {
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
-        Map<Boolean, List<Expression>> mapper = onConditions.stream()
-                .collect(Collectors.groupingBy(
-                        expr -> (expr instanceof EqualTo) && checker.isHashJoinCondition((EqualTo) expr)));
+        Map<Boolean, List<Expression>> mapper = onConditions.stream().collect(Collectors.groupingBy(
+                expr -> (expr instanceof EqualPredicate) && checker.isHashJoinCondition((EqualPredicate) expr)));
         return Pair.of(
                 mapper.getOrDefault(true, ImmutableList.of()),
                 mapper.getOrDefault(false, ImmutableList.of())
@@ -203,7 +183,7 @@ public class JoinUtils {
      * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
      * In this situation, the children of predicate need to be swap => t1.id=t2.id.
      */
-    public static Expression swapEqualToForChildrenOrder(EqualTo equalTo, Set<Slot> leftOutput) {
+    public static EqualPredicate swapEqualToForChildrenOrder(EqualPredicate equalTo, Set<Slot> leftOutput) {
         if (leftOutput.containsAll(equalTo.left().getInputSlots())) {
             return equalTo;
         } else {

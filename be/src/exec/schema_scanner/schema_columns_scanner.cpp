@@ -138,6 +138,7 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     case TPrimitiveType::DECIMAL32:
     case TPrimitiveType::DECIMAL64:
     case TPrimitiveType::DECIMAL128I:
+    case TPrimitiveType::DECIMAL256:
     case TPrimitiveType::DECIMALV2: {
         return "decimal";
     }
@@ -208,7 +209,8 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     }
     case TPrimitiveType::DECIMAL32:
     case TPrimitiveType::DECIMAL64:
-    case TPrimitiveType::DECIMAL128I: {
+    case TPrimitiveType::DECIMAL128I:
+    case TPrimitiveType::DECIMAL256: {
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(
                 debug_string_buffer, "decimalv3({}, {})",
@@ -237,6 +239,40 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::JSONB: {
         return "json";
     }
+    case TPrimitiveType::MAP: {
+        // for old be service we should compatible
+        std::string ret = "map<";
+        if (!desc.children.empty()) {
+            for (int i = 0; i < desc.children.size() - 1; ++i) {
+                ret += _type_to_string(desc.children[i]) + ",";
+            }
+            ret += _type_to_string(desc.children[desc.children.size() - 1]);
+        }
+        ret += ">";
+        return ret;
+    }
+    case TPrimitiveType::ARRAY: {
+        // for old be service we should compitable
+        std::string ret = "array<";
+        if (!desc.children.empty()) {
+            ret += _type_to_string(desc.children[0]);
+        }
+        ret += ">";
+        return ret;
+    }
+    case TPrimitiveType::STRUCT: {
+        // for old be service we should compitable
+        std::string ret = "struct<";
+        if (!desc.children.empty()) {
+            for (int i = 0; i < desc.children.size() - 1; ++i) {
+                ret += _type_to_string(desc.children[i]) + ",";
+            }
+            ret += _type_to_string(desc.children[desc.children.size() - 1]);
+        }
+        ret += ">";
+        return ret;
+    }
+
     default:
         return "unknown";
     }

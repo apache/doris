@@ -150,6 +150,9 @@ public class StreamLoadPlanner {
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
                 boolean existInExpr = false;
+                if (col.hasOnUpdateDefaultValue()) {
+                    partialUpdateInputColumns.add(col.getName());
+                }
                 for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                     if (importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
@@ -298,6 +301,9 @@ public class StreamLoadPlanner {
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
         execParams.setPerNodeScanRanges(perNodeScanRange);
         params.setParams(execParams);
+        params.setLoadStreamPerNode(taskInfo.getStreamPerNode());
+        params.setTotalLoadStreams(taskInfo.getStreamPerNode());
+        params.setNumLocalSink(1);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
@@ -499,6 +505,9 @@ public class StreamLoadPlanner {
         pipParams.per_exch_num_senders = Maps.newHashMap();
         pipParams.destinations = Lists.newArrayList();
         pipParams.setNumSenders(1);
+        pipParams.setLoadStreamPerNode(taskInfo.getStreamPerNode());
+        pipParams.setTotalLoadStreams(taskInfo.getStreamPerNode());
+        pipParams.setNumLocalSink(1);
 
         TPipelineInstanceParams localParams = new TPipelineInstanceParams();
         localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));

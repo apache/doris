@@ -274,24 +274,23 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public long getUsedDataQuotaWithLock() {
         long usedDataQuota = 0;
         readLock();
-        try {
-            for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
+        List<Table> tables = new ArrayList<>(this.idToTable.values());
+        readUnlock();
 
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    usedDataQuota = usedDataQuota + olapTable.getDataSize();
-                } finally {
-                    olapTable.readUnlock();
-                }
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
             }
-            return usedDataQuota;
-        } finally {
-            readUnlock();
+
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.readLock();
+            try {
+                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+            } finally {
+                olapTable.readUnlock();
+            }
         }
+        return usedDataQuota;
     }
 
     public long getReplicaCountWithLock() {
@@ -397,6 +396,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
+                } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
                 }
             }
             return Pair.of(result, isTableExist);
@@ -629,6 +630,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
             table.setQualifiedDbName(fullQualifiedName);
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
+            }
             String tableName = table.getName();
             nameToTable.put(tableName, table);
             idToTable.put(table.getId(), table);
@@ -740,13 +744,20 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
             FunctionUtil.dropFromNereids(this.getFullName(), function);
+            LOG.info("finished to drop function {}", function.getName().getFunction());
         }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
+            // Set ifExists to true to avoid throw exception if function is not found.
+            // It should not happen but the reason is unknown, so add warn log for debug.
+            if (!FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function)) {
+                LOG.warn("failed to find function to drop: {} when replay, skip",
+                        functionSearchDesc.getName().getFunction());
+            }
             FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
+            LOG.info("finished to replay drop function {}", functionSearchDesc.getName().getFunction());
         } catch (UserException e) {
             throw new RuntimeException(e);
         }

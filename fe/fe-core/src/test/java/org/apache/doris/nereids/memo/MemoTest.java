@@ -22,6 +22,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.cost.Cost;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
@@ -89,16 +90,18 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     void testMergeGroup() {
         Group srcGroup = new Group(new GroupId(2), new GroupExpression(new FakePlan()),
-                new LogicalProperties(ArrayList::new));
+                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
         Group dstGroup = new Group(new GroupId(3), new GroupExpression(new FakePlan()),
-                new LogicalProperties(ArrayList::new));
+                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
 
         FakePlan fakePlan = new FakePlan();
         GroupExpression srcParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(srcGroup));
-        Group srcParentGroup = new Group(new GroupId(0), srcParentExpression, new LogicalProperties(ArrayList::new));
-        srcParentGroup.setBestPlan(srcParentExpression, Cost.zero(), PhysicalProperties.ANY);
+        Group srcParentGroup = new Group(new GroupId(0), srcParentExpression,
+                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
+        srcParentGroup.setBestPlan(srcParentExpression, Cost.zeroV1(), PhysicalProperties.ANY);
         GroupExpression dstParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(dstGroup));
-        Group dstParentGroup = new Group(new GroupId(1), dstParentExpression, new LogicalProperties(ArrayList::new));
+        Group dstParentGroup = new Group(new GroupId(1), dstParentExpression,
+                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
 
         Memo memo = new Memo();
         Map<GroupId, Group> groups = Deencapsulation.getField(memo, "groups");
@@ -1069,7 +1072,7 @@ class MemoTest implements MemoPatternMatchSupported {
         );
 
         // Project -> Project -> Relation
-        Memo memo = new Memo(rootProject);
+        Memo memo = new Memo(null, rootProject);
         Group leafGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 0).findFirst().get();
         Group targetGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 1).findFirst().get();
         LogicalProject rewriteInsideProject = new LogicalProject<>(
@@ -1126,7 +1129,7 @@ class MemoTest implements MemoPatternMatchSupported {
         );
 
         // Project -> Project -> Relation
-        Memo memo = new Memo(rootProject);
+        Memo memo = new Memo(null, rootProject);
         Group leafGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 0).findFirst().get();
         Group targetGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 2).findFirst().get();
         LogicalPlan rewriteProject = insideProject.withChildren(Lists.newArrayList(new GroupPlan(leafGroup)));

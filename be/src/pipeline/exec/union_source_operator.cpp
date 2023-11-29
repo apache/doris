@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
 #include "vec/core/block.h"
@@ -104,14 +105,23 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     int child_count = p.get_child_count();
     auto ss = create_shared_state();
     if (child_count != 0) {
-        auto& deps = info.dependencys;
+        auto& deps = info.upstream_dependencies;
         for (auto& dep : deps) {
-            ((UnionDependency*)dep.get())->set_shared_state(ss);
+            ((UnionSinkDependency*)dep.get())->set_shared_state(ss);
         }
+    } else {
+        auto& deps = info.upstream_dependencies;
+        DCHECK(child_count == 0);
+        DCHECK(deps.size() == 1);
+        DCHECK(deps.front() == nullptr);
+        //child_count == 0 , we need to creat a  UnionDependency
+        deps.front() = std::make_shared<UnionSourceDependency>(
+                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
+        ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_dependency(_dependency);
-    SCOPED_TIMER(profile()->total_time_counter());
+    ss->data_queue.set_source_dependency(_dependency);
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
@@ -131,20 +141,23 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             RETURN_IF_ERROR(clone_expr_list(_const_expr_list, other_expr_list));
         }
     }
+    if (child_count == 0) {
+        _dependency->set_ready();
+    }
     return Status::OK();
 }
 
 std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
     auto& p = _parent->cast<Parent>();
     std::shared_ptr<UnionSharedState> data_queue =
-            std::make_shared<UnionSharedState>(p._child_size, _dependency);
+            std::make_shared<UnionSharedState>(p._child_size);
     return data_queue;
 }
 
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
             static_cast<void>(get_next_const(state, block));
@@ -164,7 +177,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     }
     local_state.reached_limit(block, source_state);
     //have exectue const expr, queue have no data any more, and child could be colsed
-    if (_child_size == 0) {
+    if (_child_size == 0 && !local_state._need_read_for_const_expr) {
         source_state = SourceState::FINISHED;
     } else if ((!_has_data(state) && local_state._shared_state->data_queue.is_all_finish())) {
         source_state = SourceState::FINISHED;
@@ -178,7 +191,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
 
 Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
-    auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
+    auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
     DCHECK_LT(local_state._const_expr_list_idx, _const_expr_lists.size());
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =

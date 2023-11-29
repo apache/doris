@@ -106,7 +106,6 @@ public:
 
     bool is_numeric() const override { return false; }
     bool is_column_decimal() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
@@ -128,6 +127,18 @@ public:
         const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
         for (int i = 0; i < new_size; ++i) {
+            data[origin_size + i] = src_data[indices_begin[i]];
+        }
+    }
+
+    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
+        auto origin_size = size();
+        auto new_size = indices_end - indices_begin;
+        data.resize(origin_size + new_size);
+        const T* __restrict src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+
+        for (uint32_t i = 0; i < new_size; ++i) {
             data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
@@ -201,7 +212,7 @@ public:
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
     bool get_bool(size_t n) const override { return bool(data[n]); }
-    Int64 get_int(size_t n) const override { return Int64(data[n] * scale); }
+    Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
     UInt64 get64(size_t n) const override;
     bool is_default_at(size_t n) const override { return data[n].value == 0; }
 

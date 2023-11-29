@@ -47,6 +47,7 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     _db_id = table_sink.db_id;
     _table_id = table_sink.table_id;
     _base_schema_version = table_sink.base_schema_version;
+    _load_id = table_sink.load_id;
     return Status::OK();
 }
 
@@ -56,6 +57,7 @@ Status GroupCommitBlockSink::prepare(RuntimeState* state) {
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
+    init_sink_common_profile();
     _mem_tracker =
             std::make_shared<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
@@ -90,11 +92,11 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
     int64_t total_rows = 0;
     int64_t loaded_rows = 0;
     for (const auto& future_block : _future_blocks) {
-        std::unique_lock<doris::Mutex> l(*(future_block->lock));
+        std::unique_lock<std::mutex> l(*(future_block->lock));
         if (!future_block->is_handled()) {
             future_block->cv->wait(l);
         }
-        // future_block->get_status()
+        RETURN_IF_ERROR(future_block->get_status());
         loaded_rows += future_block->get_loaded_rows();
         total_rows += future_block->get_total_rows();
     }
@@ -102,6 +104,10 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
                                          loaded_rows);
     state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
                                    state->num_rows_load_filtered());
+    if (_load_block_queue && _load_block_queue->wait_internal_group_commit_finish) {
+        std::unique_lock l(_load_block_queue->mutex);
+        _load_block_queue->internal_group_commit_finish_cv.wait(l);
+    }
     return Status::OK();
 }
 
@@ -150,8 +156,8 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
             std::make_shared<doris::vectorized::FutureBlock>();
     future_block->swap(*(output_block.get()));
     TUniqueId load_id;
-    load_id.__set_hi(load_id.hi);
-    load_id.__set_lo(load_id.lo);
+    load_id.__set_hi(_load_id.hi);
+    load_id.__set_lo(_load_id.lo);
     future_block->set_info(_base_schema_version, load_id);
     if (_load_block_queue == nullptr) {
         RETURN_IF_ERROR(state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
@@ -159,8 +165,9 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         state->set_import_label(_load_block_queue->label);
         state->set_wal_id(_load_block_queue->txn_id);
     }
+    RETURN_IF_ERROR(_load_block_queue->add_block(future_block));
     _future_blocks.emplace_back(future_block);
-    return _load_block_queue->add_block(future_block);
+    return Status::OK();
 }
 
 } // namespace vectorized

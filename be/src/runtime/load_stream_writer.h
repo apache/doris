@@ -71,7 +71,7 @@ public:
 
     Status close_segment(uint32_t segid);
 
-    Status add_segment(uint32_t segid, SegmentStatistics& stat);
+    Status add_segment(uint32_t segid, const SegmentStatistics& stat);
 
     // wait for all memtables to be flushed.
     Status close();
@@ -83,7 +83,7 @@ private:
     bool _is_canceled = false;
     WriteRequest _req;
     RowsetBuilder _rowset_builder;
-    std::shared_ptr<RowsetWriter> _rowset_writer = nullptr;
+    std::shared_ptr<RowsetWriter> _rowset_writer;
     std::mutex _lock;
 
     std::unordered_map<uint32_t /*segid*/, SegmentStatisticsSharedPtr> _segment_stat_map;

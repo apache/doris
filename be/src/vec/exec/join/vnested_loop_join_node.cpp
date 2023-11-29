@@ -21,7 +21,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <string.h>
 
 #include <boost/iterator/iterator_facade.hpp>
@@ -32,21 +31,18 @@
 #include <utility>
 #include <variant>
 
-#include "pipeline/exec/nested_loop_join_build_operator.h"
-
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exec/exec_node.h"
 #include "exprs/runtime_filter.h"
 #include "exprs/runtime_filter_slots_cross.h"
 #include "gutil/integral_types.h"
+#include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
@@ -78,13 +74,13 @@ Status RuntimeFilterBuild<Parent>::operator()(RuntimeState* state) {
     RETURN_IF_ERROR(runtime_filter_slots.init(state));
 
     if (!runtime_filter_slots.empty() && !_parent->build_blocks().empty()) {
-        SCOPED_TIMER(_parent->push_compute_timer());
+        SCOPED_TIMER(_parent->runtime_filter_compute_timer());
         for (auto& build_block : _parent->build_blocks()) {
             RETURN_IF_ERROR(runtime_filter_slots.insert(&build_block));
         }
     }
     {
-        SCOPED_TIMER(_parent->push_down_timer());
+        SCOPED_TIMER(_parent->publish_runtime_filter_timer());
         RETURN_IF_ERROR(runtime_filter_slots.publish());
     }
 

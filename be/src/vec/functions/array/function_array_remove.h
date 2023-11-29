@@ -102,7 +102,7 @@ private:
 
         PaddedPODArray<UInt8>* dst_null_map = nullptr;
         MutableColumnPtr array_nested_column = nullptr;
-        IColumn* dst_column;
+        IColumn* dst_column = nullptr;
         if (nested_null_map) {
             auto dst_nested_column =
                     ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
@@ -174,7 +174,7 @@ private:
 
         PaddedPODArray<UInt8>* dst_null_map = nullptr;
         MutableColumnPtr array_nested_column = nullptr;
-        IColumn* dst_column;
+        IColumn* dst_column = nullptr;
         if (nested_null_map) {
             auto dst_nested_column =
                     ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
@@ -328,6 +328,9 @@ private:
                                                                   *right_column, nested_null_map);
             } else if (left_which_type.is_decimal128()) {
                 res = _execute_number_expanded<ColumnDecimal128>(offsets, *nested_column,
+                                                                 *right_column, nested_null_map);
+            } else if (left_which_type.is_decimal256()) {
+                res = _execute_number_expanded<ColumnDecimal256>(offsets, *nested_column,
                                                                  *right_column, nested_null_map);
             }
         } else if (is_date_or_datetime(right_type) && is_date_or_datetime(left_element_type)) {

@@ -48,10 +48,10 @@
 namespace doris {
 
 Reusable::~Reusable() {}
-constexpr static int s_preallocted_blocks_num = 64;
+constexpr static int s_preallocted_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       size_t block_size) {
-    SCOPED_MEM_COUNT(&_mem_size);
+    SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _runtime_state = RuntimeState::create_unique();
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
@@ -254,9 +254,8 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
         RowCursor cursor;
         RETURN_IF_ERROR(cursor.init_scan_key(_tablet->tablet_schema(), olap_tuples[i].values()));
         RETURN_IF_ERROR(cursor.from_tuple(olap_tuples[i]));
-        encode_key_with_padding<RowCursor, true, true>(&_row_read_ctxs[i]._primary_key, cursor,
-                                                       _tablet->tablet_schema()->num_key_columns(),
-                                                       true);
+        encode_key_with_padding<RowCursor, true>(&_row_read_ctxs[i]._primary_key, cursor,
+                                                 _tablet->tablet_schema()->num_key_columns(), true);
     }
     return Status::OK();
 }
@@ -287,7 +286,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
         st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
                                       &location, INT32_MAX /*rethink?*/, segment_caches,
-                                      rowset_ptr.get()));
+                                      rowset_ptr.get(), false));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
@@ -335,6 +334,7 @@ Status PointQueryExecutor::_lookup_row_data() {
 template <typename MysqlWriter>
 Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
                         PTabletKeyLookupResponse* response) {
+    block.clear_names();
     RETURN_IF_ERROR(mysql_writer.append_block(block));
     assert(mysql_writer.results().size() == 1);
     uint8_t* buf = nullptr;

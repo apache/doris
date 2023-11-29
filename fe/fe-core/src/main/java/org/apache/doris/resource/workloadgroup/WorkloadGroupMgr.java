@@ -40,6 +40,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUserIdentity;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -52,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -62,7 +64,11 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public static final String DEFAULT_GROUP_NAME = "normal";
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Id").add("Name").add("Item").add("Value")
+            .add("Id").add("Name").add(WorkloadGroup.CPU_SHARE).add(WorkloadGroup.MEMORY_LIMIT)
+            .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
+            .add(WorkloadGroup.MAX_CONCURRENCY).add(WorkloadGroup.MAX_QUEUE_SIZE)
+            .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
+            .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
     private static final Logger LOG = LogManager.getLogger(WorkloadGroupMgr.class);
@@ -119,14 +125,20 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 throw new UserException("Workload group " + groupName + " does not exist");
             }
             workloadGroups.add(workloadGroup.toThrift());
-            // note(wb) -1 to tell be no need to not use cpu hard limit
-            int cpuHardLimitThriftVal = -1;
-            if (Config.enable_cpu_hard_limit && workloadGroup.getCpuHardLimit() > 0) {
-                cpuHardLimitThriftVal = workloadGroup.getCpuHardLimit();
-            }
-            workloadGroups.get(0).getProperties().put(WorkloadGroup.CPU_HARD_LIMIT,
-                    String.valueOf(cpuHardLimitThriftVal));
             context.setWorkloadGroupName(groupName);
+        } finally {
+            readUnlock();
+        }
+        return workloadGroups;
+    }
+
+    public List<TopicInfo> getPublishTopicInfo() {
+        List<TopicInfo> workloadGroups = new ArrayList();
+        readLock();
+        try {
+            for (WorkloadGroup wg : idToWorkloadGroup.values()) {
+                workloadGroups.add(wg.toTopicInfo());
+            }
         } finally {
             readUnlock();
         }
@@ -171,7 +183,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 return;
             }
             Map<String, String> properties = Maps.newHashMap();
-            properties.put(WorkloadGroup.CPU_SHARE, "10");
+            properties.put(WorkloadGroup.CPU_SHARE, "1024");
             properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
             properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
             defaultWorkloadGroup = WorkloadGroup.create(DEFAULT_GROUP_NAME, properties);

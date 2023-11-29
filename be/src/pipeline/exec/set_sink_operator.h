@@ -57,17 +57,29 @@ public:
     bool can_write() override { return true; }
 
 private:
-    vectorized::VSetOperationNode<is_intersect>* _set_node;
+    vectorized::VSetOperationNode<is_intersect>* _set_node = nullptr;
+};
+
+class SetSinkDependency final : public Dependency {
+public:
+    using SharedState = SetSharedState;
+    SetSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SetSinkDependency", true, query_ctx) {}
+    ~SetSinkDependency() override = default;
+
+    void set_cur_child_id(int id) {
+        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
+    }
 };
 
 template <bool is_intersect>
 class SetSinkOperatorX;
 
 template <bool is_intersect>
-class SetSinkLocalState final : public PipelineXSinkLocalState<SetDependency> {
+class SetSinkLocalState final : public PipelineXSinkLocalState<SetSinkDependency> {
 public:
     ENABLE_FACTORY_CREATOR(SetSinkLocalState);
-    using Base = PipelineXSinkLocalState<SetDependency>;
+    using Base = PipelineXSinkLocalState<SetSinkDependency>;
     using Parent = SetSinkOperatorX<is_intersect>;
 
     SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
@@ -92,7 +104,8 @@ template <bool is_intersect>
 class SetSinkOperatorX final : public DataSinkOperatorX<SetSinkLocalState<is_intersect>> {
 public:
     using Base = DataSinkOperatorX<SetSinkLocalState<is_intersect>>;
-    using DataSinkOperatorXBase::id;
+    using DataSinkOperatorXBase::operator_id;
+    using Base::get_local_state;
     using typename Base::LocalState;
 
     friend class SetSinkLocalState<is_intersect>;
@@ -119,7 +132,7 @@ private:
     friend struct HashTableBuild;
 
     Status _process_build_block(SetSinkLocalState<is_intersect>& local_state,
-                                vectorized::Block& block, uint8_t offset, RuntimeState* state);
+                                vectorized::Block& block, RuntimeState* state);
     Status _extract_build_column(SetSinkLocalState<is_intersect>& local_state,
                                  vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs);
 

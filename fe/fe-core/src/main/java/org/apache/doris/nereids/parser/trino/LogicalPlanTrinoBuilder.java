@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.collect.ImmutableList;
@@ -176,6 +177,9 @@ public class LogicalPlanTrinoBuilder extends io.trino.sql.tree.AstVisitor<Object
         DataType dataType = mappingType(node.getType());
         Expression cast = new Cast(expr, dataType);
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
+            if (dataType.isVarcharType() && ((VarcharType) dataType).isWildcardVarchar()) {
+                return cast;
+            }
             List<Expression> args = ImmutableList.of(
                     cast,
                     new TinyIntLiteral((byte) 1),

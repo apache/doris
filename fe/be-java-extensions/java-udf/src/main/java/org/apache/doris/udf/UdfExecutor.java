@@ -159,7 +159,7 @@ public class UdfExecutor extends BaseExecutor {
                     continue;
                 }
                 method = m;
-                evaluateIndex = methodAccess.getIndex(UDF_FUNCTION_NAME);
+                evaluateIndex = methodAccess.getIndex(UDF_FUNCTION_NAME, argClass);
                 Pair<Boolean, JavaUdfDataType> returnType;
                 if (argClass.length == 0 && parameterTypes.length == 0) {
                     // Special case where the UDF doesn't take any input args

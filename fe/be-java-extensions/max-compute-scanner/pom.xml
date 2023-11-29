@@ -98,6 +98,15 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>${fe_ut_parallel}</forkCount>
+                    <reuseForks>false</reuseForks>
+                    <useFile>false</useFile>
+                    <argLine>-javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar</argLine>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
