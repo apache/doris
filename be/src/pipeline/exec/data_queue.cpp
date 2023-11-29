@@ -120,9 +120,7 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
             _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
             auto old_value = _cur_blocks_total_nums.fetch_sub(1);
             if (old_value == 1 && _source_dependency) {
-                if (!is_all_finish()) {
-                    set_source_block();
-                }
+                set_source_block();
                 _sink_dependencies[_flag_queue_idx]->set_ready();
             }
         } else {
@@ -193,9 +191,12 @@ void DataQueue::set_source_ready() {
 }
 
 void DataQueue::set_source_block() {
-    if (_source_dependency) {
+    if (_cur_blocks_total_nums == 0 && !is_all_finish()) {
         std::unique_lock lc(_source_lock);
-        _source_dependency->block();
+        // Performing the judgment twice, attempting to avoid blocking the source as much as possible.
+        if (_cur_blocks_total_nums == 0 && !is_all_finish()) {
+            _source_dependency->block();
+        }
     }
 }
 
