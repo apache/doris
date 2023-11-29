@@ -23,7 +23,7 @@ suite("test_insert_sequence_column") {
     sql """
         CREATE TABLE `dws_ncc_detail_xcb_total_5` (
         `code` varchar(50) NULL COMMENT '编码',
-        `value` float NULL,
+        `value` int NULL,
         `ct` datetime NULL DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=OLAP
         UNIQUE KEY(`code`)
@@ -39,8 +39,10 @@ suite("test_insert_sequence_column") {
     """
 
     sql """
-        insert into dws_ncc_detail_xcb_total_5 (code,value) values("a",1.22); 
+        insert into dws_ncc_detail_xcb_total_5 (code,value) values("a",1); 
     """
+
+    qt_select """select count(*) from dws_ncc_detail_xcb_total_5 where code = 'a' and value = 1;"""
 
     sql """
         drop table if exists dws_ncc_detail_xcb_total_5;
