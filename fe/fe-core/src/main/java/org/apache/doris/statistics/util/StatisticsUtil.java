@@ -939,6 +939,16 @@ public class StatisticsUtil {
         return StatisticConstants.ANALYZE_TIMEOUT_IN_SEC;
     }
 
+    public static int getAutoAnalyzeTableWidthThreshold() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD)
+                .autoAnalyzeTableWidthThreshold;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of auto_analyze_table_width_threshold, return default", e);
+        }
+        return StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD;
+    }
+
     public static String encodeValue(ResultRow row, int index) {
         if (row == null || row.getValues().size() <= index) {
             return "NULL";

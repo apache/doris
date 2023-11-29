@@ -105,7 +105,7 @@ public class InvertedIndexUtil {
             parser = INVERTED_INDEX_PARSER_NONE;
         }
 
-        if (colType.isStringType()) {
+        if (colType.isStringType() || colType.isVariantType()) {
             if (!(parser.equals(INVERTED_INDEX_PARSER_NONE)
                     || parser.equals(INVERTED_INDEX_PARSER_STANDARD)
                         || parser.equals(INVERTED_INDEX_PARSER_UNICODE)
