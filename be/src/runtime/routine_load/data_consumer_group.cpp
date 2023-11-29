@@ -316,6 +316,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
 
             if (!result_st.ok()) {
                 // some consumers encounter errors, cancel this task
+                LOG(WARNING) << "Failed. Cancelled append msg to pipe. grp: " << _grp_id;
                 pulsar_pipe->cancel(result_st.to_string());
                 return result_st;
             }
@@ -323,6 +324,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
             if (left_bytes == ctx->max_batch_size) {
                 // nothing to be consumed, we have to cancel it, because
                 // we do not allow finishing stream load pipe without data
+                LOG(WARNING) << "Cancelled append msg to pulsar pipe. grp: " << _grp_id;
                 pulsar_pipe->cancel("Cancelled");
                 return Status::InternalError("Cancelled");
             } else {
@@ -331,7 +333,7 @@ Status PulsarDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx
                 ctx->pulsar_info->ack_offset = std::move(ack_offset);
                 ctx->receive_bytes = ctx->max_batch_size - left_bytes;
                 get_backlog_nums(ctx);
-//                acknowledge_cumulative(ctx);
+                acknowledge_cumulative(ctx);
                 return Status::OK();
             }
         }
@@ -416,7 +418,7 @@ void PulsarDataConsumerGroup::acknowledge_cumulative(std::shared_ptr<StreamLoadC
                   << "partition: " << kv.first;
         for (auto& consumer : _consumers) {
             // do ack
-            static_cast<void>(consumer->acknowledge_cumulative(kv.second));
+            Status st = std::static_pointer_cast<PulsarDataConsumer>(consumer)->acknowledge_cumulative(kv.second));
         }
         LOG(INFO) << "finish do ack of message_id: " << kv.second
                   << "partition: " << kv.first;

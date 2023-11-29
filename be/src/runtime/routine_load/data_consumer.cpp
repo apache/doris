@@ -524,6 +524,7 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
     int64_t put_rows = 0;
     Status st = Status::OK();
     pulsar::MessageId msg_id;
+    std::string message_str;
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
     watch.start();
@@ -554,14 +555,23 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
             filter_data = substring_prefix_json(msg.get()->getDataAsString());
             rows = convert_rows(filter_data.c_str());
             msg_id = msg.get()->getMessageId();
-            if (msg.get()->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
-                LOG(INFO) << "receive pulsar message: " << msg.get()->getDataAsString()
-                          << ", len: " << msg.get()->getLength()
+            message_str = msg.get()->getDataAsString();
+            if (received_rows == 0) {
+                LOG(INFO) << "receive first pulsar message: " << message_str
+                          << ", len: " << message_str.size()
                           << ", message id: " << msg_id
                           << ", pulsar consumer: " << _id
                           << ", grp: " << _grp_id
                           << ", rows size: " << rows.size();
             }
+//            if (msg.get()->getDataAsString().find("\"country\":\"PL\"") != std::string::npos) {
+//                LOG(INFO) << "receive pulsar message "
+//                          << ", len: " << msg.get()->getLength()
+//                          << ", message id: " << msg_id
+//                          << ", pulsar consumer: " << _id
+//                          << ", grp: " << _grp_id
+//                          << ", rows size: " << rows.size();
+//            }
             for (const char* row : rows) {
                 pulsar::MessageBuilder messageBuilder;
                 size_t row_len = len_of_actual_data(row);
@@ -619,14 +629,20 @@ Status PulsarDataConsumer::group_consume(BlockingQueue<pulsar::Message*>* queue,
         }
     }
 
+    LOG(INFO) << "receive last pulsar message: " << message_str
+              << ", len: " << message_str.size()
+              << ", message id: " << msg_id
+              << ", pulsar consumer: " << _id
+              << ", grp: " << _grp_id
+              << ", rows size: " << rows.size();
 
-    LOG(INFO) << "start do ack of msg_id :" << msg_id;
-    pulsar::Result ack = _p_consumer.acknowledgeCumulative(msg_id);
-    if (ack != pulsar::ResultOk) {
-        LOG(WARNING) << "failed do ack of msg_id :" << msg_id << ", consumer : " << _id;
-    } else {
-        LOG(INFO) << "finish do ack of msg_id :" << msg_id << ", consumer : " << _id;
-    }
+//    LOG(INFO) << "start do ack of msg_id :" << msg_id;
+//    pulsar::Result ack = _p_consumer.acknowledgeCumulative(msg_id);
+//    if (ack != pulsar::ResultOk) {
+//        LOG(WARNING) << "failed do ack of msg_id :" << msg_id << ", consumer : " << _id;
+//    } else {
+//        LOG(INFO) << "finish do ack of msg_id :" << msg_id << ", consumer : " << _id;
+//    }
 
     LOG(INFO) << "pulsar consume done: " << _id << ", grp: " << _grp_id << ". cancelled: " << _cancelled
               << ", left time(ms): " << left_time << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000
