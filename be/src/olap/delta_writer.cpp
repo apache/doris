@@ -120,7 +120,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         RETURN_IF_ERROR(init());
     }
     while (_memtable_writer->get_flush_token_stats().flush_running_count > 1) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
     return _memtable_writer->write(block, row_idxs, is_append);
 }
