@@ -21,8 +21,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.StringJoiner;
 
 /**
@@ -56,8 +54,6 @@ public class ColStatsData {
 
     public final String updateTime;
 
-    public final boolean needEncode;
-
     @VisibleForTesting
     public ColStatsData() {
         statsId = new StatsId();
@@ -68,10 +64,9 @@ public class ColStatsData {
         maxLit = null;
         dataSizeInBytes = 0;
         updateTime = null;
-        needEncode = true;
     }
 
-    public ColStatsData(ResultRow row, boolean needEncode) {
+    public ColStatsData(ResultRow row) {
         this.statsId = new StatsId(row);
         this.count = (long) Double.parseDouble(row.get(7));
         this.ndv = (long) Double.parseDouble(row.getWithDefault(8, "0"));
@@ -80,7 +75,6 @@ public class ColStatsData {
         this.maxLit = row.get(11);
         this.dataSizeInBytes = (long) Double.parseDouble(row.getWithDefault(12, "0"));
         this.updateTime = row.get(13);
-        this.needEncode = needEncode;
     }
 
     public String toSQL(boolean roundByParentheses) {
@@ -93,12 +87,8 @@ public class ColStatsData {
         sj.add(String.valueOf(count));
         sj.add(String.valueOf(ndv));
         sj.add(String.valueOf(nullCount));
-        sj.add(minLit == null ? "NULL" : needEncode
-                ? "'" + Base64.getEncoder().encodeToString(minLit.getBytes(StandardCharsets.UTF_8)) + "'"
-                : "'" + minLit + "'");
-        sj.add(maxLit == null ? "NULL" : needEncode
-                ? "'" + Base64.getEncoder().encodeToString(maxLit.getBytes(StandardCharsets.UTF_8)) + "'"
-                : "'" + maxLit + "'");
+        sj.add(minLit == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(minLit) + "'");
+        sj.add(maxLit == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(maxLit) + "'");
         sj.add(String.valueOf(dataSizeInBytes));
         sj.add(StatisticsUtil.quote(updateTime));
         return sj.toString();
