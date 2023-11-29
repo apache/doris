@@ -54,7 +54,7 @@ public:
     ~faststring() {
         ASAN_UNPOISON_MEMORY_REGION(initial_data_, arraysize(initial_data_));
         if (data_ != initial_data_) {
-            Allocator::free(data_);
+            Allocator::free(data_, capacity_);
         }
     }
 
