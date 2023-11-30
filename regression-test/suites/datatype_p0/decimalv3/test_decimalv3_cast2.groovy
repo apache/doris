@@ -39,101 +39,101 @@ suite("test_decimalv3_cast2") {
     // to decimal32
     test {
         sql """
-            select cast(k1 as decimal(1, 0)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(1, 0)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(1, 1)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(1, 1)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     qt_int_to_decimal_1 """
-        select cast(k1 as decimal(2, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(2, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_4 """
-        select cast(k1 as decimal(9, 7)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(9, 7)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(9, 8)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(9, 8)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(9, 9)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(9, 9)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal64
     qt_int_to_decimal_5 """
-        select cast(k1 as decimal(10, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(10, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_6 """
-        select cast(k1 as decimal(10, 8)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(10, 8)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(10, 9)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(10, 9)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     qt_int_to_decimal_7 """
-        select cast(k1 as decimal(18, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_8 """
-        select cast(k1 as decimal(18, 16)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 16)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(18, 17)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(18, 17)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(18, 18)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(18, 18)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal128
     qt_int_to_decimal_11 """
-        select cast(k1 as decimal(38, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(38, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_12 """
-        select cast(k1 as decimal(38, 36)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(38, 36)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(38, 37)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(38, 37)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(38, 38)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(38, 38)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     // to deciml256
     sql "set enable_decimal256=true;"
     qt_int_to_decimal_15 """
-        select cast(k1 as decimal(76, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(76, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_16 """
-        select cast(k1 as decimal(76, 74)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(76, 74)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(76, 75)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(76, 75)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(76, 76)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(76, 76)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
@@ -143,38 +143,38 @@ suite("test_decimalv3_cast2") {
         insert into test_int_to_decimal32_1 values(0);
     """
     qt_int_to_decimal_17 """
-        select cast(k1 as decimal(1, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(1, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_18 """
-        select cast(k1 as decimal(1, 1)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(1, 1)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_19 """
-        select cast(k1 as decimal(9, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(9, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_20 """
-        select cast(k1 as decimal(9, 1)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(9, 1)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_21 """
-        select cast(k1 as decimal(9, 9)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(9, 9)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_22 """
-        select cast(k1 as decimal(18, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_23 """
-        select cast(k1 as decimal(18, 18)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 18)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_24 """
-        select cast(k1 as decimal(38, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(38, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_25 """
-        select cast(k1 as decimal(38, 38)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(38, 38)) from test_int_to_decimal32_1;
     """
     sql "set enable_decimal256=true;"
     qt_int_to_decimal_26 """
-        select cast(k1 as decimal(76, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(76, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_27 """
-        select cast(k1 as decimal(76, 76)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(76, 76)) from test_int_to_decimal32_1;
     """
     sql "set enable_decimal256=false;"
 
@@ -185,113 +185,113 @@ suite("test_decimalv3_cast2") {
     """
     test {
         sql """
-            select cast(k1 as decimal(1, 0)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(1, 0)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(1, 1)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(1, 1)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(9, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(9, 0)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(9, 1)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(9, 1)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(9, 9)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(9, 9)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal64
     qt_int_to_decimal_t2_1 """
-        select cast(k1 as decimal(10, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(10, 0)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-        select cast(k1 as decimal(10, 1)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(10, 1)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(10, 10)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(10, 10)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     qt_int_to_decimal_t2_2 """
-        select cast(k1 as decimal(18, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_t2_3 """
-        select cast(k1 as decimal(18, 1)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 1)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_t2_4 """
-        select cast(k1 as decimal(18, 8)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 8)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-        select cast(k1 as decimal(18, 9)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 9)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(18, 17)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(18, 17)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(18, 18)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(18, 18)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal128
     qt_int_to_decimal_t2_7 """
-        select cast(k1 as decimal(38, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(38, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_t2_8 """
-        select cast(k1 as decimal(38, 28)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(38, 28)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(38, 37)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(38, 37)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(38, 38)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(38, 38)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     // to deciml256
     sql "set enable_decimal256=true;"
     qt_int_to_decimal_t2_11 """
-        select cast(k1 as decimal(76, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(76, 0)) from test_int_to_decimal32_1;
     """
     qt_int_to_decimal_t2_12 """
-        select cast(k1 as decimal(76, 66)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(76, 66)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(76, 75)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(76, 75)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(76, 76)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(76, 76)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
@@ -305,7 +305,7 @@ suite("test_decimalv3_cast2") {
     """
     // actural not narrow integral
     qt_int_to_decimal_19 """
-        select cast(k1 as decimal(10, 2)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(10, 2)) from test_int_to_decimal32_1;
     """
 
     prepare_test_int_to_decimal32_1()
@@ -315,7 +315,7 @@ suite("test_decimalv3_cast2") {
     // multiply result not overflow, but final cast result overflow
     test {
         sql """
-            select cast(k1 as decimal(18, 10)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(18, 10)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
@@ -326,20 +326,20 @@ suite("test_decimalv3_cast2") {
     """
     test {
         sql """
-            select cast(k1 as decimal(18, 10)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(18, 10)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
 
     // multiply not overflow
     qt_int_to_decimal_t2_20 """
-        select cast(k1 as decimal(19, 9)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(19, 9)) from test_int_to_decimal32_1;
     """
 
     // multiply not overflow, narrow integer
     test {
         sql """
-        select cast(k1 as decimal(19, 11)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(19, 11)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
@@ -354,143 +354,143 @@ suite("test_decimalv3_cast2") {
     // to decimal32
     test {
         sql """
-            select cast(k1 as decimal(1, 0)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(1, 0)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(1, 1)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(1, 1)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     qt_negative_int_to_decimal_1 """
-        select cast(k1 as decimal(2, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(2, 0)) from test_int_to_decimal32_1;
     """
     qt_negative_int_to_decimal_2 """
-        select cast(k1 as decimal(3, 1)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(3, 1)) from test_int_to_decimal32_1;
     """
     qt_negative_int_to_decimal_3 """
-        select cast(k1 as decimal(9, 1)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(9, 1)) from test_int_to_decimal32_1;
     """
     qt_negative_int_to_decimal_4 """
-        select cast(k1 as decimal(9, 7)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(9, 7)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(9, 8)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(9, 8)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(9, 9)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(9, 9)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal64
     qt_negative_int_to_decimal_5 """
-        select cast(k1 as decimal(10, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(10, 0)) from test_int_to_decimal32_1;
     """
     qt_negative_int_to_decimal_6 """
-        select cast(k1 as decimal(10, 8)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(10, 8)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(10, 9)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(10, 9)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     qt_negative_int_to_decimal_7 """
-        select cast(k1 as decimal(18, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 0)) from test_int_to_decimal32_1;
     """
     qt_negative_int_to_decimal_8 """
-        select cast(k1 as decimal(18, 16)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(18, 16)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(18, 17)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(18, 17)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(18, 18)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(18, 18)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal128
     qt_negative_int_to_decimal_9 """
-        select cast(k1 as decimal(19, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(19, 0)) from test_int_to_decimal32_1;
     """
     qt_negative_int_to_decimal_10 """
-        select cast(k1 as decimal(19, 17)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(19, 17)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(19, 18)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(19, 18)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(19, 19)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(19, 19)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     qt_negative_int_to_decimal_11 """
-        select cast(k1 as decimal(38, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(38, 0)) from test_int_to_decimal32_1;
     """
     qt_negative_int_to_decimal_12 """
-        select cast(k1 as decimal(38, 36)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(38, 36)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(38, 37)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(38, 37)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(38, 38)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(38, 38)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     // to deciml256
     sql "set enable_decimal256=true;"
     qt_negative_int_to_decimal_13 """
-        select cast(k1 as decimal(39, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(39, 0)) from test_int_to_decimal32_1;
     """
     qt_negative_int_to_decimal_14 """
-        select cast(k1 as decimal(39, 37)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(39, 37)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(39, 38)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(39, 38)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(39, 39)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(39, 39)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     qt_negative_int_to_decimal_15 """
-        select cast(k1 as decimal(76, 0)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(76, 0)) from test_int_to_decimal32_1;
     """
     qt_negative_int_to_decimal_16 """
-        select cast(k1 as decimal(76, 74)) from test_int_to_decimal32_1;
+        select cast(k1 as decimalv3(76, 74)) from test_int_to_decimal32_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(76, 75)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(76, 75)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(76, 76)) from test_int_to_decimal32_1;
+            select cast(k1 as decimalv3(76, 76)) from test_int_to_decimal32_1;
         """
         exception "Arithmetic overflow"
     }
@@ -518,143 +518,143 @@ suite("test_decimalv3_cast2") {
     // to decimal32
     test {
         sql """
-            select cast(k1 as decimal(1, 0)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(1, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(1, 1)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(1, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     qt_int128_to_decimal_1 """
-        select cast(k1 as decimal(2, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(2, 0)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_2 """
-        select cast(k1 as decimal(3, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(3, 1)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_3 """
-        select cast(k1 as decimal(9, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(9, 1)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_4 """
-        select cast(k1 as decimal(9, 7)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(9, 7)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(9, 8)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(9, 8)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(9, 9)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(9, 9)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal64
     qt_int128_to_decimal_5 """
-        select cast(k1 as decimal(10, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(10, 0)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_6 """
-        select cast(k1 as decimal(10, 8)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(10, 8)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(10, 9)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(10, 9)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     qt_int128_to_decimal_7 """
-        select cast(k1 as decimal(18, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(18, 0)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_8 """
-        select cast(k1 as decimal(18, 16)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(18, 16)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(18, 17)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(18, 17)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(18, 18)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(18, 18)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal128
     qt_int128_to_decimal_9 """
-        select cast(k1 as decimal(19, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(19, 0)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_10 """
-        select cast(k1 as decimal(19, 17)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(19, 17)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(19, 18)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(19, 18)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(19, 19)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(19, 19)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     qt_int128_to_decimal_11 """
-        select cast(k1 as decimal(38, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(38, 0)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_12 """
-        select cast(k1 as decimal(38, 36)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(38, 36)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(38, 37)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(38, 37)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(38, 38)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(38, 38)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     // to deciml256
     sql "set enable_decimal256=true;"
     qt_int128_to_decimal_13 """
-        select cast(k1 as decimal(39, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(39, 0)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_14 """
-        select cast(k1 as decimal(39, 37)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(39, 37)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(39, 38)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(39, 38)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(39, 39)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(39, 39)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     qt_int128_to_decimal_15 """
-        select cast(k1 as decimal(76, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(76, 0)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_16 """
-        select cast(k1 as decimal(76, 74)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(76, 74)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(76, 75)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(76, 75)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(76, 76)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(76, 76)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
@@ -668,161 +668,161 @@ suite("test_decimalv3_cast2") {
     // to decimal32
     test {
         sql """
-            select cast(k1 as decimal(1, 0)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(1, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(1, 1)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(1, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(2, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(2, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(3, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(3, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(9, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(9, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(9, 8)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(9, 8)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(9, 9)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(9, 9)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal64
     test {
         sql """
-        select cast(k1 as decimal(10, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(10, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(10, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(10, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(10, 10)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(10, 10)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(18, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(18, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(18, 1)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(18, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(18, 18)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(18, 18)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal128
     test {
         sql """
-        select cast(k1 as decimal(19, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(19, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(19, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(19, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(19, 19)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(19, 19)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(38, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(38, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(38, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(38, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(38, 38)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(38, 38)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     // to deciml256
     sql "set enable_decimal256=true;"
     qt_int128_to_decimal_t2_1 """
-        select cast(k1 as decimal(39, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(39, 0)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(39, 1)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(39, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(39, 39)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(39, 39)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     qt_int128_to_decimal_t2_2 """
-        select cast(k1 as decimal(76, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(76, 0)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_t2_3 """
-        select cast(k1 as decimal(76, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(76, 1)) from test_int128_to_decimal_1;
     """
     qt_int128_to_decimal_t2_4 """
-        select cast(k1 as decimal(76, 37)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(76, 37)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(76, 38)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(76, 38)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(76, 39)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(76, 39)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(76, 76)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(76, 76)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
@@ -838,113 +838,113 @@ suite("test_decimalv3_cast2") {
     // to decimal32
     test {
         sql """
-            select cast(k1 as decimal(1, 0)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(1, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(1, 1)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(1, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(9, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(9, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(9, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(9, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(9, 9)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(9, 9)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal64
     test {
         sql """
-        select cast(k1 as decimal(18, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(18, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(18, 1)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(18, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(18, 18)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(18, 18)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     // to decimal128
     test {
         sql """
-        select cast(k1 as decimal(38, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(38, 0)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-        select cast(k1 as decimal(38, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(38, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(38, 38)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(38, 38)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     // to deciml256
     sql "set enable_decimal256=true;"
     qt_negative_int128_to_decimal_1 """
-        select cast(k1 as decimal(39, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(39, 0)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(39, 1)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(39, 1)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(39, 39)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(39, 39)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     qt_negative_int128_to_decimal_2 """
-        select cast(k1 as decimal(76, 0)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(76, 0)) from test_int128_to_decimal_1;
     """
     qt_negative_int128_to_decimal_3 """
-        select cast(k1 as decimal(76, 1)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(76, 1)) from test_int128_to_decimal_1;
     """
     qt_negative_int128_to_decimal_4 """
-        select cast(k1 as decimal(76, 37)) from test_int128_to_decimal_1;
+        select cast(k1 as decimalv3(76, 37)) from test_int128_to_decimal_1;
     """
     test {
         sql """
-            select cast(k1 as decimal(76, 38)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(76, 38)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(76, 39)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(76, 39)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }
     test {
         sql """
-            select cast(k1 as decimal(76, 76)) from test_int128_to_decimal_1;
+            select cast(k1 as decimalv3(76, 76)) from test_int128_to_decimal_1;
         """
         exception "Arithmetic overflow"
     }

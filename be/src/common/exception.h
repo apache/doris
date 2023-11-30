@@ -121,6 +121,3 @@ inline const std::string& Exception::to_string() const {
             return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0)
-
-#define THROW_ARITHMETIC_OVERFLOW_ERRROR \
-    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow")

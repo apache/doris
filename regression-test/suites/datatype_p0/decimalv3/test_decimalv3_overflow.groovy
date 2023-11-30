@@ -21,7 +21,7 @@ suite("test_decimalv3_overflow") {
     def tblName1 = "test_decimalv3_overflow1"
     sql "drop table if exists ${tblName1}"
 	sql """ CREATE  TABLE ${tblName1} (
-            `c1` decimal(22, 4)
+            `c1` decimalv3(22, 4)
         ) ENGINE=OLAP
         DISTRIBUTED BY HASH(`c1`) BUCKETS 10
         PROPERTIES (
@@ -32,7 +32,7 @@ suite("test_decimalv3_overflow") {
 	def tblName2 = "test_decimalv3_overflow2"
 	sql "drop table if exists ${tblName2}"
     sql """ CREATE  TABLE ${tblName2} (
-              `c2`  decimal(20, 2),
+              `c2`  decimalv3(20, 2),
           ) ENGINE=OLAP
         UNIQUE KEY(`c2`)
         DISTRIBUTED BY HASH(`c2`) BUCKETS 10

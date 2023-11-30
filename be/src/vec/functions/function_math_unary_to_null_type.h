@@ -92,7 +92,7 @@ private:
         auto& null_map = null_column->get_data();
         null_map.resize(size);
 
-        UInt32 to_precision = get_number_max_digits<ReturnType>();
+        UInt32 to_precision = NumberTraits::max_ascii_len<ReturnType>();
         bool narrow_integral = to_precision < (from_precision - from_scale);
         auto max_result = type_limit<ReturnType>::max();
         auto min_result = type_limit<ReturnType>::min();

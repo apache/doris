@@ -335,7 +335,8 @@ private:
             for (size_t i = 0; i < size; ++i) {
                 if constexpr (OpTraits::can_overflow && check_overflow) {
                     if (Op::template apply(da, DecimalV2Value(b[i]), c[i])) {
-                        THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow");
                     }
                 } else {
                     c[i] = typename ArrayC::value_type(
@@ -512,7 +513,7 @@ private:
             if constexpr (OpTraits::can_overflow && check_overflow) {
                 NativeResultType res;
                 if (Op::template apply(DecimalV2Value(a), DecimalV2Value(b), res)) {
-                    THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
                 }
                 return res;
             } else {
@@ -530,29 +531,25 @@ private:
                         }
                         // check if final result is overflow
                         if (res256 > wide::Int256(max_result_number.value)) {
-                            LOG(WARNING) << "check overflow, multiply overflow, result overflow";
-                            THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                            throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                            "Arithmetic overflow");
                         } else {
                             // round to final result precision
-                            LOG(WARNING)
-                                    << "check overflow, multiply overflow, result NOT overflow";
                             DCHECK(OpTraits::is_multiply);
                             res = res256;
                         }
                     } else {
-                        LOG(WARNING) << "check overflow, multiply overflow, not 128";
-                        THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow");
                     }
                 } else {
                     // round to final result precision
-                    LOG(WARNING) << "check overflow, multiply NOT overflow";
                     if constexpr (OpTraits::is_multiply) {
                         res /= scale_diff_multiplier.value;
                     }
                 }
                 return res;
             } else {
-                LOG(WARNING) << "NO check overflow";
                 if constexpr (OpTraits::is_multiply) {
                     return Op::template apply<NativeResultType>(a, b) / scale_diff_multiplier.value;
                 } else {

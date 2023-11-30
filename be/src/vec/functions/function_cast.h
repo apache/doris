@@ -287,7 +287,7 @@ struct ConvertImpl {
                 from_scale = from_decimal_type.get_scale();
             }
             if constexpr (std::is_integral_v<FromFieldType>) {
-                from_precision = get_number_max_digits<FromFieldType>();
+                from_precision = NumberTraits::max_ascii_len<FromFieldType>();
             }
 
             UInt32 to_max_digits = 0;
@@ -297,7 +297,7 @@ struct ConvertImpl {
             ToFieldType max_result {0};
             ToFieldType min_result {0};
             if constexpr (IsDataTypeDecimal<ToDataType>) {
-                to_max_digits = get_number_max_digits<typename ToFieldType::NativeType>();
+                to_max_digits = NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
 
                 to_precision = ((PrecisionScaleArg)additions).precision;
                 ToDataType::check_type_precision(to_precision);
@@ -316,7 +316,7 @@ struct ConvertImpl {
                 min_result = type_limit<ToFieldType>::min();
             }
             if constexpr (std::is_integral_v<ToFieldType>) {
-                to_max_digits = get_number_max_digits<ToFieldType>();
+                to_max_digits = NumberTraits::max_ascii_len<ToFieldType>();
                 to_precision = to_max_digits;
             }
 
@@ -539,7 +539,7 @@ struct ConvertImplToTimeType {
 
             UInt32 from_precision = 0;
             UInt32 from_scale = 0;
-            UInt32 to_precision = get_number_max_digits<Int64>();
+            UInt32 to_precision = NumberTraits::max_ascii_len<Int64>();
             if constexpr (IsDecimalNumber<FromFieldType>) {
                 const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
                 from_precision = from_decimal_type.get_precision();

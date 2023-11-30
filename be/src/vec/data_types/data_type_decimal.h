@@ -49,6 +49,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
+#include "vec/data_types/number_traits.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -429,60 +430,46 @@ ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& v
     MaxFieldType converted_value;
     // from integer to decimal
     if (scale_to > scale_from) {
-        LOG(WARNING) << "multiply wider scale";
         converted_value =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
         if constexpr (multiply_may_overflow) {
-            LOG(WARNING) << "multiply may overflow";
             if (common::mul_overflow(static_cast<MaxFieldType>(value).value, converted_value.value,
                                      converted_value.value)) {
-                LOG(WARNING) << "multiply may overflow, multiply overflowed"; // ok
-                THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
             } else {
                 if constexpr (narrow_integral) {
-                    LOG(WARNING) << "multiply may overflow, narrow integer"; // ok
                     if (UNLIKELY(converted_value.value > max_result.value ||
                                  converted_value.value < min_result.value)) {
-                        LOG(WARNING) << "multiply may overflow, res overflow"; // ok
-                        THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow");
                     }
                 }
             }
         } else {
-            LOG(WARNING) << "multiply CAN'T overflow"; // ok
             converted_value *= static_cast<MaxFieldType>(value).value;
             if constexpr (narrow_integral) {
-                LOG(WARNING) << "multiply CAN'T overflow, narrow integer"; // ok
                 if (UNLIKELY(converted_value.value > max_result.value ||
                              converted_value.value < min_result.value)) {
-                    LOG(WARNING) << "multiply CAN'T overflow, narrow integral"; // ok
-                    THROW_ARITHMETIC_OVERFLOW_ERRROR;
-                } // ok
-            }     // ok
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                }
+            }
         }
     } else {
         // from decimal to integer
-        LOG(WARNING) << "multiply narrow scale"; // ok
         converted_value =
                 static_cast<MaxFieldType>(value) /
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
         if (value >= FromFieldType(0)) {
             if constexpr (narrow_integral) {
-                LOG(WARNING) << "multiply narrow scale, positive, narrow integral"; // ok
                 if (UNLIKELY(converted_value.value > max_result.value)) {
-                    THROW_ARITHMETIC_OVERFLOW_ERRROR; // ok
-                }                                     // ok
-            } else {
-                LOG(WARNING) << "multiply narrow scale, positive, NOT narrow integral";
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                }
             }
         } else {
             if constexpr (narrow_integral) {
-                LOG(WARNING) << "multiply narrow scale, negative, narrow integral";
                 if (UNLIKELY(converted_value.value < min_result.value)) {
-                    THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
                 }
-            } else {
-                LOG(WARNING) << "multiply narrow scale, negative, NOT narrow integral";
             }
         }
     }
@@ -511,37 +498,34 @@ void convert_decimal_cols(
     auto max_result = DataTypeDecimal<ToFieldType>::get_max_digits_number(precision_to);
     bool narrow_integral = (precision_to - scale_to) < (precision_from - scale_from);
     if (scale_to > scale_from) {
-        LOG(WARNING) << "multiply wider scale";
         const MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
         MaxNativeType res;
-        auto from_max_digits = get_number_max_digits<typename FromFieldType::NativeType>();
-        auto to_max_digits = get_number_max_digits<typename ToFieldType::NativeType>();
+        auto from_max_digits = NumberTraits::max_ascii_len<typename FromFieldType::NativeType>();
+        auto to_max_digits = NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
         bool multiply_may_overflow = (from_max_digits + scale_to - scale_from) > to_max_digits;
         std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < sz; i++) {
                         if constexpr (multiply_may_overflow) {
-                            LOG(WARNING) << "multiply may overflow";
                             if (common::mul_overflow(static_cast<MaxNativeType>(vec_from[i].value),
                                                      multiplier, res)) {
-                                LOG(WARNING) << "multiply may overflow, multiply overflowed";
-                                THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                                throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                                "Arithmetic overflow");
                             } else {
                                 if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
-                                    LOG(WARNING) << "multiply may overflow, res overflow";
-                                    THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                                    "Arithmetic overflow");
                                 } else {
                                     vec_to[i] = ToFieldType(res);
                                 }
                             }
                         } else {
-                            LOG(WARNING) << "multiply CAN'T overflow";
                             res = vec_from[i].value * multiplier;
                             if constexpr (narrow_integral) {
-                                LOG(WARNING) << "multiply CAN'T overflow, narrow integral";
                                 if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
-                                    THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                                    "Arithmetic overflow");
                                 }
                             }
                             vec_to[i] = ToFieldType(res);
@@ -550,15 +534,14 @@ void convert_decimal_cols(
                 },
                 make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral));
     } else if (scale_to == scale_from) {
-        LOG(WARNING) << "multiply same scale";
         std::visit(
                 [&](auto narrow_integral) {
                     for (size_t i = 0; i < sz; i++) {
                         if constexpr (narrow_integral) {
-                            LOG(WARNING) << "multiply same scale, narrow integral";
                             if (UNLIKELY(vec_from[i].value > max_result.value ||
                                          vec_from[i].value < -max_result.value)) {
-                                THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                                throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                                "Arithmetic overflow");
                             }
                         }
                         vec_to[i] = ToFieldType(vec_from[i].value);
@@ -566,7 +549,6 @@ void convert_decimal_cols(
                 },
                 make_bool_variant(narrow_integral));
     } else {
-        LOG(WARNING) << "multiply narrow scale";
         MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
         MaxNativeType res;
@@ -575,29 +557,25 @@ void convert_decimal_cols(
                     for (size_t i = 0; i < sz; i++) {
                         if (vec_from[i] >= FromFieldType(0)) {
                             if constexpr (narrow_integral) {
-                                LOG(WARNING) << "multiply narrow scale, positive, narrow integral";
                                 res = (vec_from[i].value + multiplier / 2) / multiplier;
                                 if (UNLIKELY(res > max_result.value)) {
-                                    THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                                    "Arithmetic overflow");
                                 }
                                 vec_to[i] = ToFieldType(res);
                             } else {
-                                LOG(WARNING)
-                                        << "multiply narrow scale, positive, NOT narrow integral";
                                 vec_to[i] = ToFieldType((vec_from[i].value + multiplier / 2) /
                                                         multiplier);
                             }
                         } else {
                             if constexpr (narrow_integral) {
-                                LOG(WARNING) << "multiply narrow scale, negative, narrow integral";
                                 res = (vec_from[i].value - multiplier / 2) / multiplier;
                                 if (UNLIKELY(res < -max_result.value)) {
-                                    THROW_ARITHMETIC_OVERFLOW_ERRROR;
+                                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                                    "Arithmetic overflow");
                                 }
                                 vec_to[i] = ToFieldType(res);
                             } else {
-                                LOG(WARNING)
-                                        << "multiply narrow scale, negative, NOT narrow integral";
                                 vec_to[i] = ToFieldType((vec_from[i].value - multiplier / 2) /
                                                         multiplier);
                             }
@@ -642,7 +620,7 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
     if constexpr (std::is_floating_point_v<FromFieldType>) {
         if (!std::isfinite(value)) {
             VLOG_DEBUG << "Decimal convert overflow. Cannot convert infinity or NaN to decimal";
-            THROW_ARITHMETIC_OVERFLOW_ERRROR;
+            throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
         }
 
         FromFieldType out;
@@ -650,7 +628,7 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
         if (out <= static_cast<FromFieldType>(-max_result) ||
             out >= static_cast<FromFieldType>(max_result)) {
             VLOG_DEBUG << "Decimal convert overflow. Float is out of Decimal range";
-            THROW_ARITHMETIC_OVERFLOW_ERRROR;
+            throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
         }
         return typename ToDataType::FieldType(out);
     } else {
