@@ -54,7 +54,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.ldap.LdapUserInfo;
-import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
@@ -867,7 +866,7 @@ public class Auth implements Writable {
 
     // create role
     public void createRole(CreateRoleStmt stmt) throws DdlException {
-        createRoleInternal(stmt.getQualifiedRole(), stmt.isSetIfNotExists(), false);
+        createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), false);
     }
 
     public void replayCreateRole(PrivInfo info) {
@@ -901,7 +900,7 @@ public class Auth implements Writable {
 
     // drop role
     public void dropRole(DropRoleStmt stmt) throws DdlException {
-        dropRoleInternal(stmt.getQualifiedRole(), stmt.isSetIfExists(), false);
+        dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
     }
 
     public void replayDropRole(PrivInfo info) {
@@ -1290,47 +1289,6 @@ public class Auth implements Writable {
             return propertyMgr.fetchUserProperty(qualifiedUser);
         } catch (AnalysisException e) {
             return Lists.newArrayList();
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public void dropUserOfCluster(String clusterName, boolean isReplay) throws DdlException {
-        writeLock();
-        try {
-            Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
-            for (List<User> users : nameToUsers.values()) {
-                for (User user : users) {
-                    if (user.getUserIdentity().getQualifiedUser().startsWith(clusterName)) {
-                        dropUserInternal(user.getUserIdentity(), false, isReplay);
-                    }
-                }
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {
-        readLock();
-        try {
-            return propertyMgr.getLoadClusterInfo(qualifiedUser, cluster);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    // user can enter a cluster, if it has any privs of database or table in this cluster.
-    public boolean checkCanEnterCluster(ConnectContext ctx, String clusterName) {
-        readLock();
-        try {
-            Set<String> roles = userRoleManager.getRolesByUser(ctx.getCurrentUserIdentity());
-            for (String roleName : roles) {
-                if (roleManager.getRole(roleName).checkCanEnterCluster(clusterName)) {
-                    return true;
-                }
-            }
-            return false;
         } finally {
             readUnlock();
         }
