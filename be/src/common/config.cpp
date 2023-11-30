@@ -1108,8 +1108,13 @@ DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 DEFINE_mInt64(threshold_rows_to_estimate_sparse_column, "1000");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
-// clang-format off
 
+// if difference of two disk usage is exceed this value,
+// then the new created tablet will not locate in the high use disk.
+// range: 0 ~ 100
+DEFINE_mInt32(disk_diff_usage_percentage_for_create_tablet, "20");
+
+// clang-format off
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
