@@ -49,6 +49,7 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import cfjd.com.google.common.collect.ImmutableList;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -380,8 +381,8 @@ public class PlanReceiver implements AbstractReceiver {
         if (!outputSet.equals(new HashSet<>(projects))) {
             LogicalProperties projectProperties = new LogicalProperties(
                     () -> projects.stream()
-                            .map(p -> p.toSlot())
-                            .collect(Collectors.toList()), () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
+                            .map(NamedExpression::toSlot)
+                            .collect(ImmutableList.toImmutableList()), () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
             allChild = allChild.stream()
                     .map(c -> new PhysicalProject<>(projects, projectProperties, c))
                     .collect(Collectors.toList());
