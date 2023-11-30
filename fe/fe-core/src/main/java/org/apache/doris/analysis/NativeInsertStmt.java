@@ -441,16 +441,43 @@ public class NativeInsertStmt extends InsertStmt {
                 }
             }
 
-            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null && targetColumnNames != null) {
-                Optional<String> foundCol = targetColumnNames.stream()
-                            .filter(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
-                Optional<Column> seqCol = olapTable.getFullSchema().stream()
-                                .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
-                                .findFirst();
-                if (seqCol.isPresent() && !foundCol.isPresent() && !isPartialUpdate && !isFromDeleteOrUpdateStmt
+            // For Unique Key table with sequence column (which default value is not CURRENT_TIMESTAMP),
+            // user MUST specify the sequence column while inserting data
+            //
+            // case1: create table by `function_column.sequence_col`
+            //        a) insert with column list, must include the sequence map column
+            //        b) insert without column list, already contains the column, don't need to check
+            // case2: create table by `function_column.sequence_type`
+            //        a) insert with column list, must include the hidden column __DORIS_SEQUENCE_COL__
+            //        b) insert without column list, don't include the hidden column __DORIS_SEQUENCE_COL__
+            //           by default, will fail.
+            if (olapTable.hasSequenceCol()) {
+                boolean haveInputSeqCol = false;
+                Optional<Column> seqColInTable = Optional.empty();
+                if (olapTable.getSequenceMapCol() != null) {
+                    if (targetColumnNames != null) {
+                        if (targetColumnNames.stream()
+                                .anyMatch(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol()))) {
+                            haveInputSeqCol = true; // case1.a
+                        }
+                    } else {
+                        haveInputSeqCol = true; // case1.b
+                    }
+                    seqColInTable = olapTable.getFullSchema().stream()
+                            .filter(col -> col.getName().equals(olapTable.getSequenceMapCol())).findFirst();
+                } else {
+                    if (targetColumnNames != null) {
+                        if (targetColumnNames.stream()
+                                .anyMatch(c -> c.equalsIgnoreCase(Column.SEQUENCE_COL))) {
+                            haveInputSeqCol = true; // case2.a
+                        } // else case2.b
+                    }
+                }
+
+                if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
                         && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
-                    if (seqCol.get().getDefaultValue() == null
-                                    || !seqCol.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                    if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
+                            || !seqColInTable.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
                         throw new AnalysisException("Table " + olapTable.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }
