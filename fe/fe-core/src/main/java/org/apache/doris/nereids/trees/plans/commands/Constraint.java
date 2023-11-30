@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.constraint.Constraint.ConstraintType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -31,17 +32,11 @@ import javax.annotation.Nullable;
  * Constraint
  */
 public class Constraint {
-    enum ConstraintType {
-        FOREIGN_KEY,
-        PRIMARY_KEY,
-        UNIQUE
-    }
-
-    final ImmutableList<Slot> slots;
-    final LogicalPlan curTable;
-    final @Nullable LogicalPlan referenceTable;
-    final @Nullable ImmutableList<Slot> referenceSlots;
-    final ConstraintType type;
+    private final ImmutableList<Slot> slots;
+    private final LogicalPlan curTable;
+    private final @Nullable LogicalPlan referenceTable;
+    private final @Nullable ImmutableList<Slot> referenceSlots;
+    private final ConstraintType type;
 
     Constraint(ConstraintType type, LogicalPlan curTable, ImmutableList<Slot> slots) {
         Preconditions.checkArgument(slots != null && !slots.isEmpty(),

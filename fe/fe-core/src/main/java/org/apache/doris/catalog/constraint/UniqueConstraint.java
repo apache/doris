@@ -15,36 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.catalog.constraint;
 
 import com.google.common.base.Objects;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
 
-public class PrimaryKeyConstraint extends Constraint {
-    private final ImmutableSet<Column> columns;
+public class UniqueConstraint extends Constraint {
+    private final ImmutableSet<String> columns;
 
-    // record the foreign table which references the primary key
-    private final List<TableIf> foreignTables = new ArrayList<>();
-
-    public PrimaryKeyConstraint(Set<Column> columns) {
+    public UniqueConstraint(String name, Set<String> columns) {
+        super(ConstraintType.UNIQUE, name);
         this.columns = ImmutableSet.copyOf(columns);
     }
 
-    public ImmutableSet<Column> getColumns() {
+    public ImmutableSet<String> getUniqueColumnNames() {
         return columns;
-    }
-
-    public void addForeignTable(TableIf table) {
-        foreignTables.add(table);
-    }
-
-    public List<TableIf> getReferenceTables() {
-        return ImmutableList.copyOf(foreignTables);
     }
 
     @Override
@@ -55,7 +42,7 @@ public class PrimaryKeyConstraint extends Constraint {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PrimaryKeyConstraint that = (PrimaryKeyConstraint) o;
+        UniqueConstraint that = (UniqueConstraint) o;
         return columns.equals(that.columns);
     }
 

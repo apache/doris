@@ -18,6 +18,10 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
+import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -157,7 +161,7 @@ public interface TableIf {
     void write(DataOutput out) throws IOException;
 
     default Map<String, Constraint> getConstraintsMap() {
-        throw new RuntimeException("Not implemented constraint for table " + this.toString());
+        throw new RuntimeException(String.format("Not implemented constraint for table %s", this));
     }
 
     // Note this function is not thread safe
@@ -174,11 +178,11 @@ public interface TableIf {
         }
     }
 
-    default void addUniqueConstraint(String name, ImmutableList<Column> columns) {
+    default void addUniqueConstraint(String name, ImmutableList<String> columns) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMap();
-            UniqueConstraint uniqueConstraint =  new UniqueConstraint(ImmutableSet.copyOf(columns));
+            UniqueConstraint uniqueConstraint =  new UniqueConstraint(name, ImmutableSet.copyOf(columns));
             checkConstraintNotExistence(name, uniqueConstraint, constraintMap);
             constraintMap.put(name, uniqueConstraint);
         } finally {
@@ -186,11 +190,11 @@ public interface TableIf {
         }
     }
 
-    default void addPrimaryKeyConstraint(String name, ImmutableList<Column> columns) {
+    default void addPrimaryKeyConstraint(String name, ImmutableList<String> columns) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMap();
-            PrimaryKeyConstraint primaryKeyConstraint = new PrimaryKeyConstraint(ImmutableSet.copyOf(columns));
+            PrimaryKeyConstraint primaryKeyConstraint = new PrimaryKeyConstraint(name, ImmutableSet.copyOf(columns));
             checkConstraintNotExistence(name, primaryKeyConstraint, constraintMap);
             constraintMap.put(name, primaryKeyConstraint);
         } finally {
@@ -205,8 +209,9 @@ public interface TableIf {
                     .filter(requirePrimaryKey::equals)
                     .findFirst();
             if (!primaryKeyConstraint.isPresent()) {
-                throw new AnalysisException("Foreign key constraint requires a primary key constraint of"
-                        + requirePrimaryKey.getColumns() + " in " + referencedTable.getName());
+                throw new AnalysisException(String.format(
+                        "Foreign key constraint requires a primary key constraint %s in %s",
+                        requirePrimaryKey.getPrimaryKeyNames(), referencedTable.getName()));
             }
             ((PrimaryKeyConstraint) (primaryKeyConstraint.get())).addForeignTable(this);
         } finally {
@@ -214,15 +219,16 @@ public interface TableIf {
         }
     }
 
-    default void addForeignConstraint(String name, ImmutableList<Column> columns,
-            TableIf referencedTable, ImmutableList<Column> referencedColumns) {
+    default void addForeignConstraint(String name, ImmutableList<String> columns,
+            TableIf referencedTable, ImmutableList<String> referencedColumns) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMap();
             ForeignKeyConstraint foreignKeyConstraint =
-                    new ForeignKeyConstraint(columns, referencedTable, referencedColumns);
+                    new ForeignKeyConstraint(name, columns, referencedTable, referencedColumns);
             checkConstraintNotExistence(name, foreignKeyConstraint, constraintMap);
-            PrimaryKeyConstraint requirePrimaryKey = new PrimaryKeyConstraint(foreignKeyConstraint.getColumns());
+            PrimaryKeyConstraint requirePrimaryKey = new PrimaryKeyConstraint(name,
+                    foreignKeyConstraint.getReferencedColumnNames());
             updatePrimaryKeyForForeignKey(requirePrimaryKey, referencedTable);
             constraintMap.put(name, foreignKeyConstraint);
         } finally {

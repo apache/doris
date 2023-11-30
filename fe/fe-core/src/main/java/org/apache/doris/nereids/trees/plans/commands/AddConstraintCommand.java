@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
@@ -61,9 +60,9 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        Pair<ImmutableList<Column>, TableIf> columnsAndTable = extractColumnsAndTable(ctx, constraint.toProject());
+        Pair<ImmutableList<String>, TableIf> columnsAndTable = extractColumnsAndTable(ctx, constraint.toProject());
         if (constraint.isForeignKey()) {
-            Pair<ImmutableList<Column>, TableIf> foreignColumnsAndTable
+            Pair<ImmutableList<String>, TableIf> foreignColumnsAndTable
                     = extractColumnsAndTable(ctx, constraint.toReferenceProject());
             columnsAndTable.second.addForeignConstraint(name, columnsAndTable.first,
                     foreignColumnsAndTable.second, foreignColumnsAndTable.first);
@@ -74,7 +73,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private Pair<ImmutableList<Column>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {
+    private Pair<ImmutableList<String>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         Plan analyzedPlan = planner.plan(plan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
         Set<LogicalCatalogRelation> logicalCatalogRelationSet = analyzedPlan
@@ -85,12 +84,12 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         LogicalCatalogRelation catalogRelation = logicalCatalogRelationSet.iterator().next();
         Preconditions.checkArgument(catalogRelation.getTable() instanceof Table,
                 "We only support table now but we meet ", catalogRelation.getTable());
-        ImmutableList<Column> columns = analyzedPlan.getOutput().stream()
+        ImmutableList<String> columns = analyzedPlan.getOutput().stream()
                 .map(s -> {
                     Preconditions.checkArgument(s instanceof SlotReference
                                     && ((SlotReference) s).getColumn().isPresent(),
                             "Constraint contains a invalid slot ", s);
-                    return ((SlotReference) s).getColumn().get();
+                    return ((SlotReference) s).getColumn().get().getName();
                 }).collect(ImmutableList.toImmutableList());
         return Pair.of(columns, catalogRelation.getTable());
     }

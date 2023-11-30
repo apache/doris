@@ -15,7 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.catalog.constraint;
 
 public abstract class Constraint {
+    public enum ConstraintType {
+        FOREIGN_KEY,
+        PRIMARY_KEY,
+        UNIQUE
+    }
+
+    private final String name;
+    private final ConstraintType type;
+
+
+    protected Constraint(ConstraintType type, String name) {
+        this.name = name;
+        this.type = type;
+    }
+
+    public String getName() {
+        return name;
+    }
 }

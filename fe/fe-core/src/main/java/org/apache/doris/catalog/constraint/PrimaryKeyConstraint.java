@@ -15,22 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.catalog.constraint;
+
+import org.apache.doris.catalog.TableIf;
 
 import com.google.common.base.Objects;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
-public class UniqueConstraint extends Constraint {
-    private final ImmutableSet<Column> columns;
+public class PrimaryKeyConstraint extends Constraint {
+    private final ImmutableSet<String> columns;
 
-    public UniqueConstraint(Set<Column> columns) {
+    // record the foreign table which references the primary key
+    private final Set<TableIdentifier> foreignTables = new HashSet<>();
+
+    public PrimaryKeyConstraint(String name, Set<String> columns) {
+        super(ConstraintType.PRIMARY_KEY, name);
         this.columns = ImmutableSet.copyOf(columns);
     }
 
-    public ImmutableSet<Column> getColumns() {
+    public ImmutableSet<String> getPrimaryKeyNames() {
         return columns;
+    }
+
+    public void addForeignTable(TableIf table) {
+        foreignTables.add(new TableIdentifier(table));
+    }
+
+    public List<TableIf> getReferenceTables() {
+        return foreignTables.stream()
+                .map(TableIdentifier::toTableIf)
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -41,7 +60,7 @@ public class UniqueConstraint extends Constraint {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        UniqueConstraint that = (UniqueConstraint) o;
+        PrimaryKeyConstraint that = (PrimaryKeyConstraint) o;
         return columns.equals(that.columns);
     }
 

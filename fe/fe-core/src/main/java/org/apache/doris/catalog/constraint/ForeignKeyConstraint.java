@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.catalog.constraint;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -26,39 +29,44 @@ import java.util.List;
 import java.util.Objects;
 
 public class ForeignKeyConstraint extends Constraint {
-    private final ImmutableMap<Column, Column> foreignToReference;
-    private final TableIf referencedTable;
+    private final ImmutableMap<String, String> foreignToReference;
+    private final TableIdentifier referencedTable;
 
-    public ForeignKeyConstraint(List<Column> columns,
-            TableIf referencedTable, List<Column> referencedColumns) {
-        this.referencedTable = referencedTable;
-        ImmutableMap.Builder<Column, Column> builder = new Builder<>();
+    public ForeignKeyConstraint(String name, List<String> columns,
+            TableIf refTable, List<String> referencedColumns) {
+        super(ConstraintType.FOREIGN_KEY, name);
+        ImmutableMap.Builder<String, String> builder = new Builder<>();
         Preconditions.checkArgument(columns.size() == referencedColumns.size(),
                 "Foreign keys' size must be same as the size of reference keys");
         Preconditions.checkArgument(ImmutableSet.copyOf(columns).size() == columns.size(),
                 "Foreign keys contains duplicate slots.");
         Preconditions.checkArgument(ImmutableSet.copyOf(referencedColumns).size() == referencedColumns.size(),
                 "Reference keys contains duplicate slots.");
+        this.referencedTable = new TableIdentifier(refTable);
         for (int i = 0; i < columns.size(); i++) {
             builder.put(columns.get(i), referencedColumns.get(i));
         }
         this.foreignToReference = builder.build();
     }
 
-    public ImmutableSet<Column> getColumns() {
+    public ImmutableSet<String> getForeignKeyNames() {
         return foreignToReference.keySet();
     }
 
-    public ImmutableSet<Column> getReferencedColumns() {
+    public ImmutableSet<String> getReferencedColumnNames() {
         return ImmutableSet.copyOf(foreignToReference.values());
     }
 
-    public Column getReferencedColumn(Column column) {
+    public String getReferencedColumnName(String column) {
         return foreignToReference.get(column);
     }
 
+    public Column getReferencedColumn(String column) {
+        return getReferencedTable().getColumn(getReferencedColumnName(column));
+    }
+
     public TableIf getReferencedTable() {
-        return referencedTable;
+        return referencedTable.toTableIf();
     }
 
     @Override

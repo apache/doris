@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Constraint;
-import org.apache.doris.catalog.ForeignKeyConstraint;
-import org.apache.doris.catalog.PrimaryKeyConstraint;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.UniqueConstraint;
+import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
@@ -30,12 +30,12 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSupported {
     @Override
@@ -70,8 +70,8 @@ class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSup
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(logicalOlapScan().when(o -> {
             Constraint c = o.getTable().getConstraint("pk");
             if (c instanceof PrimaryKeyConstraint) {
-                Set<Column> columns = ((PrimaryKeyConstraint) c).getColumns();
-                return columns.size() == 1 && columns.iterator().next().getName().equals("k1");
+                Set<String> columns = ((PrimaryKeyConstraint) c).getPrimaryKeyNames();
+                return columns.size() == 1 && columns.iterator().next().equals("k1");
             }
             return false;
         }));
@@ -85,8 +85,8 @@ class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSup
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(logicalOlapScan().when(o -> {
             Constraint c = o.getTable().getConstraint("un");
             if (c instanceof UniqueConstraint) {
-                Set<Column> columns = ((UniqueConstraint) c).getColumns();
-                return columns.size() == 1 && columns.iterator().next().getName().equals("k1");
+                Set<String> columns = ((UniqueConstraint) c).getUniqueColumnNames();
+                return columns.size() == 1 && columns.iterator().next().equals("k1");
             }
             return false;
         }));
@@ -99,7 +99,7 @@ class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSup
         try {
             command.run(connectContext, null);
         } catch (Exception e) {
-            Assertions.assertEquals("Foreign key constraint requires a primary key constraint of[`k1` INT NULL] in t2",
+            Assertions.assertEquals("Foreign key constraint requires a primary key constraint [k1] in t2",
                     e.getMessage());
         }
         ((AddConstraintCommand) new NereidsParser().parseSingle(
@@ -112,8 +112,8 @@ class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSup
             Constraint c = o.getTable().getConstraint("fk");
             if (c instanceof ForeignKeyConstraint) {
                 ForeignKeyConstraint f = (ForeignKeyConstraint) c;
-                Column ref1 = f.getReferencedColumn(((SlotReference) o.getOutput().get(0)).getColumn().get());
-                Column ref2 = f.getReferencedColumn(((SlotReference) o.getOutput().get(1)).getColumn().get());
+                Column ref1 = f.getReferencedColumn(((SlotReference) o.getOutput().get(0)).getColumn().get().getName());
+                Column ref2 = f.getReferencedColumn(((SlotReference) o.getOutput().get(1)).getColumn().get().getName());
                 return ref1.getName().equals("k1") && ref2.getName().equals("k2");
             }
             return false;
@@ -122,10 +122,10 @@ class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSup
         PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(logicalOlapScan().when(o -> {
             Constraint c = o.getTable().getConstraint("pk");
             if (c instanceof PrimaryKeyConstraint) {
-                Set<Column> columns = ((PrimaryKeyConstraint) c).getColumns();
+                Set<String> columnNames = ((PrimaryKeyConstraint) c).getPrimaryKeyNames();
                 List<TableIf> referenceTable = ((PrimaryKeyConstraint) c).getReferenceTables();
-                List<String> columnNames = columns.stream().map(Column::getName).collect(Collectors.toList());
-                return columnNames.size() == 2 && columnNames.get(0).equals("k1") && columnNames.get(1).equals("k2")
+                return columnNames.size() == 2
+                        && columnNames.equals(Sets.newHashSet("k1", "k2"))
                         && referenceTable.size() == 1 && referenceTable.get(0).getName().equals("t1");
             }
             return false;
