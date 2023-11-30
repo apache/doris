@@ -190,6 +190,68 @@ private:
     IRuntimeFilter* _runtime_filter = nullptr;
 };
 
+struct RuntimeFilterTimerQueue {
+    constexpr static int64_t interval = 10;
+    void run() { _thread.detach(); }
+    void start() {
+        while (!_stop) {
+            std::unique_lock<std::mutex> lk(cv_m);
+
+            cv.wait(lk, [this] { return !_que.empty() || _stop; });
+            if (_stop) {
+                break;
+            }
+            {
+                std::unique_lock<std::mutex> lc(_que_lock);
+                std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> new_que;
+                for (auto& it : _que) {
+                    if (it.use_count() == 1) {
+                        it->call_has_release();
+                    } else if (it->has_ready()) {
+                        it->call_has_ready();
+                    } else {
+                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                        if (ms_since_registration > it->wait_time_ms()) {
+                            it->call_timeout();
+                        } else {
+                            new_que.push_back(std::move(it));
+                        }
+                    }
+                }
+                new_que.swap(_que);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+        }
+        _shutdown = true;
+    }
+
+    void stop() { _stop = true; }
+
+    void wait_for_shutdown() const {
+        while (!_shutdown) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+        }
+    }
+
+    ~RuntimeFilterTimerQueue() { wait_for_shutdown(); }
+    RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
+    void push_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) { push(filter); }
+
+    void push(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) {
+        std::unique_lock<std::mutex> lc(_que_lock);
+        _que.push_back(filter);
+        cv.notify_all();
+    }
+
+    std::thread _thread;
+    std::condition_variable cv;
+    std::mutex cv_m;
+    std::mutex _que_lock;
+    std::atomic_bool _stop = false;
+    std::atomic_bool _shutdown = false;
+    std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> _que;
+};
+
 class RuntimeFilterDependency final : public Dependency {
 public:
     RuntimeFilterDependency(int id, int node_id, std::string name, QueryContext* query_ctx)
@@ -522,10 +584,10 @@ public:
     std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> data_queue;
     std::vector<Dependency*> source_dependencies;
     std::atomic<int> running_sink_operators = 0;
-    void add_running_sink_operators() { running_sink_operators++; }
+    std::mutex le_lock;
     void sub_running_sink_operators() {
-        auto val = running_sink_operators.fetch_sub(1);
-        if (val == 1) {
+        std::unique_lock<std::mutex> lc(le_lock);
+        if (running_sink_operators.fetch_sub(1) == 1) {
             _set_ready_for_read();
         }
     }
@@ -537,11 +599,10 @@ public:
     }
     void set_dep_by_channel_id(Dependency* dep, int channel_id) {
         source_dependencies[channel_id] = dep;
-        dep->block();
     }
     void set_ready_for_read(int channel_id) {
         auto* dep = source_dependencies[channel_id];
-        DCHECK(dep);
+        DCHECK(dep) << channel_id << " " << (int64_t)this;
         dep->set_ready();
     }
 };

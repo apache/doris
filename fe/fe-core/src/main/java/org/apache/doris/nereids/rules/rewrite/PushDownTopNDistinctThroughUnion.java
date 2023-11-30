@@ -46,6 +46,7 @@ import java.util.Map;
  *
  * rewritten to
  *
+ * TopN-Distinct
  * -> Union All
  *   -> TopN-Distinct
  *     -> child plan1

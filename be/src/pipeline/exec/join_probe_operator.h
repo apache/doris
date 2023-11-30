@@ -50,15 +50,15 @@ protected:
     // output expr
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     vectorized::Block _join_block;
-    vectorized::MutableColumnPtr _tuple_is_null_left_flag_column;
-    vectorized::MutableColumnPtr _tuple_is_null_right_flag_column;
+    vectorized::MutableColumnPtr _tuple_is_null_left_flag_column = nullptr;
+    vectorized::MutableColumnPtr _tuple_is_null_right_flag_column = nullptr;
 
     RuntimeProfile::Counter* _probe_timer = nullptr;
     RuntimeProfile::Counter* _probe_rows_counter = nullptr;
     RuntimeProfile::Counter* _join_filter_timer = nullptr;
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
 
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::unique_ptr<vectorized::Block> _child_block = nullptr;
     SourceState _child_source_state;
 };
 

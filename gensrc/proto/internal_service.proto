@@ -258,6 +258,7 @@ message PFetchArrowFlightSchemaResult {
     optional PStatus status = 1;
     // valid when status is ok
     optional bytes schema = 2;
+    optional bytes be_arrow_flight_ip = 3;
 };
 
 message KeyTuple {

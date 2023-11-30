@@ -163,6 +163,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
+    _num_instances = request.local_params.size();
     _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
     _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
     COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
@@ -232,7 +233,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
-        //TODO: can we do this in set_sink?
+        DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
         static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
         RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
@@ -593,15 +594,17 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
 }
 
 Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorXPtr& op,
-                                                     PipelinePtr& cur_pipe,
+                                                     PipelinePtr& cur_pipe, const TPlanNode& tnode,
                                                      const std::vector<TExpr>& texprs) {
-    if (!_runtime_state->enable_local_shuffle() ||
-        _runtime_state->query_parallel_instance_num() == 1) {
+    if (!_runtime_state->enable_local_shuffle() || _num_instances <= 1) {
         return Status::OK();
     }
+    auto parent = op;
+    RETURN_IF_ERROR(parent->init(tnode, _runtime_state.get()));
     auto local_exchange_id = next_operator_id();
-    op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
+    op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id, parent.get()));
     RETURN_IF_ERROR(cur_pipe->add_operator(op));
+    RETURN_IF_ERROR(parent->set_child(op));
 
     const auto downstream_pipeline_id = cur_pipe->id();
     if (_dag.find(downstream_pipeline_id) == _dag.end()) {
@@ -611,14 +614,15 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
     _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
     DataSinkOperatorXPtr sink;
-    auto num_instances = _runtime_state->query_parallel_instance_num();
-    sink.reset(new LocalExchangeSinkOperatorX(local_exchange_id, num_instances, texprs));
+    sink.reset(new LocalExchangeSinkOperatorX(next_sink_operator_id(), local_exchange_id,
+                                              _num_instances, texprs));
     RETURN_IF_ERROR(cur_pipe->set_sink(sink));
     RETURN_IF_ERROR(cur_pipe->sink_x()->init());
 
     auto shared_state = LocalExchangeSharedState::create_shared();
-    shared_state->data_queue.resize(num_instances);
-    shared_state->source_dependencies.resize(num_instances, nullptr);
+    shared_state->data_queue.resize(_num_instances);
+    shared_state->source_dependencies.resize(_num_instances, nullptr);
+    shared_state->running_sink_operators = _num_instances;
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
@@ -717,9 +721,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
 
             if (!tnode.agg_node.need_finalize) {
-                RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
-                RETURN_IF_ERROR(
-                        _add_local_exchange(pool, op, cur_pipe, tnode.agg_node.grouping_exprs));
+                RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
+                                                    tnode.agg_node.grouping_exprs));
             }
         }
         break;
@@ -740,6 +743,14 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+        std::vector<TExpr> probe_exprs;
+        const std::vector<TEqJoinCondition>& eq_join_conjuncts =
+                tnode.hash_join_node.eq_join_conjuncts;
+        for (const auto& eq_join_conjunct : eq_join_conjuncts) {
+            probe_exprs.push_back(eq_join_conjunct.left);
+        }
+        RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode, probe_exprs));
         _pipeline_parent_map.push(op->node_id(), cur_pipe);
         _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         break;

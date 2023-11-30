@@ -248,7 +248,8 @@ public class AnalysisManager implements Writable {
 
     public AnalysisManager() {
         if (!Env.isCheckpointThread()) {
-            this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num);
+            this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num,
+                    Integer.MAX_VALUE);
             this.statisticsCache = new StatisticsCache();
         }
     }
@@ -1058,7 +1059,7 @@ public class AnalysisManager implements Writable {
                 a -> {
                     // DO NOTHING
                     return null;
-                }, null);
+                }, collection);
     }
 
     // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
