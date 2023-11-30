@@ -70,16 +70,12 @@ private:
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
             const auto* dict_col = reinterpret_cast<const vectorized::ColumnDictI32*>(&column);
+            std::vector<uint32_t> data(size);
             for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
-                if constexpr (is_nullable) {
-                    new_size += !null_map[idx] &&
-                                _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
-                } else {
-                    new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
-                }
+                data[i] = dict_col->get_hash_value(sel[i]);
             }
+            new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
+                                                                    sel, size, data.size() != size);
         } else {
             const auto& data =
                     reinterpret_cast<
