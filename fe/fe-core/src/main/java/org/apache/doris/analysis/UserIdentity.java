@@ -124,7 +124,7 @@ public class UserIdentity implements Writable, GsonPostProcessable {
         this.isAnalyzed = true;
     }
 
-    public void analyze(String clusterName) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (isAnalyzed) {
             return;
         }
@@ -133,10 +133,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
         }
 
         FeNameFormat.checkUserName(user);
-        if (!user.equals(Auth.ROOT_USER) && !user.equals(Auth.ADMIN_USER)) {
-            user = ClusterNamespace.getFullName(clusterName, user);
-        }
-
         if (Strings.isNullOrEmpty(host)) {
             if (!isDomain) {
                 host = "%";
@@ -212,6 +208,11 @@ public class UserIdentity implements Writable, GsonPostProcessable {
         return sb.toString();
     }
 
+    // should be remove after version 3.0
+    public void removeClusterPrefix() {
+        user = ClusterNamespace.getNameFromFullName(user);
+    }
+
     public static UserIdentity read(DataInput in) throws IOException {
         // Use Gson in the VERSION_109
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_109) {
@@ -281,5 +282,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         isAnalyzed = true;
+        removeClusterPrefix();
     }
 }
