@@ -75,7 +75,7 @@ suite("regression_test_variant", "variant_type"){
     }
 
     try {
-
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         def key_types = ["DUPLICATE", "UNIQUE"]
         for (int i = 0; i < key_types.size(); i++) {
             def table_name = "simple_variant_${key_types[i]}"
