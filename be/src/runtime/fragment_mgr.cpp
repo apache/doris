@@ -669,25 +669,31 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                 uint64_t tg_id = params.workload_groups[0].id;
                 auto* tg_mgr = _exec_env->task_group_manager();
                 if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
-                    std::stringstream ss;
-                    ss << "Query/load id: " << print_id(query_ctx->query_id());
-                    ss << " use task group " << task_group_ptr->debug_string();
-                    if (tg_mgr->enable_cpu_soft_limit() && !config::enable_cgroup_cpu_soft_limit) {
-                        query_ctx->set_task_group(task_group_ptr);
-                        ss << ", cpu soft limit based doris sche";
-                    } else {
-                        bool ret = tg_mgr->set_task_sche_for_query_ctx(tg_id, query_ctx.get());
-                        if (tg_mgr->enable_cpu_hard_limit()) {
-                            ss << ", cpu hard limit based cgroup";
+                    task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
+                    // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
+                    query_ctx->set_task_group(task_group_ptr);
+                    stringstream ss;
+                    ss << "Query/load id: " << print_id(query_ctx->query_id())
+                       << ", use task group:" << task_group_ptr->debug_string()
+                       << ", enable cpu hard limit:"
+                       << (tg_mgr->enable_cpu_hard_limit() ? "true" : "false");
+                    bool ret = false;
+                    if (tg_mgr->enable_cgroup()) {
+                        ret = tg_mgr->set_cg_task_sche_for_query_ctx(tg_id, query_ctx.get());
+                        if (ret) {
+                            ss << ", use cgroup for cpu limit.";
                         } else {
-                            ss << ", cpu soft limit based cgroup";
+                            ss << ", not found cgroup sche, no limit for cpu.";
                         }
-                        if (!ret) {
-                            ss << ", but cgroup init failed, scan or exec fallback to no group";
-                        }
+                    } else {
+                        ss << ", use doris sche for cpu limit.";
+                        query_ctx->use_task_group_for_cpu_limit.store(true);
                     }
                     LOG(INFO) << ss.str();
-                } // else, query run with no group
+                } else {
+                    VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
+                               << " no task group found, does not use task group.";
+                }
             } else {
                 VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
                            << " does not use task group.";
