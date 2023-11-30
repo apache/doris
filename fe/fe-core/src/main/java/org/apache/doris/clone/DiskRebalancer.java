@@ -18,10 +18,7 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.CatalogRecycleBin;
-import org.apache.doris.catalog.DataProperty;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -34,7 +31,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
