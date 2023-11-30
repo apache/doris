@@ -21,12 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -35,12 +34,12 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -84,10 +83,11 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     private final TableName tableName;
     private List<String> columnNames;
-    private List<String> partitionNames;
+    private PartitionNames partitionNames;
     private boolean isAllColumns;
 
     // after analyzed
+    private long catalogId;
     private long dbId;
     private TableIf table;
 
@@ -97,26 +97,30 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             AnalyzeProperties properties) {
         super(properties);
         this.tableName = tableName;
-        this.partitionNames = partitionNames == null ? null : partitionNames.getPartitionNames();
+        this.partitionNames = partitionNames;
         this.columnNames = columnNames;
         this.analyzeProperties = properties;
         this.isAllColumns = columnNames == null;
     }
 
     public AnalyzeTblStmt(AnalyzeProperties analyzeProperties, TableName tableName, List<String> columnNames, long dbId,
-            TableIf table) {
+            TableIf table) throws AnalysisException {
         super(analyzeProperties);
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.dbId = dbId;
         this.table = table;
         this.isAllColumns = columnNames == null;
+        String catalogName = tableName.getCtl();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(catalogName);
+        this.catalogId = catalog.getId();
     }
 
     @Override
     @SuppressWarnings({"rawtypes"})
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
@@ -129,6 +133,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         String tblName = tableName.getTbl();
         CatalogIf catalog = analyzer.getEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(catalogName);
+        this.catalogId = catalog.getId();
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
@@ -165,13 +170,6 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         }
         analyzeProperties.check();
 
-        // TODO support external table
-        if (analyzeProperties.isSample()) {
-            if (!(table instanceof OlapTable)) {
-                throw new AnalysisException("Sampling statistics "
-                        + "collection of external tables is not supported");
-            }
-        }
         if (analyzeProperties.isSync()
                 && (analyzeProperties.isAutomatic() || analyzeProperties.getPeriodTimeInMs() != 0)) {
             throw new AnalysisException("Automatic/Period statistics collection "
@@ -180,6 +178,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         if (analyzeProperties.isAutomatic() && analyzeProperties.getPeriodTimeInMs() != 0) {
             throw new AnalysisException("Automatic collection "
                     + "and period statistics collection cannot be set at same time");
+        }
+        if (analyzeProperties.isSample() && analyzeProperties.forceFull()) {
+            throw new AnalysisException("Impossible to analyze with sample and full simultaneously");
         }
     }
 
@@ -191,7 +192,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                         colName, FeNameFormat.getColumnNameRegex());
             }
-            if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
+            if (StatisticsUtil.isUnsupportedType(column.getType())) {
                 containsUnsupportedTytpe = true;
             }
         }
@@ -237,12 +238,31 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     public Set<String> getPartitionNames() {
-        Set<String> partitions = partitionNames == null ? table.getPartitionNames() : Sets.newHashSet(partitionNames);
-        if (isSamplingPartition()) {
-            int partNum = ConnectContext.get().getSessionVariable().getExternalTableAnalyzePartNum();
-            partitions = partitions.stream().limit(partNum).collect(Collectors.toSet());
+        if (partitionNames == null || partitionNames.getPartitionNames() == null) {
+            if (table instanceof ExternalTable) {
+                // External table couldn't return all partitions when partitionNames is not set.
+                // Because Analyze Table command for external table could specify partition names.
+                return Collections.emptySet();
+            }
+            return table.getPartitionNames();
         }
+        Set<String> partitions = Sets.newHashSet();
+        partitions.addAll(partitionNames.getPartitionNames());
         return partitions;
+    }
+
+    public boolean isAllPartitions() {
+        if (partitionNames == null) {
+            return false;
+        }
+        return partitionNames.isAllPartitions();
+    }
+
+    public long getPartitionCount() {
+        if (partitionNames == null) {
+            return 0;
+        }
+        return partitionNames.getCount();
     }
 
     public boolean isPartitionOnly() {
@@ -312,5 +332,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     public boolean isAllColumns() {
         return isAllColumns;
+    }
+
+    public long getCatalogId() {
+        return catalogId;
     }
 }

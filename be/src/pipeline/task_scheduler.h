@@ -46,17 +46,15 @@ namespace doris::pipeline {
 
 class BlockedTaskScheduler {
 public:
-    explicit BlockedTaskScheduler(std::shared_ptr<TaskQueue> task_queue);
+    explicit BlockedTaskScheduler();
 
     ~BlockedTaskScheduler() = default;
 
-    Status start();
+    Status start(std::string sche_name);
     void shutdown();
     Status add_blocked_task(PipelineTask* task);
 
 private:
-    std::shared_ptr<TaskQueue> _task_queue;
-
     std::mutex _task_mutex;
     std::condition_variable _task_cond;
     std::list<PipelineTask*> _blocked_tasks;
@@ -67,21 +65,22 @@ private:
 
     static constexpr auto EMPTY_TIMES_TO_YIELD = 64;
 
-private:
     void _schedule();
     void _make_task_run(std::list<PipelineTask*>& local_tasks,
                         std::list<PipelineTask*>::iterator& task_itr,
-                        std::vector<PipelineTask*>& ready_tasks,
                         PipelineTaskState state = PipelineTaskState::RUNNABLE);
 };
 
 class TaskScheduler {
 public:
     TaskScheduler(ExecEnv* exec_env, std::shared_ptr<BlockedTaskScheduler> b_scheduler,
-                  std::shared_ptr<TaskQueue> task_queue)
+                  std::shared_ptr<TaskQueue> task_queue, std::string name,
+                  CgroupCpuCtl* cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
               _blocked_task_scheduler(std::move(b_scheduler)),
-              _shutdown(false) {}
+              _shutdown(false),
+              _name(name),
+              _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
 
     ~TaskScheduler();
 
@@ -89,7 +88,7 @@ public:
 
     Status start();
 
-    void shutdown();
+    void stop();
 
     TaskQueue* task_queue() const { return _task_queue.get(); }
 
@@ -99,9 +98,12 @@ private:
     std::vector<std::unique_ptr<std::atomic<bool>>> _markers;
     std::shared_ptr<BlockedTaskScheduler> _blocked_task_scheduler;
     std::atomic<bool> _shutdown;
+    std::string _name;
+    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
     void _do_work(size_t index);
     // after _try_close_task, task maybe destructed.
-    void _try_close_task(PipelineTask* task, PipelineTaskState state);
+    void _try_close_task(PipelineTask* task, PipelineTaskState state,
+                         Status exec_status = Status::OK());
 };
 } // namespace doris::pipeline

@@ -245,6 +245,7 @@ public:
 template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
 struct LeadLagData {
 public:
+    static constexpr bool result_nullable = result_is_nullable;
     void reset() {
         _data_value.reset();
         _default_value.reset();
@@ -308,7 +309,7 @@ private:
     bool _is_inited = false;
 };
 
-template <typename Data>
+template <typename Data, bool = false>
 struct WindowFunctionLeadImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
@@ -327,7 +328,7 @@ struct WindowFunctionLeadImpl : Data {
     static const char* name() { return "lead"; }
 };
 
-template <typename Data>
+template <typename Data, bool = false>
 struct WindowFunctionLagImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
@@ -349,7 +350,7 @@ struct WindowFunctionLagImpl : Data {
 // TODO: first_value && last_value in some corner case will be core,
 // if need to simply change it, should set them to always nullable insert into null value, and register in cpp maybe be change
 // But it's may be another better way to handle it
-template <typename Data>
+template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionFirstImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
@@ -362,13 +363,27 @@ struct WindowFunctionFirstImpl : Data {
             return;
         }
         frame_start = std::max<int64_t>(frame_start, partition_start);
+
+        if constexpr (arg_ignore_null) {
+            frame_end = std::min<int64_t>(frame_end, partition_end);
+
+            auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
+            auto ignore_null_value = second_arg.get_data()[0];
+
+            if (ignore_null_value && columns[0]->is_nullable()) {
+                auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+                while (frame_start < frame_end - 1 && arg_nullable.is_null_at(frame_start)) {
+                    frame_start++;
+                }
+            }
+        }
         this->set_value(columns, frame_start);
     }
 
     static const char* name() { return "first_value"; }
 };
 
-template <typename Data>
+template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
@@ -379,6 +394,21 @@ struct WindowFunctionLastImpl : Data {
             return;
         }
         frame_end = std::min<int64_t>(frame_end, partition_end);
+
+        if constexpr (arg_ignore_null) {
+            frame_start = std::max<int64_t>(frame_start, partition_start);
+
+            auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
+            auto ignore_null_value = second_arg.get_data()[0];
+
+            if (ignore_null_value && columns[0]->is_nullable()) {
+                auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+                while (frame_start < (frame_end - 1) && arg_nullable.is_null_at(frame_end - 1)) {
+                    frame_end--;
+                }
+            }
+        }
+
         this->set_value(columns, frame_end - 1);
     }
 
@@ -389,13 +419,19 @@ template <typename Data>
 class WindowFunctionData final
         : public IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>> {
 public:
-    WindowFunctionData(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types),
-              _argument_type(argument_types[0]) {}
+    WindowFunctionData(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types_),
+              _argument_type(argument_types_[0]) {}
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override { return _argument_type; }
+    DataTypePtr get_return_type() const override {
+        if constexpr (Data::result_nullable) {
+            return make_nullable(_argument_type);
+        } else {
+            return _argument_type;
+        }
+    }
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,

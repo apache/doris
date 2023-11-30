@@ -21,12 +21,13 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
+import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -115,8 +116,13 @@ public class OrExpansion extends OneExplorationRuleFactory {
                     }
 
                     //4. union all joins and construct LogicalCTEAnchor with CTEs
+                    List<List<SlotReference>> childrenOutputs = joins.stream()
+                            .map(j -> j.getOutput().stream()
+                                    .map(SlotReference.class::cast)
+                                    .collect(ImmutableList.toImmutableList()))
+                            .collect(ImmutableList.toImmutableList());
                     LogicalUnion union = new LogicalUnion(Qualifier.ALL, new ArrayList<>(join.getOutput()),
-                            ImmutableList.of(), false, joins);
+                            childrenOutputs, ImmutableList.of(), false, joins);
                     LogicalCTEAnchor<? extends Plan, ? extends Plan> intermediateAnchor = new LogicalCTEAnchor<>(
                             rightProducer.getCteId(), rightProducer, union);
                     return new LogicalCTEAnchor<Plan, Plan>(leftProducer.getCteId(), leftProducer, intermediateAnchor);
@@ -172,7 +178,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
                 otherConditions, originJoin.getHint(),
                 originJoin.getMarkJoinSlotReference(), left, right);
         if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
-            Plan normalizedPlan = PushdownExpressionsInHashCondition.pushDownHashExpression(
+            Plan normalizedPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
                     (LogicalJoin<? extends Plan, ? extends Plan>) newPlan);
             newPlan = new LogicalProject<>(new ArrayList<>(newPlan.getOutput()), normalizedPlan);
         }
@@ -189,7 +195,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
                     new ArrayList<>(), originJoin.getHint(),
                     originJoin.getMarkJoinSlotReference(), newPlan, newRight);
             if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
-                newPlan = PushdownExpressionsInHashCondition.pushDownHashExpression(
+                newPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
                         (LogicalJoin<? extends Plan, ? extends Plan>) newPlan);
             }
         }
@@ -246,7 +252,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
                     join.getMarkJoinSlotReference(), left, right);
             if (newJoin.getHashJoinConjuncts().stream()
                     .anyMatch(equalTo -> equalTo.children().stream().anyMatch(e -> !(e instanceof Slot)))) {
-                Plan plan = PushdownExpressionsInHashCondition.pushDownHashExpression(newJoin);
+                Plan plan = PushDownExpressionsInHashCondition.pushDownHashExpression(newJoin);
                 plan = new LogicalProject<>(new ArrayList<>(newJoin.getOutput()), plan);
                 joins.add(plan);
             } else {

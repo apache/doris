@@ -34,6 +34,7 @@
 #include "olap/delta_writer_context.h"
 #include "olap/memtable_writer.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -62,9 +63,8 @@ class Block;
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriterV2 {
 public:
-    static Status open(WriteRequest* req,
-                       const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                       DeltaWriterV2** writer, RuntimeProfile* profile);
+    static std::unique_ptr<DeltaWriterV2> open(
+            WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams);
 
     ~DeltaWriterV2();
 
@@ -79,7 +79,7 @@ public:
     Status close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    Status close_wait();
+    Status close_wait(RuntimeProfile* profile = nullptr);
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
@@ -89,7 +89,6 @@ public:
     int64_t partition_id() const;
 
     int64_t mem_consumption(MemType mem);
-    int64_t active_memtable_mem_consumption();
 
     int64_t tablet_id() { return _req.tablet_id; }
 
@@ -99,13 +98,13 @@ public:
 
 private:
     DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                  StorageEngine* storage_engine, RuntimeProfile* profile);
+                  StorageEngine* storage_engine);
 
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
                                       const TabletSchema& ori_tablet_schema);
 
-    void _init_profile(RuntimeProfile* profile);
+    void _update_profile(RuntimeProfile* profile);
 
     bool _is_init = false;
     bool _is_cancelled = false;
@@ -119,14 +118,15 @@ private:
     // total rows num written by DeltaWriterV2
     int64_t _total_received_rows = 0;
 
-    RuntimeProfile* _profile = nullptr;
-    RuntimeProfile::Counter* _write_memtable_timer = nullptr;
-    RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    int64_t _write_memtable_time = 0;
+    int64_t _close_wait_time = 0;
 
     std::shared_ptr<MemTableWriter> _memtable_writer;
     MonotonicStopWatch _lock_watch;
 
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 };
 
 } // namespace doris

@@ -36,7 +36,6 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/lock.h"
 
 namespace doris {
 
@@ -139,7 +138,7 @@ public:
 
     // publish rowset to make it visible to read
     void make_visible(Version version);
-    TabletSchemaSPtr tablet_schema() { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() { return _schema; }
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
@@ -248,7 +247,7 @@ public:
                     _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
                     // first do close, then change state
                     do_close();
-                    _rowset_state_machine.on_release();
+                    static_cast<void>(_rowset_state_machine.on_release());
                 }
             }
             if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
@@ -293,12 +292,6 @@ public:
 
     bool check_rowset_segment();
 
-    bool start_publish() {
-        bool expect = false;
-        return _is_publish_running.compare_exchange_strong(expect, true);
-    }
-    void finish_publish() { _is_publish_running.store(false); }
-
     [[nodiscard]] virtual Status add_to_binlog() { return Status::OK(); }
 
 protected:
@@ -327,14 +320,13 @@ protected:
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
     // mutex lock for load/close api because it is costly
-    doris::Mutex _lock;
+    std::mutex _lock;
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset
     std::atomic<uint64_t> _refs_by_reader;
     // rowset state machine
     RowsetStateMachine _rowset_state_machine;
     std::atomic<uint64_t> _delayed_expired_timestamp = 0;
-    std::atomic<bool> _is_publish_running {false};
 };
 
 } // namespace doris

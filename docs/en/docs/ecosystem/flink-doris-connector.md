@@ -161,9 +161,14 @@ dorisBuilder.setFenodes("FE_IP:HTTP_PORT")
          .setUsername("root")
          .setPassword("password");
 
+Properties properties = new Properties();
+// When the upstream is writing json, the configuration needs to be enabled.
+//properties.setProperty("format", "json");
+//properties.setProperty("read_json_by_line", "true");
 DorisExecutionOptions.Builder executionBuilder = DorisExecutionOptions.builder();
 executionBuilder.setLabelPrefix("label-doris") //streamload label prefix
-                 .setDeletable(false);
+                 .setDeletable(false)
+                 .setStreamLoadProp(properties); ;
 
 builder.setDorisReadOptions(DorisReadOptions.builder().build())
          .setDorisExecutionOptions(executionBuilder.build())
@@ -177,6 +182,9 @@ DataStreamSource<Tuple2<String, Integer>> source = env. fromCollection(data);
 
 source.map((MapFunction<Tuple2<String, Integer>, String>) t -> t.f0 + "\t" + t.f1)
        .sinkTo(builder.build());
+
+//mock json string source
+//env.fromElements("{\"name\":\"zhangsan\",\"age\":1}").sinkTo(builder.build());
 ```
 
 **RowData data stream (RowDataSerializer)**
@@ -409,7 +417,53 @@ WITH (
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
-## Use FlinkCDC to access multi-table or whole database example
+## Example of using FlinkSQL to access and implement partial column updates through CDC
+
+```sql
+-- enable checkpoint
+SET 'execution.checkpointing.interval' = '10s';
+
+CREATE TABLE cdc_mysql_source (
+   id int
+  ,name STRING
+  ,bank STRING
+  ,age int
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+CREATE TABLE doris_sink (
+    id INT,
+    name STRING,
+    bank STRING,
+    age int
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.read_json_by_line' = 'true',
+  'sink.properties.columns' = 'id,name,bank,age',
+  'sink.properties.partial.columns' = 'true' --Enable partial column updates
+);
+
+
+insert into doris_sink select id,name,bank,age from cdc_mysql_source;
+
+```
+
+## Use FlinkCDC to access multiple tables or the entire database (Supports MySQL, Oracle, PostgreSQL, SQLServer)
+
 
 ### grammar
 
@@ -426,6 +480,8 @@ insert into doris_sink select id,name from cdc_mysql_source;
      [--excluding-tables <mysql-table-name|name-regular-expr>] \
      --mysql-conf <mysql-cdc-source-conf> [--mysql-conf <mysql-cdc-source-conf> ...] \
      --oracle-conf <oracle-cdc-source-conf> [--oracle-conf <oracle-cdc-source-conf> ...] \
+     --postgres-conf <postgres-cdc-source-conf> [--postgres-conf <postgres-cdc-source-conf> ...] \
+     --sqlserver-conf <sqlserver-cdc-source-conf> [--sqlserver-conf <sqlserver-cdc-source-conf> ...] \
      --sink-conf <doris-sink-conf> [--table-conf <doris-sink-conf> ...] \
      [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
 ```
@@ -436,8 +492,10 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--table-suffix** Same as above, the suffix name of the Doris table.
 - **--including-tables** MySQL tables that need to be synchronized, you can use "|" to separate multiple tables, and support regular expressions. For example --including-tables table1|tbl.* is to synchronize table1 and all tables beginning with tbl.
 - **--excluding-tables** Tables that do not need to be synchronized, the usage is the same as above.
-- **--mysql-conf** MySQL CDCSource configuration, eg --mysql-conf hostname=127.0.0.1 , you can see all configuration MySQL-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html), where hostname/username/password/database-name is required.
+- **--mysql-conf** MySQL CDCSource configuration, eg --mysql-conf hostname=127.0.0.1 , you can see all configuration MySQL-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html), where hostname/username/password/database-name is required.To synchronize tables without primary keys, you must configure `scan.incremental.snapshot.chunk.key-column` the option, and specify only one non-null field. For example, `scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1.column...`,columns are separated by `,`.
 - **--oracle-conf** Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can view all configurations of Oracle-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html), where hostname/username/password/database-name/schema-name is required.
+- **--postgres-conf** Postgres CDCSource configuration，for example --postgres-conf hostname=127.0.0.1 ，you can see all configuration of Postgres-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)，where hostname/username/password/database-name/schema-name/slot.name  is required.
+- **--sqlserver-conf** SQLServer CDCSource configuration，for example --sqlserver-conf hostname=127.0.0.1 ，you can see all configuration of SQLServer-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)，where hostname/username/password/database-name/schema-name is required.
 - **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items in [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
 - **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
 - **--ignore-default-value** Turn off the default for synchronizing mysql table structures. It is suitable for synchronizing mysql data to doris, the field has a default value, but the actual inserted data is null. refer to[#152](https://github.com/apache/doris-flink-connector/pull/152)
@@ -456,6 +514,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
      mysql-sync-database\
      --database test_db \
      --mysql-conf hostname=127.0.0.1 \
+     --mysql-conf port=3306 \
      --mysql-conf username=root \
      --mysql-conf password=123456 \
      --mysql-conf database-name=mysql_db \
@@ -588,7 +647,7 @@ CREATE TABLE DORIS_SINK(
   'sink.properties.columns' = 'id, name, __DORIS_DELETE_SIGN__'  -- Display the import column of the specified streamload
 );
 
-INSERT INTO KAFKA_SOURCE
+INSERT INTO DORIS_SINK
 SELECT json_value(data,'$.id') as id,
 json_value(data,'$.name') as name, 
 if(op_type='delete',1,0) as __DORIS_DELETE_SIGN__ 
@@ -680,3 +739,7 @@ This is due to concurrency bugs in the Thrift. It is recommended that you use th
 13. **DorisRuntimeException: Fail to abort transaction 26153 with url http://192.168.0.1:8040/api/table_name/_stream_load_2pc**
 
 You can search for the log `abort transaction response` in TaskManager and determine whether it is a client issue or a server issue based on the HTTP return code.
+
+14. **org.apache.flink.table.api.SqlParserException when using doris.filter.query: SQL parsing failed. "xx" encountered at row x, column xx**
+
+This problem is mainly caused by the conditional varchar/string type, which needs to be quoted. The correct way to write it is xxx = ''xxx''. In this way, the Flink SQL parser will interpret two consecutive single quotes as one single quote character instead of The end of the string, and the concatenated string is used as the value of the attribute.

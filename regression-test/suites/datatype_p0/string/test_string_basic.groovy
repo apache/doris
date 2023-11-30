@@ -346,5 +346,8 @@ suite("test_string_basic") {
         test_string_cmp
     order by s1, s2, counts;
     """
+    sql "drop view if exists char_view;"
+    sql "create view char_view as select cast('a' as CHARACTER);"
+    qt_test "select * from char_view";
 }
 

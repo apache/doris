@@ -20,9 +20,9 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
-import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,15 +36,15 @@ public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFuncti
     private static final Logger LOG = LogManager.getLogger(HttpStreamTableValuedFunction.class);
     public static final String NAME = "http_stream";
 
-    public HttpStreamTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        Map<String, String> validParams = new CaseInsensitiveMap();
-        for (String key : params.keySet()) {
-            if (!FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
-                throw new AnalysisException(key + " is invalid property");
-            }
-            validParams.put(key, params.get(key));
+    public HttpStreamTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        // 1. analyze common properties
+        super.parseCommonProperties(properties);
+
+        if (fileFormatType == TFileFormatType.FORMAT_PARQUET
+                || fileFormatType == TFileFormatType.FORMAT_AVRO
+                || fileFormatType == TFileFormatType.FORMAT_ORC) {
+            throw new AnalysisException("http_stream does not yet support parquet, avro and orc");
         }
-        parseProperties(validParams);
     }
 
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================

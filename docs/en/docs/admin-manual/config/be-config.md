@@ -127,6 +127,12 @@ There are two ways to configure BE configuration items:
 * Description: The port of BRPC on BE, used for communication between BEs
 * Default value: 8060
 
+#### `arrow_flight_sql_port`
+
+* Type: int32
+* Description: The port of Arrow Flight SQL server on BE, used for communication between Arrow Flight Client and BE
+* Default value: -1
+
 #### `enable_https`
 
 * Type: bool
@@ -182,7 +188,7 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying too the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-* Default value: 80%
+* Default value: 90%
 
 #### `cluster_id`
 
@@ -715,7 +721,7 @@ BaseCompaction:546859:
 #### `enable_single_replica_load`
 
 * Description: Whether to enable the single-copy data import function
-* Default value: false
+* Default value: true
 
 #### `load_error_log_reserve_hours`
 
@@ -817,6 +823,16 @@ BaseCompaction:546859:
   - Some data formats, such as JSON, cannot be split. Doris must read all the data into the memory before parsing can begin. Therefore, this value is used to limit the maximum amount of data that can be loaded in a single Stream load.
 * Default value: 100
 * Dynamically modifiable: Yes
+
+#### `olap_table_sink_send_interval_microseconds`
+
+* Description: While loading data, there's a polling thread keep sending data to corresponding BE from Coordinator's sink node. This thread will check whether there's data to send every `olap_table_sink_send_interval_microseconds` microseconds.
+* Default value: 1000
+
+#### `olap_table_sink_send_interval_auto_partition_factor`
+
+* Description: If we load data to a table which enabled auto partition. the interval of `olap_table_sink_send_interval_microseconds` is too slow. In that case the real interval will multiply this factor.
+* Default value: 0.001
 
 ### Thread
 
@@ -944,11 +960,6 @@ BaseCompaction:546859:
 * Description: The maximum external scan cache batch count, which means that the cache max_memory_cache_batch_count * batch_size row, the default is 20, and the default value of batch_size is 1024, which means that 20 * 1024 rows will be cached
 * Default value: 20
 
-#### `memory_limitation_per_thread_for_schema_change`
-
-* Description: The maximum memory allowed for a single schema change task
-* Default value: 2 (GB)
-
 #### `memory_max_alignment`
 
 * Description: Maximum alignment memory
@@ -997,7 +1008,7 @@ BaseCompaction:546859:
 #### `memory_limitation_per_thread_for_schema_change_bytes`
 
 * Description: Maximum memory allowed for a single schema change task
-* Default value: 2147483648
+* Default value: 2147483648 (2GB)
 
 #### `mem_tracker_consume_min_size_bytes`
 
@@ -1264,8 +1275,8 @@ BaseCompaction:546859:
 
 * Type: int64
 * Description: It is used to control the expiration time of cleaning up the merged rowset version. When the current time now() minus the max created rowset‘s create time in a version path is greater than tablet_rowset_stale_sweep_time_sec, the current path is cleaned up and these merged rowsets are deleted, the unit is second.
-  - When writing is too frequent and the disk time is insufficient, you can configure less tablet_rowset_stale_sweep_time_sec. However, if this time is less than 5 minutes, it may cause fe to query the version that has been merged, causing a query -230 error.
-* Default value: 1800
+  - When writing is too frequent, Fe may not be able to query the merged version, resulting in a query -230 error. This problem can be avoided by increasing this parameter.
+* Default value: 300
 
 #### `tablet_writer_open_rpc_timeout_sec`
 
@@ -1289,7 +1300,7 @@ BaseCompaction:546859:
 * Description: The number of threads making schema changes
 * Default value: 3
 
-### `alter_index_worker_count`
+#### `alter_index_worker_count`
 
 * Description: The number of threads making index change
 * Default value: 3
@@ -1463,11 +1474,6 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: Default dirs to put jdbc drivers.
 * Default value: `${DORIS_HOME}/jdbc_drivers`
 
-#### `enable_parse_multi_dimession_array`
-
-* Description: Whether parse multidimensional array, if false encountering will return ERROR
-* Default value: true
-
 #### `enable_simdjson_reader`
 
 * Description: Whether enable simdjson to parse json while stream load
@@ -1494,3 +1500,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: In cloud native deployment scenario, BE will be add to cluster and remove from cluster very frequently. User's query will fail if there is a fragment is running on the shuting down BE. Users could use stop_be.sh --grace, then BE will wait all running queries to stop to avoiding running query failure, but if the waiting time exceed the limit, then be will exit directly. During this period, FE will not send any queries to BE and waiting for all running queries to stop.
 * Default value: 120
+
+#### `enable_java_support`
+
+* Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
+* Default value: true

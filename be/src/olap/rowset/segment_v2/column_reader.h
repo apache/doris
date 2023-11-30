@@ -44,7 +44,9 @@
 #include "util/once.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
+#include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 
@@ -53,6 +55,7 @@ class WrapperField;
 class AndBlockColumnPredicate;
 class ColumnPredicate;
 class TabletIndex;
+class StorageReadOptions;
 
 namespace io {
 class FileReader;
@@ -81,16 +84,16 @@ struct ColumnReaderOptions {
 };
 
 struct ColumnIteratorOptions {
-    io::FileReader* file_reader = nullptr;
-    // reader statistics
-    OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
+    bool is_predicate_column = false;
     // for page cache allocation
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
+    io::FileReader* file_reader = nullptr; // Ref
+    // reader statistics
+    OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
-    bool is_predicate_column = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -119,7 +122,8 @@ public:
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_inverted_index_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+    Status new_inverted_index_iterator(const TabletIndex* index_meta,
+                                       const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iterator);
 
     // Seek to the first entry in the column.
@@ -135,18 +139,9 @@ public:
 
     const EncodingInfo* encoding_info() const { return _encoding_info; }
 
-    bool has_zone_map() const { return _zone_map_index_meta != nullptr; }
-    bool has_bitmap_index() const { return _bitmap_index_meta != nullptr; }
-    bool has_bloom_filter_index(bool ngram) const {
-        if (_bf_index_meta == nullptr) return false;
-
-        if (ngram) {
-            return _bf_index_meta->algorithm() == BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
-        } else {
-            return _bf_index_meta->algorithm() != BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
-        }
-    }
-
+    bool has_zone_map() const { return _zone_map_index != nullptr; }
+    bool has_bitmap_index() const { return _bitmap_index != nullptr; }
+    bool has_bloom_filter_index(bool ngram) const;
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
     // Return true if segment zone map is absent or `cond' could be satisfied, false otherwise.
@@ -169,15 +164,18 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
+    bool prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                      const int column_id) const;
+
     CompressionTypePB get_compression() const { return _meta_compression; }
 
     uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
-        _set_dict_encoding_type_once.call([&] {
+        static_cast<void>(_set_dict_encoding_type_once.call([&] {
             _dict_encoding_type = type;
             return Status::OK();
-        });
+        }));
     }
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
@@ -224,6 +222,8 @@ private:
     FieldType _meta_type;
     FieldType _meta_children_column_type;
     bool _meta_is_nullable;
+    bool _use_index_page_cache;
+
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
 
@@ -239,20 +239,15 @@ private:
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
 
-    bool _use_index_page_cache;
-
     // meta for various column indexes (null if the index is absent)
-    const ZoneMapIndexPB* _zone_map_index_meta = nullptr;
-    const OrdinalIndexPB* _ordinal_index_meta = nullptr;
-    const BitmapIndexPB* _bitmap_index_meta = nullptr;
-    const BloomFilterIndexPB* _bf_index_meta = nullptr;
+    std::unique_ptr<ZoneMapPB> _segment_zone_map;
 
     mutable std::mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::shared_ptr<InvertedIndexReader> _inverted_index;
-    std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
+    std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 
@@ -370,10 +365,10 @@ private:
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
 
-    ColumnReader* _reader;
+    ColumnReader* _reader = nullptr;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()
-    BlockCompressionCodec* _compress_codec;
+    BlockCompressionCodec* _compress_codec = nullptr;
 
     // 1. The _page represents current page.
     // 2. We define an operation is one seek and following read,
@@ -471,7 +466,7 @@ public:
     }
 
 private:
-    ColumnReader* _map_reader;
+    ColumnReader* _map_reader = nullptr;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator; //OffsetFileIterator
     std::unique_ptr<ColumnIterator> _key_iterator;
@@ -509,7 +504,7 @@ public:
     }
 
 private:
-    ColumnReader* _struct_reader;
+    ColumnReader* _struct_reader = nullptr;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
 };
@@ -544,7 +539,7 @@ public:
     }
 
 private:
-    ColumnReader* _array_reader;
+    ColumnReader* _array_reader = nullptr;
     std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
@@ -600,6 +595,38 @@ private:
     int32_t _tablet_id = 0;
     RowsetId _rowset_id;
     int32_t _segment_id = 0;
+};
+
+class VariantRootColumnIterator : public ColumnIterator {
+public:
+    VariantRootColumnIterator() = delete;
+
+    explicit VariantRootColumnIterator(FileColumnIterator* iter) { _inner_iter.reset(iter); }
+
+    ~VariantRootColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
+
+    Status seek_to_first() override { return _inner_iter->seek_to_first(); }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        return _inner_iter->seek_to_ordinal(ord_idx);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
+
+private:
+    std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 
 // This iterator is used to read default value column

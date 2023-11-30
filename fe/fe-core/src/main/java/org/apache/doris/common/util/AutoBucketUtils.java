@@ -95,4 +95,9 @@ public class AutoBucketUtils {
         logger.debug("AutoBucketsUtil: final bucketsNum {}", bucketsNum);
         return bucketsNum;
     }
+
+    public static int getBucketsNum(long partitionSize, int minBuckets) {
+        int bucketsNum = getBucketsNum(partitionSize);
+        return Math.max(minBuckets, bucketsNum);
+    }
 }

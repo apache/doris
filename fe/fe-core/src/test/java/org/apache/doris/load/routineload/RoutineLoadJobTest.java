@@ -349,6 +349,7 @@ public class RoutineLoadJobTest {
                 + "(\n"
                 + "\"desired_concurrent_number\" = \"0\",\n"
                 + "\"max_error_number\" = \"10\",\n"
+                + "\"max_filter_ratio\" = \"1.0\",\n"
                 + "\"max_batch_interval\" = \"10\",\n"
                 + "\"max_batch_rows\" = \"10\",\n"
                 + "\"max_batch_size\" = \"104857600\",\n"

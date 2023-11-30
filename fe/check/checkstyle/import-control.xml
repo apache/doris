@@ -25,6 +25,7 @@ under the License.
 <import-control pkg="org.apache.doris" strategyOnMismatch="allowed">
     <disallow pkg="com.clearspring.analytics.util" />
     <disallow pkg="com.alibaba.google" />
+    <disallow pkg="org.apache.hadoop.util.Lists" />
     <disallow pkg="org.spark_project.guava" />
     <disallow pkg="org.glassfish.jersey.internal.guava" />
     <disallow pkg="io.fabric8.zjsonpatch.internal.guava" />
@@ -38,6 +39,7 @@ under the License.
     <subpackage name="nereids">
         <allow pkg="org.junit.jupiter"/>
         <disallow pkg="org.junit"/>
+        <disallow pkg="lombok"/>
     </subpackage>
 </import-control>
 

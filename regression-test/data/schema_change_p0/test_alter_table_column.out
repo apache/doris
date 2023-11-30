@@ -21,9 +21,9 @@ value2	INT	Yes	false	\N	SUM
 -- !sql --
 k1	INT	Yes	true	\N	
 value1	INT	Yes	false	\N	NONE
-value2	ARRAY<INT(11)>	Yes	false	[]	NONE
-value3	ARRAY<INT(11)>	Yes	false	\N	NONE
-value4	ARRAY<INT(11)>	No	false	[]	NONE
+value2	ARRAY<INT>	Yes	false	[]	NONE
+value3	ARRAY<INT>	Yes	false	\N	NONE
+value4	ARRAY<INT>	No	false	[]	NONE
 
 -- !sql --
 1	2	[]	\N	[]

@@ -18,14 +18,20 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
+import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
+import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalTable;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -103,6 +109,39 @@ public class RefreshDbTest extends TestWithFeService {
         } catch (Exception e) {
             // Do nothing
         }
+    }
+
+    @Test
+    public void testRefreshPriv() throws Exception {
+        Auth auth = Env.getCurrentEnv().getAuth();
+        // create user1
+        auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
+                "create user 'user1'@'%' identified by 'pwd1';", rootCtx));
+        // grant only create_priv to user1 on test1.db1.tbl11
+        GrantStmt grantStmt = (GrantStmt) parseAndAnalyzeStmt(
+                "grant create_priv on test1.db1.* to 'user1'@'%';", rootCtx);
+        auth.grant(grantStmt);
+
+        // mock login user1
+        UserIdentity user1 = new UserIdentity("user1", "%");
+        user1.analyze();
+        ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Access denied for user 'user1' to database 'default_cluster:db1'",
+                () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
+        ConnectContext.remove();
+
+        // add drop priv to user1
+        rootCtx.setThreadLocalInfo();
+        grantStmt = (GrantStmt) parseAndAnalyzeStmt(
+                "grant drop_priv on test1.db1.* to 'user1'@'%';", rootCtx);
+        auth.grant(grantStmt);
+        ConnectContext.remove();
+
+        // user1 can do refresh table
+        user1Ctx.setThreadLocalInfo();
+        ExceptionChecker.expectThrowsNoException(
+                () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
     }
 
     public static class RefreshTableProvider implements TestExternalCatalog.TestCatalogProvider {

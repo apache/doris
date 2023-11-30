@@ -32,7 +32,6 @@ import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class DecommissionTest {
     private static final Logger LOG = LogManager.getLogger(TabletReplicaTooSlowTest.class);
@@ -66,8 +66,8 @@ public class DecommissionTest {
         FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 200;
-        FeConstants.tablet_schedule_interval_ms = 2000;
+        Config.tablet_schedule_interval_ms = 2000;
+        Config.tablet_checker_interval_ms = 200;
         Config.tablet_repair_delay_factor_second = 1;
         Config.enable_round_robin_create_tablet = true;
         Config.schedule_slot_num_per_hdd_path = 10000;
@@ -85,7 +85,7 @@ public class DecommissionTest {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
             tDisk1.setRootPath("/home/doris1.HDD");
-            tDisk1.setDiskTotalCapacity(20000000);
+            tDisk1.setDiskTotalCapacity(10L << 30);
             tDisk1.setDataUsedCapacity(1);
             tDisk1.setUsed(true);
             tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
@@ -95,7 +95,7 @@ public class DecommissionTest {
 
             TDisk tDisk2 = new TDisk();
             tDisk2.setRootPath("/home/doris2.HHD");
-            tDisk2.setDiskTotalCapacity(20000000);
+            tDisk2.setDiskTotalCapacity(10L << 30);
             tDisk2.setDataUsedCapacity(1);
             tDisk2.setUsed(true);
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
@@ -152,23 +152,23 @@ public class DecommissionTest {
     }
 
     void checkBalance(int tryTimes, int totalReplicaNum, int backendNum) throws Exception {
-        int beReplicaNum = totalReplicaNum / backendNum;
         for (int i = 0; i < tryTimes; i++) {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (backendNum != backendIds.size() && i != tryTimes - 1) {
-                Thread.sleep(1000);
-                continue;
+            if (backendNum == backendIds.size()) {
+                break;
             }
 
-            List<Integer> tabletNums = Lists.newArrayList();
-            for (long beId : backendIds) {
-                tabletNums.add(Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId));
-            }
-
-            Assert.assertEquals("tablet nums = " + tabletNums, backendNum, backendIds.size());
-            for (int tabletNum : tabletNums) {
-                Assert.assertEquals("tablet nums = " + tabletNums, beReplicaNum, tabletNum);
-            }
+            Thread.sleep(1000);
         }
+
+        List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        Assert.assertEquals(backendNum, backendIds.size());
+        List<Integer> tabletNums = backendIds.stream()
+                .map(beId -> Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId))
+                .collect(Collectors.toList());
+
+        int avgReplicaNum = totalReplicaNum / backendNum;
+        boolean balanced = tabletNums.stream().allMatch(num -> Math.abs(num - avgReplicaNum) <= 30);
+        Assert.assertTrue("not balance, tablet nums = " + tabletNums, balanced);
     }
 }

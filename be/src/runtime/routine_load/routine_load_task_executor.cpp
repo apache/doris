@@ -33,7 +33,6 @@
 #include <thread>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -72,16 +71,19 @@ RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
         return _task_map.size();
     });
 
-    _data_consumer_pool.start_bg_worker();
+    static_cast<void>(_data_consumer_pool.start_bg_worker());
 }
 
 RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
+    LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
+    _task_map.clear();
+}
+
+void RoutineLoadTaskExecutor::stop() {
     DEREGISTER_HOOK_METRIC(routine_load_task_count);
     _thread_pool.shutdown();
     _thread_pool.join();
-
-    LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
-    _task_map.clear();
+    _data_consumer_pool.stop();
 }
 
 // Create a temp StreamLoadContext and set some kafka connection info in it.
@@ -333,15 +335,20 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 #endif
     }
 
+    std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
+            std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
+
     // start to consume, this may block a while
-    HANDLE_ERROR(consumer_grp->start_all(ctx), "consuming failed");
+    HANDLE_ERROR(consumer_grp->start_all(ctx, kafka_pipe), "consuming failed");
 
     if (ctx->is_multi_table) {
         // plan the rest of unplanned data
         auto multi_table_pipe = std::static_pointer_cast<io::MultiTablePipe>(ctx->body_sink);
-        multi_table_pipe->request_and_exec_plans();
+        HANDLE_ERROR(multi_table_pipe->request_and_exec_plans(),
+                     "multi tables task executes plan error");
         // need memory order
         multi_table_pipe->set_consume_finished();
+        HANDLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
     }
 
     // wait for all consumers finished

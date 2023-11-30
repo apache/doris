@@ -17,14 +17,18 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.exploration.mv.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -34,11 +38,16 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -197,6 +206,31 @@ public class ExpressionUtils {
     }
 
     /**
+     * Replace the slot in expression with the lineage identifier from specified
+     * baseTable sets or target table types.
+     * <p>
+     * For example as following:
+     * select a + 10 as a1, d from (
+     * select b - 5 as a, d from table
+     * );
+     * after shuttle a1, d in select will be b - 5 + 10, d
+     */
+    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expression,
+            Plan plan,
+            Set<TableType> targetTypes,
+            Set<String> tableIdentifiers) {
+        return ImmutableList.of();
+    }
+
+    /**
+     * Replace the slot in expressions according to the slotMapping
+     * if any slot cannot be mapped then return null
+     */
+    public static List<? extends Expression> permute(List<? extends Expression> expressions, SlotMapping slotMapping) {
+        return ImmutableList.of();
+    }
+
+    /**
      * Choose the minimum slot from input parameter.
      */
     public static <S extends NamedExpression> S selectMinimumColumn(Collection<S> slots) {
@@ -253,34 +287,6 @@ public class ExpressionUtils {
     }
 
     /**
-     * get slot covered by cast
-     * example: input: cast(cast(table.columnA)) output: columnA.datatype
-     *
-     */
-    public static DataType getDatatypeCoveredByCast(Expression expr) {
-        if (expr instanceof Cast) {
-            return getDatatypeCoveredByCast(((Cast) expr).child());
-        }
-        return expr.getDataType();
-    }
-
-    /**
-     * judge if expression is slot covered by cast
-     * example: cast(cast(table.columnA))
-     */
-    public static boolean isExpressionSlotCoveredByCast(Expression expr) {
-        if (expr instanceof Cast) {
-            return isExpressionSlotCoveredByCast(((Cast) expr).child());
-        }
-        return expr instanceof SlotReference;
-    }
-
-    public static boolean isTwoExpressionEqualWithCast(Expression left, Expression right) {
-        return ExpressionUtils.extractSlotOrCastOnSlot(left)
-            .equals(ExpressionUtils.extractSlotOrCastOnSlot(right));
-    }
-
-    /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
      * <pre>
@@ -293,6 +299,19 @@ public class ExpressionUtils {
      */
     public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
         return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
+    }
+
+    /**
+     * replace NameExpression.
+     */
+    public static NamedExpression replace(NamedExpression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        Expression newExpr = expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
+        if (newExpr instanceof NamedExpression) {
+            return (NamedExpression) newExpr;
+        } else {
+            return new Alias(expr.getExprId(), newExpr, expr.getName());
+        }
     }
 
     public static List<Expression> replace(List<Expression> exprs,
@@ -310,7 +329,7 @@ public class ExpressionUtils {
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
-            List<E> exprs, Function<Expression, Expression> rewriteFunction) {
+            Collection<E> exprs, Function<Expression, Expression> rewriteFunction) {
         return exprs.stream()
                 .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
                 .collect(ImmutableList.toImmutableList());
@@ -348,10 +367,6 @@ public class ExpressionUtils {
             }
         }
         return builder.build();
-    }
-
-    public static boolean isAllLiteral(Expression... children) {
-        return Arrays.stream(children).allMatch(c -> c instanceof Literal);
     }
 
     public static boolean isAllLiteral(List<Expression> children) {
@@ -448,6 +463,32 @@ public class ExpressionUtils {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    /**
+     * extract uniform slot for the given predicate, such as a = 1 and b = 2
+     */
+    public static ImmutableSet<Slot> extractUniformSlot(Expression expression) {
+        ImmutableSet.Builder<Slot> builder = new ImmutableSet.Builder<>();
+        if (expression instanceof And) {
+            builder.addAll(extractUniformSlot(expression.child(0)));
+            builder.addAll(extractUniformSlot(expression.child(1)));
+        }
+        if (expression instanceof EqualTo) {
+            if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
+                builder.add((Slot) expression.child(0));
+            }
+        }
+        return builder.build();
+    }
+
+    // TODO: Add more injective functions
+    public static boolean isInjective(Expression expression) {
+        return expression instanceof Slot;
+    }
+
+    public static boolean isInjectiveAgg(AggregateFunction agg) {
+        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
+    }
+
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         return expressions.stream()
@@ -539,5 +580,20 @@ public class ExpressionUtils {
             expression = ((Cast) expression).child();
         }
         return expression;
+    }
+
+    /**
+     * To check whether a slot is constant after passing through a filter
+     */
+    public static boolean checkSlotConstant(Slot slot, Set<Expression> predicates) {
+        return predicates.stream().anyMatch(predicate -> {
+                    if (predicate instanceof EqualTo) {
+                        EqualTo equalTo = (EqualTo) predicate;
+                        return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
+                                || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
+                    }
+                    return false;
+                }
+        );
     }
 }

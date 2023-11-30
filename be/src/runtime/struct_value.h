@@ -53,7 +53,7 @@ public:
 private:
     // pointer to the start of the vector of children pointers. These pointers are
     // point to children values where a null pointer means that this child is NULL.
-    void** _values;
+    void** _values = nullptr;
     // the number of values in this struct value.
     uint32_t _size;
     // child has no null value if has_null is false.

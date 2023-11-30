@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import java.util.List;
 import java.util.Map;
 
 public interface QeProcessor {
@@ -42,4 +43,6 @@ public interface QeProcessor {
     String getCurrentQueryByQueryId(TUniqueId queryId);
 
     Coordinator getCoordinator(TUniqueId queryId);
+
+    List<Coordinator> getAllCoordinators();
 }

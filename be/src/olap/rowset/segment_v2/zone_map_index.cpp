@@ -56,9 +56,7 @@ void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count)
     if (count > 0) {
         _page_zone_map.has_not_null = true;
     }
-    using ValType =
-            std::conditional_t<Type == TYPE_DATE, uint24_t,
-                               typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
+    using ValType = PrimitiveTypeTraits<Type>::StorageFieldType;
     const ValType* vals = reinterpret_cast<const ValType*>(values);
     auto [min, max] = std::minmax_element(vals, vals + count);
     if (unaligned_load<ValType>(min) < unaligned_load<ValType>(_page_zone_map.min_value)) {
@@ -83,18 +81,15 @@ void TypedZoneMapIndexWriter<Type>::reset_page_zone_map() {
 }
 
 template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::reset_segment_zone_map() {
-    _segment_zone_map.pass_all = true;
-}
-
-template <PrimitiveType Type>
 Status TypedZoneMapIndexWriter<Type>::flush() {
     // Update segment zone map.
     if (_field->compare(_segment_zone_map.min_value, _page_zone_map.min_value) > 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.min_value, _page_zone_map.min_value);
+        _field->type_info()->direct_copy_may_cut(_segment_zone_map.min_value,
+                                                 _page_zone_map.min_value);
     }
     if (_field->compare(_segment_zone_map.max_value, _page_zone_map.max_value) < 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.max_value, _page_zone_map.max_value);
+        _field->type_info()->direct_copy_may_cut(_segment_zone_map.max_value,
+                                                 _page_zone_map.max_value);
     }
     if (_page_zone_map.has_null) {
         _segment_zone_map.has_null = true;
@@ -145,17 +140,16 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     return writer.finish(meta->mutable_page_zone_maps());
 }
 
-Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory,
-                                const ZoneMapIndexPB* index_meta) {
+Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory, index_meta] {
-        return _load(use_page_cache, kept_in_memory, index_meta);
+    return _load_once.call([this, use_page_cache, kept_in_memory] {
+        return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta));
     });
 }
 
 Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
-                                 const ZoneMapIndexPB* index_meta) {
-    IndexedColumnReader reader(_file_reader, index_meta->page_zone_maps());
+                                 std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta) {
+    IndexedColumnReader reader(_file_reader, *page_zone_maps_meta);
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 
@@ -195,11 +189,14 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     M(TYPE_DATETIME)             \
     M(TYPE_DATEV2)               \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_IPV4)                 \
+    M(TYPE_IPV6)                 \
     M(TYPE_VARCHAR)              \
     M(TYPE_STRING)               \
     M(TYPE_DECIMAL32)            \
     M(TYPE_DECIMAL64)            \
-    M(TYPE_DECIMAL128I)
+    M(TYPE_DECIMAL128I)          \
+    M(TYPE_DECIMAL256)
 
 Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res) {
     switch (field->type()) {

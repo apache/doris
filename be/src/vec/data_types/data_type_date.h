@@ -47,14 +47,15 @@ namespace doris::vectorized {
 class DataTypeDate final : public DataTypeNumberBase<Int64> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::Date; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATE; }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::DATE;
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_DATE);
+    }
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATE;
     }
     const char* get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "Date"; }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
@@ -75,7 +76,9 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDate64SerDe>(); }
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeDate64SerDe>(nesting_level);
+    }
 };
 
 } // namespace doris::vectorized

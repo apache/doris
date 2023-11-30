@@ -185,7 +185,7 @@ public class GlobalTransactionMgr implements Writable {
     public Long getTransactionId(long dbId, String label) {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-            return dbTransactionMgr.getTransactionId(label);
+            return dbTransactionMgr.getTransactionIdByLabel(label);
         } catch (AnalysisException e) {
             LOG.warn("Get transaction id by label " + label + " failed", e);
             return null;
@@ -402,13 +402,13 @@ public class GlobalTransactionMgr implements Writable {
     /**
      * if the table is deleted between commit and publish version, then should ignore the partition
      *
+     * @param dbId
      * @param transactionId
-     * @param errorReplicaIds
      * @return
      */
-    public void finishTransaction(long dbId, long transactionId, Set<Long> errorReplicaIds) throws UserException {
+    public void finishTransaction(long dbId, long transactionId) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.finishTransaction(transactionId, errorReplicaIds);
+        dbTransactionMgr.finishTransaction(transactionId);
     }
 
     /**
@@ -750,4 +750,30 @@ public class GlobalTransactionMgr implements Writable {
         return total;
     }
 
+    public List<TransactionState> getPreCommittedTxnList(Long dbId) throws AnalysisException {
+        return getDatabaseTransactionMgr(dbId).getPreCommittedTxnList();
+    }
+
+    public void cleanLabel(Long dbId, String label) throws AnalysisException {
+        getDatabaseTransactionMgr(dbId).cleanLabel(label);
+    }
+
+    public Long getTransactionIdByLabel(Long dbId, String label, List<TransactionStatus> statusList)
+            throws UserException {
+        return getDatabaseTransactionMgr(dbId).getTransactionIdByLabel(label, statusList);
+    }
+
+    public int getRunningTxnNums(Long dbId) throws AnalysisException {
+        return getDatabaseTransactionMgr(dbId).getRunningTxnNums();
+    }
+
+    public void updateMultiTableRunningTransactionTableIds(Long dbId, Long transactionId, List<Long> tableIds)
+            throws AnalysisException {
+        getDatabaseTransactionMgr(dbId).updateMultiTableRunningTransactionTableIds(transactionId, tableIds);
+    }
+
+    public void putTransactionTableNames(Long dbId, Long transactionId, List<Long> tableIds)
+            throws AnalysisException {
+        getDatabaseTransactionMgr(dbId).putTransactionTableNames(transactionId, tableIds);
+    }
 }

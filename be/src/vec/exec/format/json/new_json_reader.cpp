@@ -38,44 +38,36 @@
 #include <string_view>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/stream_load_pipe.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "util/defer_op.h"
-#include "vec/core/block.h"
-#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
-#include "vec/exec/scan/vscanner.h"
-#include "vec/json/simd_json_parser.h"
-// dynamic table
-#include "common/config.h"
-#include "io/fs/file_reader.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/parse2column.h"
+#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
+#include "vec/exec/scan/vscanner.h"
+#include "vec/json/simd_json_parser.h"
 
-namespace doris {
-namespace io {
-class IOContext;
+namespace doris::io {
+struct IOContext;
 enum class FileCachePolicy : uint8_t;
-} // namespace io
-} // namespace doris
+} // namespace doris::io
 
 namespace doris::vectorized {
 using namespace ErrorCode;
@@ -151,8 +143,7 @@ void NewJsonReader::_init_system_properties() {
 
 void NewJsonReader::_init_file_description() {
     _file_description.path = _range.path;
-    _file_description.start_offset = _range.start_offset;
-    _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+    _file_description.file_size = _range.__isset.file_size ? _range.file_size : -1;
 
     if (_range.__isset.fs_name) {
         _file_description.fs_name = _range.fs_name;
@@ -160,18 +151,20 @@ void NewJsonReader::_init_file_description() {
 }
 
 Status NewJsonReader::init_reader(
-        const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
-                col_default_value_ctx) {
+        const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx) {
     // generate _col_default_value_map
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, col_default_value_ctx));
 
+#ifdef __AVX2__
     if (config::enable_simdjson_reader) {
         RETURN_IF_ERROR(_simdjson_init_reader());
         return Status::OK();
     }
+#endif
+
     RETURN_IF_ERROR(_get_range_params());
 
-    RETURN_IF_ERROR(_open_file_reader());
+    RETURN_IF_ERROR(_open_file_reader(false));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
@@ -190,13 +183,13 @@ Status NewJsonReader::init_reader(
         }
     }
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
+        _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
     }
     return Status::OK();
 }
 
 Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    if (_reader_eof == true) {
+    if (_reader_eof) {
         *eof = true;
         return Status::OK();
     }
@@ -228,7 +221,7 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
 Status NewJsonReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
-    for (auto& slot : _file_slot_descs) {
+    for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
     return Status::OK();
@@ -238,7 +231,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
                                         std::vector<TypeDescriptor>* col_types) {
     RETURN_IF_ERROR(_get_range_params());
 
-    RETURN_IF_ERROR(_open_file_reader());
+    RETURN_IF_ERROR(_open_file_reader(true));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
@@ -290,7 +283,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     }
 
     // set json root
-    if (_parsed_json_root.size() != 0) {
+    if (!_parsed_json_root.empty()) {
         _json_doc = JsonFunctions::get_json_object_from_parsed_json(
                 _parsed_json_root, &_origin_json_doc, _origin_json_doc.GetAllocator());
         if (_json_doc == nullptr) {
@@ -303,7 +296,8 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     if (_json_doc->IsArray() && !_strip_outer_array) {
         return Status::DataQualityError(
                 "JSON data is array-object, `strip_outer_array` must be TRUE.");
-    } else if (!_json_doc->IsArray() && _strip_outer_array) {
+    }
+    if (!_json_doc->IsArray() && _strip_outer_array) {
         return Status::DataQualityError(
                 "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
     }
@@ -320,13 +314,13 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     }
 
     // use jsonpaths to col_names
-    if (_parsed_jsonpaths.size() > 0) {
-        for (size_t i = 0; i < _parsed_jsonpaths.size(); ++i) {
-            size_t len = _parsed_jsonpaths[i].size();
+    if (!_parsed_jsonpaths.empty()) {
+        for (auto& _parsed_jsonpath : _parsed_jsonpaths) {
+            size_t len = _parsed_jsonpath.size();
             if (len == 0) {
                 return Status::InvalidArgument("It's invalid jsonpaths.");
             }
-            std::string key = _parsed_jsonpaths[i][len - 1].key;
+            std::string key = _parsed_jsonpath[len - 1].key;
             col_names->emplace_back(key);
             col_types->emplace_back(TypeDescriptor::create_string_type());
         }
@@ -374,20 +368,22 @@ Status NewJsonReader::_get_range_params() {
     return Status::OK();
 }
 
-Status NewJsonReader::_open_file_reader() {
+Status NewJsonReader::_open_file_reader(bool need_schema) {
     int64_t start_offset = _range.start_offset;
     if (start_offset != 0) {
         start_offset -= 1;
     }
 
     _current_offset = start_offset;
-    _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
+        // Due to http_stream needs to pre read a portion of the data to parse column information, so it is set to true here
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state,
+                                                        need_schema));
     } else {
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state, _file_description);
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
@@ -419,17 +415,17 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
         if (!jsonpaths_doc.Parse(_jsonpaths.c_str(), _jsonpaths.length()).HasParseError()) {
             if (!jsonpaths_doc.IsArray()) {
                 return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
-            } else {
-                for (int i = 0; i < jsonpaths_doc.Size(); i++) {
-                    const rapidjson::Value& path = jsonpaths_doc[i];
-                    if (!path.IsString()) {
-                        return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
-                    }
-                    std::vector<JsonPath> parsed_paths;
-                    JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
-                    _parsed_jsonpaths.push_back(std::move(parsed_paths));
-                }
             }
+            for (int i = 0; i < jsonpaths_doc.Size(); i++) {
+                const rapidjson::Value& path = jsonpaths_doc[i];
+                if (!path.IsString()) {
+                    return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+                }
+                std::vector<JsonPath> parsed_paths;
+                JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
+                _parsed_jsonpaths.push_back(std::move(parsed_paths));
+            }
+
         } else {
             return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
         }
@@ -459,7 +455,7 @@ Status NewJsonReader::_vhandle_simple_json(RuntimeState* /*state*/, Block& block
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
-            if (*is_empty_row == true) {
+            if (*is_empty_row) {
                 return Status::OK();
             }
             _name_map.clear();
@@ -484,7 +480,7 @@ Status NewJsonReader::_vhandle_simple_json(RuntimeState* /*state*/, Block& block
             }
             _next_row = 0;
             if (_fuzzy_parse) {
-                for (auto v : slot_descs) {
+                for (auto* v : slot_descs) {
                     for (int i = 0; i < objectValue->MemberCount(); ++i) {
                         auto it = objectValue->MemberBegin() + i;
                         if (v->col_name() == it->name.GetString()) {
@@ -530,7 +526,7 @@ Status NewJsonReader::_vhandle_flat_array_complex_json(
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
-            if (*is_empty_row == true) {
+            if (*is_empty_row) {
                 if (st.ok()) {
                     return st;
                 }
@@ -560,7 +556,7 @@ Status NewJsonReader::_vhandle_nested_complex_json(RuntimeState* /*state*/, Bloc
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);
-        if (*is_empty_row == true) {
+        if (*is_empty_row) {
             return Status::OK();
         }
         *is_empty_row = false;
@@ -659,7 +655,7 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     }
 
     // set json root
-    if (_parsed_json_root.size() != 0) {
+    if (!_parsed_json_root.empty()) {
         _json_doc = JsonFunctions::get_json_object_from_parsed_json(
                 _parsed_json_root, &_origin_json_doc, _origin_json_doc.GetAllocator());
         if (_json_doc == nullptr) {
@@ -731,7 +727,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 
     int ctx_idx = 0;
     bool has_valid_value = false;
-    for (auto slot_desc : slot_descs) {
+    for (auto* slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
@@ -768,12 +764,19 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
     if (!has_valid_value) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
+        string col_names;
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
         }
-        RETURN_IF_ERROR(_append_error_msg(objectValue, "All fields is null, this is a invalid row.",
-                                          "", valid));
+        for (auto* slot_desc : slot_descs) {
+            col_names.append(slot_desc->col_name() + ", ");
+        }
+        RETURN_IF_ERROR(_append_error_msg(objectValue,
+                                          "There is no column matching jsonpaths in the json file, "
+                                          "columns:[{}], jsonpaths:{}, please check columns "
+                                          "and jsonpaths",
+                                          col_names, valid));
         return Status::OK();
     }
     *valid = true;
@@ -781,16 +784,16 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 }
 
 Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                            SlotDescriptor* slot_desc,
-                                            vectorized::IColumn* column_ptr, bool* valid) {
+                                            SlotDescriptor* slot_desc, IColumn* column_ptr,
+                                            bool* valid) {
     const char* str_value = nullptr;
     char tmp_buf[128] = {0};
     int32_t wbytes = 0;
     std::string json_str;
 
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (slot_desc->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+        nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
         // kNullType will put 1 into the Null map, so there is no need to push 0 for kNullType.
         if (value->GetType() != rapidjson::Type::kNullType) {
             nullable_column->get_null_map_data().push_back(0);
@@ -815,7 +818,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         } else if (value->IsInt64()) {
             wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64, value->GetInt64());
         } else if (value->IsFloat() || value->IsDouble()) {
-            auto end = fmt::format_to(tmp_buf, "{}", value->GetDouble());
+            auto* end = fmt::format_to(tmp_buf, "{}", value->GetDouble());
             wbytes = end - tmp_buf;
         } else {
             return Status::InternalError("It should not here.");
@@ -864,7 +867,7 @@ Status NewJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
                                                  Block& block, bool* valid) {
     int ctx_idx = 0;
     bool has_valid_value = false;
-    for (auto slot_desc : slot_descs) {
+    for (auto* slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
@@ -929,7 +932,7 @@ Status NewJsonReader::_append_error_msg(const rapidjson::Value& objectValue, std
             [&]() -> std::string { return err_msg; }, _scanner_eof));
 
     // TODO(ftw): check here？
-    if (*_scanner_eof == true) {
+    if (*_scanner_eof) {
         _reader_eof = true;
     }
 
@@ -979,7 +982,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
 Status NewJsonReader::_simdjson_init_reader() {
     RETURN_IF_ERROR(_get_range_params());
 
-    RETURN_IF_ERROR(_open_file_reader());
+    RETURN_IF_ERROR(_open_file_reader(false));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
@@ -999,7 +1002,7 @@ Status NewJsonReader::_simdjson_init_reader() {
     }
     _ondemand_json_parser = std::make_unique<simdjson::ondemand::parser>();
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
+        _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
     }
     _simdjson_ondemand_padding_buffer.resize(_padded_size);
     _simdjson_ondemand_unscape_padding_buffer.resize(_padded_size);
@@ -1014,14 +1017,22 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
     size_t num_rows = block.rows();
     do {
         bool valid = false;
+        size_t size = 0;
+        simdjson::error_code error;
         try {
             if (_next_row >= _total_rows) { // parse json and generic document
-                Status st = _simdjson_parse_json(is_empty_row, eof);
+                RETURN_IF_ERROR(_simdjson_parse_json(&size, is_empty_row, eof, &error));
+                if (size == 0 || *eof) {
+                    *is_empty_row = true;
+                    return Status::OK();
+                }
+
+                Status st = _get_json_value(&size, eof, &error, is_empty_row);
                 if (st.is<DATA_QUALITY_ERROR>()) {
                     continue; // continue to read next
                 }
                 RETURN_IF_ERROR(st);
-                if (*is_empty_row == true) {
+                if (*is_empty_row) {
                     return Status::OK();
                 }
                 if (_json_value.type() == simdjson::ondemand::json_type::array) {
@@ -1123,14 +1134,21 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
     size_t num_rows = block.rows();
     simdjson::ondemand::object cur;
     do {
+        size_t size = 0;
+        simdjson::error_code error;
         try {
             if (_next_row >= _total_rows) {
-                Status st = _simdjson_parse_json(is_empty_row, eof);
+                RETURN_IF_ERROR(_simdjson_parse_json(&size, is_empty_row, eof, &error));
+                if (size == 0 || *eof) {
+                    *is_empty_row = true;
+                    return Status::OK();
+                }
+                Status st = _get_json_value(&size, eof, &error, is_empty_row);
                 if (st.is<DATA_QUALITY_ERROR>()) {
                     continue; // continue to read next
                 }
                 RETURN_IF_ERROR(st);
-                if (*is_empty_row == true) {
+                if (*is_empty_row) {
                     if (st.ok()) {
                         return st;
                     }
@@ -1145,13 +1163,12 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
             bool valid = true;
             cur = (*_array_iter).get_object();
             // extract root
-            if (_parsed_json_root.size() != 0) {
+            if (!_parsed_json_root.empty()) {
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
-                    if (st.is<NOT_FOUND>()) {
-                        RETURN_IF_ERROR(
-                                _append_error_msg(nullptr, "JsonPath not found", "", nullptr));
+                    if (st.is<DATA_QUALITY_ERROR>()) {
+                        RETURN_IF_ERROR(_append_error_msg(nullptr, st.to_string(), "", nullptr));
                         ADVANCE_ROW();
                         continue;
                     }
@@ -1210,13 +1227,20 @@ Status NewJsonReader::_simdjson_handle_nested_complex_json(
     while (true) {
         size_t num_rows = block.rows();
         simdjson::ondemand::object cur;
+        size_t size = 0;
+        simdjson::error_code error;
         try {
-            Status st = _simdjson_parse_json(is_empty_row, eof);
+            RETURN_IF_ERROR(_simdjson_parse_json(&size, is_empty_row, eof, &error));
+            if (size == 0 || *eof) {
+                *is_empty_row = true;
+                return Status::OK();
+            }
+            Status st = _get_json_value(&size, eof, &error, is_empty_row);
             if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
-            if (*is_empty_row == true) {
+            if (*is_empty_row) {
                 return Status::OK();
             }
             *is_empty_row = false;
@@ -1280,17 +1304,15 @@ size_t NewJsonReader::_column_index(const StringRef& name, size_t key_index) {
     if (_prev_positions.size() > key_index && _prev_positions[key_index] &&
         name == _prev_positions[key_index]->get_first()) {
         return _prev_positions[key_index]->get_second();
-    } else {
-        auto* it = _slot_desc_index.find(name);
-        if (it) {
-            if (key_index < _prev_positions.size()) {
-                _prev_positions[key_index] = it;
-            }
-            return it->get_second();
-        } else {
-            return size_t(-1);
-        }
     }
+    auto* it = _slot_desc_index.find(name);
+    if (it) {
+        if (key_index < _prev_positions.size()) {
+            _prev_positions[key_index] = it;
+        }
+        return it->get_second();
+    }
+    return size_t(-1);
 }
 
 Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* value, Block& block,
@@ -1321,8 +1343,15 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         has_valid_value = true;
     }
     if (!has_valid_value) {
-        RETURN_IF_ERROR(
-                _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
+        string col_names;
+        for (auto* slot_desc : slot_descs) {
+            col_names.append(slot_desc->col_name() + ", ");
+        }
+        RETURN_IF_ERROR(_append_error_msg(value,
+                                          "There is no column matching jsonpaths in the json file, "
+                                          "columns:[{}], jsonpaths:{}, please check columns "
+                                          "and jsonpaths",
+                                          col_names, valid));
         return Status::OK();
     }
 
@@ -1332,7 +1361,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         if (_seen_columns[i]) {
             continue;
         }
-        auto slot_desc = slot_descs[i];
+        auto* slot_desc = slot_descs[i];
         if (!slot_desc->is_materialized()) {
             continue;
         }
@@ -1361,18 +1390,18 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
 }
 
 Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                                     SlotDescriptor* slot_desc,
-                                                     vectorized::IColumn* column, bool* valid) {
+                                                     SlotDescriptor* slot_desc, IColumn* column,
+                                                     bool* valid) {
     // write
-    vectorized::ColumnNullable* nullable_column = nullptr;
-    vectorized::IColumn* column_ptr = nullptr;
+    ColumnNullable* nullable_column = nullptr;
+    IColumn* column_ptr = nullptr;
     if (slot_desc->is_nullable()) {
-        nullable_column = assert_cast<vectorized::ColumnNullable*>(column);
+        nullable_column = assert_cast<ColumnNullable*>(column);
         column_ptr = &nullable_column->get_nested_column();
     }
     // TODO: if the vexpr can support another 'slot_desc type' than 'TYPE_VARCHAR',
     // we need use a function to support these types to insert data in columns.
-    ColumnString* column_string = assert_cast<ColumnString*>(column_ptr);
+    auto* column_string = assert_cast<ColumnString*>(column_ptr);
     switch (value.type()) {
     case simdjson::ondemand::json_type::null: {
         if (column->is_nullable()) {
@@ -1397,8 +1426,8 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
     }
     default: {
         if (value.type() == simdjson::ondemand::json_type::string) {
-            uint8_t* unescape_buffer =
-                    reinterpret_cast<uint8_t*>(&_simdjson_ondemand_unscape_padding_buffer[0]);
+            auto* unescape_buffer =
+                    reinterpret_cast<uint8_t*>(_simdjson_ondemand_unscape_padding_buffer.data());
             std::string_view unescaped_value =
                     _ondemand_json_parser->unescape(value.get_raw_json_string(), unescape_buffer);
             nullable_column->get_null_map_data().push_back(0);
@@ -1419,7 +1448,7 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
     std::string err_msg;
     if (!col_name.empty()) {
         fmt::memory_buffer error_buf;
-        fmt::format_to(error_buf, error_msg, col_name);
+        fmt::format_to(error_buf, error_msg, col_name, _jsonpaths);
         err_msg = fmt::to_string(error_buf);
     } else {
         err_msg = error_msg;
@@ -1444,12 +1473,51 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
     return Status::OK();
 }
 
-Status NewJsonReader::_simdjson_parse_json(bool* is_empty_row, bool* eof) {
-    size_t size = 0;
-    RETURN_IF_ERROR(_simdjson_parse_json_doc(&size, eof));
+Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
+                                           simdjson::error_code* error) {
+    SCOPED_TIMER(_file_read_timer);
+    // step1: read buf from pipe.
+    if (_line_reader != nullptr) {
+        RETURN_IF_ERROR(_line_reader->read_line(&_json_str, size, eof, _io_ctx));
+    } else {
+        size_t length = 0;
+        RETURN_IF_ERROR(_read_one_message(&_json_str_ptr, &length));
+        _json_str = _json_str_ptr.get();
+        *size = length;
+        if (length == 0) {
+            *eof = true;
+        }
+    }
+    if (*eof) {
+        return Status::OK();
+    }
 
-    // read all data, then return
-    if (size == 0 || *eof) {
+    // step2: init json parser iterate.
+    if (*size + simdjson::SIMDJSON_PADDING > _padded_size) {
+        // For efficiency reasons, simdjson requires a string with a few bytes (simdjson::SIMDJSON_PADDING) at the end.
+        // Hence, a re-allocation is needed if the space is not enough.
+        _simdjson_ondemand_padding_buffer.resize(*size + simdjson::SIMDJSON_PADDING);
+        _simdjson_ondemand_unscape_padding_buffer.resize(*size + simdjson::SIMDJSON_PADDING);
+        _padded_size = *size + simdjson::SIMDJSON_PADDING;
+    }
+    // trim BOM since simdjson does not handle UTF-8 Unicode (with BOM)
+    if (*size >= 3 && static_cast<char>(_json_str[0]) == '\xEF' &&
+        static_cast<char>(_json_str[1]) == '\xBB' && static_cast<char>(_json_str[2]) == '\xBF') {
+        // skip the first three BOM bytes
+        _json_str += 3;
+        *size -= 3;
+    }
+    memcpy(&_simdjson_ondemand_padding_buffer.front(), _json_str, *size);
+    _original_doc_size = *size;
+    *error = _ondemand_json_parser
+                     ->iterate(std::string_view(_simdjson_ondemand_padding_buffer.data(), *size),
+                               _padded_size)
+                     .get(_original_json_doc);
+    return Status::OK();
+}
+
+Status NewJsonReader::_judge_empty_row(size_t size, bool eof, bool* is_empty_row) {
+    if (size == 0 || eof) {
         *is_empty_row = true;
         return Status::OK();
     }
@@ -1465,48 +1533,10 @@ Status NewJsonReader::_simdjson_parse_json(bool* is_empty_row, bool* eof) {
     }
     return Status::OK();
 }
-Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
-    // read a whole message
-    SCOPED_TIMER(_file_read_timer);
-    const uint8_t* json_str = nullptr;
-    std::unique_ptr<uint8_t[]> json_str_ptr;
-    if (_line_reader != nullptr) {
-        RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof, _io_ctx));
-    } else {
-        size_t length = 0;
-        RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &length));
-        json_str = json_str_ptr.get();
-        *size = length;
-        if (length == 0) {
-            *eof = true;
-        }
-    }
 
-    _bytes_read_counter += *size;
-    if (*eof) {
-        return Status::OK();
-    }
-    if (*size + simdjson::SIMDJSON_PADDING > _padded_size) {
-        // For efficiency reasons, simdjson requires a string with a few bytes (simdjson::SIMDJSON_PADDING) at the end.
-        // Hence, a re-allocation is needed if the space is not enough.
-        _simdjson_ondemand_padding_buffer.resize(*size + simdjson::SIMDJSON_PADDING);
-        _simdjson_ondemand_unscape_padding_buffer.resize(*size + simdjson::SIMDJSON_PADDING);
-        _padded_size = *size + simdjson::SIMDJSON_PADDING;
-    }
-    // trim BOM since simdjson does not handle UTF-8 Unicode (with BOM)
-    if (*size >= 3 && static_cast<char>(json_str[0]) == '\xEF' &&
-        static_cast<char>(json_str[1]) == '\xBB' && static_cast<char>(json_str[2]) == '\xBF') {
-        // skip the first three BOM bytes
-        json_str += 3;
-        *size -= 3;
-    }
-    memcpy(&_simdjson_ondemand_padding_buffer.front(), json_str, *size);
-    _original_doc_size = *size;
-    auto error =
-            _ondemand_json_parser
-                    ->iterate(std::string_view(_simdjson_ondemand_padding_buffer.data(), *size),
-                              _padded_size)
-                    .get(_original_json_doc);
+Status NewJsonReader::_get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
+                                      bool* is_empty_row) {
+    SCOPED_TIMER(_file_read_timer);
     auto return_quality_error = [&](fmt::memory_buffer& error_msg,
                                     const std::string& doc_info) -> Status {
         RETURN_IF_ERROR(_state->append_error_msg_to_file(
@@ -1522,27 +1552,27 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
         }
         return Status::DataQualityError(fmt::to_string(error_msg));
     };
-    if (error != simdjson::error_code::SUCCESS) {
+    if (*error != simdjson::error_code::SUCCESS) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "Parse json data for JsonDoc failed. code: {}, error info: {}",
-                       error, simdjson::error_message(error));
-        return return_quality_error(error_msg, std::string((char*)json_str, *size));
+                       *error, simdjson::error_message(*error));
+        return return_quality_error(error_msg, std::string((char*)_json_str, *size));
     }
     auto type_res = _original_json_doc.type();
     if (type_res.error() != simdjson::error_code::SUCCESS) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "Parse json data for JsonDoc failed. code: {}, error info: {}",
                        type_res.error(), simdjson::error_message(type_res.error()));
-        return return_quality_error(error_msg, std::string((char*)json_str, *size));
+        return return_quality_error(error_msg, std::string((char*)_json_str, *size));
     }
     simdjson::ondemand::json_type type = type_res.value();
     if (type != simdjson::ondemand::json_type::object &&
         type != simdjson::ondemand::json_type::array) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "Not an json object or json array");
-        return return_quality_error(error_msg, std::string((char*)json_str, *size));
+        return return_quality_error(error_msg, std::string((char*)_json_str, *size));
     }
-    if (_parsed_json_root.size() != 0 && type == simdjson::ondemand::json_type::object) {
+    if (!_parsed_json_root.empty() && type == simdjson::ondemand::json_type::object) {
         try {
             // set json root
             // if it is an array at top level, then we should iterate the entire array in
@@ -1552,13 +1582,13 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
             if (!st.ok()) {
                 fmt::memory_buffer error_msg;
                 fmt::format_to(error_msg, "{}", st.to_string());
-                return return_quality_error(error_msg, std::string((char*)json_str, *size));
+                return return_quality_error(error_msg, std::string((char*)_json_str, *size));
             }
         } catch (simdjson::simdjson_error& e) {
             fmt::memory_buffer error_msg;
             fmt::format_to(error_msg, "Encounter error while extract_from_object, error: {}",
                            e.what());
-            return return_quality_error(error_msg, std::string((char*)json_str, *size));
+            return return_quality_error(error_msg, std::string((char*)_json_str, *size));
         }
     } else {
         _json_value = _original_json_doc;
@@ -1568,15 +1598,16 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "{}",
                        "JSON data is array-object, `strip_outer_array` must be TRUE.");
-        return return_quality_error(error_msg, std::string((char*)json_str, *size));
+        return return_quality_error(error_msg, std::string((char*)_json_str, *size));
     }
 
     if (_json_value.type() != simdjson::ondemand::json_type::array && _strip_outer_array) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "{}",
                        "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
-        return return_quality_error(error_msg, std::string((char*)json_str, *size));
+        return return_quality_error(error_msg, std::string((char*)_json_str, *size));
     }
+    RETURN_IF_ERROR(_judge_empty_row(*size, *eof, is_empty_row));
     return Status::OK();
 }
 
@@ -1586,7 +1617,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
     // write by jsonpath
     bool has_valid_value = false;
     for (size_t i = 0; i < slot_descs.size(); i++) {
-        auto slot_desc = slot_descs[i];
+        auto* slot_desc = slot_descs[i];
         if (!slot_desc->is_materialized()) {
             continue;
         }
@@ -1595,11 +1626,11 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Status st;
         if (i < _parsed_jsonpaths.size()) {
             st = JsonFunctions::extract_from_object(*value, _parsed_jsonpaths[i], &json_value);
-            if (!st.ok() && !st.is<NOT_FOUND>()) {
+            if (!st.ok() && !st.is<DATA_QUALITY_ERROR>()) {
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
+        if (i >= _parsed_jsonpaths.size() || st.is<DATA_QUALITY_ERROR>()) {
             // not match in jsondata, filling with default value
             RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
             if (!(*valid)) {
@@ -1617,12 +1648,19 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
     if (!has_valid_value) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
+        string col_names;
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
         }
-        RETURN_IF_ERROR(
-                _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
+        for (auto* slot_desc : slot_descs) {
+            col_names.append(slot_desc->col_name() + ", ");
+        }
+        RETURN_IF_ERROR(_append_error_msg(value,
+                                          "There is no column matching jsonpaths in the json file, "
+                                          "columns:[{}], jsonpaths:{}, please check columns "
+                                          "and jsonpaths",
+                                          col_names, valid));
         return Status::OK();
     }
     *valid = true;
@@ -1631,12 +1669,11 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
 
 Status NewJsonReader::_get_column_default_value(
         const std::vector<SlotDescriptor*>& slot_descs,
-        const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
-                col_default_value_ctx) {
-    for (auto slot_desc : slot_descs) {
+        const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx) {
+    for (auto* slot_desc : slot_descs) {
         auto it = col_default_value_ctx.find(slot_desc->col_name());
         if (it != col_default_value_ctx.end() && it->second != nullptr) {
-            auto& ctx = it->second;
+            const auto& ctx = it->second;
             // NULL_LITERAL means no valid value of current column
             if (ctx->root()->node_type() == TExprNodeType::type::NULL_LITERAL) {
                 continue;
@@ -1658,11 +1695,10 @@ Status NewJsonReader::_get_column_default_value(
     return Status::OK();
 }
 
-Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc,
-                                           vectorized::IColumn* column_ptr, bool* valid) {
+Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, IColumn* column_ptr,
+                                           bool* valid) {
     if (slot_desc->is_nullable()) {
-        vectorized::ColumnNullable* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+        auto* nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
         column_ptr = &nullable_column->get_nested_column();
         auto col_value = _col_default_value_map.find(slot_desc->col_name());
         if (col_value == _col_default_value_map.end()) {

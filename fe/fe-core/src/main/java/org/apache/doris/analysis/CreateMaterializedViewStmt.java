@@ -32,11 +32,14 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,6 +47,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Materialized view is performed to materialize the results of query.
@@ -78,6 +82,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         FN_NAME_TO_PATTERN.put(FunctionSet.BITMAP_UNION, new MVColumnBitmapUnionPattern());
         FN_NAME_TO_PATTERN.put(FunctionSet.HLL_UNION, new MVColumnHLLUnionPattern());
     }
+
+    public static final ImmutableSet<String> invalidFn = ImmutableSet.of("now", "current_time", "current_date",
+            "utc_timestamp", "uuid", "random", "unix_timestamp", "curdate");
 
     private String mvName;
     private SelectStmt selectStmt;
@@ -158,14 +165,50 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return selectStmt.getWhereClause();
     }
 
+    private void checkExprValidInMv(Expr expr, String functionName) throws AnalysisException {
+        if (!isReplay && expr.haveFunction(functionName)) {
+            throw new AnalysisException("The materialized view contain " + functionName + " is disallowed");
+        }
+    }
+
+    private void checkExprValidInMv(Expr expr) throws AnalysisException {
+        if (isReplay) {
+            return;
+        }
+        for (String function : invalidFn) {
+            checkExprValidInMv(expr, function);
+        }
+    }
+
+    private void checkExprValidInMv() throws AnalysisException {
+        if (selectStmt.getWhereClause() != null) {
+            checkExprValidInMv(selectStmt.getWhereClause());
+        }
+        SelectList selectList = selectStmt.getSelectList();
+        for (SelectListItem selectListItem : selectList.getItems()) {
+            checkExprValidInMv(selectListItem.getExpr());
+        }
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        checkExprValidInMv();
+
         FeNameFormat.checkTableName(mvName);
         rewriteToBitmapWithCheck();
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
         selectStmt.analyze(analyzer);
+
+        ExprRewriter rewriter = analyzer.getExprRewriter();
+        rewriter.reset();
+        selectStmt.rewriteExprs(rewriter);
+        selectStmt.reset();
+        analyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+        selectStmt.analyze(analyzer);
+
         if (selectStmt.getAggInfo() != null) {
             mvKeysType = KeysType.AGG_KEYS;
         }
@@ -227,10 +270,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                 + selectListItemExpr.toSql());
             }
 
-            if (!isReplay && selectListItemExpr.haveFunction("curdate")) {
-                throw new AnalysisException(
-                        "The materialized view contain curdate is disallowed");
-            }
 
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
@@ -260,6 +299,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         List<TableRef> tableRefList = selectStmt.getTableRefs();
         if (tableRefList.size() != 1) {
             throw new AnalysisException("The materialized view only support one table in from clause.");
+        }
+        if (!isReplay && tableRefList.get(0).hasExplicitAlias()) {
+            throw new AnalysisException("The materialized view not support table with alias.");
         }
         TableName tableName = tableRefList.get(0).getName();
         if (tableName == null) {
@@ -302,19 +344,19 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             }
         }
 
-        for (Expr groupExpr : groupingExprs) {
-            boolean match = false;
-            String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
-            for (Expr expr : selectExprs) {
-                String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
-                if (lhs.equalsIgnoreCase(rhs)) {
-                    match = true;
-                    break;
-                }
+        Set<String> selectExprNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (Expr expr : selectExprs) {
+            String selectExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            if (selectExprNames.contains(selectExprName)) {
+                throw new AnalysisException("The select expr " + selectExprName + " is duplicated.");
             }
+            selectExprNames.add(selectExprName);
+        }
 
-            if (!match) {
-                throw new AnalysisException("The grouping expr " + rhs + " not in select list.");
+        for (Expr expr : groupingExprs) {
+            String groupExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            if (!selectExprNames.contains(groupExprName)) {
+                throw new AnalysisException("The grouping expr " + groupExprName + " not in select list.");
             }
         }
     }
@@ -478,6 +520,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 break;
             default:
                 mvAggregateType = AggregateType.GENERIC_AGGREGATION;
+                if (functionCallExpr.getParams().isDistinct() || functionCallExpr.getParams().isStar()) {
+                    throw new AnalysisException(
+                            "The Materialized-View's generic aggregation not support star or distinct");
+                }
                 defineExpr = Function.convertToStateCombinator(functionCallExpr);
                 type = defineExpr.type;
         }

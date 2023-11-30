@@ -185,7 +185,7 @@ private:
 
     bool _write_single_replica = false;
 
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _memory_usage_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _write_memory_usage_counter = nullptr;
@@ -196,6 +196,7 @@ private:
     RuntimeProfile::Counter* _slave_replica_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
     RuntimeProfile::Counter* _write_block_timer = nullptr;
+    RuntimeProfile::Counter* _incremental_open_timer = nullptr;
 };
 
 template <typename Request>

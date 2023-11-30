@@ -41,47 +41,12 @@ namespace doris::vectorized {
 template <PrimitiveType Type>
 class PredicateColumnType final : public COWHelper<IColumn, PredicateColumnType<Type>> {
 private:
-    PredicateColumnType() {}
+    PredicateColumnType() = default;
     PredicateColumnType(const size_t n) : data(n) {}
     PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
     friend class COWHelper<IColumn, PredicateColumnType<Type>>;
-    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
-
-    uint64_t get_date_at(uint16_t idx) {
-        const T val = data[idx];
-        const char* val_ptr = reinterpret_cast<const char*>(&val);
-        uint64_t value = 0;
-        value = *(unsigned char*)(val_ptr + 2);
-        value <<= 8;
-        value |= *(unsigned char*)(val_ptr + 1);
-        value <<= 8;
-        value |= *(unsigned char*)(val_ptr);
-        return value;
-    }
-
-    void insert_date_to_res_column(const uint16_t* sel, size_t sel_size,
-                                   ColumnVector<Int64>* res_ptr) {
-        res_ptr->reserve(sel_size);
-        auto& res_data = res_ptr->get_data();
-
-        for (size_t i = 0; i < sel_size; i++) {
-            uint64_t val = data[sel[i]];
-            VecDateTimeValue date;
-            date.set_olap_date(val);
-            res_data.push_back_without_reserve(
-                    unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
-        }
-    }
-
-    void insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size,
-                                       ColumnVector<Int64>* res_ptr) {
-        for (size_t i = 0; i < sel_size; i++) {
-            uint64_t value = data[sel[i]];
-            VecDateTimeValue datetime = VecDateTimeValue::create_from_olap_datetime(value);
-            res_ptr->insert_data(reinterpret_cast<char*>(&datetime), 0);
-        }
-    }
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size, ColumnString* res_ptr) {
         StringRef refs[sel_size];
@@ -98,26 +63,22 @@ private:
         res_ptr->insert_many_strings_without_reserve(refs, sel_size);
     }
 
-    void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
-                                      ColumnDecimal<Decimal128>* res_ptr) {
-        for (size_t i = 0; i < sel_size; i++) {
-            uint16_t n = sel[i];
-            auto& dv = reinterpret_cast<const decimal12_t&>(data[n]);
-            DecimalV2Value dv_data(dv.integer, dv.fraction);
-            res_ptr->insert_data(reinterpret_cast<char*>(&dv_data), 0);
-        }
-    }
-
     template <typename Y, template <typename> typename ColumnContainer>
     void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
                                          ColumnContainer<Y>* res_ptr) {
-        static_assert(std::is_same_v<T, Y>);
+        static_assert(std::is_same_v<ColumnContainer<Y>, ColumnType>);
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
         res_data.reserve(sel_size);
         Y* y = (Y*)res_data.get_end_ptr();
         for (size_t i = 0; i < sel_size; i++) {
-            y[i] = T(data[sel[i]]);
+            if constexpr (std::is_same_v<Y, T>) {
+                y[i] = data[sel[i]];
+            } else {
+                static_assert(sizeof(Y) == sizeof(T));
+                memcpy(reinterpret_cast<void*>(&y[i]), reinterpret_cast<void*>(&data[sel[i]]),
+                       sizeof(Y));
+            }
         }
         res_data.set_end_ptr(y + sel_size);
     }
@@ -133,13 +94,7 @@ private:
     void insert_many_default_type(const char* data_ptr, size_t num) {
         auto old_size = data.size();
         data.resize(old_size + num);
-        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
-    }
-
-    void insert_many_in_copy_way(const char* data_ptr, size_t num) {
-        auto old_size = data.size();
-        data.resize(old_size + num);
-        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
+        memcpy(reinterpret_cast<void*>(data.data() + old_size), data_ptr, num * sizeof(T));
     }
 
 public:
@@ -148,8 +103,6 @@ public:
     using Container = PaddedPODArray<value_type>;
 
     bool is_numeric() const override { return false; }
-
-    bool is_predicate_column() const override { return true; }
 
     size_t size() const override { return data.size(); }
 
@@ -178,6 +131,11 @@ public:
         LOG(FATAL) << "insert_indices_from not supported in PredicateColumnType";
     }
 
+    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
+        LOG(FATAL) << "insert_indices_from_join not supported in PredicateColumnType";
+    }
+
     void pop_back(size_t n) override {
         LOG(FATAL) << "pop_back not supported in PredicateColumnType";
     }
@@ -200,13 +158,6 @@ public:
         data.push_back_without_reserve(sv);
     }
 
-    void insert_decimal_value(const char* data_ptr, size_t length) {
-        decimal12_t dc12_value;
-        dc12_value.integer = *(int64_t*)(data_ptr);
-        dc12_value.fraction = *(int32_t*)(data_ptr + sizeof(int64_t));
-        data.push_back_without_reserve(dc12_value);
-    }
-
     // used for int128
     void insert_in_copy_way(const char* data_ptr, size_t length) {
         T val {};
@@ -222,8 +173,6 @@ public:
     void insert_data(const char* data_ptr, size_t length) override {
         if constexpr (std::is_same_v<T, StringRef>) {
             insert_string_value(data_ptr, length);
-        } else if constexpr (std::is_same_v<T, decimal12_t>) {
-            insert_decimal_value(data_ptr, length);
         } else if constexpr (std::is_same_v<T, Int128>) {
             insert_in_copy_way(data_ptr, length);
         } else {
@@ -232,29 +181,56 @@ public:
     }
 
     void insert_many_date(const char* data_ptr, size_t num) {
-        size_t intput_type_size = sizeof(uint24_t);
-        size_t res_type_size = sizeof(uint32_t);
-        char* input_data_ptr = const_cast<char*>(data_ptr);
+        constexpr size_t input_type_size = sizeof(PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType);
+        static_assert(input_type_size == sizeof(uint24_t));
+        const auto* input_data_ptr = reinterpret_cast<const uint24_t*>(data_ptr);
 
-        char* res_ptr = (char*)data.get_end_ptr();
-        memset(res_ptr, 0, res_type_size * num);
+        auto* res_ptr = reinterpret_cast<VecDateTimeValue*>(data.get_end_ptr());
         for (int i = 0; i < num; i++) {
-            memcpy(res_ptr, input_data_ptr, intput_type_size);
-            res_ptr += res_type_size;
-            input_data_ptr += intput_type_size;
+            res_ptr[i].set_olap_date(unaligned_load<uint24_t>(&input_data_ptr[i]));
         }
-        data.set_end_ptr(res_ptr);
+        data.set_end_ptr(res_ptr + num);
+    }
+
+    void insert_many_datetime(const char* data_ptr, size_t num) {
+        constexpr size_t input_type_size =
+                sizeof(PrimitiveTypeTraits<TYPE_DATETIME>::StorageFieldType);
+        static_assert(input_type_size == sizeof(uint64_t));
+        const auto* input_data_ptr = reinterpret_cast<const uint64_t*>(data_ptr);
+
+        auto* res_ptr = reinterpret_cast<VecDateTimeValue*>(data.get_end_ptr());
+        for (int i = 0; i < num; i++) {
+            res_ptr[i].from_olap_datetime(input_data_ptr[i]);
+        }
+        data.set_end_ptr(res_ptr + num);
+    }
+
+    // The logic is same to ColumnDecimal::insert_many_fix_len_data
+    void insert_many_decimalv2(const char* data_ptr, size_t num) {
+        size_t old_size = data.size();
+        data.resize(old_size + num);
+
+        auto* target = (DecimalV2Value*)(data.data() + old_size);
+        for (int i = 0; i < num; i++) {
+            const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
+            auto int_value = unaligned_load<int64_t>(cur_ptr);
+            int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
+            target[i].from_olap_decimal(int_value, frac_value);
+        }
     }
 
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
-        if constexpr (std::is_same_v<T, decimal12_t>) {
-            insert_many_in_copy_way(data_ptr, num);
-        } else if constexpr (std::is_same_v<T, Int128>) {
-            insert_many_in_copy_way(data_ptr, num);
+        if constexpr (Type == TYPE_DECIMALV2) {
+            // DecimalV2 is special, its storage is <int64, int32>, but its compute type is <int64,int64>
+            // should convert here, but it may have some performance lost
+            insert_many_decimalv2(data_ptr, num);
         } else if constexpr (std::is_same_v<T, StringRef>) {
             // here is unreachable, just for compilation to be able to pass
         } else if constexpr (Type == TYPE_DATE) {
+            // Datev1 is special, its storage is uint24, but its compute type is actual int64.
             insert_many_date(data_ptr, num);
+        } else if constexpr (Type == TYPE_DATETIME) {
+            insert_many_datetime(data_ptr, num);
         } else {
             insert_many_default_type(data_ptr, num);
         }
@@ -349,8 +325,6 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    void protect() override {}
-
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported in PredicateColumnType";
@@ -360,8 +334,9 @@ public:
 
     const char* get_family_name() const override { return TypeName<T>::get(); }
 
-    [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
-        LOG(FATAL) << "clone_resized not supported in PredicateColumnType";
+    MutableColumnPtr clone_resized(size_t size) const override {
+        DCHECK(size == 0);
+        return this->create();
     }
 
     void insert(const Field& x) override {
@@ -415,12 +390,6 @@ public:
         LOG(FATAL) << "compare_at not supported in PredicateColumnType";
     }
 
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not supported in PredicateColumnType";
-    }
-
-    bool can_be_inside_nullable() const override { return true; }
-
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
@@ -463,37 +432,14 @@ public:
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
     }
 
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "PredicateColumnType get_data_type not implemeted";
-    }
-
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
-        if constexpr (std::is_same_v<ColumnVector<T>, ColumnType>) {
-            insert_default_value_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<ColumnDecimal<T>, ColumnType>) {
-            insert_default_value_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<T, StringRef>) {
+        if constexpr (std::is_same_v<T, StringRef>) {
             insert_string_to_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<T, decimal12_t>) {
-            insert_decimal_to_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<T, uint64_t>) {
-            if constexpr (Type == TYPE_DATETIMEV2) {
-                insert_default_value_res_column(sel, sel_size, column);
-            } else {
-                insert_datetime_to_res_column(sel, sel_size, column);
-            }
-        } else if constexpr (std::is_same_v<T, uint32_t>) {
-            if constexpr (Type == TYPE_DATEV2) {
-                insert_default_value_res_column(sel, sel_size, column);
-            } else {
-                insert_date_to_res_column(sel, sel_size, column);
-            }
-        } else if (std::is_same_v<T, bool>) {
+        } else if constexpr (std::is_same_v<T, bool>) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
         } else {
-            return Status::NotSupported("not supported output type in predicate_column, type={}",
-                                        type_to_string(Type));
+            insert_default_value_res_column(sel, sel_size, column);
         }
         return Status::OK();
     }

@@ -54,7 +54,6 @@
 
 #include <algorithm>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -104,6 +103,7 @@ Status S3FileSystem::create(S3Conf s3_conf, std::string id, std::shared_ptr<S3Fi
 S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
         : RemoteFileSystem(s3_conf.prefix, std::move(id), FileSystemType::S3),
           _s3_conf(std::move(s3_conf)) {
+    // FIXME(plat1ko): Normalize prefix
     // remove the first and last '/'
     if (!_s3_conf.prefix.empty()) {
         if (_s3_conf.prefix[0] == '/') {
@@ -128,23 +128,23 @@ Status S3FileSystem::connect_impl() {
     return Status::OK();
 }
 
-Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
+Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
+                                      const FileWriterOptions* opts) {
     GET_KEY(key, file);
-    *writer = std::make_unique<S3FileWriter>(key, get_client(), _s3_conf, getSPtr());
+    *writer = std::make_unique<S3FileWriter>(
+            key, std::static_pointer_cast<S3FileSystem>(shared_from_this()), opts);
     return Status::OK();
 }
 
-Status S3FileSystem::open_file_internal(const FileDescription& fd, const Path& abs_path,
-                                        FileReaderSPtr* reader) {
-    int64_t fsize = fd.file_size;
+Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
+                                        const FileReaderOptions& opts) {
+    int64_t fsize = opts.file_size;
     if (fsize < 0) {
-        RETURN_IF_ERROR(file_size_impl(abs_path, &fsize));
+        RETURN_IF_ERROR(file_size_impl(file, &fsize));
     }
-    GET_KEY(key, abs_path);
-    auto fs_path = Path(_s3_conf.endpoint) / _s3_conf.bucket / key;
+    GET_KEY(key, file);
     *reader = std::make_shared<S3FileReader>(
-            std::move(fs_path), fsize, std::move(key), _s3_conf.bucket,
-            std::static_pointer_cast<S3FileSystem>(shared_from_this()));
+            fsize, std::move(key), std::static_pointer_cast<S3FileSystem>(shared_from_this()));
     return Status::OK();
 }
 
@@ -537,9 +537,10 @@ Status S3FileSystem::get_key(const Path& path, std::string* key) const {
 
 template <typename AwsOutcome>
 std::string S3FileSystem::error_msg(const std::string& key, const AwsOutcome& outcome) const {
-    return fmt::format("(endpoint: {}, bucket: {}, key:{}, {}), {}", _s3_conf.endpoint,
-                       _s3_conf.bucket, key, outcome.GetError().GetExceptionName(),
-                       outcome.GetError().GetMessage());
+    return fmt::format("(endpoint: {}, bucket: {}, key:{}, {}), {}, error code {}",
+                       _s3_conf.endpoint, _s3_conf.bucket, key,
+                       outcome.GetError().GetExceptionName(), outcome.GetError().GetMessage(),
+                       outcome.GetError().GetResponseCode());
 }
 
 std::string S3FileSystem::error_msg(const std::string& key, const std::string& err) const {

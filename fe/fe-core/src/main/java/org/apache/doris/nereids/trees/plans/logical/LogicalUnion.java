@@ -18,20 +18,26 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical Union.
@@ -44,25 +50,26 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     // it is necessary to keep the filter on the agg and push the filter down to each child of the union.
     private final boolean hasPushedFilter;
 
-    public LogicalUnion(Qualifier qualifier, List<Plan> inputs) {
-        super(PlanType.LOGICAL_UNION, qualifier, inputs);
+    public LogicalUnion(Qualifier qualifier, List<Plan> children) {
+        super(PlanType.LOGICAL_UNION, qualifier, children);
         this.hasPushedFilter = false;
         this.constantExprsList = ImmutableList.of();
     }
 
-    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs,
-            List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> inputs) {
-        super(PlanType.LOGICAL_UNION, qualifier, outputs, inputs);
+    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
+            List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> children) {
+        super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs, children);
         this.hasPushedFilter = hasPushedFilter;
         this.constantExprsList = ImmutableList.copyOf(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
-    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs,
+    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
             List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Plan> inputs) {
-        super(PlanType.LOGICAL_UNION, qualifier, outputs, groupExpression, logicalProperties, inputs);
+            List<Plan> children) {
+        super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs,
+                groupExpression, logicalProperties, children);
         this.hasPushedFilter = hasPushedFilter;
         this.constantExprsList = ImmutableList.copyOf(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
@@ -86,6 +93,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         return Utils.toSqlString("LogicalUnion",
                 "qualifier", qualifier,
                 "outputs", outputs,
+                "regularChildrenOutputs", regularChildrenOutputs,
                 "constantExprsList", constantExprsList,
                 "hasPushedFilter", hasPushedFilter);
     }
@@ -115,45 +123,65 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
 
     @Override
     public LogicalUnion withChildren(List<Plan> children) {
-        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter, children);
+        return new LogicalUnion(qualifier, outputs, regularChildrenOutputs,
+                constantExprsList, hasPushedFilter, children);
+    }
+
+    @Override
+    public LogicalSetOperation withChildrenAndTheirOutputs(List<Plan> children,
+            List<List<SlotReference>> childrenOutputs) {
+        Preconditions.checkArgument(children.size() == childrenOutputs.size(),
+                "children size %s is not equals with children outputs size %s",
+                children.size(), childrenOutputs.size());
+        return new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children);
     }
 
     @Override
     public LogicalUnion withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter, groupExpression,
-                Optional.of(getLogicalProperties()), children);
+        return new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
+                groupExpression, Optional.of(getLogicalProperties()), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter, groupExpression,
-                logicalProperties, children);
+        return new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
+                groupExpression, logicalProperties, children);
     }
 
     @Override
     public LogicalUnion withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalUnion(qualifier, newOutputs, constantExprsList,
+        return new LogicalUnion(qualifier, newOutputs, regularChildrenOutputs, constantExprsList,
                 hasPushedFilter, Optional.empty(), Optional.empty(), children);
     }
 
-    public LogicalUnion withChildrenAndConstExprsList(
-            List<Plan> children, List<List<NamedExpression>> constantExprsList) {
-        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter, children);
+    public LogicalUnion withChildrenAndConstExprsList(List<Plan> children,
+            List<List<SlotReference>> childrenOutputs, List<List<NamedExpression>> constantExprsList) {
+        return new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children);
     }
 
     public LogicalUnion withAllQualifier() {
-        return new LogicalUnion(Qualifier.ALL, outputs, constantExprsList, hasPushedFilter,
+        return new LogicalUnion(Qualifier.ALL, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
                 Optional.empty(), Optional.empty(), children);
     }
 
     public LogicalUnion withHasPushedFilter() {
-        return new LogicalUnion(qualifier, outputs, constantExprsList, true,
+        return new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, true,
                 Optional.empty(), Optional.empty(), children);
     }
 
     @Override
     public LogicalUnion pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withNewOutputs(prunedOutputs);
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        if (qualifier != Qualifier.DISTINCT) {
+            return FunctionalDependencies.EMPTY_FUNC_DEPS;
+        }
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+        return builder.build();
     }
 }

@@ -66,9 +66,9 @@ public class BrokerDesc extends StorageDesc implements Writable {
 
     public BrokerDesc(String name, Map<String, String> properties) {
         this.name = name;
-        this.properties = properties;
-        if (this.properties == null) {
-            this.properties = Maps.newHashMap();
+        this.properties = Maps.newHashMap();
+        if (properties != null) {
+            this.properties.putAll(properties);
         }
         if (isMultiLoadBroker()) {
             this.storageType = StorageBackend.StorageType.LOCAL;
@@ -84,9 +84,9 @@ public class BrokerDesc extends StorageDesc implements Writable {
 
     public BrokerDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
         this.name = name;
-        this.properties = properties;
-        if (this.properties == null) {
-            this.properties = Maps.newHashMap();
+        this.properties = Maps.newHashMap();
+        if (properties != null) {
+            this.properties.putAll(properties);
         }
         this.storageType = storageType;
         this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));

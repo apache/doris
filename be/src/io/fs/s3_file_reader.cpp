@@ -23,13 +23,13 @@
 #include <aws/s3/S3Errors.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/GetObjectResult.h>
+#include <bvar/reducer.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 
 #include <algorithm>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/s3_common.h"
 #include "util/doris_metrics.h"
@@ -37,19 +37,18 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
 bvar::Adder<uint64_t> s3_file_being_read("s3_file_reader", "file_being_read");
 
-S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::string bucket,
-                           std::shared_ptr<S3FileSystem> fs)
-        : _path(std::move(path)),
+S3FileReader::S3FileReader(size_t file_size, std::string key, std::shared_ptr<S3FileSystem> fs)
+        : _path(fmt::format("s3://{}/{}", fs->s3_conf().bucket, key)),
           _file_size(file_size),
-          _fs(std::move(fs)),
-          _bucket(std::move(bucket)),
-          _key(std::move(key)) {
+          _bucket(fs->s3_conf().bucket),
+          _key(std::move(key)),
+          _fs(std::move(fs)) {
     DorisMetrics::instance()->s3_file_open_reading->increment(1);
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
     s3_file_reader_total << 1;
@@ -59,7 +58,7 @@ S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::st
 }
 
 S3FileReader::~S3FileReader() {
-    close();
+    static_cast<void>(close());
     s3_file_being_read << -1;
 }
 
@@ -98,8 +97,10 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     auto outcome = client->GetObject(request);
     s3_bvar::s3_get_total << 1;
     if (!outcome.IsSuccess()) {
-        return Status::IOError("failed to read from {}: {}", _path.native(),
-                               outcome.GetError().GetMessage());
+        return Status::IOError("failed to read from {}: {}, exception {}, error code {}",
+                               _path.native(), outcome.GetError().GetMessage(),
+                               outcome.GetError().GetExceptionName(),
+                               outcome.GetError().GetResponseCode());
     }
     *bytes_read = outcome.GetResult().GetContentLength();
     if (*bytes_read != bytes_req) {

@@ -31,14 +31,13 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 namespace segment_v2 {
-
-InvertedIndexSearcherCache* InvertedIndexSearcherCache::_s_instance = nullptr;
 
 IndexSearcherPtr InvertedIndexSearcherCache::build_index_searcher(const io::FileSystemSPtr& fs,
                                                                   const std::string& index_dir,
@@ -47,18 +46,19 @@ IndexSearcherPtr InvertedIndexSearcherCache::build_index_searcher(const io::File
             new DorisCompoundReader(DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
                                     file_name.c_str(), config::inverted_index_read_buffer_size);
     auto closeDirectory = true;
-    auto index_searcher =
-            std::make_shared<lucene::search::IndexSearcher>(directory, closeDirectory);
+    auto reader = lucene::index::IndexReader::open(
+            directory, config::inverted_index_read_buffer_size, closeDirectory);
+    auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader);
     // NOTE: need to cl_refcount-- here, so that directory will be deleted when
     // index_searcher is destroyed
     _CLDECDELETE(directory)
     return index_searcher;
 }
 
-void InvertedIndexSearcherCache::create_global_instance(size_t capacity, uint32_t num_shards) {
-    DCHECK(_s_instance == nullptr);
-    static InvertedIndexSearcherCache instance(capacity, num_shards);
-    _s_instance = &instance;
+InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
+        size_t capacity, uint32_t num_shards) {
+    InvertedIndexSearcherCache* res = new InvertedIndexSearcherCache(capacity, num_shards);
+    return res;
 }
 
 InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards)
@@ -210,8 +210,6 @@ Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCa
             _cache->insert(key.index_file_path, value, value->size, deleter, CachePriority::NORMAL);
     return lru_handle;
 }
-
-InvertedIndexQueryCache* InvertedIndexQueryCache::_s_instance = nullptr;
 
 bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle) {
     if (key.encode().empty()) {

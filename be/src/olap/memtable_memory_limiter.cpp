@@ -86,7 +86,9 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
         while (_should_wait_flush) {
             _wait_flush_cond.wait(l);
         }
-        LOG(INFO) << "Reached the load hard limit " << _load_hard_mem_limit
+        LOG(INFO) << "Reached the one tenth of load hard limit " << _load_hard_mem_limit / 10
+                  << "and process remaining allocator cache " << proc_mem_no_allocator_cache
+                  << "reached process soft memory limit " << process_soft_mem_limit
                   << ", waited for flush, time_ns:" << timer.elapsed_time();
 #ifndef BE_TEST
         bool hard_limit_reached = _mem_tracker->consumption() >= _load_hard_mem_limit ||
@@ -131,7 +133,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                         "tablet_id={}, err={}",
                         writer->tablet_id(), st.to_string());
                 LOG(WARNING) << err_msg;
-                writer->cancel_with_status(st);
+                static_cast<void>(writer->cancel_with_status(st));
             }
             mem_consumption_in_picked_writer += mem_size;
             if (mem_consumption_in_picked_writer > mem_to_flushed) {
@@ -192,7 +194,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                     "tablet_id={}, err={}",
                     writer->tablet_id(), st.to_string());
             LOG(WARNING) << err_msg;
-            writer->cancel_with_status(st);
+            static_cast<void>(writer->cancel_with_status(st));
         }
     }
 

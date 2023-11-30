@@ -73,8 +73,6 @@ public:
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
 
-    Status drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
-
     TabletSharedPtr find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
@@ -84,25 +82,18 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false,
                                std::string* err = nullptr);
 
-    std::pair<TabletSharedPtr, Status> get_tablet_and_status(TTabletId tablet_id,
-                                                             bool include_deleted = false);
-
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    std::vector<TabletSharedPtr> get_all_tablet(std::function<bool(Tablet*)>&& filter =
-                                                        [](Tablet* t) { return t->is_used(); }) {
-        std::vector<TabletSharedPtr> res;
-        for (const auto& tablets_shard : _tablets_shards) {
-            std::shared_lock rdlock(tablets_shard.lock);
-            for (auto& [id, tablet] : tablets_shard.tablet_map) {
-                if (filter(tablet.get())) {
-                    res.emplace_back(tablet);
-                }
-            }
-        }
-        return res;
-    }
+    std::vector<TabletSharedPtr> get_all_tablet(
+            std::function<bool(Tablet*)>&& filter = filter_used_tablets);
+
+    // Handler not hold the shard lock.
+    void for_each_tablet(std::function<void(const TabletSharedPtr&)>&& handler,
+                         std::function<bool(Tablet*)>&& filter = filter_used_tablets);
+
+    static bool filter_all_tablets(Tablet* tablet) { return true; }
+    static bool filter_used_tablets(Tablet* tablet) { return tablet->is_used(); }
 
     uint64_t get_rowset_nums();
     uint64_t get_segment_nums();
@@ -215,6 +206,8 @@ private:
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
+    bool _move_tablet_to_trash(const TabletSharedPtr& tablet);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
@@ -246,7 +239,9 @@ private:
     std::shared_mutex _shutdown_tablets_lock;
     // partition_id => tablet_info
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
-    std::vector<TabletSharedPtr> _shutdown_tablets;
+    // the delete tablets. notice only allow function `start_trash_sweep` can erase tablets in _shutdown_tablets
+    std::list<TabletSharedPtr> _shutdown_tablets;
+    std::mutex _gc_tablets_lock;
 
     std::mutex _tablet_stat_cache_mutex;
     std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache =

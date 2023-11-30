@@ -51,6 +51,7 @@
 15
 
 -- !left_anti_join_null_3 --
+\N
 1
 2
 3
@@ -91,6 +92,7 @@
 3
 
 -- !right_anti_join_null_1 --
+\N
 1
 
 -- !right_anti_join_null_2 --
@@ -110,4 +112,7 @@
 13
 14
 15
+
+-- !pipelineX_max_rf --
+1	1989	1001	11011902	123.123
 

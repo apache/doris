@@ -47,10 +47,13 @@ public abstract class MetastoreEvent {
     protected final String tblName;
 
     // eventId of the event. Used instead of calling getter on event everytime
-    private final long eventId;
+    protected final long eventId;
+
+    // eventTime of the event. Used instead of calling getter on event everytime
+    protected final long eventTime;
 
     // eventType from the NotificationEvent
-    private final MetastoreEventType eventType;
+    protected final MetastoreEventType eventType;
 
     // Actual notificationEvent object received from Metastore
     protected final NotificationEvent metastoreNotificationEvent;
@@ -58,12 +61,14 @@ public abstract class MetastoreEvent {
     protected final String catalogName;
 
     // for test
-    protected MetastoreEvent(long eventId, String catalogName, String dbName, String tblName) {
+    protected MetastoreEvent(long eventId, String catalogName, String dbName,
+                             String tblName, MetastoreEventType eventType) {
         this.eventId = eventId;
+        this.eventTime = -1L;
         this.catalogName = catalogName;
         this.dbName = dbName;
         this.tblName = tblName;
-        this.eventType = null;
+        this.eventType = eventType;
         this.metastoreNotificationEvent = null;
         this.event = null;
     }
@@ -73,6 +78,7 @@ public abstract class MetastoreEvent {
         this.dbName = event.getDbName();
         this.tblName = event.getTableName();
         this.eventId = event.getEventId();
+        this.eventTime = event.getEventTime() * 1000L;
         this.eventType = MetastoreEventType.from(event.getEventType());
         this.metastoreNotificationEvent = event;
         this.catalogName = catalogName;
@@ -97,7 +103,6 @@ public abstract class MetastoreEvent {
     /**
      * Checks if the given event can be batched into this event. Default behavior is
      * to return false which can be overridden by a sub-class.
-     * The current version is relatively simple to process batch events, so all that need to be processed are true.
      *
      * @param event The event under consideration to be batched into this event.
      * @return false if event cannot be batched into this event; otherwise true.
@@ -163,8 +168,8 @@ public abstract class MetastoreEvent {
      */
     private Object[] getLogFormatArgs(Object[] args) {
         Object[] formatArgs = new Object[args.length + 2];
-        formatArgs[0] = getEventId();
-        formatArgs[1] = getEventType();
+        formatArgs[0] = eventId;
+        formatArgs[1] = eventType;
         int i = 2;
         for (Object arg : args) {
             formatArgs[i] = arg;

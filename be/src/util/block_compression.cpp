@@ -20,6 +20,11 @@
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
+// Only used on x86 or x86_64
+#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
+        defined(__i386) || defined(_M_IX86)
+#include <libdeflate.h>
+#endif
 #include <limits.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
@@ -39,7 +44,9 @@
 #include <ostream>
 
 #include "common/config.h"
+#include "exec/decompressor.h"
 #include "gutil/strings/substitute.h"
+#include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
 
@@ -183,6 +190,31 @@ private:
     static const int32_t ACCELARATION = 1;
 };
 
+class HadoopLz4BlockCompression : public Lz4BlockCompression {
+public:
+    static HadoopLz4BlockCompression* instance() {
+        static HadoopLz4BlockCompression s_instance;
+        return &s_instance;
+    }
+    Status decompress(const Slice& input, Slice* output) override {
+        RETURN_IF_ERROR(Decompressor::create_decompressor(CompressType::LZ4BLOCK, &_decompressor));
+        size_t input_bytes_read = 0;
+        size_t decompressed_len = 0;
+        size_t more_input_bytes = 0;
+        size_t more_output_bytes = 0;
+        bool stream_end = false;
+        auto st = _decompressor->decompress((uint8_t*)input.data, input.size, &input_bytes_read,
+                                            (uint8_t*)output->data, output->size, &decompressed_len,
+                                            &stream_end, &more_input_bytes, &more_output_bytes);
+        //try decompress use hadoopLz4 ,if failed fall back lz4.
+        return (st != Status::OK() || stream_end != true)
+                       ? Lz4BlockCompression::decompress(input, output)
+                       : Status::OK();
+    }
+
+private:
+    Decompressor* _decompressor;
+};
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
 class Lz4fBlockCompression : public BlockCompressionCodec {
 private:
@@ -929,7 +961,7 @@ private:
     mutable std::vector<DContext*> _ctx_d_pool;
 };
 
-class GzipBlockCompression final : public ZlibBlockCompression {
+class GzipBlockCompression : public ZlibBlockCompression {
 public:
     static GzipBlockCompression* instance() {
         static GzipBlockCompression s_instance;
@@ -1006,6 +1038,39 @@ private:
     const static int MEM_LEVEL = 8;
 };
 
+// Only used on x86 or x86_64
+#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
+        defined(__i386) || defined(_M_IX86)
+class GzipBlockCompressionByLibdeflate final : public GzipBlockCompression {
+public:
+    GzipBlockCompressionByLibdeflate() : GzipBlockCompression() {}
+    static GzipBlockCompressionByLibdeflate* instance() {
+        static GzipBlockCompressionByLibdeflate s_instance;
+        return &s_instance;
+    }
+    ~GzipBlockCompressionByLibdeflate() override = default;
+
+    Status decompress(const Slice& input, Slice* output) override {
+        if (input.empty()) {
+            output->size = 0;
+            return Status::OK();
+        }
+        thread_local std::unique_ptr<libdeflate_decompressor, void (*)(libdeflate_decompressor*)>
+                decompressor {libdeflate_alloc_decompressor(), libdeflate_free_decompressor};
+        if (!decompressor) {
+            return Status::InternalError("libdeflate_alloc_decompressor error.");
+        }
+        std::size_t out_len;
+        auto result = libdeflate_gzip_decompress(decompressor.get(), input.data, input.size,
+                                                 output->data, output->size, &out_len);
+        if (result != LIBDEFLATE_SUCCESS) {
+            return Status::InternalError("libdeflate_gzip_decompress error, res={}", result);
+        }
+        return Status::OK();
+    }
+};
+#endif
+
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
                                    BlockCompressionCodec** codec) {
     switch (type) {
@@ -1048,13 +1113,19 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
         break;
     case tparquet::CompressionCodec::LZ4_RAW: // we can use LZ4 compression algorithm parse LZ4_RAW
     case tparquet::CompressionCodec::LZ4:
-        *codec = Lz4BlockCompression::instance();
+        *codec = HadoopLz4BlockCompression::instance();
         break;
     case tparquet::CompressionCodec::ZSTD:
         *codec = ZstdBlockCompression::instance();
         break;
     case tparquet::CompressionCodec::GZIP:
+// Only used on x86 or x86_64
+#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
+        defined(__i386) || defined(_M_IX86)
+        *codec = GzipBlockCompressionByLibdeflate::instance();
+#else
         *codec = GzipBlockCompression::instance();
+#endif
         break;
     default:
         return Status::InternalError("unknown compression type({})", parquet_codec);

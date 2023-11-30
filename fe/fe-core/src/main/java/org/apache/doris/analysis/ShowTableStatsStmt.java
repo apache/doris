@@ -32,12 +32,14 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.sql.Date;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,9 +50,7 @@ public class ShowTableStatsStmt extends ShowStmt {
             new ImmutableList.Builder<String>()
                     .add("updated_rows")
                     .add("query_times")
-                    .add("row_count(for external_table only)")
-                    .add("method")
-                    .add("type")
+                    .add("row_count")
                     .add("updated_time")
                     .add("columns")
                     .add("trigger")
@@ -85,21 +85,21 @@ public class ShowTableStatsStmt extends ShowStmt {
         }
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
-            ErrorReport.reportAnalysisException("Catalog: {} not exists", tableName.getCtl());
+            ErrorReport.reportAnalysisException(String.format("Catalog: %s not exists", tableName.getCtl()));
         }
         DatabaseIf<TableIf> db = catalog.getDb(tableName.getDb()).orElse(null);
         if (db == null) {
-            ErrorReport.reportAnalysisException("DB: {} not exists", tableName.getDb());
+            ErrorReport.reportAnalysisException(String.format("DB: %s not exists", tableName.getDb()));
         }
         table = db.getTable(tableName.getTbl()).orElse(null);
         if (table == null) {
-            ErrorReport.reportAnalysisException("Table: {} not exists", tableName.getTbl());
+            ErrorReport.reportAnalysisException(String.format("Table: %s not exists", tableName.getTbl()));
         }
         if (partitionNames != null) {
             String partitionName = partitionNames.getPartitionNames().get(0);
             Partition partition = table.getPartition(partitionName);
             if (partition == null) {
-                ErrorReport.reportAnalysisException("Partition: {} not exists", partitionName);
+                ErrorReport.reportAnalysisException(String.format("Partition: %s not exists", partitionName));
             }
         }
         if (!Env.getCurrentEnv().getAccessManager()
@@ -132,7 +132,8 @@ public class ShowTableStatsStmt extends ShowStmt {
         return table.getPartition(partitionName).getId();
     }
 
-    public ShowResultSet constructResultSet(TableStats tableStatistic) {
+    public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         if (tableStatistic == null) {
             return new ShowResultSet(getMetaData(), new ArrayList<>());
         }
@@ -141,10 +142,12 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(String.valueOf(tableStatistic.updatedRows));
         row.add(String.valueOf(tableStatistic.queriedTimes.get()));
         row.add(String.valueOf(tableStatistic.rowCount));
-        row.add(tableStatistic.analysisMethod.toString());
-        row.add(tableStatistic.analysisType.toString());
-        row.add(new Date(tableStatistic.updatedTime).toString());
-        row.add(tableStatistic.columns);
+        LocalDateTime dateTime =
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
+                        java.time.ZoneId.systemDefault());
+        String formattedDateTime = dateTime.format(formatter);
+        row.add(formattedDateTime);
+        row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());
         result.add(row);
         return new ShowResultSet(getMetaData(), result);

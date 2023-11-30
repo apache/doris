@@ -118,17 +118,11 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    void protect() override {}
-
     void insert_value(T value) { data.emplace_back(std::move(value)); }
 
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
-    }
-
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "ColumnComplexType get_data_type not implemeted";
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
@@ -205,6 +199,21 @@ public:
         }
     }
 
+    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
+        const Self& src_vec = assert_cast<const Self&>(src);
+        auto new_size = indices_end - indices_begin;
+
+        for (uint32_t i = 0; i < new_size; ++i) {
+            auto offset = *(indices_begin + i);
+            if (offset == 0) {
+                data.emplace_back(T {});
+            } else {
+                data.emplace_back(src_vec.get_element(offset));
+            }
+        }
+    }
+
     void pop_back(size_t n) override { data.erase(data.end() - n, data.end()); }
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
@@ -238,12 +247,6 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "compare_at for " + std::string(get_family_name()));
     }
-
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not implemented";
-    }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }

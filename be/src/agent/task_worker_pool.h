@@ -227,7 +227,7 @@ protected:
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
     std::unique_ptr<AgentUtils> _agent_utils;
-    ExecEnv* _env;
+    ExecEnv* _env = nullptr;
 
     // Protect task queue
     std::mutex _worker_thread_lock;
@@ -242,7 +242,7 @@ protected:
     std::atomic<bool> _is_doing_work;
 
     std::shared_ptr<MetricEntity> _metric_entity;
-    UIntGauge* agent_task_queue_size;
+    UIntGauge* agent_task_queue_size = nullptr;
 
     // Always 1 when _thread_model is SINGLE_THREAD
     uint32_t _worker_count;

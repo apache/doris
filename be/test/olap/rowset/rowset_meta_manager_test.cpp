@@ -36,6 +36,7 @@
 #include "olap/olap_meta.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 #include "util/uid_util.h"
 
 using ::testing::_;
@@ -60,6 +61,7 @@ public:
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
         }
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
 
         std::string meta_path = "./meta";
         EXPECT_TRUE(std::filesystem::create_directory(meta_path));
@@ -84,6 +86,7 @@ public:
     virtual void TearDown() {
         SAFE_DELETE(_meta);
         SAFE_DELETE(k_engine);
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         EXPECT_TRUE(std::filesystem::remove_all("./meta"));
         LOG(INFO) << "TearDown";
     }

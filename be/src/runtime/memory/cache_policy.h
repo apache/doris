@@ -58,6 +58,7 @@ public:
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 

@@ -56,16 +56,19 @@ public class FileSystemFactory {
         }
     }
 
-    public static Pair<FileSystemType, String> getFSIdentity(String location) {
+    public static Pair<FileSystemType, String> getFSIdentity(String location, String bindBrokerName) {
         FileSystemType fsType;
-        if (S3Util.isObjStorage(location)) {
+        if (bindBrokerName != null) {
+            fsType = FileSystemType.BROKER;
+        } else if (S3Util.isObjStorage(location)) {
             if (S3Util.isHdfsOnOssEndpoint(location)) {
                 // if hdfs service is enabled on oss, use hdfs lib to access oss.
                 fsType = FileSystemType.DFS;
             } else {
                 fsType = FileSystemType.S3;
             }
-        } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)) {
+        } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)
+                 || location.startsWith(FeConstants.FS_PREFIX_VIEWFS)) {
             fsType = FileSystemType.DFS;
         } else if (location.startsWith(FeConstants.FS_PREFIX_OFS) || location.startsWith(FeConstants.FS_PREFIX_COSN)) {
             // ofs:// and cosn:// use the same underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
@@ -82,7 +85,8 @@ public class FileSystemFactory {
         return Pair.of(fsType, fsIdent);
     }
 
-    public static RemoteFileSystem getByType(FileSystemType type, Configuration conf) {
+    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Configuration conf,
+                                                       String bindBrokerName) {
         Map<String, String> properties = new HashMap<>();
         conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
         switch (type) {
@@ -94,6 +98,8 @@ public class FileSystemFactory {
                 return new OFSFileSystem(properties);
             case JFS:
                 return new JFSFileSystem(properties);
+            case BROKER:
+                return new BrokerFileSystem(bindBrokerName, properties);
             default:
                 throw new IllegalStateException("Not supported file system type: " + type);
         }

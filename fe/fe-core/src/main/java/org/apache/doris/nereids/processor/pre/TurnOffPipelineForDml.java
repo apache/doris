@@ -52,6 +52,8 @@ public class TurnOffPipelineForDml extends PlanPreprocessor {
         try {
             VariableMgr.setVar(sessionVariable,
                     new SetVar(SessionVariable.ENABLE_PIPELINE_ENGINE, new StringLiteral("false")));
+            VariableMgr.setVar(sessionVariable,
+                    new SetVar(SessionVariable.ENABLE_PIPELINE_X_ENGINE, new StringLiteral("false")));
         } catch (Throwable t) {
             throw new AnalysisException("Can not set turn off pipeline for DML", t);
         }

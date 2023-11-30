@@ -94,7 +94,6 @@ public:
     virtual uint64_t size() const = 0;
 
     virtual void reset_page_zone_map() = 0;
-    virtual void reset_segment_zone_map() = 0;
 };
 
 // Zone map index is represented by an IndexedColumn with ordinal index.
@@ -120,7 +119,6 @@ public:
     uint64_t size() const override { return _estimated_size; }
 
     void reset_page_zone_map() override;
-    void reset_segment_zone_map() override;
 
 private:
     void _reset_zone_map(ZoneMap* zone_map) {
@@ -132,7 +130,7 @@ private:
         zone_map->pass_all = false;
     }
 
-    Field* _field;
+    Field* _field = nullptr;
     // memory will be managed by Arena
     ZoneMap _page_zone_map;
     ZoneMap _segment_zone_map;
@@ -147,23 +145,27 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader)
-            : _file_reader(std::move(file_reader)) {}
+    explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader,
+                                const IndexedColumnMetaPB& page_zone_maps)
+            : _file_reader(std::move(file_reader)) {
+        _page_zone_maps_meta.reset(new IndexedColumnMetaPB(page_zone_maps));
+    }
 
     // load all page zone maps into memory
-    Status load(bool use_page_cache, bool kept_in_memory, const ZoneMapIndexPB*);
+    Status load(bool use_page_cache, bool kept_in_memory);
 
     const std::vector<ZoneMapPB>& page_zone_maps() const { return _page_zone_maps; }
 
     int32_t num_pages() const { return _page_zone_maps.size(); }
 
 private:
-    Status _load(bool use_page_cache, bool kept_in_memory, const ZoneMapIndexPB*);
+    Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>);
 
 private:
     DorisCallOnce<Status> _load_once;
     // TODO: yyq, we shoud remove file_reader from here.
     io::FileReaderSPtr _file_reader;
+    std::unique_ptr<IndexedColumnMetaPB> _page_zone_maps_meta;
     std::vector<ZoneMapPB> _page_zone_maps;
 };
 

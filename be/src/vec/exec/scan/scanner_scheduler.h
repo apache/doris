@@ -64,15 +64,19 @@ public:
     ScannerScheduler();
     ~ScannerScheduler();
 
-    Status init(ExecEnv* env);
+    [[nodiscard]] Status init(ExecEnv* env);
 
     [[nodiscard]] Status submit(ScannerContext* ctx);
+
+    void stop();
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
     taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() {
         return _task_group_local_scan_queue.get();
     }
+
+    int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
 
 private:
     // scheduling thread function
@@ -84,17 +88,21 @@ private:
 
     void _task_group_scanner_scan(ScannerScheduler* scheduler,
                                   taskgroup::ScanTaskTaskGroupQueue* scan_queue);
+    void _register_metrics();
+
+    static void _deregister_metrics();
 
     // Scheduling queue number.
     // TODO: make it configurable.
     static const int QUEUE_NUM = 4;
     // The ScannerContext will be submitted to the pending queue roundrobin.
     // _queue_idx pointer to the current queue.
+    // Use std::atomic_uint to prevent numerical overflow from memory out of bound.
     // The scheduler thread will take ctx from pending queue, schedule it,
     // and put it to the _scheduling_map.
     // If any scanner finish, it will take ctx from and put it to pending queue again.
-    std::atomic_int _queue_idx = {0};
-    BlockingQueue<ScannerContext*>** _pending_queues;
+    std::atomic_uint _queue_idx = {0};
+    BlockingQueue<ScannerContext*>** _pending_queues = nullptr;
 
     // scheduling thread pool
     std::unique_ptr<ThreadPool> _scheduler_pool;
@@ -103,7 +111,7 @@ private:
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
     // _limited_scan_thread_pool is a special pool for queries with resource limit
     std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
-    std::unique_ptr<ThreadPool> _remote_scan_thread_pool;
+    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
@@ -112,6 +120,74 @@ private:
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
     bool _is_init = false;
+    int _remote_thread_pool_max_size;
+};
+
+struct SimplifiedScanTask {
+    SimplifiedScanTask() = default;
+    SimplifiedScanTask(std::function<void()> scan_func,
+                       vectorized::ScannerContext* scanner_context) {
+        this->scan_func = scan_func;
+        this->scanner_context = scanner_context;
+    }
+
+    std::function<void()> scan_func;
+    vectorized::ScannerContext* scanner_context = nullptr;
+};
+
+// used for cpu hard limit
+class SimplifiedScanScheduler {
+public:
+    SimplifiedScanScheduler(std::string wg_name, CgroupCpuCtl* cgroup_cpu_ctl) {
+        _scan_task_queue = std::make_unique<BlockingQueue<SimplifiedScanTask>>(
+                config::doris_scanner_thread_pool_queue_size);
+        _is_stop.store(false);
+        _cgroup_cpu_ctl = cgroup_cpu_ctl;
+        _wg_name = wg_name;
+    }
+
+    ~SimplifiedScanScheduler() {
+        stop();
+        LOG(INFO) << "Scanner sche " << _wg_name << " shutdown";
+    }
+
+    void stop() {
+        _is_stop.store(true);
+        _scan_task_queue->shutdown();
+        _scan_thread_pool->shutdown();
+        _scan_thread_pool->wait();
+    }
+
+    Status start() {
+        RETURN_IF_ERROR(ThreadPoolBuilder("Scan_" + _wg_name)
+                                .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+                                .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                                .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
+                                .build(&_scan_thread_pool));
+
+        for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
+            RETURN_IF_ERROR(_scan_thread_pool->submit_func([this] { this->_work(); }));
+        }
+        return Status::OK();
+    }
+
+    BlockingQueue<SimplifiedScanTask>* get_scan_queue() { return _scan_task_queue.get(); }
+
+private:
+    void _work() {
+        while (!_is_stop.load()) {
+            SimplifiedScanTask scan_task;
+            if (_scan_task_queue->blocking_get(&scan_task)) {
+                scan_task.scan_func();
+            };
+        }
+    }
+
+    std::unique_ptr<ThreadPool> _scan_thread_pool;
+    std::unique_ptr<BlockingQueue<SimplifiedScanTask>> _scan_task_queue;
+    std::atomic<bool> _is_stop;
+    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
+    std::string _wg_name;
 };
 
 } // namespace doris::vectorized

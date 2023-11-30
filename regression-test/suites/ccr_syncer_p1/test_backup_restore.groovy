@@ -18,6 +18,10 @@
 suite("test_backup_restore") {
 
     def syncer = getSyncer()
+    if (!syncer.checkEnableFeatureBinlog()) {
+        logger.info("fe enable_feature_binlog is false, skip case test_backup_restore")
+        return
+    }
     def tableName = "tbl_backup_restore"
     def test_num = 0
     def insert_num = 5

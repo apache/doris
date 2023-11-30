@@ -127,10 +127,10 @@ public class LiteralExprCompareTest {
         Assert.assertTrue(maxDatetime1.equals(date9) && maxDatetime1.compareLiteral(date9) == 0);
         Assert.assertTrue(minDatetime1.equals(date11) && minDatetime1.compareLiteral(date11) == 0);
 
-        Assert.assertTrue(!maxDate1.equals(date1) && 1 == maxDate1.compareLiteral(date1));
-        Assert.assertTrue(!minDate1.equals(date1) && -1 == minDate1.compareLiteral(date1));
-        Assert.assertTrue(!maxDatetime1.equals(datetime1) && 1 == maxDatetime1.compareLiteral(datetime1));
-        Assert.assertTrue(!minDatetime1.equals(datetime1) && -1 == minDatetime1.compareLiteral(datetime1));
+        Assert.assertTrue(!maxDate1.equals(date1) && maxDate1.compareLiteral(date1) > 0);
+        Assert.assertTrue(!minDate1.equals(date1) && minDate1.compareLiteral(date1) < 0);
+        Assert.assertTrue(!maxDatetime1.equals(datetime1) && maxDatetime1.compareLiteral(datetime1) > 0);
+        Assert.assertTrue(!minDatetime1.equals(datetime1) && minDatetime1.compareLiteral(datetime1) < 0);
     }
 
     @Test
@@ -181,10 +181,10 @@ public class LiteralExprCompareTest {
         Assert.assertTrue(maxDatetime1.equals(date9) && maxDatetime1.compareLiteral(date9) == 0);
         Assert.assertTrue(minDatetime1.equals(date11) && minDatetime1.compareLiteral(date11) == 0);
 
-        Assert.assertTrue(!maxDate1.equals(date1) && 1 == maxDate1.compareLiteral(date1));
-        Assert.assertTrue(!minDate1.equals(date1) && -1 == minDate1.compareLiteral(date1));
-        Assert.assertTrue(!maxDatetime1.equals(datetime1) && 1 == maxDatetime1.compareLiteral(datetime1));
-        Assert.assertTrue(!minDatetime1.equals(datetime1) && -1 == minDatetime1.compareLiteral(datetime1));
+        Assert.assertTrue(!maxDate1.equals(date1) && maxDate1.compareLiteral(date1) > 0);
+        Assert.assertTrue(!minDate1.equals(date1) && minDate1.compareLiteral(date1) < 0);
+        Assert.assertTrue(!maxDatetime1.equals(datetime1) && maxDatetime1.compareLiteral(datetime1) > 0);
+        Assert.assertTrue(!minDatetime1.equals(datetime1) && minDatetime1.compareLiteral(datetime1) < 0);
     }
 
     @Test
@@ -235,10 +235,10 @@ public class LiteralExprCompareTest {
         Assert.assertTrue(maxDatetime1.equals(date9) && maxDatetime1.compareLiteral(date9) == 0);
         Assert.assertTrue(minDatetime1.equals(date11) && minDatetime1.compareLiteral(date11) == 0);
 
-        Assert.assertTrue(!maxDate1.equals(date1) && 1 == maxDate1.compareLiteral(date1));
-        Assert.assertTrue(!minDate1.equals(date1) && -1 == minDate1.compareLiteral(date1));
-        Assert.assertTrue(!maxDatetime1.equals(datetime1) && 1 == maxDatetime1.compareLiteral(datetime1));
-        Assert.assertTrue(!minDatetime1.equals(datetime1) && -1 == minDatetime1.compareLiteral(datetime1));
+        Assert.assertTrue(!maxDate1.equals(date1) && maxDate1.compareLiteral(date1) > 0);
+        Assert.assertTrue(!minDate1.equals(date1) && minDate1.compareLiteral(date1) < 0);
+        Assert.assertTrue(!maxDatetime1.equals(datetime1) && maxDatetime1.compareLiteral(datetime1) > 0);
+        Assert.assertTrue(!minDatetime1.equals(datetime1) && minDatetime1.compareLiteral(datetime1) < 0);
     }
 
     @Test

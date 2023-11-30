@@ -20,6 +20,7 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -44,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -359,5 +361,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     // Only used for sync hive metastore event
     public void createTableForReplay(String tableName, long tableId) {
         throw new NotImplementedException("createTable() is not implemented");
+    }
+
+    @Override
+    public Map<Long, TableIf> getIdToTable() {
+        return new HashMap<>(idToTbl);
     }
 }

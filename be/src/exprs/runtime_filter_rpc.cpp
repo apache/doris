@@ -67,14 +67,14 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     pquery_id->set_hi(_state->query_id().hi);
     pquery_id->set_lo(_state->query_id().lo);
 
-    auto pfragment_instance_id = _rpc_context->request.mutable_fragment_id();
+    auto pfragment_instance_id = _rpc_context->request.mutable_fragment_instance_id();
     pfragment_instance_id->set_hi(state->fragment_instance_id().hi);
     pfragment_instance_id->set_lo(state->fragment_instance_id().lo);
 
     _rpc_context->request.set_filter_id(_filter_id);
     _rpc_context->request.set_opt_remote_rf(opt_remote_rf);
     _rpc_context->request.set_is_pipeline(state->enable_pipeline_exec());
-    _rpc_context->cntl.set_timeout_ms(state->runtime_filter_wait_time_ms());
+    _rpc_context->cntl.set_timeout_ms(wait_time_ms());
     _rpc_context->cid = _rpc_context->cntl.call_id();
 
     Status serialize_status = serialize(&_rpc_context->request, &data, &len);

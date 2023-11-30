@@ -58,8 +58,8 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     // get metadata_size
     uint32_t metadata_size = decode_fixed32_le(footer + bytes_read - PARQUET_FOOTER_SIZE);
     if (metadata_size > file_size - PARQUET_FOOTER_SIZE) {
-        Status::Corruption("Parquet footer size({}) is large than file size({})", metadata_size,
-                           file_size);
+        return Status::Corruption("Parquet footer size({}) is large than file size({})",
+                                  metadata_size, file_size);
     }
     std::unique_ptr<uint8_t[]> new_buff;
     uint8_t* meta_ptr;

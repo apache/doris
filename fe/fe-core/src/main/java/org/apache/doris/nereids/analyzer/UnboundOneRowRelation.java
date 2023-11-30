@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -32,7 +33,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -42,7 +42,8 @@ import java.util.Optional;
  * A relation that contains only one row consist of some constant expressions.
  * e.g. select 100, 'value'
  */
-public class UnboundOneRowRelation extends LogicalRelation implements Unbound, OneRowRelation {
+public class UnboundOneRowRelation extends LogicalRelation implements Unbound, OneRowRelation,
+        BlockFuncDepsPropagation {
 
     private final List<NamedExpression> projects;
 
@@ -55,8 +56,6 @@ public class UnboundOneRowRelation extends LogicalRelation implements Unbound, O
                                   Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_UNBOUND_ONE_ROW_RELATION, groupExpression, logicalProperties);
-        Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(Slot.class)),
-                "OneRowRelation can not contains any slot");
         this.projects = ImmutableList.copyOf(projects);
     }
 

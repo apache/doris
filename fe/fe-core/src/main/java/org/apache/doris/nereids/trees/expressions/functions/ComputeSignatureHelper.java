@@ -57,11 +57,67 @@ public class ComputeSignatureHelper {
     /** implementAbstractReturnType */
     public static FunctionSignature implementFollowToArgumentReturnType(
             FunctionSignature signature, List<Expression> arguments) {
-        if (signature.returnType instanceof FollowToArgumentType) {
-            int argumentIndex = ((FollowToArgumentType) signature.returnType).argumentIndex;
-            return signature.withReturnType(arguments.get(argumentIndex).getDataType());
+        return signature.withReturnType(replaceFollowToArgumentReturnType(
+                signature.returnType, signature.argumentsTypes));
+    }
+
+    private static DataType replaceFollowToArgumentReturnType(DataType returnType, List<DataType> argumentTypes) {
+        if (returnType instanceof ArrayType) {
+            return ArrayType.of(replaceFollowToArgumentReturnType(
+                    ((ArrayType) returnType).getItemType(), argumentTypes));
+        } else if (returnType instanceof MapType) {
+            return MapType.of(replaceFollowToArgumentReturnType(((MapType) returnType).getKeyType(), argumentTypes),
+                    replaceFollowToArgumentReturnType(((MapType) returnType).getValueType(), argumentTypes));
+        } else if (returnType instanceof StructType) {
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
+            return returnType;
+        } else if (returnType instanceof FollowToArgumentType) {
+            int argumentIndex = ((FollowToArgumentType) returnType).argumentIndex;
+            return argumentTypes.get(argumentIndex);
+        } else {
+            return returnType;
         }
-        return signature;
+    }
+
+    private static DataType replaceAnyDataTypeWithOutIndex(DataType sigType, DataType expressionType) {
+        if (expressionType instanceof NullType) {
+            if (sigType instanceof ArrayType) {
+                return ArrayType.of(replaceAnyDataTypeWithOutIndex(
+                        ((ArrayType) sigType).getItemType(), NullType.INSTANCE));
+            } else if (sigType instanceof MapType) {
+                return MapType.of(replaceAnyDataTypeWithOutIndex(((MapType) sigType).getKeyType(), NullType.INSTANCE),
+                        replaceAnyDataTypeWithOutIndex(((MapType) sigType).getValueType(), NullType.INSTANCE));
+            } else if (sigType instanceof StructType) {
+                // TODO: do not support struct type now
+                // throw new AnalysisException("do not support struct type now");
+                return sigType;
+            } else {
+                if (sigType instanceof AnyDataType
+                        && ((AnyDataType) sigType).getIndex() == AnyDataType.INDEX_OF_INSTANCE_WITHOUT_INDEX) {
+                    return expressionType;
+                }
+                return sigType;
+            }
+        } else if (sigType instanceof ArrayType && expressionType instanceof ArrayType) {
+            return ArrayType.of(replaceAnyDataTypeWithOutIndex(
+                    ((ArrayType) sigType).getItemType(), ((ArrayType) expressionType).getItemType()));
+        } else if (sigType instanceof MapType && expressionType instanceof MapType) {
+            return MapType.of(replaceAnyDataTypeWithOutIndex(
+                            ((MapType) sigType).getKeyType(), ((MapType) expressionType).getKeyType()),
+                    replaceAnyDataTypeWithOutIndex(
+                            ((MapType) sigType).getValueType(), ((MapType) expressionType).getValueType()));
+        } else if (sigType instanceof StructType && expressionType instanceof StructType) {
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
+            return sigType;
+        } else {
+            if (sigType instanceof AnyDataType
+                    && ((AnyDataType) sigType).getIndex() == AnyDataType.INDEX_OF_INSTANCE_WITHOUT_INDEX) {
+                return expressionType;
+            }
+            return sigType;
+        }
     }
 
     private static void collectAnyDataType(DataType sigType, DataType expressionType,
@@ -174,6 +230,26 @@ public class ComputeSignatureHelper {
     }
 
     /** implementFollowToAnyDataType */
+    public static FunctionSignature implementAnyDataTypeWithOutIndex(
+            FunctionSignature signature, List<Expression> arguments) {
+        // collect all any data type with index
+        List<DataType> newArgTypes = Lists.newArrayList();
+        for (int i = 0; i < arguments.size(); i++) {
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+            DataType expressionType = arguments.get(i).getDataType();
+            newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
+        }
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
+        return signature;
+    }
+
+    /** implementFollowToAnyDataType */
     public static FunctionSignature implementAnyDataTypeWithIndex(
             FunctionSignature signature, List<Expression> arguments) {
         // collect all any data type with index
@@ -248,10 +324,10 @@ public class ComputeSignatureHelper {
         if (computeSignature instanceof ComputePrecision) {
             return ((ComputePrecision) computeSignature).computePrecision(signature);
         }
-        if (signature.argumentsTypes.stream().anyMatch(DateTimeV2Type.class::isInstance)) {
+        if (signature.argumentsTypes.stream().anyMatch(TypeCoercionUtils::hasDateTimeV2Type)) {
             signature = defaultDateTimeV2PrecisionPromotion(signature, arguments);
         }
-        if (signature.argumentsTypes.stream().anyMatch(DecimalV3Type.class::isInstance)) {
+        if (signature.argumentsTypes.stream().anyMatch(TypeCoercionUtils::hasDecimalV3Type)) {
             // do decimal v3 precision
             signature = defaultDecimalV3PrecisionPromotion(signature, arguments);
         }
@@ -294,30 +370,37 @@ public class ComputeSignatureHelper {
             } else {
                 targetType = signature.getArgType(i);
             }
-            if (!(targetType instanceof DateTimeV2Type)) {
+            List<DataType> argTypes = extractArgumentType(DateTimeV2Type.class,
+                    targetType, arguments.get(i).getDataType());
+            if (argTypes.isEmpty()) {
                 continue;
             }
-            if (finalType == null) {
-                if (arguments.get(i) instanceof StringLikeLiteral) {
-                    // We need to determine the scale based on the string literal.
+
+            for (DataType argType : argTypes) {
+                Expression arg = arguments.get(i);
+                DateTimeV2Type dateTimeV2Type;
+                if (arg instanceof StringLikeLiteral) {
                     StringLikeLiteral str = (StringLikeLiteral) arguments.get(i);
-                    finalType = DateTimeV2Type.forTypeFromString(str.getStringValue());
+                    dateTimeV2Type = DateTimeV2Type.forTypeFromString(str.getStringValue());
                 } else {
-                    finalType = DateTimeV2Type.forType(arguments.get(i).getDataType());
+                    dateTimeV2Type = DateTimeV2Type.forType(argType);
                 }
-            } else {
-                finalType = DateTimeV2Type.getWiderDatetimeV2Type(finalType,
-                        DateTimeV2Type.forType(arguments.get(i).getDataType()));
+                if (finalType == null) {
+                    finalType = dateTimeV2Type;
+                } else {
+                    finalType = DateTimeV2Type.getWiderDatetimeV2Type(finalType,
+                            DateTimeV2Type.forType(arguments.get(i).getDataType()));
+                }
             }
         }
+        if (finalType == null) {
+            return signature;
+        }
         DateTimeV2Type argType = finalType;
-        List<DataType> newArgTypes = signature.argumentsTypes.stream().map(t -> {
-            if (t instanceof DateTimeV2Type) {
-                return argType;
-            } else {
-                return t;
-            }
-        }).collect(Collectors.toList());
+        List<DataType> newArgTypes = signature.argumentsTypes.stream()
+                .map(at -> TypeCoercionUtils.replaceDateTimeV2WithTarget(at, argType))
+                .collect(Collectors.toList());
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         if (signature.returnType instanceof DateTimeV2Type) {
             signature = signature.withReturnType(argType);
@@ -327,7 +410,7 @@ public class ComputeSignatureHelper {
 
     private static FunctionSignature defaultDecimalV3PrecisionPromotion(
             FunctionSignature signature, List<Expression> arguments) {
-        DataType finalType = null;
+        DecimalV3Type finalType = null;
         for (int i = 0; i < arguments.size(); i++) {
             DataType targetType;
             if (i >= signature.argumentsTypes.size()) {
@@ -337,43 +420,77 @@ public class ComputeSignatureHelper {
             } else {
                 targetType = signature.getArgType(i);
             }
-            if (!(targetType instanceof DecimalV3Type)) {
+            List<DataType> argTypes = extractArgumentType(DecimalV3Type.class,
+                    targetType, arguments.get(i).getDataType());
+            if (argTypes.isEmpty()) {
                 continue;
             }
-            // only process wildcard decimalv3
-            if (((DecimalV3Type) targetType).getPrecision() > 0) {
-                continue;
-            }
-            if (finalType == null) {
-                finalType = DecimalV3Type.forType(arguments.get(i).getDataType());
-            } else {
+
+            for (DataType argType : argTypes) {
                 Expression arg = arguments.get(i);
-                DecimalV3Type argType;
+                DecimalV3Type decimalV3Type;
                 if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
                     // create decimalV3 with minimum scale enough to hold the integral literal
-                    argType = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
+                    decimalV3Type = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
                 } else {
-                    argType = DecimalV3Type.forType(arg.getDataType());
+                    decimalV3Type = DecimalV3Type.forType(argType);
                 }
-                finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType, argType, true);
+                if (finalType == null) {
+                    finalType = decimalV3Type;
+                } else {
+                    finalType = (DecimalV3Type) DecimalV3Type.widerDecimalV3Type(finalType, decimalV3Type, false);
+                }
             }
-            Preconditions.checkState(finalType.isDecimalV3Type(), "decimalv3 precision promotion failed.");
         }
-        DataType argType = finalType;
-        List<DataType> newArgTypes = signature.argumentsTypes.stream().map(t -> {
-            // only process wildcard decimalv3
-            if (t instanceof DecimalV3Type && ((DecimalV3Type) t).getPrecision() <= 0) {
-                return argType;
-            } else {
-                return t;
-            }
-        }).collect(Collectors.toList());
+        DecimalV3Type argType = finalType;
+        if (finalType == null) {
+            return signature;
+        }
+        List<DataType> newArgTypes = signature.argumentsTypes.stream()
+                .map(at -> TypeCoercionUtils.replaceDecimalV3WithTarget(at, argType))
+                .collect(Collectors.toList());
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         if (signature.returnType instanceof DecimalV3Type
                 && ((DecimalV3Type) signature.returnType).getPrecision() <= 0) {
             signature = signature.withReturnType(argType);
         }
         return signature;
+    }
+
+    private static List<DataType> extractArgumentType(Class<? extends DataType> targetType,
+            DataType signatureType, DataType argumentType) {
+        if (targetType.isAssignableFrom(signatureType.getClass())) {
+            return Lists.newArrayList(argumentType);
+        } else if (signatureType instanceof ArrayType) {
+            if (argumentType instanceof NullType) {
+                return extractArgumentType(targetType, ((ArrayType) signatureType).getItemType(), argumentType);
+            } else if (argumentType instanceof ArrayType) {
+                return extractArgumentType(targetType,
+                        ((ArrayType) signatureType).getItemType(), ((ArrayType) argumentType).getItemType());
+            } else {
+                return Lists.newArrayList();
+            }
+        } else if (signatureType instanceof MapType) {
+            if (argumentType instanceof NullType) {
+                List<DataType> ret = extractArgumentType(targetType,
+                        ((MapType) signatureType).getKeyType(), argumentType);
+                ret.addAll(extractArgumentType(targetType, ((MapType) signatureType).getValueType(), argumentType));
+                return ret;
+            } else if (argumentType instanceof MapType) {
+                List<DataType> ret = extractArgumentType(targetType,
+                        ((MapType) signatureType).getKeyType(), ((MapType) argumentType).getKeyType());
+                ret.addAll(extractArgumentType(targetType,
+                        ((MapType) signatureType).getValueType(), ((MapType) argumentType).getValueType()));
+                return ret;
+            } else {
+                return Lists.newArrayList();
+            }
+        } else if (signatureType instanceof StructType) {
+            // TODO: do not support struct type now
+            return Lists.newArrayList();
+        } else {
+            return Lists.newArrayList();
+        }
     }
 
     static class ComputeSignatureChain {

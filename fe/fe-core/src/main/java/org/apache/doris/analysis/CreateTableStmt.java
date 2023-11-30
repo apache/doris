@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -68,7 +67,7 @@ public class CreateTableStmt extends DdlStmt {
 
     protected static final String DEFAULT_ENGINE_NAME = "olap";
 
-    private boolean ifNotExists;
+    protected boolean ifNotExists;
     private boolean isExternal;
     protected TableName tableName;
     protected List<ColumnDef> columnDefs;
@@ -92,14 +91,11 @@ public class CreateTableStmt extends DdlStmt {
     static {
         engineNames = Sets.newHashSet();
         engineNames.add("olap");
+        engineNames.add("jdbc");
+        engineNames.add("elasticsearch");
         engineNames.add("odbc");
         engineNames.add("mysql");
         engineNames.add("broker");
-        engineNames.add("elasticsearch");
-        engineNames.add("hive");
-        engineNames.add("iceberg");
-        engineNames.add("hudi");
-        engineNames.add("jdbc");
     }
 
     // if auto bucket auto bucket enable, rewrite distribution bucket num &&
@@ -122,7 +118,7 @@ public class CreateTableStmt extends DdlStmt {
         } else {
             long partitionSize = ParseUtil
                     .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
-            distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize));
+            distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize, Config.autobucket_min_buckets));
         }
 
         return newProperties;
@@ -201,20 +197,35 @@ public class CreateTableStmt extends DdlStmt {
         this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
     }
 
-    // This is for iceberg/hudi table, which has no column schema
+    // for Nereids
     public CreateTableStmt(boolean ifNotExists,
             boolean isExternal,
             TableName tableName,
+            List<Column> columns,
+            List<Index> indexes,
             String engineName,
+            KeysDesc keysDesc,
+            PartitionDesc partitionDesc,
+            DistributionDesc distributionDesc,
             Map<String, String> properties,
-            String comment) {
+            Map<String, String> extProperties,
+            String comment,
+            List<AlterClause> rollupAlterClauseList,
+            Void unused) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
         this.tableName = tableName;
+        this.columns = columns;
+        this.indexes = indexes;
         this.engineName = engineName;
+        this.keysDesc = keysDesc;
+        this.partitionDesc = partitionDesc;
+        this.distributionDesc = distributionDesc;
         this.properties = properties;
+        this.extProperties = extProperties;
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
+        this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
     }
 
     public void addColumnDef(ColumnDef columnDef) {
@@ -318,7 +329,7 @@ public class CreateTableStmt extends DdlStmt {
         boolean enableDuplicateWithoutKeysByDefault = false;
         if (properties != null) {
             enableDuplicateWithoutKeysByDefault =
-                                            PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+                    PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
         }
         //pre-block creation with column type ALL
         for (ColumnDef columnDef : columnDefs) {
@@ -420,6 +431,10 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             keysDesc.analyze(columnDefs);
+            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) && !enableUniqueKeyMergeOnWrite) {
+                throw new AnalysisException("Cluster keys only support unique keys table which enabled "
+                        + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            }
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);
             }
@@ -447,7 +462,7 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         // analyze column def
-        if (!(engineName.equals("iceberg") || engineName.equals("hudi") || engineName.equals("elasticsearch"))
+        if (!(engineName.equals("elasticsearch"))
                 && (columnDefs == null || columnDefs.isEmpty())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
@@ -489,10 +504,6 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isComplexType() && engineName.equals("olap")) {
-                if (columnDef.getAggregateType() == AggregateType.REPLACE
-                        && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("Aggregate table can't support replace array/map/struct value now");
-                }
                 if (columnDef.getAggregateType() != null
                         && columnDef.getAggregateType() != AggregateType.NONE
                         && columnDef.getAggregateType() != AggregateType.REPLACE) {
@@ -529,11 +540,11 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equals("olap")) {
             // before analyzing partition, handle the replication allocation info
-            properties = rewriteReplicaAllocationProperties(properties);
+            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(
+                    tableName.getCtl(), tableName.getDb(), properties);
             // analyze partition
             if (partitionDesc != null) {
-                if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc
-                        || partitionDesc instanceof ColumnPartitionDesc) {
+                if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {
                     partitionDesc.analyze(columnDefs, properties);
                 } else {
                     throw new AnalysisException("Currently only support range"
@@ -620,34 +631,6 @@ public class CreateTableStmt extends DdlStmt {
         }
     }
 
-    private Map<String, String> rewriteReplicaAllocationProperties(Map<String, String> properties) {
-        if (Config.force_olap_table_replication_num <= 0) {
-            return properties;
-        }
-        // if force_olap_table_replication_num is set, use this value to rewrite the replication_num or
-        // replication_allocation properties
-        Map<String, String> newProperties = properties;
-        if (newProperties == null) {
-            newProperties = Maps.newHashMap();
-        }
-        boolean rewrite = false;
-        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                    String.valueOf(Config.force_olap_table_replication_num));
-            rewrite = true;
-        }
-        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                    new ReplicaAllocation((short) Config.force_olap_table_replication_num).toCreateStmt());
-            rewrite = true;
-        }
-        if (!rewrite) {
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                    String.valueOf(Config.force_olap_table_replication_num));
-        }
-        return newProperties;
-    }
-
     private void analyzeEngineName() throws AnalysisException {
         if (Strings.isNullOrEmpty(engineName)) {
             engineName = "olap";
@@ -660,11 +643,7 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
                 || engineName.equals("elasticsearch") || engineName.equals("hive")
-                || engineName.equals("iceberg") || engineName.equals("hudi") || engineName.equals("jdbc")) {
-            if (engineName.equals("odbc") && !Config.enable_odbc_table) {
-                throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
-                    + "`enable_odbc_table=true` in fe.conf to enable ODBC again.");
-            }
+                || engineName.equals("jdbc")) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;
@@ -677,10 +656,13 @@ public class CreateTableStmt extends DdlStmt {
             }
         }
 
-        if (Config.disable_iceberg_hudi_table && (engineName.equals("iceberg") || engineName.equals("hudi"))) {
+        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals("odbc")
+                || engineName.equals("mysql") || engineName.equals("broker"))) {
             throw new AnalysisException(
-                    "iceberg and hudi table is no longer supported. Use multi catalog feature instead."
-                            + ". Or you can temporarily set 'disable_iceberg_hudi_table=false'"
+                    "odbc, mysql and broker table is no longer supported."
+                            + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
+                            + " For broker table, use table valued function instead."
+                            + ". Or you can temporarily set 'disable_odbc_mysql_broker_table=false'"
                             + " in fe.conf to reopen this feature.");
         }
     }

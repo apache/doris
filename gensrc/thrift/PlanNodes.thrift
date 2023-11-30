@@ -58,6 +58,7 @@ enum TPlanNodeType {
   JDBC_SCAN_NODE,
   TEST_EXTERNAL_SCAN_NODE,
   PARTITION_SORT_NODE,
+  GROUP_COMMIT_SCAN_NODE
 }
 
 // phases of an execution node
@@ -118,6 +119,7 @@ enum TFileFormatType {
     FORMAT_AVRO,
     FORMAT_CSV_LZ4BLOCK,
     FORMAT_CSV_SNAPPYBLOCK,
+    FORMAT_WAL,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -304,6 +306,10 @@ struct TPaimonFileDesc {
     4: optional string table_name
     5: optional string paimon_predicate
     6: optional map<string, string> paimon_options
+    7: optional i64 ctl_id
+    8: optional i64 db_id
+    9: optional i64 tbl_id
+    10: optional i64 last_update_time
 }
 
 
@@ -336,6 +342,11 @@ struct TTableFormatFileDesc {
     3: optional THudiFileDesc hudi_params
     4: optional TPaimonFileDesc paimon_params
     5: optional TTransactionalHiveDesc transactional_hive_params
+}
+
+enum TTextSerdeType {
+    JSON_TEXT_SERDE = 0,
+    HIVE_TEXT_SERDE = 1,
 }
 
 struct TFileScanRangeParams {
@@ -380,6 +391,7 @@ struct TFileScanRangeParams {
     19: optional map<string, i32> slot_name_to_schema_pos
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
+    22: optional TTextSerdeType  text_serde_type 
 }
 
 struct TFileRangeDesc {
@@ -457,11 +469,23 @@ struct TFrontendsMetadataParams {
   1: optional string cluster_name
 }
 
+struct TMaterializedViewsMetadataParams {
+  1: optional string database
+}
+
+struct TQueriesMetadataParams {
+  1: optional string cluster_name
+  2: optional bool   relay_to_other_fe
+  3: optional TMaterializedViewsMetadataParams materialized_views_params
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params
   3: optional TBackendsMetadataParams backends_params
   4: optional TFrontendsMetadataParams frontends_params
+  5: optional TQueriesMetadataParams queries_params
+  6: optional TMaterializedViewsMetadataParams materialized_views_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -842,12 +866,20 @@ enum TopNAlgorithm {
    ROW_NUMBER
  }
 
+enum TPartTopNPhase {
+  UNKNOWN,
+  ONE_PHASE_GLOBAL,
+  TWO_PHASE_LOCAL,
+  TWO_PHASE_GLOBAL
+}
+
  struct TPartitionSortNode {
    1: optional list<Exprs.TExpr> partition_exprs
    2: optional TSortInfo sort_info
    3: optional bool has_global_limit
    4: optional TopNAlgorithm top_n_algorithm
    5: optional i64 partition_inner_limit
+   6: optional TPartTopNPhase ptopn_phase
  }
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset
@@ -1048,6 +1080,18 @@ enum TRuntimeFilterType {
   BITMAP = 16
 }
 
+// generate min-max runtime filter for non-equal condition or equal condition. 
+enum TMinMaxRuntimeFilterType {
+  // only min is valid, RF generated according to condition: n < col_A
+  MIN = 1
+  // only max is valid, RF generated according to condition: m > col_A
+  MAX = 2
+  // both min/max are valid, 
+  // support hash join condition: col_A = col_B
+  // support other join condition: n < col_A and col_A < m
+  MIN_MAX = 4
+}
+
 // Specification of a runtime filter.
 struct TRuntimeFilterDesc {
   // Filter unique id (within a query)
@@ -1088,11 +1132,20 @@ struct TRuntimeFilterDesc {
   11: optional bool bitmap_filter_not_in
 
   12: optional bool opt_remote_rf;
+  
+  // for min/max rf
+  13: optional TMinMaxRuntimeFilterType min_max_type;
 }
+
+
 
 struct TDataGenScanNode {
 	1: optional Types.TTupleId tuple_id
   2: optional TDataGenFunctionName func_name
+}
+
+struct TGroupCommitScanNode {
+    1: optional i64 table_id;
 }
 
 // This is essentially a union of all messages corresponding to subclasses
@@ -1138,6 +1191,7 @@ struct TPlanNode {
   35: optional TOdbcScanNode odbc_scan_node
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
+  37: optional TGroupCommitScanNode group_commit_scan_node
 
   // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct

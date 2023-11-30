@@ -41,7 +41,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/scanner_context.h"
@@ -116,7 +115,8 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) {}
 
     void set_shared_scan(RuntimeState* state, bool shared_scan) {
         _shared_scan_opt = shared_scan;
@@ -137,7 +137,7 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
-    int64_t get_push_down_count() { return _push_down_count; }
+    int64_t get_push_down_count() const { return _push_down_count; }
 
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
@@ -244,6 +244,11 @@ protected:
 
     Status _prepare_scanners(const int query_parallel_instance_num);
 
+    // For some conjunct there is chance to elimate cast operator
+    // Eg. Variant's sub column could eliminate cast in storage layer if
+    // cast dst column type equals storage column type
+    virtual void get_cast_types_for_variants() {}
+
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
 
@@ -251,7 +256,7 @@ protected:
     TupleId _output_tuple_id = -1;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
-    doris::Mutex _block_lock;
+    std::mutex _block_lock;
 
     // These two values are from query_options
     int _max_scan_key_num;
@@ -270,10 +275,15 @@ protected:
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
 
+    // colname -> cast dst type
+    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
+    // slot id -> SlotDescriptor
+    phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
     // column -> ColumnValueRange
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
@@ -306,8 +316,6 @@ protected:
     VExprContextSPtrs _stale_expr_ctxs;
     VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    RuntimeState* _state;
-
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
@@ -318,10 +326,11 @@ protected:
     std::shared_ptr<RuntimeProfile> _scanner_profile;
 
     // rows read from the scanner (including those discarded by (pre)filters)
-    RuntimeProfile::Counter* _rows_read_counter;
+    RuntimeProfile::Counter* _rows_read_counter = nullptr;
+    RuntimeProfile::Counter* _byte_read_counter = nullptr;
     // Wall based aggregate read throughput [rows/sec]
-    RuntimeProfile::Counter* _total_throughput_counter;
-    RuntimeProfile::Counter* _num_scanners;
+    RuntimeProfile::Counter* _total_throughput_counter = nullptr;
+    RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _get_next_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -347,9 +356,9 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
     std::vector<int> _col_distribute_ids;

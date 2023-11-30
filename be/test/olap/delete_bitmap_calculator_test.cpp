@@ -40,6 +40,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -73,7 +74,7 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kSegmentDir).ok());
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
-        StorageEngine::_s_instance = k_engine;
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
     }
 
     void TearDown() override {
@@ -82,6 +83,7 @@ public:
             k_engine->stop();
             delete k_engine;
             k_engine = nullptr;
+            ExecEnv::GetInstance()->set_storage_engine(nullptr);
         }
     }
 
@@ -107,7 +109,7 @@ public:
         Status st = fs->create_file(path, &file_writer);
         EXPECT_TRUE(st.ok());
         DataDir data_dir(kSegmentDir);
-        data_dir.init();
+        static_cast<void>(data_dir.init());
         SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, &data_dir,
                              INT32_MAX, opts, nullptr);
         st = writer.init();
@@ -225,7 +227,7 @@ public:
         MergeIndexDeleteBitmapCalculator calculator;
         size_t seq_col_len = 0;
         if (has_sequence_col) {
-            seq_col_len = tablet_schema->column(tablet_schema->sequence_col_idx()).length();
+            seq_col_len = tablet_schema->column(tablet_schema->sequence_col_idx()).length() + 1;
         }
 
         ASSERT_TRUE(calculator.init(rowset_id, segments, seq_col_len).ok());

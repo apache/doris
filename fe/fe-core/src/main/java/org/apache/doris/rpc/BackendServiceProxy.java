@@ -23,6 +23,10 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
+import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
+import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFoldConstantParams;
@@ -109,18 +113,30 @@ public class BackendServiceProxy {
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
         String realIp = NetUtils.getIpByHost(address.getHostname());
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
-        if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)) {
+        if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
+                && serviceClientExtIp.client.isNormalState()) {
             return serviceClientExtIp.client;
         }
+
         // not exist, create one and return.
+        BackendServiceClient removedClient = null;
         lock.lock();
         try {
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
                 LOG.warn("Cached ip changed ,before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
                 serviceMap.remove(address);
+                removedClient = serviceClientExtIp.client;
+                serviceClientExtIp = null;
             }
-            serviceClientExtIp = serviceMap.get(address);
+            if (serviceClientExtIp != null && !serviceClientExtIp.client.isNormalState()) {
+                // At this point we cannot judge the progress of reconnecting the underlying channel.
+                // In the worst case, it may take two minutes. But we can't stand the connection refused
+                // for two minutes, so rebuild the channel directly.
+                serviceMap.remove(address);
+                removedClient = serviceClientExtIp.client;
+                serviceClientExtIp = null;
+            }
             if (serviceClientExtIp == null) {
                 BackendServiceClient client = new BackendServiceClient(address, grpcThreadPool);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
@@ -128,6 +144,9 @@ public class BackendServiceProxy {
             return serviceMap.get(address).client;
         } finally {
             lock.unlock();
+            if (removedClient != null) {
+                removedClient.shutdown();
+            }
         }
     }
 
@@ -252,6 +271,18 @@ public class BackendServiceProxy {
             return client.fetchDataSync(request);
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PFetchArrowFlightSchemaResult> fetchArrowFlightSchema(
+            TNetworkAddress address, InternalService.PFetchArrowFlightSchemaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchArrowFlightSchema(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch arrow flight schema catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
@@ -410,5 +441,30 @@ public class BackendServiceProxy {
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
+
+    public Future<PGroupCommitInsertResponse> groupCommitInsert(TNetworkAddress address,
+            PGroupCommitInsertRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.groupCommitInsert(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to group commit insert from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<PGetWalQueueSizeResponse> getWalQueueSize(TNetworkAddress address,
+            PGetWalQueueSizeRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getWalQueueSize(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to get wal queue size from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
 
 }

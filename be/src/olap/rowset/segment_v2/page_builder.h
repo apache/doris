@@ -79,12 +79,12 @@ public:
 
     // Return the first value in this page.
     // This method could only be called between finish() and reset().
-    // Status::NotFound if no values have been added.
+    // Status::Error<ENTRY_NOT_FOUND> if no values have been added.
     virtual Status get_first_value(void* value) const = 0;
 
     // Return the last value in this page.
     // This method could only be called between finish() and reset().
-    // Status::NotFound if no values have been added.
+    // Status::Error<ENTRY_NOT_FOUND> if no values have been added.
     virtual Status get_last_value(void* value) const = 0;
 
 private:

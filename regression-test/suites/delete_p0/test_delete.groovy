@@ -250,4 +250,171 @@ suite("test_delete") {
         sql 'select * from test1 order by x'
         result([['a', 'a']])
     }
+
+    sql "drop table if exists dwd_pay"
+    sql """
+    CREATE TABLE `dwd_pay` (
+  `tenant_id` int(11) DEFAULT NULL COMMENT '租户ID',
+  `pay_time` datetime DEFAULT NULL COMMENT '付款时间',
+)  ENGINE=OLAP
+DUPLICATE KEY(`tenant_id`)
+COMMENT "付款明细"
+PARTITION BY RANGE(`pay_time` ) (
+PARTITION p202012 VALUES LESS THAN ('2021-01-01 00:00:00')
+)
+DISTRIBUTED BY HASH(`tenant_id`) BUCKETS auto
+PROPERTIES
+(
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "MONTH",
+    "dynamic_partition.end" = "2",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.start_day_of_month" = "1",
+    "dynamic_partition.create_history_partition" = "true",
+    "dynamic_partition.history_partition_num" = "120",
+    "dynamic_partition.buckets"="1",
+    "estimate_partition_size" = "1G",
+    "storage_type" = "COLUMN",
+    "replication_num" = "1"
+);
+    """
+
+    sql "delete from dwd_pay partitions(p202310) where pay_time = '20231002';"
+
+    sql """
+    ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false');
+    """
+
+    sql "drop table if exists test"
+    sql """
+    CREATE TABLE `test`  
+    (
+            col_1 int,
+            col_2 decimalv2(10,3)
+    )ENGINE=OLAP
+    duplicate KEY(`col_1`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`col_1`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql "DELETE FROM test  WHERE col_2 = cast(123.45 as decimalv2(10,3));"
+
+    // add every type of delete
+    sql "drop table if exists every_type_table"
+    sql  "ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false')"
+    sql """
+    CREATE TABLE `every_type_table` 
+  (
+            col_1 tinyint,
+            col_2 smallint,
+            col_3 int,
+            col_4 bigint,
+            col_5 decimal(10,3),
+            col_6 char,
+            col_7 varchar(20),
+            col_9 date,
+            col_10 datetime,
+            col_11 boolean,
+            col_12 decimalv2(10,3),
+            col_8 string,
+        ) ENGINE=OLAP
+        duplicate KEY(`col_1`, col_2, col_3, col_4, col_5, col_6, col_7,  col_9, col_10, col_11, col_12)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`col_1`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+         INSERT INTO every_type_table VALUES 
+        (1, 2, 3, 4, 11.22, 'a', 'b', '2023-01-01', '2023-01-01 00:01:02', true, 11.22, 'aaa'),
+        (2, 3, 4, 5, 22.33, 'b', 'c', '2023-01-02', '2023-01-02 00:01:02', false, 22.33,'bbb'),
+        (3, 4, 5, 6, 33.44, 'c', 'd', '2023-01-03', '2023-01-03 00:01:02', true, 33.44, 'ccc'),
+        (4, 5, 6, 7, 44.55, 'd', 'e', '2023-01-04', '2023-01-04 00:01:02', false, 44.55, 'ddd'),
+        (5, 6, 7, 8, 55.66, 'e', 'f', '2023-01-05', '2023-01-05 00:01:02', true, 55.66, 'eee'),
+        (6, 7, 8, 9, 66.77, 'f', 'g', '2023-01-06', '2023-01-06 00:01:02', false, 66.77, 'fff'),
+        (7, 8, 9, 10, 77.88, 'g', 'h', '2023-01-07', '2023-01-07 00:01:02', true, 77.88, 'ggg'),
+        (8, 9, 10, 11, 88.99, 'h', 'i', '2023-01-08', '2023-01-08 00:01:02', false, 88.99, 'hhh'),
+        (9, 10, 11, 12, 99.1, 'i', 'j', '2023-01-09', '2023-01-09 00:01:02', true, 99.100, 'iii'),
+        (10, 11, 12, 13, 101.2, 'j', 'k', '2023-01-10', '2023-01-10 00:01:02', false, 100.101, 'jjj'),
+        (11, 12, 13, 14, 102.2, 'l', 'k', '2023-01-11', '2023-01-11 00:01:02', true, 101.102, 'kkk'),
+        (12, 13, 14, 15, 103.2, 'm', 'l', '2023-01-12', '2023-01-12 00:01:02', false, 102.103, 'lll'),
+        (13, 14, 15, 16, 104.2, 'n', 'm', '2023-01-13', '2023-01-13 00:01:02', true, 103.104, 'mmm'),
+        (14, 15, 16, 17, 105.2, 'o', 'n', '2023-01-14', '2023-01-14 00:01:02', false, 11111.105, 'nnn'),
+        (15, 16, 17, 18, 106.2, 'p', 'o', '2023-01-15', '2023-01-15 00:01:02', true, 22222.106, 'ooo'),
+        (15, 16, 17, 18, 106.2, 'q', 'p', '2023-01-16', '2023-01-16 00:01:02', false, 22223.106, 'ppp'),
+        (16, 17, 18, 19, 107.2, 'r', 'q', '2023-01-17', '2023-01-17 00:01:02', true, 22224.106, 'qqq'),
+        (17, 18, 19, 20, 108.2, 's', 'r', '2023-01-18', '2023-01-18 00:01:02', false, 22225.106, 'rrr'),
+        (18, 19, 20, 21, 109.2, 't', 's', '2023-01-19', '2023-01-19 00:01:02', true, 22226.106, 'sss'),
+        (19, 20, 21, 22, 110.2, 'v', 't', '2023-01-20', '2023-01-20 00:01:02', false, 22227.106, 'ttt'),
+        (20, 21, 22, 23, 111.2, 'u', 'u', '2023-01-21', '2023-01-21 00:01:02', true, 22228.106, 'uuu'),
+        (21, 22, 23, 24, 112.2, 'w', 'v', '2023-01-22', '2023-01-22 00:01:02', false, 22229.106, 'vvv'),
+        (22, 23, 24, 25, 113.2, 'x', 'w', '2023-01-23', '2023-01-23 00:01:02', true, 22210.106, 'www'),
+        (23, 24, 25, 26, 114.2, 'y', 'x', '2023-01-24', '2023-01-24 00:01:02', false, 22211.106, 'xxx'),
+        (24, 25, 26, 27, 115.2, 'z', 'y', '2023-01-25', '2023-01-25 00:01:02', true, 22212.106, 'yyy'),
+        (25, 26, 27, 28, 116.2, 'a', 'z', '2023-01-26', '2023-01-26 00:01:02', false, 22213.106, 'zzz'),
+        (26, 27, 28, 29, 117.2, 'b', 'a', '2023-01-27', '2023-01-27 00:01:02', true, 22214.106, 'aaa'),
+        (27, 28, 29, 30, 118.2, 'c', 'b', '2023-01-28', '2023-01-28 00:01:02', false, 22215.106, 'bbb'),
+        (28, 29, 30, 31, 119.2, 'd', 'c', '2023-01-29', '2023-01-29 00:01:02', true, 22216.106, 'ccc'),
+        (28, 29, 31, 32, 120.2, 'q', 'd', '2023-01-30', '2023-01-30 00:01:02', true, 22217.106, 'ccc'),
+        (29, 30, 32, 33, 121.2, 'w', 'e', '2023-01-31', '2023-01-31 00:01:02', false, 22218.106, 'dd'),
+        (30, 31, 33, 34, 122.2, 'e', 'f', '2023-02-01', '2023-02-01 00:01:02', true, 22219.106, 'ee'),
+        (31, 32, 34, 35, 123.2, 'r', 'g', '2023-02-02', '2023-02-02 00:01:02', false, 22220.106, 'ff'),
+        (32, 33, 35, 36, 124.2, 't', 'h', '2023-02-03', '2023-02-03 00:01:02', true, 22221.106, 'gg'),
+        (33, 34, 36, 37, 125.2, 'y', 'i', '2023-02-04', '2023-02-04 00:01:02', false, 22230.106, 'hh'),
+        (34, 35, 37, 38, 126.2, 'u', 'j', '2023-02-05', '2023-02-05 00:01:02', true, 22231.106, 'ii'),
+        (35, 36, 38, 39, 127.2, 'i', 'k', '2023-02-06', '2023-02-06 00:01:02', false, 22232.106, 'jj'),
+        (36, 37, 39, 40, 128.2, 'o', 'l', '2023-02-07', '2023-02-07 00:01:02', true, 22233.106, 'kk'),
+        (37, 38, 40, 41, 129.2, 'p', 'm', '2023-02-08', '2023-02-08 00:01:02', false, 22234.106, 'll'),
+        (38, 39, 41, 42, 130.2, 'a', 'n', '2023-02-09', '2023-02-09 00:01:02', true, 22235.106, 'mm'),
+        (39, 40, 42, 43, 131.2, 's', 'o', '2023-02-10', '2023-02-10 00:01:02', false, 22236.106, 'nn'),
+        (40, 41, 43, 44, 132.2, 'd', 'p', '2023-02-11', '2023-02-11 00:01:02', true, 22237.106, 'oo'),
+        (41, 42, 44, 45, 133.2, 'f', 'r', '2023-02-12', '2023-02-12 00:01:02', false, 22238.106, 'pp'),
+        (42, 43, 45, 46, 134.2, 'g', 's', '2023-02-13', '2023-02-13 00:01:02', true, 22239.106, 'qq'),
+        (43, 44, 46, 47, 135.2, 'g', 't', '2023-02-14', '2023-02-14 00:01:02', false, 22240.106, 'rr'),
+        (44, 45, 47, 48, 136.2, 'h', 'u', '2023-02-15', '2023-02-15 00:01:02', true, 2222222.106, 'ss'),
+        (45, 46, 48, 49, 137.2, 'j', 'v', '2023-02-16', '2023-02-16 00:01:02', false, 2222223.106, 'tt'),
+        (46, 47, 49, 50, 138.2, 'k', 'w', '2023-02-17', '2023-02-17 00:01:02', true, 2222224.106, 'uu'),
+        (47, 48, 50, 51, 139.2, 'l', 'x', '2023-02-18', '2023-02-18 00:01:02', false, 2222225.106, 'vv'),
+        (48, 49, 51, 52, 140.2, 'z', 'y', '2023-02-19', '2023-02-19 00:01:02', true, 2222226.106, 'ww');
+        
+    """
+
+    sql "DELETE FROM every_type_table WHERE col_1 = 1"
+    sql "DELETE FROM every_type_table WHERE col_2 = 3"
+    sql "DELETE FROM every_type_table WHERE col_3 = 5"
+    sql "DELETE FROM every_type_table WHERE col_4 = 7"
+    sql "DELETE FROM every_type_table WHERE col_5 = 55.66"
+    sql "DELETE FROM every_type_table WHERE col_6 = 'f'"
+    sql "DELETE FROM every_type_table WHERE col_7 = 'h'"
+    sql "DELETE FROM every_type_table WHERE col_8 = 'hhh'"
+    sql "DELETE FROM every_type_table WHERE col_9 = '2023-01-09'"
+    sql "DELETE FROM every_type_table WHERE col_10 = '2023-01-10 00:01:02'"
+    // todo: add the following delete check, now it's not supported
+    // sql "DELETE FROM every_type_table WHERE col_12 = 2222226.106"
+    sql "DELETE FROM every_type_table WHERE col_12 in (2222226.106, 2222225.106, 2222224.106, 2222223.106)"
+    sql "DELETE FROM every_type_table WHERE col_1 in (9, 48, 47, 46)"
+    sql "DELETE FROM every_type_table WHERE col_2 in (10, 11)"
+    sql "DELETE FROM every_type_table WHERE col_3 in (12, 13)"
+    sql "DELETE FROM every_type_table WHERE col_4 in (14, 15)"
+    sql "DELETE FROM every_type_table WHERE col_5 in (66.77, 88.99)"
+    sql "DELETE FROM every_type_table WHERE col_6 in ('u', 'v')"
+    sql "DELETE FROM every_type_table WHERE col_7 in ('i', 'j')"
+    sql "DELETE FROM every_type_table WHERE col_8 in ('xxx', 'yyy')"
+    sql "DELETE FROM every_type_table WHERE col_9 in ('2023-01-09', '2023-02-01')"
+    sql "DELETE FROM every_type_table WHERE col_10 in ('2023-01-11 00:01:02', '2023-01-12 00:01:02')"
+    sql "DELETE FROM every_type_table WHERE col_12 in (2222226.106, 2222225.106, 2222224.106, 2222223.106)"
+    sql "DELETE FROM every_type_table WHERE col_11 = true"
+    sql "DELETE FROM every_type_table WHERE col_1 <= 30 and col_1 != 21 and col_1 >= 25"
+    sql "DELETE FROM every_type_table WHERE col_5 >= 137.2 and col_5 != 138.2 and col_5 <= 140.2"
+    sql "DELETE FROM every_type_table WHERE col_6 >= 'x' and col_6 != 'y' and col_6 <= 'z'"
+    sql "DELETE FROM every_type_table WHERE col_7 >= 'i' and col_7 != 'j' and col_7 <= 'k'"
+    sql "DELETE FROM every_type_table WHERE col_8 >= 'xxx' and col_8 != 'yyy' and col_8 <= 'zzz'"
+    sql "DELETE FROM every_type_table WHERE col_9 >= '2023-02-17' and col_9 in ('2023-02-19')"
+    sql "DELETE FROM every_type_table WHERE col_10 >= '2023-02-17 00:01:02' and col_10 in ('2023-02-17 00:01:02')"
+    qt_check_data7 """ select * from  every_type_table order by col_1; """
+    sql "drop table every_type_table"
+
 }

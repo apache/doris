@@ -72,6 +72,7 @@ First, use the value of estimate_partition_size divided by 5 (calculated as a 5-
 3. Calculation logic to get the final number of buckets.
 First calculate an intermediate value x = min(M, N, 128).
 If x < N and x < the number of BE nodes, the final bucket is y, the number of BE nodes; otherwise, the final bucket is x.
+4. x = max(x, autobucket_min_buckets), 这里autobucket_min_buckets是在Config中配置的，默认是1
 
 The pseudo-code representation of the above process is as follows
 

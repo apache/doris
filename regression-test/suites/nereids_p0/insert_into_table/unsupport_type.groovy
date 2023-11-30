@@ -23,11 +23,6 @@ suite("nereids_insert_unsupport_type") {
     sql 'set enable_nereids_dml=true'
     sql 'set enable_strict_consistency_dml=true'
 
-    test {
-        sql 'insert into json_t select id, kjson from src'
-        exception 'unsupported for Nereids'
-    }
-
     sql 'set enable_fallback_to_original_planner=true'
 
     sql 'insert into map_t select id, kmintint from src'

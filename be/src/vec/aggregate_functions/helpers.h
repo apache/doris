@@ -45,7 +45,58 @@
     M(Decimal32)             \
     M(Decimal64)             \
     M(Decimal128)            \
-    M(Decimal128I)
+    M(Decimal128I)           \
+    M(Decimal256)
+
+/** If the serialized type is not the default type(string),
+ * aggregation function need to override these functions:
+ * 1. serialize_to_column
+ * 2. streaming_agg_serialize_to_column
+ * 3. deserialize_and_merge_vec
+ * 4. deserialize_and_merge_vec_selected
+ * 5. serialize_without_key_to_column
+ * 6. deserialize_and_merge_from_column
+ */
+#define CHECK_AGG_FUNCTION_SERIALIZED_TYPE(FunctionTemplate)                                       \
+    do {                                                                                           \
+        constexpr bool _is_new_serialized_type =                                                   \
+                !std::is_same_v<decltype(&FunctionTemplate::get_serialized_type),                  \
+                                decltype(&IAggregateFunction::get_serialized_type)>;               \
+        if constexpr (_is_new_serialized_type) {                                                   \
+            static_assert(!std::is_same_v<decltype(&FunctionTemplate::serialize_to_column),        \
+                                          decltype(&IAggregateFunctionHelper<                      \
+                                                   FunctionTemplate>::serialize_to_column)>,       \
+                          "need to override serialize_to_column");                                 \
+            static_assert(                                                                         \
+                    !std::is_same_v<                                                               \
+                            decltype(&FunctionTemplate::streaming_agg_serialize_to_column),        \
+                            decltype(&IAggregateFunction::streaming_agg_serialize_to_column)>,     \
+                    "need to override "                                                            \
+                    "streaming_agg_serialize_to_column");                                          \
+            static_assert(!std::is_same_v<decltype(&FunctionTemplate::deserialize_and_merge_vec),  \
+                                          decltype(&IAggregateFunctionHelper<                      \
+                                                   FunctionTemplate>::deserialize_and_merge_vec)>, \
+                          "need to override deserialize_and_merge_vec");                           \
+            static_assert(                                                                         \
+                    !std::is_same_v<                                                               \
+                            decltype(&FunctionTemplate::deserialize_and_merge_vec_selected),       \
+                            decltype(&IAggregateFunctionHelper<                                    \
+                                     FunctionTemplate>::deserialize_and_merge_vec_selected)>,      \
+                    "need to override "                                                            \
+                    "deserialize_and_merge_vec_selected");                                         \
+            static_assert(                                                                         \
+                    !std::is_same_v<decltype(&FunctionTemplate::serialize_without_key_to_column),  \
+                                    decltype(&IAggregateFunctionHelper<                            \
+                                             FunctionTemplate>::serialize_without_key_to_column)>, \
+                    "need to override serialize_without_key_to_column");                           \
+            static_assert(!std::is_same_v<                                                         \
+                                  decltype(&FunctionTemplate::deserialize_and_merge_from_column),  \
+                                  decltype(&IAggregateFunctionHelper<                              \
+                                           FunctionTemplate>::deserialize_and_merge_from_column)>, \
+                          "need to override "                                                      \
+                          "deserialize_and_merge_from_column");                                    \
+        }                                                                                          \
+    } while (false)
 
 namespace doris::vectorized {
 
@@ -57,34 +108,38 @@ struct creator_without_type {
     template <typename AggregateFunctionTemplate>
     static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
                                         const bool result_is_nullable) {
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return create<AggregateFunctionTemplate>(argument_types, result_is_nullable);
     }
 
     template <typename AggregateFunctionTemplate, typename... TArgs>
-    static AggregateFunctionPtr create(const DataTypes& argument_types,
+    static AggregateFunctionPtr create(const DataTypes& argument_types_,
                                        const bool result_is_nullable, TArgs&&... args) {
         IAggregateFunction* result(new AggregateFunctionTemplate(std::forward<TArgs>(args)...,
-                                                                 remove_nullable(argument_types)));
-        if (have_nullable(argument_types)) {
+                                                                 remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
             std::visit(
                     [&](auto multi_arguments, auto result_is_nullable) {
                         result = new NullableT<multi_arguments, result_is_nullable,
-                                               AggregateFunctionTemplate>(result, argument_types);
+                                               AggregateFunctionTemplate>(result, argument_types_);
                     },
-                    make_bool_variant(argument_types.size() > 1),
+                    make_bool_variant(argument_types_.size() > 1),
                     make_bool_variant(result_is_nullable));
         }
+
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return AggregateFunctionPtr(result);
     }
 
     /// AggregateFunctionTemplate will handle the nullable arguments, no need to use
     /// AggregateFunctionNullVariadicInline/AggregateFunctionNullUnaryInline
     template <typename AggregateFunctionTemplate, typename... TArgs>
-    static AggregateFunctionPtr create_ignore_nullable(const DataTypes& argument_types,
+    static AggregateFunctionPtr create_ignore_nullable(const DataTypes& argument_types_,
                                                        const bool /*result_is_nullable*/,
                                                        TArgs&&... args) {
         IAggregateFunction* result(
-                new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types));
+                new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types_));
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return AggregateFunctionPtr(result);
     }
 };

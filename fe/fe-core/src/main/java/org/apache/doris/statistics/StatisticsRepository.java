@@ -179,7 +179,7 @@ public class StatisticsRepository {
         return stringJoiner.toString();
     }
 
-    public static void dropStatistics(Set<Long> partIds) throws DdlException {
+    public static void dropStatistics(Set<String> partIds) throws DdlException {
         dropStatisticsByPartId(partIds, StatisticConstants.STATISTIC_TBL_NAME);
     }
 
@@ -202,7 +202,7 @@ public class StatisticsRepository {
         }
     }
 
-    public static void dropStatisticsByPartId(Set<Long> partIds, String statsTblName) throws DdlException {
+    public static void dropStatisticsByPartId(Set<String> partIds, String statsTblName) throws DdlException {
         Map<String, String> params = new HashMap<>();
         String right = StatisticsUtil.joinElementsToString(partIds, ",");
         String inPredicate = String.format(" part_id IN (%s)", right);
@@ -248,7 +248,14 @@ public class StatisticsRepository {
             builder.setMaxValue(StatisticsUtil.convertToDouble(column.getType(), max));
         }
         if (dataSize != null) {
-            builder.setDataSize(Double.parseDouble(dataSize));
+            double size = Double.parseDouble(dataSize);
+            double rows = Double.parseDouble(rowCount);
+            if (size > 0) {
+                builder.setDataSize(size);
+                if (rows > 0) {
+                    builder.setAvgSizeByte(size / rows);
+                }
+            }
         }
 
         ColumnStatistic columnStatistic = builder.build();
@@ -262,8 +269,8 @@ public class StatisticsRepository {
         params.put("count", String.valueOf(columnStatistic.count));
         params.put("ndv", String.valueOf(columnStatistic.ndv));
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
-        params.put("min", min == null ? "NULL" : min);
-        params.put("max", max == null ? "NULL" : max);
+        params.put("min", StatisticsUtil.escapeSQL(min));
+        params.put("max", StatisticsUtil.escapeSQL(max));
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
 
         if (partitionIds.isEmpty()) {
@@ -271,7 +278,7 @@ public class StatisticsRepository {
             params.put("partId", "NULL");
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
             Env.getCurrentEnv().getStatisticsCache()
-                    .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
+                    .updateColStatsCache(objects.table.getId(), -1, colName, columnStatistic);
         } else {
             // update partition granularity statistics
             for (Long partitionId : partitionIds) {
@@ -296,14 +303,14 @@ public class StatisticsRepository {
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
     }
 
-    public static Map<String, Set<Long>> fetchColAndPartsForStats(long tblId) {
+    public static Map<String, Set<String>> fetchColAndPartsForStats(long tblId) {
         Map<String, String> params = Maps.newHashMap();
         params.put("tblId", String.valueOf(tblId));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String partSql = stringSubstitutor.replace(FETCH_STATS_PART_ID);
         List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(partSql);
 
-        Map<String, Set<Long>> columnToPartitions = Maps.newHashMap();
+        Map<String, Set<String>> columnToPartitions = Maps.newHashMap();
 
         resultRows.forEach(row -> {
             try {

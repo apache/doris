@@ -230,22 +230,65 @@ suite("test_ctas") {
         sql 'insert into a values(1, \'ww\'), (2, \'zs\');'
         sql 'insert into b values(1, 22);'
 
-        sql 'create table c properties("replication_num"="1") as select a.id, a.name, b.age from a left join b on a.id = b.id;'
+        sql 'set enable_nereids_planner=false'
+
+        sql 'create table c properties("replication_num"="1") as select b.id, a.name, b.age from a left join b on a.id = b.id;'
         
-        String desc = sql 'desc c'
-        assertTrue(desc.contains('Yes'))
+        String descC = sql 'desc c'
+        assertTrue(descC.contains('Yes'))
+        String descB = sql 'desc b'
+        assertTrue(descB.contains('No'))
+
         sql '''create table test_date_v2 
         properties (
                 "replication_num"="1"
         ) as select to_date('20250829');
         '''
-        desc = sql 'desc test_date_v2'
+        String desc = sql 'desc test_date_v2'
         assertTrue(desc.contains('Yes'))
     } finally {
         sql 'drop table a'
         sql 'drop table b'
         sql 'drop table c'
         sql 'drop table test_date_v2'
+    }
+
+    try {
+        sql '''set enable_nereids_planner=true;'''
+        sql'''CREATE TABLE `test_ctas_of_view` (
+            `l_varchar` varchar(65533) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`l_varchar`)
+        COMMENT 'OLAP\'
+        DISTRIBUTED BY HASH(`l_varchar`) BUCKETS 10
+        PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "is_being_synced" = "false",
+                "storage_format" = "V2",
+                "light_schema_change" = "true",
+                "disable_auto_compaction" = "false",
+                "enable_single_replica_compaction" = "false"
+        );'''
+
+        sql '''insert into test_ctas_of_view values ('a');'''
+
+        sql '''CREATE VIEW `ctas_view` COMMENT 'VIEW' 
+        AS SELECT `l_varchar` AS `l_varchar_1`, 
+        CAST(row_number() OVER (ORDER BY `l_varchar` ASC NULLS FIRST) AS CHARACTER) AS `l_varchar_2` 
+        FROM test_ctas_of_view;'''
+
+        sql '''create table test_ctas 
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1") 
+        as select  l_varchar_1 
+        from ctas_view;'''
+
+        String desc = sql 'desc test_ctas'
+        assertTrue(desc.contains('Yes'))
+
+    } finally {
+        sql 'drop table test_ctas'
+        sql 'drop table test_ctas_of_view'
+        sql 'drop view ctas_view'
     }
 }
 

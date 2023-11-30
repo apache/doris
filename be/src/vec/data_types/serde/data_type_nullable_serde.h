@@ -33,18 +33,32 @@ class Arena;
 
 class DataTypeNullableSerDe : public DataTypeSerDe {
 public:
-    DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde) : nested_serde(_nested_serde) {}
+    DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
+            : DataTypeSerDe(nesting_level), nested_serde(_nested_serde) {}
 
-    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                    FormatOptions& options) const override;
-    void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
-                                  BufferWritable& bw, FormatOptions& options) const override;
-    Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options) const override;
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options) const override;
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
 
-    Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_hive_text(
+            IColumn& column, Slice& slice, const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
+
+    Status deserialize_column_from_hive_text_vector(
+            IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+            const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
+
+    void serialize_one_cell_to_hive_text(
+            const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
@@ -54,6 +68,7 @@ public:
                                  int32_t col_id, int row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
@@ -64,10 +79,20 @@ public:
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
 
+    Status write_column_to_orc(const std::string& timezone, const IColumn& column,
+                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
+
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);
         nested_serde->set_return_object_as_string(value);
     }
+
+    void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                rapidjson::Document::AllocatorType& allocator,
+                                int row_num) const override;
+    void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
     template <bool is_binary_format>

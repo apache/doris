@@ -443,8 +443,8 @@ int FloatToBuffer(float i, int width, char* buffer);
 char* DoubleToBuffer(double i, char* buffer);
 char* FloatToBuffer(float i, char* buffer);
 
-int FastDoubleToBuffer(double i, char* buffer);
-int FastFloatToBuffer(float i, char* buffer);
+int FastDoubleToBuffer(double i, char* buffer, bool faster_float_convert = false);
+int FastFloatToBuffer(float i, char* buffer, bool faster_float_convert = false);
 // In practice, doubles should never need more than 24 bytes and floats
 // should never need more than 14 (including null terminators), but we
 // overestimate to be safe.
@@ -516,9 +516,9 @@ string AccurateItoaKMGT(int64 i);
 //    '\0'-terminated, which is more efficient.
 // ----------------------------------------------------------------------
 struct DoubleRangeOptions {
-    const char* separators;
+    const char* separators = nullptr;
     bool require_separator;
-    const char* acceptable_terminators;
+    const char* acceptable_terminators = nullptr;
     bool null_terminator_ok;
     bool allow_unbounded_markers;
     uint32 num_required_bounds;

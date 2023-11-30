@@ -160,10 +160,11 @@ include (cmake/thirdparty.cmake)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
-option(BUILD_JAVA OFF)
-option(BUILD_CPP_TESTS OFF)
-option(STOP_BUILD_ON_WARNING OFF)
-option(BUILD_LIBHDFSPP OFF)
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+set(BUILD_JAVA OFF)
+set(BUILD_CPP_TESTS OFF)
+set(STOP_BUILD_ON_WARNING OFF)
+set(BUILD_LIBHDFSPP OFF)
 SET(PROTOBUF_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(SNAPPY_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(LZ4_HOME "$ENV{DORIS_THIRDPARTY}/installed")
@@ -183,12 +184,8 @@ set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
-if (USE_BTHREAD_SCANNER)
-    set(USE_BTHREAD ON)
-else()
-    set(USE_BTHREAD OFF)
-endif()
-
+# disable clucene bthread supported.
+set(USE_BTHREAD OFF)
 
 add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
 
@@ -260,7 +257,8 @@ if (COMPILER_GCC)
     add_compile_options(-fdiagnostics-color=always
                         -Wno-nonnull
                         -Wno-stringop-overread
-                        -Wno-stringop-overflow)
+                        -Wno-stringop-overflow
+                        -Wno-array-bounds)
 endif ()
 
 if (COMPILER_CLANG)
@@ -270,6 +268,7 @@ if (COMPILER_CLANG)
 
     add_compile_options(-fcolor-diagnostics
                         -Wpedantic
+                        -Wshadow-field
                         -Wunused
                         -Wunused-command-line-argument
                         -Wunused-exception-parameter
@@ -278,6 +277,7 @@ if (COMPILER_CLANG)
                         -Wunused-member-function
                         -Wunused-macros)
     add_compile_options(-Wno-vla-extension)
+    add_compile_options(-Wno-gnu-statement-expression)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
@@ -339,12 +339,6 @@ if (USE_UNWIND)
     endif()
 endif()
 
-# Use Bthread to separate computation and IO
-# Adding the option `USE_BTHREAD_SCANNER=ON sh build.sh` when comliling can enable this feature
-if (USE_BTHREAD_SCANNER)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_BTHREAD_SCANNER")
-endif()
-
 if (ENABLE_STACKTRACE)
     add_compile_options(-DENABLE_STACKTRACE)
 endif()
@@ -370,7 +364,7 @@ set(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
+set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -mcmodel=medium -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
@@ -468,6 +462,7 @@ set(DORIS_LINK_LIBS
     GeoType
     Vec
     Pipeline
+    Cloud
     ${WL_END_GROUP}
 )
 
@@ -506,34 +501,15 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        absl::flat_hash_set
-        absl::str_format
-        absl::flags
-        absl::flags_commandlineflag
-        absl::flags_commandlineflag_internal
-        absl::flags_config
         absl::flags_internal
-        absl::flags_marshalling
-        absl::flags_parse
-        absl::flags_private_handle_accessor
-        absl::flags_program_name
         absl::flags_reflection
-        absl::flags_usage
-        absl::flags_usage_internal
-        absl::random_distributions
-        absl::random_internal_distribution_test_util
-        absl::random_internal_platform
         absl::random_internal_pool_urbg
         absl::random_internal_randen
-        absl::random_internal_randen_hwaes
-        absl::random_internal_randen_hwaes_impl
-        absl::random_internal_randen_slow
         absl::random_internal_seed_material
-        absl::random_seed_gen_exception
-        absl::random_seed_sequences
+        absl::spinlock_wait
         absl::status
         absl::statusor
-        absl::strerror
+        absl::strings
     )
 endif()
 
@@ -736,6 +712,7 @@ add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
+add_subdirectory(${SRC_DIR}/cloud)
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
 if (BUILD_META_TOOL)

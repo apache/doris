@@ -19,74 +19,72 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.job.common.JobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import lombok.Getter;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
  * SHOW JOB [FOR JobName]
  * eg: show event
- *     return all job in connection db
+ * return all job in connection db
  * eg: show event for test
- *     return job named test in connection db
+ * return job named test in connection db
  */
 public class ShowJobStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("Id")
-                    .add("Db")
                     .add("Name")
                     .add("Definer")
-                    .add("TimeZone")
                     .add("ExecuteType")
-                    .add("ExecuteAt")
-                    .add("ExecuteInterval")
-                    .add("ExecuteIntervalUnit")
-                    .add("Starts")
-                    .add("Ends")
+                    .add("RecurringStrategy")
                     .add("Status")
-                    .add("LastExecuteFinishTime")
-                    .add("ErrorMsg")
+                    .add("ExecuteSql")
+                    .add("CreateTime")
                     .add("Comment")
                     .build();
 
+    private static final String MTMV_NAME_TITLE = "mtmv_name";
+
+    private static final String NAME_TITLE = "name";
     private final LabelName labelName;
+
+    @Getter
     private String dbFullName; // optional
+
+    @Getter
+    private JobType jobType; // optional
+
+    /**
+     * Supported job types, if we want to support more job types, we need to add them here.
+     */
+    @Getter
+    private List<JobType> jobTypes = Arrays.asList(JobType.INSERT); // optional
+
+    @Getter
     private String name; // optional
+    @Getter
     private String pattern; // optional
 
-    public ShowJobStmt(LabelName labelName, String pattern) {
+    public ShowJobStmt(LabelName labelName, JobType jobType) {
         this.labelName = labelName;
-        this.pattern = pattern;
-    }
-
-    public String getDbFullName() {
-        return dbFullName;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getPattern() {
-        return pattern;
+        this.jobType = jobType;
+        this.name = labelName == null ? null : labelName.getLabelName();
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         checkAuth();
-        checkLabelName(analyzer);
     }
 
     private void checkAuth() throws AnalysisException {
@@ -94,19 +92,6 @@ public class ShowJobStmt extends ShowStmt {
         if (!userIdentity.isRootUser()) {
             throw new AnalysisException("only root user can operate");
         }
-    }
-
-    private void checkLabelName(Analyzer analyzer) throws AnalysisException {
-        String dbName = labelName == null ? null : labelName.getDbName();
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbFullName = analyzer.getContext().getDatabase();
-            if (Strings.isNullOrEmpty(dbFullName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbFullName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        }
-        name = labelName == null ? null : labelName.getLabelName();
     }
 
     public static List<String> getTitleNames() {

@@ -146,7 +146,7 @@ separated by commas.
            The system will use the order specified by user. in case above, data should be ended
            with __DORIS_SEQUENCE_COL__.
        ```
-24. load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
+24. load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random bucketing.
 
 25. compress_type: Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
 
@@ -155,6 +155,10 @@ separated by commas.
 27. skip_lines: <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
 
 28. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
+
+29. enclose: <version since="dev" type="inline"> When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field. </version>
+  
+30. escape <version since="dev" type="inline"> Used to escape characters that appear in a csv field identical to the enclosing characters. For example, if the data is "a,'b,'c'", enclose is "'", and you want "b,'c to be parsed as a field, you need to specify a single-byte escape character, such as "\", and then modify the data to "a,' b,\'c'". </version>
 
 ### Example
 
@@ -213,12 +217,12 @@ separated by commas.
 
 10. Simple mode, import json data
     Table Structure:
-
+    ```
     `category` varchar(512) NULL COMMENT "",
     `author` varchar(512) NULL COMMENT "",
     `title` varchar(512) NULL COMMENT "",
     `price` double NULL COMMENT ""
-
+    ```
     json data format:
     ````
     {"category":"C++","author":"avc","title":"C++ primer","price":895}

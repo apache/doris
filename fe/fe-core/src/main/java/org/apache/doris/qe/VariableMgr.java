@@ -17,14 +17,10 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.DecimalLiteral;
-import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.SetVar.SetVarType;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
@@ -245,10 +241,14 @@ public class VariableMgr {
     public static SessionVariable newSessionVariable() {
         wlock.lock();
         try {
-            return (SessionVariable) SerializationUtils.clone(defaultSessionVariable);
+            return cloneSessionVariable(defaultSessionVariable);
         } finally {
             wlock.unlock();
         }
+    }
+
+    public static SessionVariable cloneSessionVariable(SessionVariable var) {
+        return SerializationUtils.clone(var);
     }
 
     // Check if this setVar can be set correctly
@@ -260,15 +260,11 @@ public class VariableMgr {
             throw new DdlException(ErrorCode.ERR_VARIABLE_IS_READONLY.formatErrorMsg(setVar.getVariable()));
         }
         if (setVar.getType() == SetType.GLOBAL && (flag & SESSION_ONLY) != 0) {
-            throw new DdlException(ErrorCode.ERR_GLOBAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
+            throw new DdlException(ErrorCode.ERR_LOCAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
         }
         if (setVar.getType() != SetType.GLOBAL && (flag & GLOBAL) != 0) {
             throw new DdlException(ErrorCode.ERR_GLOBAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
         }
-    }
-
-    public static void setUserVar(SetVar setVar) {
-        userVars.put(setVar.getVariable(), setVar.getResult());
     }
 
     // Entry of handling SetVarStmt
@@ -538,36 +534,6 @@ public class VariableMgr {
         }
     }
 
-    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
-    public static void fillValueForUserDefinedVar(VariableExpr desc) {
-        String varName = desc.getName();
-        if (userVars.containsKey(varName)) {
-            LiteralExpr literalExpr = userVars.get(varName);
-            desc.setType(literalExpr.getType());
-            if (literalExpr instanceof BoolLiteral) {
-                desc.setBoolValue(((BoolLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof IntLiteral) {
-                desc.setIntValue(((IntLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof FloatLiteral) {
-                desc.setFloatValue(((FloatLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof DecimalLiteral) {
-                desc.setDecimalValue(((DecimalLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof StringLiteral) {
-                desc.setStringValue(((StringLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof NullLiteral) {
-                desc.setType(Type.NULL);
-                desc.setIsNull();
-            } else {
-                desc.setType(Type.VARCHAR);
-                desc.setStringValue("");
-            }
-        } else {
-            // If there are no such user defined var, just fill the NULL value.
-            desc.setType(Type.NULL);
-            desc.setIsNull();
-        }
-    }
-
     private static String getValue(SessionVariable var, String name, SetType setType) throws AnalysisException {
         VarContext ctx = ctxByVarName.get(name);
         if (ctx == null) {
@@ -639,30 +605,6 @@ public class VariableMgr {
         return Literal.of("");
     }
 
-    public static @Nullable Literal getLiteralForUserVar(String varName) {
-        if (userVars.containsKey(varName)) {
-            LiteralExpr literalExpr = userVars.get(varName);
-            if (literalExpr instanceof BoolLiteral) {
-                return Literal.of(((BoolLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof IntLiteral) {
-                return Literal.of(((IntLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof FloatLiteral) {
-                return Literal.of(((FloatLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof DecimalLiteral) {
-                return Literal.of(((DecimalLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof StringLiteral) {
-                return Literal.of(((StringLiteral) literalExpr).getValue());
-            } else if (literalExpr instanceof NullLiteral) {
-                return Literal.of(null);
-            } else {
-                return Literal.of("");
-            }
-        } else {
-            // If there are no such user defined var, just return the NULL value.
-            return Literal.of(null);
-        }
-    }
-
     private static String getValue(Object obj, Field field) {
         try {
             switch (field.getType().getSimpleName()) {
@@ -708,6 +650,33 @@ public class VariableMgr {
         return ImmutableMap.copyOf(result);
     }
 
+    public static void setAllVarsToDefaultValue(SessionVariable sessionVariable, SetType setType)
+            throws DdlException {
+        for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+            VarContext varCtx = entry.getValue();
+
+            SetType newSetType = null;
+            // some variables are GLOBAL only or SESSION only
+            if ((varCtx.getFlag() & GLOBAL) != 0) {
+                newSetType = SetType.GLOBAL;
+            } else if ((varCtx.getFlag() & SESSION_ONLY) != 0) {
+                newSetType = SetType.SESSION;
+            }
+
+            SetVar setVar = new SetVar(newSetType != null ? newSetType : setType, entry.getKey(),
+                    new StringLiteral(varCtx.defaultValue), SetVarType.SET_SESSION_VAR);
+            //skip read only variables
+            if ((varCtx.getFlag() & READ_ONLY) == 0) {
+                setVar(sessionVariable, setVar);
+            }
+        }
+    }
+
+    public static String getDefaultValue(String key) {
+        VarContext varContext = ctxByDisplayVarName.get(key);
+        return varContext == null ? null : varContext.defaultValue;
+    }
+
     // Dump all fields. Used for `show variables`
     public static List<List<String>> dump(SetType type, SessionVariable sessionVar, PatternMatcher matcher) {
         List<List<String>> rows = Lists.newArrayList();
@@ -740,14 +709,18 @@ public class VariableMgr {
                     }
                 }
 
-                VarContext varContext = ctxByVarName.get(entry.getKey());
-                if (varContext != null) {
-                    row.add(varContext.defaultValue);
-                    row.add(row.get(1).equals(row.get(2)) ? "0" : "1");
+                VarContext varContext = ctxByDisplayVarName.get(entry.getKey());
+                if (VariableVarConverters.hasConverter(row.get(0))) {
+                    try {
+                        row.add(VariableVarConverters.decode(row.get(0), Long.valueOf(varContext.defaultValue)));
+                    } catch (DdlException e) {
+                        row.add(varContext.defaultValue);
+                        LOG.warn(String.format("encode session variable %s failed", row.get(0)));
+                    }
                 } else {
-                    row.add("-");
-                    row.add("-");
+                    row.add(varContext.defaultValue);
                 }
+                row.add(row.get(1).equals(row.get(2)) ? "0" : "1");
 
                 rows.add(row);
             }

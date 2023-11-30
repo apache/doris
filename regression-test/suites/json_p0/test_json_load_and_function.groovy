@@ -18,6 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_json_load_and_function", "p0") {
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
+
     // define a sql table
     def testTable = "tbl_test_json"
     def dataFile = "test_json.csv"
@@ -94,6 +98,8 @@ suite("test_json_load_and_function", "p0") {
             assertTrue(json.LoadBytes > 0)
         }
     }
+
+    sql """ sync; """
 
     // check result
     qt_select "SELECT * FROM ${testTable} ORDER BY id"

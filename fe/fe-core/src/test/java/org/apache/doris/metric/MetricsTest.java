@@ -18,16 +18,25 @@
 package org.apache.doris.metric;
 
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.JsonUtil;
+import org.apache.doris.monitor.jvm.JvmService;
+import org.apache.doris.monitor.jvm.JvmStats;
 
 import com.codahale.metrics.Histogram;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
+@Slf4j
 public class MetricsTest {
 
     @BeforeClass
@@ -62,17 +71,13 @@ public class MetricsTest {
         MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
-        StringBuilder sb = new StringBuilder();
         MetricVisitor visitor = new PrometheusMetricVisitor();
-        List<Metric> metrics = MetricRepo.DORIS_METRIC_REGISTER.getMetrics();
-        for (Metric metric : metrics) {
-            visitor.visit(sb, MetricVisitor.FE_PREFIX, metric);
-        }
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
         for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(sb, MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
         }
-        String metricResult = sb.toString();
+        String metricResult = visitor.finish();
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_total counter"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_total{user=\"test_user\"} 1"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_err counter"));
@@ -80,6 +85,41 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
+
+    }
+
+    @Test
+    public void testGc() {
+        PrometheusMetricVisitor visitor = new PrometheusMetricVisitor();
+        JvmService jvmService = new JvmService();
+        JvmStats jvmStats = jvmService.stats();
+        visitor.visitJvm(jvmStats);
+        String metric = MetricRepo.getMetric(visitor);
+        List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        String finalMetricPrometheus = metric;
+        gcMxBeans.forEach(gcMxBean -> {
+            String name = gcMxBean.getName();
+            Assert.assertTrue(finalMetricPrometheus.contains("jvm_gc{name=\"" + name + " Count\", type=\"count\"} "));
+            Assert.assertTrue(finalMetricPrometheus.contains("jvm_gc{name=\"" + name + " Time\", type=\"time\"} "));
+        });
+
+        JsonMetricVisitor jsonMetricVisitor = new JsonMetricVisitor();
+        jsonMetricVisitor.visitJvm(jvmStats);
+        metric = MetricRepo.getMetric(jsonMetricVisitor);
+        String finalMetricJson = metric;
+        AtomicInteger size = new AtomicInteger(JsonUtil.parseArray(finalMetricJson).size());
+        gcMxBeans.forEach(gcMxBean -> JsonUtil.parseArray(finalMetricJson).forEach(json -> {
+            ObjectNode jsonObject = JsonUtil.parseObject(json.toString());
+            String name = gcMxBean.getName();
+            if (jsonObject.findValue("tags").findValue("metric").asText().equals("jvm_gc")
+                    && jsonObject.findValue("tags").findValue("name").asText().contains(name + " Count")) {
+                size.getAndDecrement();
+                Assert.assertTrue(jsonObject.findValue("tags").findValue("name").asText().contains(name + " Count")
+                        || jsonObject.findValue("tags").findValue("name").asText().contains(name + " Time"));
+            }
+
+        }));
+        Assert.assertTrue(size.get() < JsonUtil.parseArray(finalMetricJson).size());
 
     }
 }

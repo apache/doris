@@ -20,9 +20,14 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
+#include "common/compiler_util.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
+
 /** NOTE HashMap could only be used for memmoveable (position independent) types.
   * Example: std::string is not position independent in libstdc++ with C++11 ABI or in libc++.
   * Also, key in hash table must be of type, that zero bytes is compared equals to zero key.
@@ -57,7 +62,7 @@ struct HashMapCell {
 
     value_type value;
 
-    HashMapCell() {}
+    HashMapCell() = default;
     HashMapCell(const Key& key_, const State&) : value(key_, NoInitTag()) {}
     HashMapCell(const Key& key_, const Mapped& mapped_) : value(key_, mapped_) {}
     HashMapCell(const value_type& value_, const State&) : value(value_) {}
@@ -89,9 +94,6 @@ struct HashMapCell {
 
     /// Do I need to store the zero key separately (that is, can a zero key be inserted into the hash table).
     static constexpr bool need_zero_value_storage = true;
-
-    /// Whether the cell was deleted.
-    bool is_deleted() const { return false; }
 
     void set_mapped(const value_type& value_) { value.second = value_.second; }
 };
@@ -153,38 +155,6 @@ public:
 
     using HashTable<Key, Cell, Hash, Grower, Allocator>::HashTable;
 
-    /// Merge every cell's value of current map into the destination map via emplace.
-    ///  Func should have signature void(Mapped & dst, Mapped & src, bool emplaced).
-    ///  Each filled cell in current map will invoke func once. If that map doesn't
-    ///  have a key equals to the given cell, a new cell gets emplaced into that map,
-    ///  and func is invoked with the third argument emplaced set to true. Otherwise
-    ///  emplaced is set to false.
-    template <typename Func>
-    void ALWAYS_INLINE merge_to_via_emplace(Self& that, Func&& func) {
-        for (auto it = this->begin(), end = this->end(); it != end; ++it) {
-            typename Self::LookupResult res_it;
-            bool inserted;
-            that.emplace(it->get_first(), res_it, inserted, it.get_hash());
-            func(*lookup_result_get_mapped(res_it), it->get_second(), inserted);
-        }
-    }
-
-    /// Merge every cell's value of current map into the destination map via find.
-    ///  Func should have signature void(Mapped & dst, Mapped & src, bool exist).
-    ///  Each filled cell in current map will invoke func once. If that map doesn't
-    ///  have a key equals to the given cell, func is invoked with the third argument
-    ///  exist set to false. Otherwise exist is set to true.
-    template <typename Func>
-    void ALWAYS_INLINE merge_to_via_find(Self& that, Func&& func) {
-        for (auto it = this->begin(), end = this->end(); it != end; ++it) {
-            auto res_it = that.find(it->get_first(), it.get_hash());
-            if (!res_it)
-                func(it->get_second(), it->get_second(), false);
-            else
-                func(*lookup_result_get_mapped(res_it), it->get_second(), true);
-        }
-    }
-
     /// Call func(const Key &, Mapped &) for each hash map element.
     template <typename Func>
     void for_each_value(Func&& func) {
@@ -195,14 +165,6 @@ public:
     template <typename Func>
     void for_each_mapped(Func&& func) {
         for (auto& v : *this) func(v.get_second());
-    }
-
-    size_t get_size() {
-        size_t count = 0;
-        for (auto& v : *this) {
-            count += v.get_second().get_row_count();
-        }
-        return count;
     }
 
     mapped_type& ALWAYS_INLINE operator[](Key x) {
@@ -229,13 +191,355 @@ public:
         return *lookup_result_get_mapped(it);
     }
 
-    char* get_null_key_data() { return nullptr; }
+    template <typename MappedType>
+    char* get_null_key_data() {
+        return nullptr;
+    }
     bool has_null_key_data() const { return false; }
+};
+
+template <typename Key, typename Cell, typename Hash = DefaultHash<Key>,
+          typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
+class JoinHashMapTable : public HashMapTable<Key, Cell, Hash, Grower, Allocator> {
+public:
+    using Self = JoinHashMapTable;
+    using Base = HashMapTable<Key, Cell, Hash, Grower, Allocator>;
+
+    using key_type = Key;
+    using value_type = typename Cell::value_type;
+    using mapped_type = typename Cell::Mapped;
+
+    using LookupResult = typename Base::LookupResult;
+
+    using HashMapTable<Key, Cell, Hash, Grower, Allocator>::HashMapTable;
+
+    static uint32_t calc_bucket_size(size_t num_elem) {
+        size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
+        return phmap::priv::NormalizeCapacity(expect_bucket_size) + 1;
+    }
+
+    size_t get_byte_size() const {
+        auto cal_vector_mem = [](const auto& vec) { return vec.capacity() * sizeof(vec[0]); };
+        return cal_vector_mem(visited) + cal_vector_mem(first) + cal_vector_mem(next);
+    }
+
+    template <int JoinOpType>
+    void prepare_build(size_t num_elem, int batch_size, bool has_null_key) {
+        _has_null_key = has_null_key;
+        max_batch_size = batch_size;
+        bucket_size = calc_bucket_size(num_elem + 1);
+        first.resize(bucket_size + 1);
+        next.resize(num_elem);
+
+        if constexpr (JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
+            visited.resize(num_elem);
+        }
+    }
+
+    uint32_t get_bucket_size() const { return bucket_size; }
+
+    size_t size() const { return Base::size() == 0 ? next.size() : Base::size(); }
+
+    std::vector<uint8_t>& get_visited() { return visited; }
+
+    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
+               size_t num_elem) {
+        build_keys = keys;
+        for (size_t i = 1; i < num_elem; i++) {
+            uint32_t bucket_num = bucket_nums[i];
+            next[i] = first[bucket_num];
+            first[bucket_num] = i;
+        }
+        first[bucket_size] = 0; // index = bucket_num means null
+    }
+
+    template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join, bool need_judge_null>
+    auto find_batch(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
+                    int probe_idx, uint32_t build_idx, int probe_rows,
+                    uint32_t* __restrict probe_idxs, bool& probe_visited,
+                    uint32_t* __restrict build_idxs,
+                    doris::vectorized::ColumnFilterHelper* mark_column) {
+        if constexpr (is_mark_join) {
+            return _find_batch_mark<JoinOpType, with_other_conjuncts>(
+                    keys, build_idx_map, probe_idx, probe_rows, probe_idxs, build_idxs,
+                    mark_column);
+        }
+
+        if constexpr (with_other_conjuncts) {
+            return _find_batch_conjunct<JoinOpType>(keys, build_idx_map, probe_idx, build_idx,
+                                                    probe_rows, probe_idxs, build_idxs);
+        }
+
+        if constexpr (JoinOpType == doris::TJoinOp::INNER_JOIN ||
+                      JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
+                      JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN) {
+            return _find_batch_inner_outer_join<JoinOpType>(keys, build_idx_map, probe_idx,
+                                                            build_idx, probe_rows, probe_idxs,
+                                                            probe_visited, build_idxs);
+        }
+        if constexpr (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
+                      JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
+                      JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return _find_batch_left_semi_anti<JoinOpType, need_judge_null>(
+                    keys, build_idx_map, probe_idx, probe_rows, probe_idxs);
+        }
+        if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
+            return _find_batch_right_semi_anti(keys, build_idx_map, probe_idx, probe_rows);
+        }
+        return std::tuple {0, 0U, 0};
+    }
+
+    template <int JoinOpType>
+    bool iterate_map(std::vector<uint32_t>& build_idxs) const {
+        const auto batch_size = max_batch_size;
+        const auto elem_num = visited.size();
+        int count = 0;
+        build_idxs.resize(batch_size);
+
+        while (count < batch_size && iter_idx < elem_num) {
+            const auto matched = visited[iter_idx];
+            build_idxs[count] = iter_idx;
+            if constexpr (JoinOpType != doris::TJoinOp::RIGHT_SEMI_JOIN) {
+                count += !matched;
+            } else {
+                count += matched;
+            }
+            iter_idx++;
+        }
+
+        build_idxs.resize(count);
+        return iter_idx >= elem_num;
+    }
+
+    bool has_null_key() { return _has_null_key; }
+
+    void pre_build_idxs(std::vector<uint32>& bucksets, const uint8_t* null_map) {
+        if (null_map) {
+            first[bucket_size] = bucket_size; // distinguish between not matched and null
+        }
+
+        for (uint32_t i = 0; i < bucksets.size(); i++) {
+            bucksets[i] = first[bucksets[i]];
+        }
+    }
+
+private:
+    // only LEFT_ANTI_JOIN/LEFT_SEMI_JOIN/NULL_AWARE_LEFT_ANTI_JOIN/CROSS_JOIN support mark join
+    template <int JoinOpType, bool with_other_conjuncts>
+    auto _find_batch_mark(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
+                          int probe_idx, int probe_rows, uint32_t* __restrict probe_idxs,
+                          uint32_t* __restrict build_idxs,
+                          doris::vectorized::ColumnFilterHelper* mark_column) {
+        auto matched_cnt = 0;
+        const auto batch_size = max_batch_size;
+
+        while (probe_idx < probe_rows && matched_cnt < batch_size) {
+            auto build_idx = build_idx_map[probe_idx] == bucket_size ? 0 : build_idx_map[probe_idx];
+
+            while (build_idx && keys[probe_idx] != build_keys[build_idx]) {
+                build_idx = next[build_idx];
+            }
+
+            if constexpr (!with_other_conjuncts) {
+                if (build_idx_map[probe_idx] == bucket_size) {
+                    // mark result as null when probe row is null
+                    mark_column->insert_null();
+                } else {
+                    bool matched = JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0
+                                                                                : build_idx == 0;
+                    if (!matched && _has_null_key) {
+                        mark_column->insert_null();
+                    } else {
+                        mark_column->insert_value(matched);
+                    }
+                }
+            }
+
+            probe_idxs[matched_cnt] = probe_idx++;
+            build_idxs[matched_cnt] = build_idx;
+            matched_cnt++;
+        }
+        return std::tuple {probe_idx, 0U, matched_cnt};
+    }
+
+    auto _find_batch_right_semi_anti(const Key* __restrict keys,
+                                     const uint32_t* __restrict build_idx_map, int probe_idx,
+                                     int probe_rows) {
+        while (probe_idx < probe_rows) {
+            auto build_idx = build_idx_map[probe_idx];
+
+            while (build_idx) {
+                if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
+                    visited[build_idx] = 1;
+                }
+                build_idx = next[build_idx];
+            }
+            probe_idx++;
+        }
+        return std::tuple {probe_idx, 0U, 0};
+    }
+
+    template <int JoinOpType, bool need_judge_null>
+    auto _find_batch_left_semi_anti(const Key* __restrict keys,
+                                    const uint32_t* __restrict build_idx_map, int probe_idx,
+                                    int probe_rows, uint32_t* __restrict probe_idxs) {
+        auto matched_cnt = 0;
+        const auto batch_size = max_batch_size;
+
+        while (probe_idx < probe_rows && matched_cnt < batch_size) {
+            if constexpr (need_judge_null) {
+                if (build_idx_map[probe_idx] == bucket_size) {
+                    probe_idx++;
+                    continue;
+                }
+            }
+
+            auto build_idx = build_idx_map[probe_idx];
+
+            while (build_idx && keys[probe_idx] != build_keys[build_idx]) {
+                build_idx = next[build_idx];
+            }
+            bool matched =
+                    JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0 : build_idx == 0;
+            probe_idxs[matched_cnt] = probe_idx++;
+            matched_cnt += matched;
+        }
+        return std::tuple {probe_idx, 0U, matched_cnt};
+    }
+
+    template <int JoinOpType>
+    auto _find_batch_conjunct(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
+                              int probe_idx, uint32_t build_idx, int probe_rows,
+                              uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs) {
+        auto matched_cnt = 0;
+        const auto batch_size = max_batch_size;
+
+        auto do_the_probe = [&]() {
+            while (build_idx && matched_cnt < batch_size) {
+                if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
+                              JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
+                    if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
+                        probe_idxs[matched_cnt] = probe_idx;
+                        build_idxs[matched_cnt] = build_idx;
+                        matched_cnt++;
+                    }
+                } else if (keys[probe_idx] == build_keys[build_idx]) {
+                    build_idxs[matched_cnt] = build_idx;
+                    probe_idxs[matched_cnt] = probe_idx;
+                    matched_cnt++;
+                }
+                build_idx = next[build_idx];
+            }
+
+            if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
+                          JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
+                          JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
+                          JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+                // may over batch_size when emplace 0 into build_idxs
+                if (!build_idx) {
+                    probe_idxs[matched_cnt] = probe_idx;
+                    build_idxs[matched_cnt] = 0;
+                    matched_cnt++;
+                }
+            }
+
+            probe_idx++;
+        };
+
+        if (build_idx) {
+            do_the_probe();
+        }
+
+        while (probe_idx < probe_rows && matched_cnt < batch_size) {
+            build_idx = build_idx_map[probe_idx];
+            do_the_probe();
+        }
+
+        probe_idx -= (build_idx != 0);
+        return std::tuple {probe_idx, build_idx, matched_cnt};
+    }
+
+    template <int JoinOpType>
+    auto _find_batch_inner_outer_join(const Key* __restrict keys,
+                                      const uint32_t* __restrict build_idx_map, int probe_idx,
+                                      uint32_t build_idx, int probe_rows,
+                                      uint32_t* __restrict probe_idxs, bool& probe_visited,
+                                      uint32_t* __restrict build_idxs) {
+        auto matched_cnt = 0;
+        const auto batch_size = max_batch_size;
+
+        auto do_the_probe = [&]() {
+            while (build_idx && matched_cnt < batch_size) {
+                if (keys[probe_idx] == build_keys[build_idx]) {
+                    probe_idxs[matched_cnt] = probe_idx;
+                    build_idxs[matched_cnt] = build_idx;
+                    matched_cnt++;
+                    if constexpr (JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
+                                  JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
+                        if (!visited[build_idx]) {
+                            visited[build_idx] = 1;
+                        }
+                    }
+                }
+                build_idx = next[build_idx];
+            }
+
+            if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
+                          JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
+                // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
+                probe_visited |= (matched_cnt && probe_idxs[matched_cnt - 1] == probe_idx);
+                if (!build_idx) {
+                    if (!probe_visited) {
+                        probe_idxs[matched_cnt] = probe_idx;
+                        build_idxs[matched_cnt] = 0;
+                        matched_cnt++;
+                    }
+                    probe_visited = false;
+                }
+            }
+            probe_idx++;
+        };
+
+        if (build_idx) {
+            do_the_probe();
+        }
+
+        while (probe_idx < probe_rows && matched_cnt < batch_size) {
+            build_idx = build_idx_map[probe_idx];
+            do_the_probe();
+        }
+
+        probe_idx -= (build_idx != 0);
+        return std::tuple {probe_idx, build_idx, matched_cnt};
+    }
+
+    const Key* __restrict build_keys;
+    std::vector<uint8_t> visited;
+
+    uint32_t bucket_size = 1;
+    int max_batch_size = 4064;
+
+    std::vector<uint32_t> first = {0};
+    std::vector<uint32_t> next = {0};
+
+    // use in iter hash map
+    mutable uint32_t iter_idx = 1;
+    Cell cell;
+    doris::vectorized::Arena* pool;
+    bool _has_null_key = false;
 };
 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
           typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
 using HashMap = HashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash, Grower, Allocator>;
+
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
+using JoinFixedHashMap = JoinHashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash>;
 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
           typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>

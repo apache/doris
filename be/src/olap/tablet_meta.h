@@ -87,17 +87,14 @@ class TabletMeta;
 class DeleteBitmap;
 class TBinlogConfig;
 
-using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
-using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
-
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
 public:
-    static Status create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
-                         uint64_t shard_id, uint32_t next_unique_id,
-                         const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                         TabletMetaSharedPtr* tablet_meta);
+    static TabletMetaSharedPtr create(
+            const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
+            uint32_t next_unique_id,
+            const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id);
 
     TabletMeta();
     TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int64_t replica_id,
@@ -170,8 +167,6 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() const;
 
-    const TabletSchemaSPtr tablet_schema(Version version) const;
-
     TabletSchema* mutable_tablet_schema();
 
     const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
@@ -191,10 +186,6 @@ public:
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
-    const std::vector<RowsetMetaSharedPtr> delete_predicates() const;
-    bool version_for_delete_predicate(const Version& version);
-
-    std::string full_name() const;
 
     Status set_partition_id(int64_t partition_id);
 
@@ -339,6 +330,12 @@ public:
     constexpr static inline uint32_t INVALID_SEGMENT_ID = std::numeric_limits<uint32_t>::max() - 1;
     constexpr static inline uint32_t ROWSET_SENTINEL_MARK =
             std::numeric_limits<uint32_t>::max() - 1;
+
+    // When a delete bitmap is merged into tablet's delete bitmap, the version of entries in the delete bitmap
+    // will be replaced to the correspoding correct version. So before we finally merge a delete bitmap into
+    // tablet's delete bitmap we can use arbitary version number in BitmapKey. Here we define some version numbers
+    // for specific usage during this periods to avoid conflicts
+    constexpr static inline uint64_t TEMP_VERSION_COMMON = 0;
 
     /**
      * 
@@ -634,6 +631,8 @@ inline bool TabletMeta::all_beta() const {
     }
     return true;
 }
+
+std::string tablet_state_name(TabletState state);
 
 // Only for unit test now.
 bool operator==(const TabletMeta& a, const TabletMeta& b);

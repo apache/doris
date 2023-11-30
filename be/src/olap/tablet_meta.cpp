@@ -30,7 +30,6 @@
 #include <utility>
 
 #include "common/config.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/file_header.h"
@@ -39,6 +38,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/string_util.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 using std::string;
@@ -48,15 +48,15 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
-                          uint64_t shard_id, uint32_t next_unique_id,
-                          const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                          TabletMetaSharedPtr* tablet_meta) {
+TabletMetaSharedPtr TabletMeta::create(
+        const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
+        uint32_t next_unique_id,
+        const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id) {
     std::optional<TBinlogConfig> binlog_config;
     if (request.__isset.binlog_config) {
         binlog_config = request.binlog_config;
     }
-    *tablet_meta = std::make_shared<TabletMeta>(
+    return std::make_shared<TabletMeta>(
             request.table_id, request.partition_id, request.tablet_id, request.replica_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
@@ -69,7 +69,6 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             request.time_series_compaction_goal_size_mbytes,
             request.time_series_compaction_file_count_threshold,
             request.time_series_compaction_time_threshold_seconds);
-    return Status::OK();
 }
 
 TabletMeta::TabletMeta()
@@ -169,6 +168,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_sort_type(SortType::LEXICAL);
     }
     schema->set_sort_col_num(tablet_schema.sort_col_num);
+    for (const auto& i : tablet_schema.cluster_key_idxes) {
+        schema->add_cluster_key_idxes(i);
+    }
     tablet_meta_pb.set_in_restore_mode(false);
 
     // set column information
@@ -364,7 +366,8 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
         ColumnPB* children_column = column->add_children_columns();
-        init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
+        init_column_from_tcolumn(tcolumn.children_column[i].col_unique_id,
+                                 tcolumn.children_column[i], children_column);
     }
 }
 
@@ -435,14 +438,24 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
     // check if tablet uid is valid
     if (_tablet_uid.hi == 0 && _tablet_uid.lo == 0) {
         LOG(FATAL) << "tablet_uid is invalid"
-                   << " tablet=" << full_name() << " _tablet_uid=" << _tablet_uid.to_string();
+                   << " tablet=" << tablet_id() << " _tablet_uid=" << _tablet_uid.to_string();
     }
     string meta_binary;
+
+    auto t1 = MonotonicMicros();
     RETURN_IF_ERROR(serialize(&meta_binary));
+    auto t2 = MonotonicMicros();
     Status status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (!status.ok()) {
         LOG(FATAL) << "fail to save tablet_meta. status=" << status << ", tablet_id=" << tablet_id()
                    << ", schema_hash=" << schema_hash();
+    }
+    auto t3 = MonotonicMicros();
+    auto cost = t3 - t1;
+    if (cost > 1 * 1000 * 1000) {
+        LOG(INFO) << "save tablet(" << tablet_id() << ") meta too slow. serialize cost " << t2 - t1
+                  << "(us), serialized binary size: " << meta_binary.length()
+                  << "(bytes), write rocksdb cost " << t3 - t2 << "(us)";
     }
     return status;
 }
@@ -452,7 +465,7 @@ Status TabletMeta::serialize(string* meta_binary) {
     to_meta_pb(&tablet_meta_pb);
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
     if (!serialize_success) {
-        LOG(FATAL) << "failed to serialize meta " << full_name();
+        LOG(FATAL) << "failed to serialize meta " << tablet_id();
     }
     return Status::OK();
 }
@@ -688,19 +701,6 @@ Version TabletMeta::max_version() const {
     return max_version;
 }
 
-// Find the rowset with specified version and return its schema
-// Currently, this API is used by delete condition
-const TabletSchemaSPtr TabletMeta::tablet_schema(Version version) const {
-    auto it = _rs_metas.begin();
-    while (it != _rs_metas.end()) {
-        if ((*it)->version() == version) {
-            return (*it)->tablet_schema();
-        }
-        ++it;
-    }
-    return nullptr;
-}
-
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
     for (auto& rs : _rs_metas) {
@@ -708,7 +708,7 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
             if (rs->rowset_id() != rs_meta->rowset_id()) {
                 return Status::Error<PUSH_VERSION_ALREADY_EXIST>(
                         "version already exist. rowset_id={}, version={}, tablet={}",
-                        rs->rowset_id().to_string(), rs->version().to_string(), full_name());
+                        rs->rowset_id().to_string(), rs->version().to_string(), tablet_id());
             } else {
                 // rowsetid,version is equal, it is a duplicate req, skip it
                 return Status::OK();
@@ -749,11 +749,6 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
             } else {
                 ++it;
             }
-        }
-        // delete delete_bitmap of to_delete's rowsets if not added to _stale_rs_metas.
-        if (same_version && _enable_unique_key_merge_on_write) {
-            delete_bitmap().remove({rs_to_del->rowset_id(), 0, 0},
-                                   {rs_to_del->rowset_id(), UINT32_MAX, 0});
         }
     }
     if (!same_version) {
@@ -827,36 +822,6 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
         }
     }
     return nullptr;
-}
-
-const std::vector<RowsetMetaSharedPtr> TabletMeta::delete_predicates() const {
-    std::vector<RowsetMetaSharedPtr> res;
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->has_delete_predicate()) {
-            res.push_back(del_pred);
-        }
-    }
-    return res;
-}
-
-bool TabletMeta::version_for_delete_predicate(const Version& version) {
-    if (version.first != version.second) {
-        return false;
-    }
-
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->version().first == version.first && del_pred->has_delete_predicate()) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-std::string TabletMeta::full_name() const {
-    std::stringstream ss;
-    ss << _tablet_id << "." << _schema_hash << "." << _tablet_uid.to_string();
-    return ss.str();
 }
 
 Status TabletMeta::set_partition_id(int64_t partition_id) {
@@ -1111,5 +1076,27 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
 }
 
 std::atomic<ShardedLRUCache*> DeleteBitmap::AggCache::s_repr {nullptr};
+
+std::string tablet_state_name(TabletState state) {
+    switch (state) {
+    case TABLET_NOTREADY:
+        return "TABLET_NOTREADY";
+
+    case TABLET_RUNNING:
+        return "TABLET_RUNNING";
+
+    case TABLET_TOMBSTONED:
+        return "TABLET_TOMBSTONED";
+
+    case TABLET_STOPPED:
+        return "TABLET_STOPPED";
+
+    case TABLET_SHUTDOWN:
+        return "TABLET_SHUTDOWN";
+
+    default:
+        return "TabletState(" + std::to_string(state) + ")";
+    }
+}
 
 } // namespace doris

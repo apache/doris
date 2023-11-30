@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "runtime/types.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -79,6 +80,22 @@ public:
         return _check_overflow_for_decimal = check_overflow_for_decimal;
     }
 
+    void set_string_as_jsonb_string(bool string_as_jsonb_string) {
+        _string_as_jsonb_string = string_as_jsonb_string;
+    }
+
+    void set_jsonb_string_as_string(bool jsonb_string_as_string) {
+        _jsonb_string_as_string = jsonb_string_as_string;
+    }
+
+    // Cast flag, when enable string_as_jsonb_string, string casting to jsonb will not parse string
+    // instead just insert a string literal
+    bool string_as_jsonb_string() const { return _string_as_jsonb_string; }
+
+    // Cast flag, when enable jsonb_string_as_string, jsonb string casting to string will not parse string
+    // instead just insert a string literal
+    bool jsonb_string_as_string() const { return _jsonb_string_as_string; }
+
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
     // Note: when you set error for the UDFs used in Data Load, you should
@@ -127,6 +144,8 @@ public:
 
     ~FunctionContext() = default;
 
+    vectorized::Arena& get_arena() { return arena; }
+
 private:
     FunctionContext() = default;
 
@@ -137,7 +156,7 @@ private:
 
     // We use the query's runtime state to report errors and warnings. nullptr for test
     // contexts.
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
 
     // Empty if there's no error
     std::string _error_msg;
@@ -159,7 +178,12 @@ private:
 
     bool _check_overflow_for_decimal = false;
 
+    bool _string_as_jsonb_string = false;
+    bool _jsonb_string_as_string = false;
+
     std::string _string_result;
+
+    vectorized::Arena arena;
 };
 
 using doris::FunctionContext;

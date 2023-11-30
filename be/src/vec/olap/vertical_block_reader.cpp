@@ -24,7 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <ostream>
 
-#include "common/status.h"
+#include "cloud/config.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
@@ -51,6 +51,14 @@ VerticalBlockReader::~VerticalBlockReader() {
     }
 }
 
+Status VerticalBlockReader::next_block_with_aggregation(Block* block, bool* eof) {
+    auto res = (this->*_next_block_func)(block, eof);
+    if (!res.ok() && !res.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+        static_cast<Tablet*>(_tablet.get())->report_error(res);
+    }
+    return res;
+}
+
 Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_params,
                                                    std::vector<RowwiseIteratorUPtr>* segment_iters,
                                                    std::vector<bool>* iterator_init_flag,
@@ -71,7 +79,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         // segment to avoid tot many s3 head request
         bool use_cache = !rs_split.rs_reader->rowset()->is_local();
         RETURN_IF_ERROR(rs_split.rs_reader->get_segment_iterators(&_reader_context, segment_iters,
-                                                                  {}, use_cache));
+                                                                  use_cache));
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
         // rowset will be inited and push to heap, other segment will be inited later when current
@@ -138,7 +146,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
             _vcollect_iter = new_vertical_heap_merge_iterator(
                     std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
                     ori_return_col_size, read_params.tablet->keys_type(), seq_col_idx,
-                    _row_sources_buffer);
+                    _row_sources_buffer, read_params.key_group_cluster_key_idxes);
         }
     } else {
         _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr),
@@ -205,8 +213,8 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
-        if (status.is<IO_ERROR>()) {
-            _tablet->increase_io_error_times();
+        if (!status.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+            static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
         return status;
     }
@@ -216,9 +224,13 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
         _next_block_func = &VerticalBlockReader::_direct_next_block;
         break;
     case KeysType::UNIQUE_KEYS:
-        _next_block_func = &VerticalBlockReader::_unique_key_next_block;
-        if (_filter_delete) {
-            _delete_filter_column = ColumnUInt8::create();
+        if (tablet()->tablet_meta()->tablet_schema()->cluster_key_idxes().empty()) {
+            _next_block_func = &VerticalBlockReader::_unique_key_next_block;
+            if (_filter_delete) {
+                _delete_filter_column = ColumnUInt8::create();
+            }
+        } else {
+            _next_block_func = &VerticalBlockReader::_direct_next_block;
         }
         break;
     case KeysType::AGG_KEYS:

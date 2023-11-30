@@ -197,6 +197,28 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void prunePartitionWithDefaultPartition() throws Exception {
+        createTable("CREATE TABLE IF NOT EXISTS test_default_in_parts (\n"
+                + "            k1 tinyint NOT NULL, \n"
+                + "            k2 smallint NOT NULL, \n"
+                + "            k3 int NOT NULL, \n"
+                + "            k4 bigint NOT NULL, \n"
+                + "            k5 decimal(9, 3) NOT NULL,\n"
+                + "            k8 double max NOT NULL, \n"
+                + "            k9 float sum NOT NULL ) \n"
+                + "        AGGREGATE KEY(k1,k2,k3,k4,k5)\n"
+                + "        PARTITION BY LIST(k1) ( \n"
+                + "            PARTITION p1 VALUES IN (\"1\",\"2\",\"3\",\"4\"), \n"
+                + "            PARTITION p2 VALUES IN (\"5\",\"6\",\"7\",\"8\"), \n"
+                + "            PARTITION p3 ) \n"
+                + "        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties(\"replication_num\" = \"1\")");
+        test("test_default_in_parts", "k1 = 10", 1);
+        test("test_default_in_parts", "k1 > 5", 2);
+        test("test_default_in_parts", "k1 > 2", 3);
+        test("test_default_in_parts", "(k1 > 1 and k1 < 8)", 3);
+    }
+
+    @Test
     public void prunePartitionWithOrPredicate() {
         test("test_list_parts", "(part = 9 and id <= 500) or (part = 3)", 1);
         test("test_range_parts", "(part = 1 and id <= 500) or (part = 3)", 2);
@@ -206,6 +228,8 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     public void canNotPruneComplexPredicate() {
         test("test_range_parts", "(part = 10) or (part + id = 1)", 4);
         test("test_range_parts", "(part + id = 1) and (part = 4)", 1);
+        test("test_range_parts", "(part = 2) and (part <> id)", 1);
+        test("test_range_parts", "(part = 2) or (part <> id)", 4);
     }
 
     @Test

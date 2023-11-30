@@ -68,22 +68,24 @@ Status RemoteFileSystem::connect() {
     FILESYSTEM_M(connect_impl());
 }
 
-Status RemoteFileSystem::open_file_impl(const FileDescription& fd, const Path& abs_path,
-                                        const FileReaderOptions& reader_options,
-                                        FileReaderSPtr* reader) {
+Status RemoteFileSystem::open_file_impl(const Path& path, FileReaderSPtr* reader,
+                                        const FileReaderOptions* opts) {
     FileReaderSPtr raw_reader;
-    RETURN_IF_ERROR(open_file_internal(fd, abs_path, &raw_reader));
-    switch (reader_options.cache_type) {
+    if (!opts) {
+        opts = &FileReaderOptions::DEFAULT;
+    }
+    RETURN_IF_ERROR(open_file_internal(path, &raw_reader, *opts));
+    switch (opts->cache_type) {
     case io::FileCachePolicy::NO_CACHE: {
         *reader = raw_reader;
         break;
     }
     case io::FileCachePolicy::FILE_BLOCK_CACHE: {
-        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), &reader_options);
+        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), *opts);
         break;
     }
     default: {
-        return Status::InternalError("Unknown cache type: {}", reader_options.cache_type);
+        return Status::InternalError("Unknown cache type: {}", opts->cache_type);
     }
     }
     return Status::OK();

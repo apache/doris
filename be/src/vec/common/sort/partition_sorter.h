@@ -67,7 +67,7 @@ public:
         return true;
     }
     int row = 0;
-    MergeSortCursorImpl* impl;
+    MergeSortCursorImpl* impl = nullptr;
 };
 
 class PartitionSorter final : public Sorter {
@@ -99,10 +99,11 @@ private:
     std::unique_ptr<MergeSorterState> _state;
     const RowDescriptor& _row_desc;
     int64 _output_total_rows = 0;
+    int64 _output_distinct_rows = 0;
     bool _has_global_limit = false;
     int _partition_inner_limit = 0;
     TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::type::ROW_NUMBER;
-    SortCursorCmp* _previous_row;
+    SortCursorCmp* _previous_row = nullptr;
 };
 
 } // namespace doris::vectorized

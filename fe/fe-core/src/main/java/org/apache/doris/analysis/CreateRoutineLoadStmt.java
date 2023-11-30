@@ -92,8 +92,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     // routine load properties
     public static final String DESIRED_CONCURRENT_NUMBER_PROPERTY = "desired_concurrent_number";
+    public static final String CURRENT_CONCURRENT_NUMBER_PROPERTY = "current_concurrent_number";
     // max error number in ten thousand records
     public static final String MAX_ERROR_NUMBER_PROPERTY = "max_error_number";
+    public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
     // the following 3 properties limit the time and batch size of a single routine load task
     public static final String MAX_BATCH_INTERVAL_SEC_PROPERTY = "max_batch_interval";
     public static final String MAX_BATCH_ROWS_PROPERTY = "max_batch_rows";
@@ -120,6 +122,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
             .add(MAX_ERROR_NUMBER_PROPERTY)
+            .add(MAX_FILTER_RATIO_PROPERTY)
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
@@ -150,6 +153,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private RoutineLoadDesc routineLoadDesc;
     private int desiredConcurrentNum = 1;
     private long maxErrorNum = -1;
+    private double maxFilterRatio = -1;
     private long maxBatchIntervalS = -1;
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
@@ -171,6 +175,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
 
+    private String enclose;
+
+    private String escape;
+
     /**
      * support partial columns load(Only Unique Key Columns)
      */
@@ -185,6 +193,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
+    public static final Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
     public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1 && v <= 60;
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
     public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024;
@@ -240,6 +249,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return maxErrorNum;
     }
 
+    public double getMaxFilterRatio() {
+        return maxFilterRatio;
+    }
+
     public long getMaxBatchIntervalS() {
         return maxBatchIntervalS;
     }
@@ -290,6 +303,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public String getJsonPaths() {
         return jsonPaths;
+    }
+
+    public String getEnclose() {
+        return enclose;
+    }
+
+    public String getEscape() {
+        return escape;
     }
 
     public String getJsonRoot() {
@@ -441,11 +462,15 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(
                 jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
                 Config.max_routine_load_task_concurrent_num, DESIRED_CONCURRENT_NUMBER_PRED,
-                DESIRED_CONCURRENT_NUMBER_PROPERTY + " should > 0")).intValue();
+                DESIRED_CONCURRENT_NUMBER_PROPERTY + " must be greater than 0")).intValue();
 
         maxErrorNum = Util.getLongPropertyOrDefault(jobProperties.get(MAX_ERROR_NUMBER_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_ERROR_NUM, MAX_ERROR_NUMBER_PRED,
                 MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
+
+        maxFilterRatio = Util.getDoublePropertyOrDefault(jobProperties.get(MAX_FILTER_RATIO_PROPERTY),
+                RoutineLoadJob.DEFAULT_MAX_FILTER_RATIO, MAX_FILTER_RATIO_PRED,
+                MAX_FILTER_RATIO_PROPERTY + " should between 0 and 1");
 
         maxBatchIntervalS = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_INTERVAL_SEC_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
@@ -463,14 +488,23 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 RoutineLoadJob.DEFAULT_STRICT_MODE,
                 LoadStmt.STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
-                RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
+                RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED,
+                EXEC_MEM_LIMIT_PROPERTY + " must be greater than 0");
 
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
                 ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
-                SEND_BATCH_PARALLELISM + " should > 0")).intValue();
+                SEND_BATCH_PARALLELISM + " must be greater than 0")).intValue();
         loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
                 RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
                 LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
+        enclose = jobProperties.get(LoadStmt.KEY_ENCLOSE);
+        if (enclose != null && enclose.length() != 1) {
+            throw new AnalysisException("enclose must be single-char");
+        }
+        escape = jobProperties.get(LoadStmt.KEY_ESCAPE);
+        if (escape != null && escape.length() != 1) {
+            throw new AnalysisException("escape must be single-char");
+        }
 
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();

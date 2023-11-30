@@ -50,8 +50,6 @@ private:
 public:
     const char* get_family_name() const override { return "ColumnFixedLengthObject"; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     size_t size() const override { return _item_count; }
 
     const Container& get_data() const { return _data; }
@@ -97,6 +95,28 @@ public:
         for (int i = 0; i < new_size; ++i) {
             int offset = indices_begin[i];
             if (offset > -1) {
+                memcpy(&_data[(origin_size + i) * _item_size], &src_vec._data[offset * _item_size],
+                       _item_size);
+            } else {
+                memset(&_data[(origin_size + i) * _item_size], 0, _item_size);
+            }
+        }
+    }
+
+    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
+        const Self& src_vec = assert_cast<const Self&>(src);
+        auto origin_size = size();
+        auto new_size = indices_end - indices_begin;
+        if (_item_size == 0) {
+            _item_size = src_vec._item_size;
+        }
+        DCHECK(_item_size == src_vec._item_size) << "dst and src should have the same _item_size";
+        resize(origin_size + new_size);
+
+        for (uint32_t i = 0; i < new_size; ++i) {
+            auto offset = indices_begin[i];
+            if (offset) {
                 memcpy(&_data[(origin_size + i) * _item_size], &src_vec._data[offset * _item_size],
                        _item_size);
             } else {
@@ -200,8 +220,6 @@ public:
         LOG(FATAL) << "not support";
     }
 
-    TypeIndex get_data_type() const override { LOG(FATAL) << "get_data_type not supported"; }
-
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not supported";
     }
@@ -244,10 +262,6 @@ public:
         this->template append_data_by_selector_impl<Self>(res, selector);
     }
 
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not supported";
-    }
-
     size_t byte_size() const override { return _data.size(); }
 
     size_t item_size() const { return _item_size; }
@@ -284,6 +298,23 @@ public:
         const size_t total_mem_size = offsets[num] - begin_offset;
         resize(old_size + num);
         memcpy(_data.data() + old_size, data + begin_offset, total_mem_size);
+    }
+
+    void insert_many_binary_data(char* data_array, uint32_t* len_array,
+                                 uint32_t* start_offset_array, size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+
+        size_t old_count = _item_count;
+        resize(old_count + num);
+        auto dst = _data.data() + old_count * _item_size;
+        for (size_t i = 0; i < num; i++) {
+            auto src = data_array + start_offset_array[i];
+            uint32_t len = len_array[i];
+            dst += i * _item_size;
+            memcpy(dst, src, len);
+        }
     }
 
 protected:

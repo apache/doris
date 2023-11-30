@@ -17,7 +17,14 @@
 
 #pragma once
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include <CLucene.h> // IWYU pragma: keep
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/util/Misc.h>
 #include <butil/macros.h>
@@ -37,6 +44,7 @@
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/slice.h"
@@ -72,7 +80,8 @@ public:
 
     // Create global instance of this class.
     // "capacity" is the capacity of lru cache.
-    static void create_global_instance(size_t capacity, uint32_t num_shards = 16);
+    static InvertedIndexSearcherCache* create_global_instance(size_t capacity,
+                                                              uint32_t num_shards = 16);
 
     void reset() {
         _cache.reset();
@@ -80,15 +89,11 @@ public:
         // Reset or clear the state of the object.
     }
 
-    static void reset_global_instance() {
-        if (_s_instance != nullptr) {
-            _s_instance->reset();
-        }
-    }
-
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexSearcherCache* instance() { return _s_instance; }
+    static InvertedIndexSearcherCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+    }
 
     static IndexSearcherPtr build_index_searcher(const io::FileSystemSPtr& fs,
                                                  const std::string& index_dir,
@@ -123,8 +128,7 @@ private:
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
 
 private:
-    static InvertedIndexSearcherCache* _s_instance;
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValue>;
@@ -199,7 +203,7 @@ public:
         io::Path index_path;               // index file path
         std::string column_name;           // column name
         InvertedIndexQueryType query_type; // query type
-        std::wstring value;                // query value
+        std::string value;                 // query value
 
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
@@ -213,8 +217,7 @@ public:
             }
             key_buf.append(query_type_str);
             key_buf.append("/");
-            auto str = lucene_wcstoutf8string(value.c_str(), value.length());
-            key_buf.append(str);
+            key_buf.append(value);
             return key_buf;
         }
     };
@@ -224,15 +227,16 @@ public:
     };
 
     // Create global instance of this class
-    static void create_global_cache(size_t capacity, uint32_t num_shards = 16) {
-        DCHECK(_s_instance == nullptr);
-        static InvertedIndexQueryCache instance(capacity, num_shards);
-        _s_instance = &instance;
+    static InvertedIndexQueryCache* create_global_cache(size_t capacity, uint32_t num_shards = 16) {
+        InvertedIndexQueryCache* res = new InvertedIndexQueryCache(capacity, num_shards);
+        return res;
     }
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexQueryCache* instance() { return _s_instance; }
+    static InvertedIndexQueryCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_query_cache();
+    }
 
     InvertedIndexQueryCache() = delete;
 
@@ -247,9 +251,6 @@ public:
                 InvertedIndexQueryCacheHandle* handle);
 
     int64_t mem_consumption();
-
-private:
-    static InvertedIndexQueryCache* _s_instance;
 };
 
 class InvertedIndexQueryCacheHandle {

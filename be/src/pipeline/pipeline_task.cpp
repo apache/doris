@@ -34,6 +34,7 @@
 #include "task_queue.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "vec/core/future_block.h"
 
 namespace doris {
 class RuntimeState;
@@ -58,6 +59,11 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _root(_operators.back()),
           _sink(sink) {
     _pipeline_task_watcher.start();
+    _query_statistics.reset(new QueryStatistics(state->query_options().query_type));
+    _sink->set_query_statistics(_query_statistics);
+    _collect_query_statistics_with_every_batch =
+            _pipeline->collect_query_statistics_with_every_batch();
+    fragment_context->set_query_statistics(_query_statistics);
 }
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
@@ -85,7 +91,6 @@ void PipelineTask::_fresh_profile_counter() {
     COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
     COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
     COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
-    COUNTER_SET(_wait_schedule_timer, (int64_t)_wait_schedule_watcher.elapsed_time());
     COUNTER_SET(_begin_execute_timer, _begin_execute_time);
     COUNTER_SET(_eos_timer, _eos_time);
     COUNTER_SET(_src_pending_finish_over_timer, _src_pending_finish_over_time);
@@ -109,20 +114,21 @@ void PipelineTask::_init_profile() {
     _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
     _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
-    _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
     _wait_source_timer = ADD_TIMER(_task_profile, "WaitSourceTime");
     _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
     _wait_sink_timer = ADD_TIMER(_task_profile, "WaitSinkTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
-    _wait_schedule_timer = ADD_TIMER(_task_profile, "WaitScheduleTime");
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
     _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
     _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
+    _wait_bf_counts = ADD_COUNTER(_task_profile, "WaitBfTimes", TUnit::UNIT);
+    _wait_dependency_counts = ADD_COUNTER(_task_profile, "WaitDenpendencyTimes", TUnit::UNIT);
+    _pending_finish_counts = ADD_COUNTER(_task_profile, "PendingFinishTimes", TUnit::UNIT);
 
     _begin_execute_timer = ADD_TIMER(_task_profile, "Task1BeginExecuteTime");
     _eos_timer = ADD_TIMER(_task_profile, "Task2EosTime");
@@ -161,7 +167,8 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block = doris::vectorized::Block::create_unique();
+    _block = _fragment_context->is_group_commit() ? doris::vectorized::FutureBlock::create_unique()
+                                                  : doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -214,6 +221,7 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
+
     Defer defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
@@ -248,6 +256,18 @@ Status PipelineTask::execute(bool* eos) {
         }
     }
 
+    auto status = Status::OK();
+    auto handle_group_commit = [&]() {
+        if (UNLIKELY(_fragment_context->is_group_commit() && !status.ok() && _block != nullptr)) {
+            auto* future_block = dynamic_cast<vectorized::FutureBlock*>(_block.get());
+            std::unique_lock<std::mutex> l(*(future_block->lock));
+            if (!future_block->is_handled()) {
+                future_block->set_result(status, 0, 0);
+                future_block->cv->notify_all();
+            }
+        }
+    };
+
     this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
         if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
@@ -271,16 +291,22 @@ Status PipelineTask::execute(bool* eos) {
         {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
+            status = _root->get_block(_state, block, _data_state);
+            if (UNLIKELY(!status.ok())) {
+                handle_group_commit();
+                return status;
+            }
         }
         *eos = _data_state == SourceState::FINISHED;
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            auto status = _sink->sink(_state, block, _data_state);
-            if (status.is<ErrorCode::NEED_SEND_AGAIN>()) {
-                status = _sink->sink(_state, block, _data_state);
+            if (_data_state == SourceState::FINISHED ||
+                _collect_query_statistics_with_every_batch) {
+                RETURN_IF_ERROR(_collect_query_statistics());
             }
+            status = _sink->sink(_state, block, _data_state);
+            handle_group_commit();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -294,19 +320,24 @@ Status PipelineTask::execute(bool* eos) {
     return Status::OK();
 }
 
-Status PipelineTask::finalize() {
-    SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
-    Defer defer {[&]() {
-        if (_task_queue) {
-            _task_queue->update_statistics(this, _finalize_timer->value());
+Status PipelineTask::_collect_query_statistics() {
+    // The execnode tree of a fragment will be split into multiple pipelines, we only need to collect the root pipeline.
+    if (_pipeline->is_root_pipeline()) {
+        // If the current fragment has only one instance, we can collect all of them;
+        // otherwise, we need to collect them based on the sender_id.
+        if (_state->num_per_fragment_instances() == 1) {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get()));
+        } else {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get(),
+                                                            _state->per_fragment_instance_idx()));
         }
-    }};
-    SCOPED_TIMER(_finalize_timer);
-    return _sink->finalize(_state);
+    }
+    return Status::OK();
 }
 
-Status PipelineTask::try_close() {
+Status PipelineTask::try_close(Status exec_status) {
     if (_try_close_flag) {
         return Status::OK();
     }
@@ -316,7 +347,7 @@ Status PipelineTask::try_close() {
     return status1.ok() ? status2 : status1;
 }
 
-Status PipelineTask::close() {
+Status PipelineTask::close(Status exec_status) {
     int64_t close_ns = 0;
     Defer defer {[&]() {
         if (_task_queue) {
@@ -375,6 +406,11 @@ void PipelineTask::set_state(PipelineTaskState state) {
             COUNTER_UPDATE(_block_by_sink_counts, 1);
         } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
             _wait_bf_watcher.start();
+            COUNTER_UPDATE(_wait_bf_counts, 1);
+        } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
+            COUNTER_UPDATE(_wait_dependency_counts, 1);
+        } else if (state == PipelineTaskState::PENDING_FINISH) {
+            COUNTER_UPDATE(_pending_finish_counts, 1);
         }
     }
 

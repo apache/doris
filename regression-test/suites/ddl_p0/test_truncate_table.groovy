@@ -51,7 +51,7 @@ suite("test_truncate_table") {
     assertEquals(result.size(), 3)
     assertEquals(result.get(0).get(1), "p1")
 
-    sql """truncate table ${testTable} partitions (p1, P1);"""
+    sql """truncate table ${testTable} partitions (p1, p1);"""
 
     result = sql "show partitions from ${testTable}"
     logger.info("${result}")

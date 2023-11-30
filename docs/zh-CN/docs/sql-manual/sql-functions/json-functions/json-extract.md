@@ -41,7 +41,6 @@ BIGINT json_extract_bigint(JSON j, VARCHAR json_path)
 LARGEINT json_extract_largeint(JSON j, VARCHAR json_path)
 DOUBLE json_extract_double(JSON j, VARCHAR json_path)
 STRING json_extract_string(JSON j, VARCHAR json_path)
-VARCHAR json_str->json_path
 ```
 
 
@@ -104,22 +103,6 @@ mysql> SELECT json_extract('{"id": 123, "name": "doris"}', '$.aaa', '$.name');
 | [null,"doris"]                                                  |
 +-----------------------------------------------------------------+
 1 row in set (0.01 sec)
-
-mysql> SELECT '{"id": 123, "name": "doris"}'->'$.name';
-+--------------------------------------------------------+
-| json_extract('{"id": 123, "name": "doris"}', '$.name') |
-+--------------------------------------------------------+
-| "doris"                                                |
-+--------------------------------------------------------+
-1 row in set (0.01 sec)
-
-mysql> SELECT '{"k1": "v1", "k2": { "k21": 6.6, "k22": [1, 2, 3] } }'->'$.k2.k22[2]';
-+--------------------------------------------------------------------------------------+
-| json_extract('{"k1": "v1", "k2": { "k21": 6.6, "k22": [1, 2, 3] } }', '$.k2.k22[2]') |
-+--------------------------------------------------------------------------------------+
-| 3                                                                                    |
-+--------------------------------------------------------------------------------------+
-1 row in set (0.00 sec)
 ```
 
 ### keywords

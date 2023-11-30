@@ -24,8 +24,6 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "util/lock.h"
-
 namespace doris {
 
 struct StoragePolicyMgr {
@@ -48,7 +46,6 @@ Status get_remote_file_system(int64_t storage_policy_id,
         return Status::InternalError("could not find resource, resouce_id={}",
                                      storage_policy->resource_id);
     }
-    DCHECK(atol((*fs)->id().c_str()) == storage_policy->resource_id);
     DCHECK((*fs)->type() != io::FileSystemType::LOCAL);
     return Status::OK();
 }
@@ -81,12 +78,12 @@ std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids() {
     return res;
 }
 
-struct StorageResouceMgr {
-    doris::Mutex mtx;
+struct StorageResourceMgr {
+    std::mutex mtx;
     std::unordered_map<int64_t, StorageResource> map;
 };
 
-static StorageResouceMgr s_storage_resource_mgr;
+static StorageResourceMgr s_storage_resource_mgr;
 
 io::FileSystemSPtr get_filesystem(const std::string& resource_id) {
     int64_t id = std::atol(resource_id.c_str());

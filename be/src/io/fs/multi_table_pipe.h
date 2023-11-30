@@ -55,11 +55,11 @@ public:
     void cancel(const std::string& reason) override;
 
     // register <instance id, pipe> pair
-    Status putPipe(const TUniqueId& fragment_instance_id, std::shared_ptr<io::StreamLoadPipe> pipe);
+    Status put_pipe(const TUniqueId& pipe_id, std::shared_ptr<io::StreamLoadPipe> pipe);
 
-    std::shared_ptr<io::StreamLoadPipe> getPipe(const TUniqueId& fragment_instance_id);
+    std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& pipe_id);
 
-    void removePipe(const TUniqueId& fragment_instance_id);
+    void remove_pipe(const TUniqueId& pipe_id);
 
 private:
     // parse table name from data
@@ -80,7 +80,7 @@ private:
     // note: Use raw pointer here to avoid cycle reference with StreamLoadContext.
     // Life cycle of MultiTablePipe is under control of StreamLoadContext, which means StreamLoadContext is created
     // before NultiTablePipe and released after it. It is safe to use raw pointer here.
-    StreamLoadContext* _ctx;
+    StreamLoadContext* _ctx = nullptr;
     Status _status; // save the first error status of all executing plan fragment
 #ifndef BE_TEST
     std::mutex _tablet_commit_infos_lock;

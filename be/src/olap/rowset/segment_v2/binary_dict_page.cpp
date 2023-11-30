@@ -23,9 +23,9 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
@@ -178,7 +178,7 @@ Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
 Status BinaryDictPageBuilder::get_first_value(void* value) const {
     DCHECK(_finished);
     if (_data_page_builder->count() == 0) {
-        return Status::NotFound("page is empty");
+        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
     }
     if (_encoding_type != DICT_ENCODING) {
         return _data_page_builder->get_first_value(value);
@@ -190,7 +190,7 @@ Status BinaryDictPageBuilder::get_first_value(void* value) const {
 Status BinaryDictPageBuilder::get_last_value(void* value) const {
     DCHECK(_finished);
     if (_data_page_builder->count() == 0) {
-        return Status::NotFound("page is empty");
+        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
     }
     if (_encoding_type != DICT_ENCODING) {
         return _data_page_builder->get_last_value(value);
@@ -282,6 +282,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
 Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal,
                                              size_t* n, vectorized::MutableColumnPtr& dst) {
     if (_encoding_type == PLAIN_ENCODING) {
+        dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->read_by_rowids(rowids, page_first_ordinal, n, dst);
     }
     DCHECK(_parsed);

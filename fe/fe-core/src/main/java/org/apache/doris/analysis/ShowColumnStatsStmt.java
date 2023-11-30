@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 
 import com.google.common.collect.ImmutableList;
@@ -54,6 +55,10 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     .add("avg_size_byte")
                     .add("min")
                     .add("max")
+                    .add("method")
+                    .add("type")
+                    .add("trigger")
+                    .add("query_times")
                     .add("updated_time")
                     .build();
 
@@ -136,6 +141,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
             if (p.second.isUnKnown) {
                 return;
             }
+
             List<String> row = Lists.newArrayList();
             row.add(p.first);
             row.add(String.valueOf(p.second.count));
@@ -145,6 +151,12 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.avgSizeByte));
             row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
             row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
+            ColStatsMeta colStatsMeta = Env.getCurrentEnv().getAnalysisManager().findColStatsMeta(table.getId(),
+                    p.first);
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisMethod));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisType));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.jobType));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.queriedTimes));
             row.add(String.valueOf(p.second.updatedTime));
             result.add(row);
         });

@@ -32,7 +32,8 @@ Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_nu
                       std::vector<uint32_t> dest_segment_num_rows) {
     lucene::store::Directory* dir =
             DorisCompoundDirectory::getDirectory(fs, index_writer_path.c_str(), false);
-    auto index_writer = _CLNEW lucene::index::IndexWriter(dir, nullptr, true /* create */,
+    lucene::analysis::SimpleAnalyzer<char> analyzer;
+    auto index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                           true /* closeDirOnShutdown */);
 
     // get compound directory src_index_dirs
@@ -79,7 +80,7 @@ Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_nu
     }
 
     // delete temporary index_writer_path
-    fs->delete_directory(index_writer_path.c_str());
+    static_cast<void>(fs->delete_directory(index_writer_path.c_str()));
     return Status::OK();
 }
 } // namespace segment_v2

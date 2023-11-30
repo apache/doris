@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to run TPC-DS 103 queries
+# This script is used to run TPC-DS 99 queries
 ##############################################################
 
 set -eo pipefail
@@ -131,33 +131,38 @@ run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
-run_sql "analyze database ${DB} with sync;"
-echo '============================================'
-echo "Time Unit: ms"
 
+RESULT_DIR="${CURDIR}/result"
+if [[ -d "${RESULT_DIR}" ]]; then
+    rm -r "${RESULT_DIR}"
+fi
+mkdir -p "${RESULT_DIR}"
 touch result.csv
 cold_run_sum=0
 best_hot_run_sum=0
-i=1
-for i in {1..99}; do
+# run part of queries, set their index to query_array
+# query_array=(59 17 29 25 47 40 54)
+query_array=$(seq 1 99)
+# shellcheck disable=SC2068
+for i in ${query_array[@]}; do
     cold=0
     hot1=0
     hot2=0
     echo -ne "query${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >/dev/null
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     end=$(date +%s%3N)
     cold=$((end - start))
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >/dev/null
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     end=$(date +%s%3N)
     hot1=$((end - start))
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >/dev/null
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     end=$(date +%s%3N)
     hot2=$((end - start))
     echo -ne "${hot2}\t" | tee -a result.csv

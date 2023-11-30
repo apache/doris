@@ -104,10 +104,21 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
                         + "DISTRIBUTED BY HASH(`k1`) BUCKETS 10\n"
                         + "PROPERTIES ('replication_num' = '1');";
 
+        String autoCreatePartitionTable = new String("CREATE TABLE test.test_to_date_trunc(\n"
+                + "    event_day DATETIME\n"
+                + ")\n"
+                + "DUPLICATE KEY(event_day)\n"
+                + "AUTO PARTITION BY range date_trunc(event_day, \"day\") (\n"
+                + "\tPARTITION `p20230807` values [(20230807 ), (20230808 )),\n"
+                + "\tPARTITION `p20020106` values [(20020106 ), (20020107 ))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(event_day) BUCKETS 4\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");");
         createTables(singleColumnPartitionTable,
                 notNullSingleColumnPartitionTable,
                 multipleColumnsPartitionTable,
-                notNullMultipleColumnsPartitionTable);
+                notNullMultipleColumnsPartitionTable,
+                autoCreatePartitionTable);
     }
 
     private void initTestCases() {
@@ -193,8 +204,13 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
                 "partitions=5/8");
         addCase("select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.t1 where (dt between 20211121 and 20211122) or dt is null or (dt between 20211123 and 20211125)",
                 "partitions=6/8");
+        addCase("select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test_to_date_trunc where event_day= \"2023-08-07 11:00:00\" ",
+                "partitions=1/2");
+        addCase("select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test_to_date_trunc where date_trunc(event_day, \"day\")= \"2023-08-07 11:00:00\" ",
+                "partitions=1/2");
 
     }
+
 
     @Test
     public void testPartitionPrune() throws Exception {

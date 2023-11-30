@@ -53,7 +53,7 @@ suite("bind_priority") {
         sql """
             select sum(a) as v from bind_priority_tbl  group by v;
             """
-        exception "cannot bind GROUP BY KEY: v"
+        exception "Unknown column 'v' in 'table list' in AGGREGATE clause"
     }
 
     sql "drop table if exists bind_priority_tbl"
@@ -116,7 +116,7 @@ suite("bind_priority") {
 
     test{
         sql "SELECT a,2 as a FROM (SELECT '1' as a) b HAVING a=1"
-        exception "a is ambiguous: a#0, a#1."
+        exception "a is ambiguous: a#1, a#2."
     }
 
     sql "drop table if exists duplicate_slot";

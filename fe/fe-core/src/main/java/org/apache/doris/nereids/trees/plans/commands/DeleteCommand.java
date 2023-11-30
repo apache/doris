@@ -70,7 +70,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty()).run(ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), false).run(ctx, executor);
     }
 
     private void checkTable(ConnectContext ctx) {
@@ -103,7 +103,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
                 selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
             } else if (column.isKey()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
-            } else if ((!isMow && !column.isVisible()) || (!column.isAllowNull() && !column.hasDefaultValue())) {
+            } else if (!isMow && !column.isVisible()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else {
                 continue;

@@ -35,15 +35,16 @@ class Thread;
 class BrokerMgr {
 public:
     BrokerMgr(ExecEnv* exec_env);
-    ~BrokerMgr();
+    ~BrokerMgr() = default;
     void init();
+    void stop();
     const std::string& get_client_id(const TNetworkAddress& address);
 
 private:
     void ping(const TNetworkAddress& addr);
     void ping_worker();
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::string _client_id;
     std::mutex _mutex;
     std::unordered_set<TNetworkAddress> _broker_set;

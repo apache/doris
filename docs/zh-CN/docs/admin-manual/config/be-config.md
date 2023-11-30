@@ -123,6 +123,12 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：BE 上的 brpc 的端口，用于 BE 之间通讯
 * 默认值：8060
 
+#### `arrow_flight_sql_port`
+
+* 类型：int32
+* 描述：FE 上的 Arrow Flight SQL server 的端口，用于从 Arrow Flight Client 和 BE 之间通讯
+* 默认值：-1
+
 #### `enable_https`
 
 * 类型：bool
@@ -191,7 +197,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 * 类型：string
 * 描述：限制BE进程使用服务器最大内存百分比。用于防止BE内存挤占太多的机器内存，该参数必须大于0，当百分大于100%之后，该值会默认为100%。
-* 默认值：80%
+* 默认值：90%
 
 #### `cluster_id`
 
@@ -741,7 +747,7 @@ BaseCompaction:546859:
 #### `enable_single_replica_load`
 
 * 描述: 是否启动单副本数据导入功能
-* 默认值: false
+* 默认值: true
 
 #### `load_error_log_reserve_hours`
 
@@ -842,6 +848,16 @@ BaseCompaction:546859:
   - 一些数据格式，如 JSON，无法进行拆分处理，必须读取全部数据到内存后才能开始解析，因此，这个值用于限制此类格式数据单次导入最大数据量。
 * 默认值： 100
 * 可动态修改：是
+
+#### `olap_table_sink_send_interval_microseconds`.
+
+* 描述： 数据导入时，Coordinator 的 sink 节点有一个轮询线程持续向对应BE发送数据。该线程将每隔 `olap_table_sink_send_interval_microseconds` 微秒检查是否有数据要发送。
+* 默认值：1000
+
+#### `olap_table_sink_send_interval_auto_partition_factor`.
+
+* 描述： 如果我们向一个启用了自动分区的表导入数据，那么 `olap_table_sink_send_interval_microseconds` 的时间间隔就会太慢。在这种情况下，实际间隔将乘以该系数。
+* 默认值：0.001
 
 ### 线程
 
@@ -969,11 +985,6 @@ BaseCompaction:546859:
 * 描述：最大外部扫描缓存批次计数，表示缓存max_memory_cache_batch_count * batch_size row，默认为20，batch_size的默认值为1024，表示将缓存20 * 1024行
 * 默认值：20
 
-#### `memory_limitation_per_thread_for_schema_change`
-
-* 描述：单个schema change任务允许占用的最大内存
-* 默认值：2 （GB）
-
 #### `memory_max_alignment`
 
 * 描述：最大校对内存
@@ -1022,7 +1033,7 @@ BaseCompaction:546859:
 #### `memory_limitation_per_thread_for_schema_change_bytes`
 
 * 描述：单个schema change任务允许占用的最大内存
-* 默认值：2147483648
+* 默认值：2147483648 (2GB)
 
 #### `mem_tracker_consume_min_size_bytes`
 
@@ -1291,8 +1302,8 @@ BaseCompaction:546859:
 
 * 类型：int64
 * 描述：用来表示清理合并版本的过期时间，当当前时间 now() 减去一个合并的版本路径中rowset最近创建创建时间大于tablet_rowset_stale_sweep_time_sec时，对当前路径进行清理，删除这些合并过的rowset, 单位为s。
-  - 当写入过于频繁，磁盘空间不足时，可以配置较少这个时间。不过这个时间过短小于5分钟时，可能会引发fe查询不到已经合并过的版本，引发查询-230错误。
-* 默认值：1800
+  - 当写入过于频繁，可能会引发fe查询不到已经合并过的版本，引发查询-230错误。可以通过调大该参数避免该问题。
+* 默认值：300
 
 #### `tablet_writer_open_rpc_timeout_sec`
 
@@ -1492,11 +1503,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: 存放 jdbc driver 的默认目录。
 * 默认值: `${DORIS_HOME}/jdbc_drivers`
 
-#### `enable_parse_multi_dimession_array`
-
-* 描述: 在动态表中是否解析多维数组，如果是false遇到多维数组则会报错。
-* 默认值: true
-
 #### `enable_simdjson_reader`
 
 * 描述: 是否在导入json数据时用simdjson来解析。
@@ -1523,3 +1529,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述:  在云原生的部署模式下，为了节省资源一个BE 可能会被频繁的加入集群或者从集群中移除。 如果在这个BE 上有正在运行的Query，那么这个Query 会失败。 用户可以使用 stop_be.sh --grace 的方式来关闭一个BE 节点，此时BE 会等待当前正在这个BE 上运行的所有查询都结束才会退出。 同时，在这个时间范围内FE 也不会分发新的query 到这个机器上。 如果超过grace_shutdown_wait_seconds这个阈值，那么BE 也会直接退出，防止一些查询长期不退出导致节点没法快速下掉的情况。
 * 默认值: 120
+
+#### `enable_java_support`
+
+* 描述: BE 是否开启使用java-jni，开启后允许 c++ 与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
+* 默认值: true

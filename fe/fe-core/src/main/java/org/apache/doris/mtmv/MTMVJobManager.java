@@ -19,399 +19,177 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MaterializedView;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.metric.GaugeMetric;
-import org.apache.doris.metric.Metric;
-import org.apache.doris.metric.MetricLabel;
-import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mtmv.MTMVUtils.JobState;
-import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
-import org.apache.doris.mtmv.metadata.MTMVCheckpointData;
-import org.apache.doris.mtmv.metadata.MTMVJob;
-import org.apache.doris.mtmv.metadata.MTMVTask;
-import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.base.JobExecuteType;
+import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.base.TimerDefinition;
+import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.mtmv.MTMVJob;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.persist.AlterMTMV;
+import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
-public class MTMVJobManager {
-    private static final Logger LOG = LogManager.getLogger(MTMVJobManager.class);
+/**
+ * when do some operation, do something about job
+ */
+public class MTMVJobManager implements MTMVHookService {
+    public static final String MTMV_JOB_PREFIX = "mtmv_";
 
-    // make sure that metrics were registered only once.
-    private static volatile boolean metricsRegistered = false;
-
-    private final Map<Long, MTMVJob> idToJobMap;
-    private final Map<String, MTMVJob> nameToJobMap;
-
-    private final MTMVTaskManager taskManager;
-
-    private ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1);
-
-    private ScheduledExecutorService cleanerScheduler = Executors.newScheduledThreadPool(1);
-
-    private final ReentrantReadWriteLock rwLock;
-
-    private final AtomicBoolean isStarted = new AtomicBoolean(false);
-
-    public MTMVJobManager() {
-        idToJobMap = Maps.newConcurrentMap();
-        nameToJobMap = Maps.newConcurrentMap();
-        rwLock = new ReentrantReadWriteLock(true);
-        taskManager = new MTMVTaskManager();
-    }
-
-    public void start() {
-        if (isStarted.compareAndSet(false, true)) {
-            // check the scheduler before using it
-            // since it may be shutdown when master change to follower without process shutdown.
-            if (periodScheduler.isShutdown()) {
-                periodScheduler = Executors.newScheduledThreadPool(1);
-            }
-
-            registerJobs();
-
-            if (cleanerScheduler.isShutdown()) {
-                cleanerScheduler = Executors.newScheduledThreadPool(1);
-            }
-            cleanerScheduler.scheduleAtFixedRate(() -> {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    LOG.warn("only master can run MTMVJob");
-                    return;
-                }
-                removeExpiredJobs();
-                taskManager.removeExpiredTasks();
-            }, 0, 1, TimeUnit.MINUTES);
-
-            taskManager.startTaskScheduler();
-            initMetrics();
-        }
-    }
-
-    private void initMetrics() {
-        if (metricsRegistered) {
-            return;
-        }
-        metricsRegistered = true;
-
-        // total jobs
-        GaugeMetric<Integer> totalJob = new GaugeMetric<Integer>("mtmv_job",
-                Metric.MetricUnit.NOUNIT, "Total job number of mtmv.") {
-            @Override
-            public Integer getValue() {
-                return nameToJobMap.size();
-            }
-        };
-        totalJob.addLabel(new MetricLabel("type", "TOTAL-JOB"));
-        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(totalJob);
-
-        // active jobs
-        GaugeMetric<Integer> activeJob = new GaugeMetric<Integer>("mtmv_job",
-                Metric.MetricUnit.NOUNIT, "Active job number of mtmv.") {
-            @Override
-            public Integer getValue() {
-                int result = 0;
-                for (MTMVJob job : getAllJobsWithLock()) {
-                    if (job.getState() == JobState.ACTIVE) {
-                        result++;
-                    }
-                }
-                return result;
-            }
-        };
-        activeJob.addLabel(new MetricLabel("type", "ACTIVE-JOB"));
-        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(activeJob);
-
-        // total tasks
-        GaugeMetric<Integer> totalTask = new GaugeMetric<Integer>("mtmv_task",
-                Metric.MetricUnit.NOUNIT, "Total task number of mtmv.") {
-            @Override
-            public Integer getValue() {
-                return getTaskManager().getHistoryTasks().size();
-            }
-        };
-        totalTask.addLabel(new MetricLabel("type", "TOTAL-TASK"));
-        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(totalTask);
-
-        // running tasks
-        GaugeMetric<Integer> runningTask = new GaugeMetric<Integer>("mtmv_task",
-                Metric.MetricUnit.NOUNIT, "Running task number of mtmv.") {
-            @Override
-            public Integer getValue() {
-                return getTaskManager().getRunningTaskMap().size();
-            }
-        };
-        runningTask.addLabel(new MetricLabel("type", "RUNNING-TASK"));
-        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(runningTask);
-
-        // pending tasks
-        GaugeMetric<Integer> pendingTask = new GaugeMetric<Integer>("mtmv_task",
-                Metric.MetricUnit.NOUNIT, "Pending task number of mtmv.") {
-            @Override
-            public Integer getValue() {
-                return getTaskManager().getPendingTaskMap().size();
-            }
-        };
-        pendingTask.addLabel(new MetricLabel("type", "PENDING-TASK"));
-        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(pendingTask);
-
-        // failed tasks
-        GaugeMetric<Integer> failedTask = new GaugeMetric<Integer>("mtmv_task",
-                Metric.MetricUnit.NOUNIT, "Failed task number of mtmv.") {
-            @Override
-            public Integer getValue() {
-                return getTaskManager().getFailedTaskCount();
-            }
-        };
-        failedTask.addLabel(new MetricLabel("type", "FAILED-TASK"));
-        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(failedTask);
-    }
-
-    public void stop() {
-        if (isStarted.compareAndSet(true, false)) {
-            periodScheduler.shutdown();
-            cleanerScheduler.shutdown();
-            taskManager.stopTaskScheduler();
-        }
-    }
-
-    private void registerJobs() {
-        for (MTMVJob job : getAllJobsWithLock()) {
-            job.start();
-        }
-    }
-
-    public void createJob(MTMVJob job, boolean isReplay) throws DdlException {
-        createJobWithLock(job, isReplay);
-        if (!isReplay) {
-            job.start();
-        }
-    }
-
-    private void createJobWithLock(MTMVJob job, boolean isReplay) throws DdlException {
-        writeLock();
+    /**
+     * create MTMVJob
+     * @param mtmv
+     * @throws DdlException
+     */
+    @Override
+    public void createMTMV(MTMV mtmv) throws DdlException {
+        MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
+        job.setJobId(Env.getCurrentEnv().getNextId());
+        job.setJobName(mtmv.getJobInfo().getJobName());
+        job.setComment(mtmv.getName());
+        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
+        job.setJobStatus(JobStatus.RUNNING);
+        job.setJobConfig(getJobConfig(mtmv));
         try {
-            if (nameToJobMap.containsKey(job.getName())) {
-                throw new DdlException("Job [" + job.getName() + "] already exists");
-            }
-            nameToJobMap.put(job.getName(), job);
-            idToJobMap.put(job.getId(), job);
-            if (!isReplay) {
-                // log job before submit any task.
-                Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
-            }
-        } finally {
-            writeUnlock();
+            Env.getCurrentEnv().getJobManager().registerJob(job);
+        } catch (JobException e) {
+            throw new DdlException(e.getMessage(), e);
         }
     }
 
-    public void refreshMTMV(String dbName, String mvName)
-            throws DdlException, MetaNotFoundException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        MaterializedView mv = (MaterializedView) db.getTableOrMetaException(mvName, TableType.MATERIALIZED_VIEW);
-        MTMVJob mtmvJob = MTMVJobFactory.genOnceJob(mv, dbName);
-        createJob(mtmvJob, false);
-    }
-
-    public void dropJobByName(String dbName, String mvName, boolean isReplay) {
-        List<Long> jobIds = Lists.newArrayList();
-        for (String jobName : nameToJobMap.keySet()) {
-            MTMVJob job = nameToJobMap.get(jobName);
-            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
-                jobIds.add(job.getId());
-            }
+    private JobExecutionConfiguration getJobConfig(MTMV mtmv) {
+        JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
+        if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
+                .equals(RefreshTrigger.SCHEDULE)) {
+            setScheduleJobConfig(jobExecutionConfiguration, mtmv);
+        } else if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
+                .equals(RefreshTrigger.MANUAL)) {
+            setManualJobConfig(jobExecutionConfiguration, mtmv);
         }
-        dropJobs(jobIds, isReplay);
+        return jobExecutionConfiguration;
     }
 
-    public void dropJobs(List<Long> jobIds, boolean isReplay) {
-        if (jobIds.isEmpty()) {
-            return;
-        }
-
-        for (long jobId : jobIds) {
-            dropJob(jobId, isReplay);
-        }
-
-        LOG.info("drop jobs:{}", jobIds);
-    }
-
-    private void dropJob(long jobId, boolean isReplay) {
-        MTMVJob job = dropJobWithLock(jobId, isReplay);
-        if (!isReplay && job != null) {
-            job.stop();
-        }
-    }
-
-    private MTMVJob dropJobWithLock(long jobId, boolean isReplay) {
-        writeLock();
-        try {
-            MTMVJob job = idToJobMap.get(jobId);
-            if (job == null) {
-                LOG.warn("drop jobId {} failed because job is null", jobId);
-                return null;
-            }
-            idToJobMap.remove(job.getId());
-            nameToJobMap.remove(job.getName());
-            if (!isReplay) {
-                Env.getCurrentEnv().getEditLog().logDropMTMVJob(Collections.singletonList(jobId));
-            }
-            return job;
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public List<MTMVJob> showAllJobs() {
-        return showJobs(null);
-    }
-
-    public List<MTMVJob> showJobs(String dbName) {
-        List<MTMVJob> jobList = Lists.newArrayList();
-        if (Strings.isNullOrEmpty(dbName)) {
-            jobList.addAll(getAllJobsWithLock());
+    private void setManualJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
+        jobExecutionConfiguration.setExecuteType(JobExecuteType.MANUAL);
+        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+            jobExecutionConfiguration.setImmediate(true);
         } else {
-            jobList.addAll(getAllJobsWithLock().stream().filter(u -> u.getDBName().equals(dbName))
-                    .collect(Collectors.toList()));
+            jobExecutionConfiguration.setImmediate(false);
         }
-        return jobList.stream().sorted().collect(Collectors.toList());
     }
 
-    public List<MTMVJob> showJobs(String dbName, String mvName) {
-        return showJobs(dbName).stream().filter(u -> u.getMVName().equals(mvName)).collect(Collectors.toList());
+    private void setScheduleJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
+        jobExecutionConfiguration.setExecuteType(JobExecuteType.RECURRING);
+        TimerDefinition timerDefinition = new TimerDefinition();
+        timerDefinition
+                .setInterval(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getInterval());
+        timerDefinition
+                .setIntervalUnit(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
+        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+            jobExecutionConfiguration.setImmediate(true);
+        } else if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.DEFERRED) && !StringUtils
+                .isEmpty(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
+            timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(
+                    mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
+        }
+
+        jobExecutionConfiguration.setTimerDefinition(timerDefinition);
     }
 
-    public void replayCreateJob(MTMVJob job) {
-        if (job.getExpireTime() > 0 && MTMVUtils.getNowTimeStamp() > job.getExpireTime()) {
-            return;
+    /**
+     * drop MTMVJob
+     * @param mtmv
+     * @throws DdlException
+     */
+    @Override
+    public void dropMTMV(MTMV mtmv) throws DdlException {
+        List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
+                .queryJobs(JobType.MTMV, mtmv.getJobInfo().getJobName());
+        if (!CollectionUtils.isEmpty(jobs)) {
+            try {
+                Env.getCurrentEnv().getJobManager()
+                        .unregisterJob(jobs.get(0).getJobId());
+            } catch (JobException e) {
+                e.printStackTrace();
+                throw new DdlException(e.getMessage());
+            }
+        }
+    }
+
+    @Override
+    public void registerMTMV(MTMV mtmv, Long dbId) {
+
+    }
+
+    @Override
+    public void deregisterMTMV(MTMV mtmv) {
+
+    }
+
+    /**
+     * drop MTMVJob and then create MTMVJob
+     * @param mtmv
+     * @param alterMTMV
+     * @throws DdlException
+     */
+    @Override
+    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
+        if (alterMTMV.isNeedRebuildJob()) {
+            dropMTMV(mtmv);
+            createMTMV(mtmv);
+        }
+    }
+
+    /**
+     * trigger MTMVJob
+     * @param info
+     * @throws DdlException
+     * @throws MetaNotFoundException
+     */
+    @Override
+    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getMvName().getDb());
+        MTMV mtmv = (MTMV) db.getTableOrMetaException(info.getMvName().getTbl(), TableType.MATERIALIZED_VIEW);
+        List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
+                .queryJobs(JobType.MTMV, mtmv.getJobInfo().getJobName());
+        if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
+            throw new DdlException("jobs not normal,should have one job,but job num is: " + jobs.size());
         }
         try {
-            createJob(job, true);
-        } catch (DdlException e) {
-            LOG.warn("failed to replay create job [{}]", job.getName(), e);
+            Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId());
+        } catch (JobException e) {
+            e.printStackTrace();
+            throw new DdlException(e.getMessage());
         }
     }
 
-    public void replayDropJobs(List<Long> jobIds) {
-        dropJobs(jobIds, true);
-    }
-
-    public void replayUpdateJob(ChangeMTMVJob changeJob) {
-        MTMVJob mtmvJob = idToJobMap.get(changeJob.getJobId());
-        if (mtmvJob != null) {
-            mtmvJob.updateJob(changeJob, true);
-        }
-    }
-
-    public void replayCreateJobTask(MTMVTask task) {
-        taskManager.replayCreateJobTask(task);
-    }
-
-    public void replayDropJobTasks(List<String> taskIds) {
-        taskManager.dropHistoryTasks(taskIds, true);
-    }
-
-    private void removeExpiredJobs() {
-        long currentTimeSeconds = MTMVUtils.getNowTimeStamp();
-        List<Long> jobIdsToDelete = Lists.newArrayList();
-        List<MTMVJob> jobs = getAllJobsWithLock();
-        for (MTMVJob job : jobs) {
-            // active job should not clean
-            if (job.getState() != MTMVUtils.JobState.COMPLETE) {
-                continue;
-            }
-            long expireTime = job.getExpireTime();
-            if (expireTime > 0 && currentTimeSeconds > expireTime) {
-                jobIdsToDelete.add(job.getId());
-            }
-        }
-        dropJobs(jobIdsToDelete, false);
-    }
-
-    public MTMVJob getJob(String jobName) {
-        return nameToJobMap.get(jobName);
-    }
-
-    private List<MTMVJob> getAllJobsWithLock() {
-        readLock();
-        try {
-            return Lists.newArrayList(nameToJobMap.values());
-        } finally {
-            readUnlock();
-        }
+    @Override
+    public void refreshComplete(MTMV mtmv, MTMVRelation relation, MTMVTask task) {
 
     }
 
-    public MTMVTaskManager getTaskManager() {
-        return taskManager;
+    @Override
+    public void dropTable(Table table) {
+
     }
 
-    public ScheduledExecutorService getPeriodScheduler() {
-        return periodScheduler;
+    @Override
+    public void alterTable(Table table) {
+
     }
 
-    private void readLock() {
-        this.rwLock.readLock().lock();
-    }
-
-    private void readUnlock() {
-        this.rwLock.readLock().unlock();
-    }
-
-    private void writeLock() {
-        this.rwLock.writeLock().lock();
-    }
-
-    private void writeUnlock() {
-        this.rwLock.writeLock().unlock();
-    }
-
-    public long write(DataOutputStream dos, long checksum) throws IOException {
-        MTMVCheckpointData data = new MTMVCheckpointData();
-        data.jobs = new ArrayList<>(nameToJobMap.values());
-        data.tasks = Lists.newArrayList(taskManager.getHistoryTasks());
-        String s = GsonUtils.GSON.toJson(data);
-        Text.writeString(dos, s);
-        return checksum;
-    }
-
-    public static MTMVJobManager read(DataInputStream dis, long checksum) throws IOException {
-        MTMVJobManager mtmvJobManager = new MTMVJobManager();
-        String s = Text.readString(dis);
-        MTMVCheckpointData data = GsonUtils.GSON.fromJson(s, MTMVCheckpointData.class);
-        if (data != null) {
-            if (data.jobs != null) {
-                for (MTMVJob job : data.jobs) {
-                    mtmvJobManager.replayCreateJob(job);
-                }
-            }
-
-            if (data.tasks != null) {
-                for (MTMVTask runStatus : data.tasks) {
-                    mtmvJobManager.replayCreateJobTask(runStatus);
-                }
-            }
-        }
-        return mtmvJobManager;
-    }
 }

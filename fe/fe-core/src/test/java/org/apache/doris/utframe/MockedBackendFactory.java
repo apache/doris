@@ -17,13 +17,17 @@
 
 package org.apache.doris.utframe;
 
+import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.proto.Types;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
-import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.FrontendService.Client;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TAgentPublishRequest;
 import org.apache.doris.thrift.TAgentResult;
@@ -35,6 +39,7 @@ import org.apache.doris.thrift.TCancelPlanFragmentResult;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TDiskTrashInfo;
+import org.apache.doris.thrift.TDropTabletReq;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportState;
@@ -45,6 +50,11 @@ import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TMasterInfo;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPublishTopicRequest;
+import org.apache.doris.thrift.TPublishTopicResult;
+import org.apache.doris.thrift.TQueryIngestBinlogRequest;
+import org.apache.doris.thrift.TQueryIngestBinlogResult;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
 import org.apache.doris.thrift.TScanCloseParams;
@@ -55,6 +65,7 @@ import org.apache.doris.thrift.TScanOpenResult;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
@@ -86,10 +97,11 @@ public class MockedBackendFactory {
     public static final int BE_DEFAULT_THRIFT_PORT = 9060;
     public static final int BE_DEFAULT_BRPC_PORT = 8060;
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
+    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8070;
 
     // create a mocked backend with customize parameters
     public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort,
-                                              int httpPort,
+                                              int httpPort, int arrowFlightSqlPort,
                                               HeartbeatService.Iface hbService, BeThriftService beThriftService,
                                               PBackendServiceGrpc.PBackendServiceImplBase pBackendService)
             throws IOException {
@@ -105,16 +117,20 @@ public class MockedBackendFactory {
         private int beHttpPort;
         private int beBrpcPort;
 
-        public DefaultHeartbeatServiceImpl(int beThriftPort, int beHttpPort, int beBrpcPort) {
+        private int beArrowFlightSqlPort;
+
+        public DefaultHeartbeatServiceImpl(int beThriftPort, int beHttpPort, int beBrpcPort, int beArrowFlightSqlPort) {
             this.beThriftPort = beThriftPort;
             this.beHttpPort = beHttpPort;
             this.beBrpcPort = beBrpcPort;
+            this.beArrowFlightSqlPort = beArrowFlightSqlPort;
         }
 
         @Override
         public THeartbeatResult heartbeat(TMasterInfo masterInfo) throws TException {
             TBackendInfo backendInfo = new TBackendInfo(beThriftPort, beHttpPort);
             backendInfo.setBrpcPort(beBrpcPort);
+            backendInfo.setArrowFlightSqlPort(beArrowFlightSqlPort);
             THeartbeatResult result = new THeartbeatResult(new TStatus(TStatusCode.OK), backendInfo);
             return result;
         }
@@ -124,9 +140,14 @@ public class MockedBackendFactory {
     // User can extends this abstract class to create other custom be thrift service
     public abstract static class BeThriftService implements BackendService.Iface {
         protected MockedBackend backend;
+        protected Backend backendInFe;
 
         public void setBackend(MockedBackend backend) {
             this.backend = backend;
+        }
+
+        public void setBackendInFe(Backend backendInFe) {
+            this.backendInFe = backendInFe;
         }
 
         public abstract void init();
@@ -151,11 +172,19 @@ public class MockedBackendFactory {
                 @Override
                 public void run() {
                     while (true) {
+                        boolean ok = false;
+                        Client client = null;
+                        TNetworkAddress address = null;
                         try {
+                            // ATTR: backend.getFeAddress must after taskQueue.take, because fe addr thread race
                             TAgentTaskRequest request = taskQueue.take();
+                            address = backend.getFeAddress();
+                            if (address == null) {
+                                System.out.println("fe addr thread race, please check it");
+                            }
                             System.out.println(
                                     "get agent task request. type: " + request.getTaskType() + ", signature: "
-                                    + request.getSignature() + ", fe addr: " + backend.getFeAddress());
+                                    + request.getSignature() + ", fe addr: " + address);
                             TFinishTaskRequest finishTaskRequest = new TFinishTaskRequest(tBackend,
                                     request.getTaskType(), request.getSignature(), new TStatus(TStatusCode.OK));
                             TTaskType taskType = request.getTaskType();
@@ -164,34 +193,109 @@ public class MockedBackendFactory {
                                 case ALTER:
                                     ++reportVersion;
                                     break;
+                                case DROP:
+                                    handleDropTablet(request, finishTaskRequest);
+                                    break;
                                 case CLONE:
-                                    handleClone(request, finishTaskRequest);
+                                    handleCloneTablet(request, finishTaskRequest);
+                                    break;
+                                case STORAGE_MEDIUM_MIGRATE:
+                                    handleStorageMediumMigrate(request, finishTaskRequest);
                                     break;
                                 default:
                                     break;
                             }
                             finishTaskRequest.setReportVersion(reportVersion);
 
-                            FrontendService.Client client =
-                                    ClientPool.frontendPool.borrowObject(backend.getFeAddress(), 2000);
-                            System.out.println("get fe " + backend.getFeAddress() + " client: " + client);
+                            client = ClientPool.frontendPool.borrowObject(address, 2000);
                             client.finishTask(finishTaskRequest);
+                            ok = true;
                         } catch (Exception e) {
                             e.printStackTrace();
+                        }  finally {
+                            if (ok) {
+                                ClientPool.frontendPool.returnObject(address, client);
+                            } else {
+                                ClientPool.frontendPool.invalidateObject(address, client);
+                            }
                         }
                     }
                 }
 
-                private void handleClone(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                private void handleDropTablet(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    TDropTabletReq req = request.getDropTabletReq();
+                    long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
+                    DiskInfo diskInfo = getDisk(-1);
+                    if (diskInfo != null) {
+                        diskInfo.setDataUsedCapacityB(Math.max(0L,
+                                    diskInfo.getDataUsedCapacityB() - dataSize));
+                        diskInfo.setAvailableCapacityB(Math.min(diskInfo.getTotalCapacityB(),
+                                    diskInfo.getAvailableCapacityB() + dataSize));
+                    }
+                }
+
+                private void handleCloneTablet(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
                     TCloneReq req = request.getCloneReq();
+                    long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
+                    long pathHash = req.dest_path_hash;
+                    DiskInfo diskInfo = getDisk(pathHash);
+                    if (diskInfo != null) {
+                        pathHash = diskInfo.getPathHash();
+                        diskInfo.setDataUsedCapacityB(Math.min(diskInfo.getTotalCapacityB(),
+                                    diskInfo.getDataUsedCapacityB() + dataSize));
+                        diskInfo.setAvailableCapacityB(Math.max(0L,
+                                    diskInfo.getAvailableCapacityB() - dataSize));
+                    }
+
                     List<TTabletInfo> tabletInfos = Lists.newArrayList();
                     TTabletInfo tabletInfo = new TTabletInfo(req.tablet_id, req.schema_hash, req.committed_version,
-                            req.committed_version_hash, 1, 1);
+                            req.committed_version_hash, 1, dataSize);
                     tabletInfo.setStorageMedium(req.storage_medium);
-                    tabletInfo.setPathHash(req.dest_path_hash);
+                    tabletInfo.setPathHash(pathHash);
                     tabletInfo.setUsed(true);
                     tabletInfos.add(tabletInfo);
                     finishTaskRequest.setFinishTabletInfos(tabletInfos);
+                }
+
+                private void handleStorageMediumMigrate(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    TStorageMediumMigrateReq req = request.getStorageMediumMigrateReq();
+                    long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
+
+                    long srcDataPath = CatalogTestUtil.getReplicaPathHash(req.tablet_id, backendInFe.getId());
+                    DiskInfo srcDiskInfo = getDisk(srcDataPath);
+                    if (srcDiskInfo != null) {
+                        srcDiskInfo.setDataUsedCapacityB(Math.min(srcDiskInfo.getTotalCapacityB(),
+                                srcDiskInfo.getDataUsedCapacityB() - dataSize));
+                        srcDiskInfo.setAvailableCapacityB(Math.max(0L,
+                                srcDiskInfo.getAvailableCapacityB() + dataSize));
+                        srcDiskInfo.setState(DiskState.ONLINE);
+                    }
+
+                    DiskInfo destDiskInfo = getDisk(req.data_dir);
+                    if (destDiskInfo != null) {
+                        destDiskInfo.setDataUsedCapacityB(Math.min(destDiskInfo.getTotalCapacityB(),
+                                destDiskInfo.getDataUsedCapacityB() + dataSize));
+                        destDiskInfo.setAvailableCapacityB(Math.max(0L,
+                                destDiskInfo.getAvailableCapacityB() - dataSize));
+                        destDiskInfo.setState(DiskState.ONLINE);
+                    }
+                }
+
+                private DiskInfo getDisk(String dataDir) {
+                    return backendInFe.getDisks().get(dataDir);
+                }
+
+                private DiskInfo getDisk(long pathHash) {
+                    DiskInfo diskInfo = null;
+                    for (DiskInfo tmpDiskInfo : backendInFe.getDisks().values()) {
+                        diskInfo = tmpDiskInfo;
+                        if (diskInfo.getPathHash() == pathHash
+                                || pathHash == -1L || pathHash == 0) {
+                            break;
+                        }
+                    }
+
+                    return diskInfo;
                 }
             }).start();
         }
@@ -234,6 +338,11 @@ public class MockedBackendFactory {
         @Override
         public TAgentResult publishClusterState(TAgentPublishRequest request) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
+        }
+
+        @Override
+        public TPublishTopicResult publishTopicInfo(TPublishTopicRequest request) throws TException {
+            return new TPublishTopicResult(new TStatus(TStatusCode.OK));
         }
 
         @Override
@@ -303,6 +412,12 @@ public class MockedBackendFactory {
 
         @Override
         public TIngestBinlogResult ingestBinlog(TIngestBinlogRequest ingestBinlogRequest) throws TException {
+            return null;
+        }
+
+        @Override
+        public TQueryIngestBinlogResult queryIngestBinlog(TQueryIngestBinlogRequest queryIngestBinlogRequest)
+                throws TException {
             return null;
         }
     }

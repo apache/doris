@@ -353,6 +353,13 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             *writer = std::move(writer_local);
             return Status::OK();
         }
+        case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+            // Use ScalarColumnWriter to write it's only root data
+            std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
+                    new ScalarColumnWriter(opts, std::move(field), file_writer));
+            *writer = std::move(writer_local);
+            return Status::OK();
+        }
         default:
             return Status::NotSupported("unsupported type for ColumnWriter: {}",
                                         std::to_string(int(field->type())));
@@ -439,12 +446,7 @@ ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
 
 ScalarColumnWriter::~ScalarColumnWriter() {
     // delete all pages
-    Page* page = _pages.head;
-    while (page != nullptr) {
-        Page* next_page = page->next;
-        delete page;
-        page = next_page;
-    }
+    _pages.clear();
 }
 
 Status ScalarColumnWriter::init() {
@@ -594,11 +596,10 @@ Status ScalarColumnWriter::finish() {
 }
 
 Status ScalarColumnWriter::write_data() {
-    Page* page = _pages.head;
-    while (page != nullptr) {
-        RETURN_IF_ERROR(_write_data_page(page));
-        page = page->next;
+    for (auto& page : _pages) {
+        RETURN_IF_ERROR(_write_data_page(page.get()));
     }
+    _pages.clear();
     // write column dict
     if (_encoding_info->encoding() == DICT_ENCODING) {
         OwnedSlice dict_body;
@@ -615,6 +616,7 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
+    _page_builder.reset();
     return Status::OK();
 }
 
@@ -709,7 +711,7 @@ Status ScalarColumnWriter::finish_current_page() {
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(nullmap.slice().size);
     if (_new_page_callback != nullptr) {
-        _new_page_callback->put_extra_info_in_page(data_page_footer);
+        static_cast<void>(_new_page_callback->put_extra_info_in_page(data_page_footer));
     }
     // trying to compress page body
     OwnedSlice compressed_body;
@@ -724,7 +726,7 @@ Status ScalarColumnWriter::finish_current_page() {
         page->data.emplace_back(std::move(compressed_body));
     }
 
-    _push_back_page(page.release());
+    _push_back_page(std::move(page));
     _first_rowid = _next_rowid;
     return Status::OK();
 }
@@ -853,6 +855,7 @@ Status StructColumnWriter::finish() {
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->finish());
     }
+    _opts.meta->set_num_rows(get_next_rowid());
     return Status::OK();
 }
 
@@ -950,21 +953,20 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     size_t element_cnt = size_t((unsigned long)(*data_ptr));
     auto offset_data = *(data_ptr + 1);
     const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
-
+    auto data = *(data_ptr + 2);
+    auto nested_null_map = *(data_ptr + 3);
     if (element_cnt > 0) {
-        auto data = *(data_ptr + 2);
-        auto nested_null_map = *(data_ptr + 3);
         RETURN_IF_ERROR(_item_writer->append(reinterpret_cast<const uint8_t*>(nested_null_map),
                                              reinterpret_cast<const void*>(data), element_cnt));
-        if (_opts.inverted_index) {
-            auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
-            // now only support nested type is scala
-            if (writer != nullptr) {
-                //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-                _inverted_index_builder->add_array_values(
-                        _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
-                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows);
-            }
+    }
+    if (_opts.inverted_index) {
+        auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        // now only support nested type is scala
+        if (writer != nullptr) {
+            //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
+            RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
+                    _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
+                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
         }
     }
 
@@ -992,6 +994,7 @@ Status ArrayColumnWriter::finish() {
         RETURN_IF_ERROR(_null_writer->finish());
     }
     RETURN_IF_ERROR(_item_writer->finish());
+    _opts.meta->set_num_rows(get_next_rowid());
     return Status::OK();
 }
 
@@ -1090,6 +1093,7 @@ Status MapColumnWriter::finish() {
     for (auto& sub_writer : _kv_writers) {
         RETURN_IF_ERROR(sub_writer->finish());
     }
+    _opts.meta->set_num_rows(get_next_rowid());
     return Status::OK();
 }
 

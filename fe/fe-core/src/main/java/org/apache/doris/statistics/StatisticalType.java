@@ -55,4 +55,5 @@ public enum StatisticalType {
     METADATA_SCAN_NODE,
     JDBC_SCAN_NODE,
     TEST_EXTERNAL_TABLE,
+    GROUP_COMMIT_SCAN_NODE
 }

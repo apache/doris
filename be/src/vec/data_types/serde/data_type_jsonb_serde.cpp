@@ -17,7 +17,14 @@
 
 #include "data_type_jsonb_serde.h"
 
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
 #include "arrow/array/builder_binary.h"
+#include "common/exception.h"
+#include "common/status.h"
+#include "exprs/json_functions.h"
 #include "runtime/jsonb_value.h"
 namespace doris {
 namespace vectorized {
@@ -55,15 +62,15 @@ Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-void DataTypeJsonbSerDe::serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw,
-                                                  FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+Status DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                    int end_idx, BufferWritable& bw,
+                                                    FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
-                                                    BufferWritable& bw,
-                                                    FormatOptions& options) const {
+Status DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                      BufferWritable& bw,
+                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -72,17 +79,18 @@ void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int r
     if (s.size > 0) {
         bw.write(s.data, s.size);
     }
-}
-
-Status DataTypeJsonbSerDe::deserialize_column_from_text_vector(IColumn& column,
-                                                               std::vector<Slice>& slices,
-                                                               int* num_deserialized,
-                                                               const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
     return Status::OK();
 }
 
-Status DataTypeJsonbSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                               std::vector<Slice>& slices,
+                                                               int* num_deserialized,
+                                                               const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+    return Status::OK();
+}
+
+Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                           const FormatOptions& options) const {
     JsonBinaryValue value;
     RETURN_IF_ERROR(value.from_json_string(slice.data, slice.size));
@@ -109,6 +117,115 @@ void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Null
         checkArrowStatus(builder.Append(json_string.data(), json_string.size()), column.get_name(),
                          array_builder->type()->name());
     }
+}
+
+Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                               const NullMap* null_map,
+                                               orc::ColumnVectorBatch* orc_col_batch, int start,
+                                               int end, std::vector<StringRef>& buffer_list) const {
+    return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
+}
+
+static void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
+                                       rapidjson::Document::AllocatorType& allocator) {
+    // convert type of jsonb to rapidjson::Value
+    switch (val.type()) {
+    case JsonbType::T_True:
+        target.SetBool(true);
+        break;
+    case JsonbType::T_False:
+        target.SetBool(false);
+        break;
+    case JsonbType::T_Null:
+        target.SetNull();
+        break;
+    case JsonbType::T_Float:
+        target.SetFloat(static_cast<const JsonbFloatVal&>(val).val());
+        break;
+    case JsonbType::T_Double:
+        target.SetDouble(static_cast<const JsonbDoubleVal&>(val).val());
+        break;
+    case JsonbType::T_Int64:
+        target.SetInt64(static_cast<const JsonbInt64Val&>(val).val());
+        break;
+    case JsonbType::T_Int32:
+        target.SetInt(static_cast<const JsonbInt32Val&>(val).val());
+        break;
+    case JsonbType::T_Int16:
+        target.SetInt(static_cast<const JsonbInt16Val&>(val).val());
+        break;
+    case JsonbType::T_Int8:
+        target.SetInt(static_cast<const JsonbInt8Val&>(val).val());
+        break;
+    case JsonbType::T_String:
+        target.SetString(static_cast<const JsonbStringVal&>(val).getBlob(),
+                         static_cast<const JsonbStringVal&>(val).getBlobLen());
+        break;
+    case JsonbType::T_Array: {
+        target.SetArray();
+        const ArrayVal& array = static_cast<const ArrayVal&>(val);
+        if (array.numElem() == 0) {
+            target.SetNull();
+            break;
+        }
+        target.Reserve(array.numElem(), allocator);
+        for (auto it = array.begin(); it != array.end(); ++it) {
+            rapidjson::Value val;
+            convert_jsonb_to_rapidjson(*static_cast<const JsonbValue*>(it), val, allocator);
+            target.PushBack(val, allocator);
+        }
+        break;
+    }
+    case JsonbType::T_Object: {
+        target.SetObject();
+        const ObjectVal& obj = static_cast<const ObjectVal&>(val);
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            rapidjson::Value val;
+            convert_jsonb_to_rapidjson(*it->value(), val, allocator);
+            target.AddMember(rapidjson::GenericStringRef(it->getKeyStr(), it->klen()), val,
+                             allocator);
+        }
+        break;
+    }
+    default:
+        CHECK(false) << "unkown type " << static_cast<int>(val.type());
+        break;
+    }
+}
+
+void DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                rapidjson::Document::AllocatorType& allocator,
+                                                int row_num) const {
+    auto& data = assert_cast<const ColumnString&>(column);
+    const auto jsonb_val = data.get_data_at(row_num);
+    if (jsonb_val.empty()) {
+        return;
+    }
+    JsonbValue* val = JsonbDocument::createValue(jsonb_val.data, jsonb_val.size);
+    if (val == nullptr) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to get json document from jsonb");
+    }
+    rapidjson::Value value;
+    convert_jsonb_to_rapidjson(*val, value, allocator);
+    if (val->isObject() && result.IsObject()) {
+        JsonFunctions::merge_objects(result, value, allocator);
+    } else {
+        result = std::move(value);
+    }
+}
+
+void DataTypeJsonbSerDe::read_one_cell_from_json(IColumn& column,
+                                                 const rapidjson::Value& result) const {
+    // TODO improve performance
+    auto& col = assert_cast<ColumnString&>(column);
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    result.Accept(writer);
+    JsonbParser parser;
+    bool ok = parser.parse(buffer.GetString(), buffer.GetLength());
+    CHECK(ok);
+    col.insert_data(parser.getWriter().getOutput()->getBuffer(),
+                    parser.getWriter().getOutput()->getSize());
 }
 
 } // namespace vectorized

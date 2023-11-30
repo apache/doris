@@ -24,8 +24,8 @@ OperatorPtr AssertNumRowsOperatorBuilder::build_operator() {
 }
 
 AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, descs),
+                                               int operator_id, const DescriptorTbl& descs)
+        : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, operator_id, descs),
           _desired_num_rows(tnode.assert_num_rows_node.desired_num_rows),
           _subquery_string(tnode.assert_num_rows_node.subquery_string) {
     if (tnode.assert_num_rows_node.__isset.assertion) {
@@ -37,7 +37,8 @@ AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode
 
 Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Block* block,
                                     SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<AssertNumRowsLocalState>();
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     local_state.add_num_rows_returned(block->rows());
     int64_t num_rows_returned = local_state.num_rows_returned();
     bool assert_res = false;
@@ -81,6 +82,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                                  to_string_lambda(_assertion), _desired_num_rows, _subquery_string);
     }
     COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
+    COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     return Status::OK();
 }
 

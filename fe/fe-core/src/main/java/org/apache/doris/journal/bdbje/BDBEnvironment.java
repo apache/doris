@@ -19,6 +19,7 @@ package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.BDBStateChangeListener;
 import org.apache.doris.ha.FrontendNodeType;
@@ -58,6 +59,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 /* this class contains the reference to bdb environment.
@@ -90,13 +92,14 @@ public class BDBEnvironment {
     // The setup() method opens the environment and database
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort, boolean isElectable) {
-
+        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
         // Almost never used, just in case the master can not restart
-        if (Config.metadata_failure_recovery.equals("true")) {
+        if (metadataFailureRecovery) {
             if (!isElectable) {
                 LOG.error("Current node is not in the electable_nodes list. will exit");
                 System.exit(-1);
             }
+            LOG.info("start group reset");
             DbResetRepGroup resetUtility = new DbResetRepGroup(
                     envHome, PALO_JOURNAL_GROUP, selfNodeName, selfNodeHostPort);
             resetUtility.reset();
@@ -135,8 +138,12 @@ public class BDBEnvironment {
         environmentConfig.setLockTimeout(Config.bdbje_lock_timeout_second, TimeUnit.SECONDS);
         environmentConfig.setConfigParam(EnvironmentConfig.RESERVED_DISK,
                 String.valueOf(Config.bdbje_reserved_disk_bytes));
+        environmentConfig.setConfigParam(EnvironmentConfig.FREE_DISK,
+                String.valueOf(Config.bdbje_free_disk_bytes));
 
         if (BDBJE_LOG_LEVEL.contains(Config.bdbje_file_logging_level)) {
+            java.util.logging.Logger parent = java.util.logging.Logger.getLogger("com.sleepycat.je");
+            parent.setLevel(Level.parse(Config.bdbje_file_logging_level));
             environmentConfig.setConfigParam(EnvironmentConfig.FILE_LOGGING_LEVEL, Config.bdbje_file_logging_level);
         } else {
             LOG.warn("bdbje_file_logging_level invalid value: {}, will not take effort, use default",
@@ -207,6 +214,11 @@ public class BDBEnvironment {
                 .filter(Frontend::isAlive)
                 .map(fe -> new InetSocketAddress(fe.getHost(), fe.getEditLogPort()))
                 .collect(Collectors.toSet());
+
+        if (addresses.isEmpty()) {
+            LOG.info("addresses is empty");
+            return null;
+        }
         return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
     }
 

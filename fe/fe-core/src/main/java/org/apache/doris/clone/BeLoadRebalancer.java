@@ -17,6 +17,7 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
@@ -29,6 +30,7 @@ import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -115,6 +117,12 @@ public class BeLoadRebalancer extends Rebalancer {
         }
         LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
+        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
+        // so in clone ut recycleBin need to set to null.
+        CatalogRecycleBin recycleBin = null;
+        if (!FeConstants.runningUnitTest) {
+            recycleBin = Env.getCurrentRecycleBin();
+        }
         int clusterAvailableBEnum = infoService.getAllBackendIds(true).size();
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         // choose tablets from high load backends.
@@ -150,7 +158,7 @@ public class BeLoadRebalancer extends Rebalancer {
             }
 
             if (remainingPaths.isEmpty()) {
-                return alternativeTablets;
+                continue;
             }
 
             // select tablet from shuffled tablets
@@ -175,6 +183,11 @@ public class BeLoadRebalancer extends Rebalancer {
                     }
 
                     if (colocateTableIndex.isColocateTable(tabletMeta.getTableId())) {
+                        continue;
+                    }
+
+                    if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
+                            tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
                         continue;
                     }
 
@@ -232,7 +245,7 @@ public class BeLoadRebalancer extends Rebalancer {
         clusterStat.getBackendStatisticByClass(lowBe, midBe, highBe, tabletCtx.getStorageMedium());
 
         if (lowBe.isEmpty() && highBe.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "cluster is balance");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "cluster is balance");
         }
 
         // if all low backends is not available, return
@@ -252,12 +265,14 @@ public class BeLoadRebalancer extends Rebalancer {
             }
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "backend is dropped: " + replica.getBackendId());
+                throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                        "backend is dropped: " + replica.getBackendId());
             }
             hosts.add(be.getHost());
         }
         if (!hasHighReplica) {
-            throw new SchedException(Status.UNRECOVERABLE, "no replica on high load backend");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                    "no replica on high load backend");
         }
 
         // select a replica as source
@@ -275,7 +290,7 @@ public class BeLoadRebalancer extends Rebalancer {
             }
         }
         if (!setSource) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to take src backend slot");
         }
 
         // Select a low load backend as destination.
@@ -318,7 +333,7 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         if (candidates.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find low backend");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to find low dest backend");
         }
 
         List<BePathLoadStatPair> candFitPaths = Lists.newArrayList();
@@ -355,6 +370,7 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                "unable to find low backend");
+                "beload waiting for dest backend slot");
     }
+
 }

@@ -88,10 +88,10 @@ protected:
     Block _empty_block;
 
     // Times calls to get_next().
-    RuntimeProfile::Counter* _get_next_timer;
+    RuntimeProfile::Counter* _get_next_timer = nullptr;
 
     // Times calls to get the next batch of rows from the input run.
-    RuntimeProfile::Counter* _get_next_block_timer;
+    RuntimeProfile::Counter* _get_next_block_timer = nullptr;
 
 private:
     void init_timers(RuntimeProfile* profile);

@@ -22,27 +22,34 @@
 #include <CLucene/util/bkd/bkd_writer.h>
 #include <glog/logging.h>
 
-#include <algorithm>
-#include <cstdint>
 #include <limits>
 #include <memory>
 #include <ostream>
 #include <roaring/roaring.hh>
 #include <vector>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include "common/config.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
+#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "util/string_util.h"
@@ -110,8 +117,10 @@ public:
             if (config::enable_write_index_searcher_cache) {
                 // open index searcher into cache
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
-                        _segment_file_name, _index_meta->index_id());
-                InvertedIndexSearcherCache::instance()->insert(_fs, _directory, index_file_name);
+                        _segment_file_name, _index_meta->index_id(),
+                        _index_meta->get_index_suffix());
+                static_cast<void>(InvertedIndexSearcherCache::instance()->insert(_fs, _directory,
+                                                                                 index_file_name));
             }
         }
     }
@@ -131,7 +140,8 @@ public:
         bool create = true;
 
         auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-                _directory + "/" + _segment_file_name, _index_meta->index_id());
+                _directory + "/" + _segment_file_name, _index_meta->index_id(),
+                _index_meta->get_index_suffix());
 
         // LOG(INFO) << "inverted index path: " << index_path;
         bool exists = false;
@@ -152,12 +162,21 @@ public:
         }
 
         _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();
+        CharFilterMap char_filter_map =
+                get_parser_char_filter_map_from_properties(_index_meta->properties());
+        if (!char_filter_map.empty()) {
+            _char_string_reader.reset(CharFilterFactory::create(
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE],
+                    _char_string_reader.release(),
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]));
+        }
+
         _doc = std::make_unique<lucene::document::Document>();
         _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
 
-        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
-            _analyzer = std::make_unique<lucene::analysis::standard::StandardAnalyzer>();
-        } else if (_parser_type == InvertedIndexParserType::PARSER_UNICODE) {
+        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
+            _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
             _analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
         } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
             _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
@@ -234,12 +253,10 @@ public:
 
     void new_fulltext_field(const char* field_value_data, size_t field_value_size) {
         if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
-            _parser_type == InvertedIndexParserType::PARSER_CHINESE) {
+            _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
+            _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
+            _parser_type == InvertedIndexParserType::PARSER_STANDARD) {
             new_char_token_stream(field_value_data, field_value_size, _field);
-        } else if (_parser_type == InvertedIndexParserType::PARSER_UNICODE) {
-            new_char_token_stream(field_value_data, field_value_size, _field);
-        } else if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
-            new_field_value(field_value_data, field_value_size, _field);
         } else {
             new_field_char_value(field_value_data, field_value_size, _field);
         }
@@ -414,8 +431,8 @@ public:
     int64_t file_size() const override {
         std::filesystem::path dir(_directory);
         dir /= _segment_file_name;
-        auto file_name =
-                InvertedIndexDescriptor::get_index_file_name(dir.string(), _index_meta->index_id());
+        auto file_name = InvertedIndexDescriptor::get_index_file_name(
+                dir.string(), _index_meta->index_id(), _index_meta->get_index_suffix());
         int64_t size = -1;
         auto st = _fs->file_size(file_name.c_str(), &size);
         if (!st.ok()) {
@@ -450,7 +467,8 @@ public:
             // write bkd file
             if constexpr (field_is_numeric_type(field_type)) {
                 auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-                        _directory + "/" + _segment_file_name, _index_meta->index_id());
+                        _directory + "/" + _segment_file_name, _index_meta->index_id(),
+                        _index_meta->get_index_suffix());
                 dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
                 write_null_bitmap(null_bitmap_out, dir);
                 _bkd_writer->max_doc_ = _rid;
@@ -461,9 +479,14 @@ public:
                         InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name().c_str());
                 index_out = dir->createOutput(
                         InvertedIndexDescriptor::get_temporary_bkd_index_file_name().c_str());
+                DBUG_EXECUTE_IF("InvertedIndexWriter._set_fulltext_data_out_nullptr",
+                                { data_out = nullptr; });
                 if (data_out != nullptr && meta_out != nullptr && index_out != nullptr) {
                     _bkd_writer->meta_finish(meta_out, _bkd_writer->finish(data_out, index_out),
                                              int(field_type));
+                } else {
+                    LOG(WARNING) << "Inverted index writer create output error occurred: nullptr";
+                    _CLTHROWA(CL_ERR_IO, "Create output error with nullptr");
                 }
                 FINALIZE_OUTPUT(meta_out)
                 FINALIZE_OUTPUT(data_out)
@@ -473,6 +496,9 @@ public:
                 dir = _index_writer->getDirectory();
                 write_null_bitmap(null_bitmap_out, dir);
                 close();
+                DBUG_EXECUTE_IF("InvertedIndexWriter._throw_clucene_error_in_bkd_writer_close", {
+                    _CLTHROWA(CL_ERR_IO, "debug point: test throw error in bkd index writer");
+                });
             }
         } catch (CLuceneError& e) {
             FINALLY_FINALIZE_OUTPUT(null_bitmap_out)
@@ -500,7 +526,7 @@ private:
     lucene::document::Field* _field {};
     std::unique_ptr<lucene::index::IndexWriter> _index_writer {};
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer {};
-    std::unique_ptr<lucene::util::SStringReader<char>> _char_string_reader {};
+    std::unique_ptr<lucene::util::Reader> _char_string_reader {};
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer;
     std::string _segment_file_name;
     std::string _directory;
@@ -609,6 +635,12 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
         *res = std::make_unique<
                 InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>>(
+                field_name, segment_file_name, dir, fs, index_meta);
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
+        *res = std::make_unique<
+                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL256>>(
                 field_name, segment_file_name, dir, fs, index_meta);
         break;
     }

@@ -202,7 +202,13 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
             return Status::OK();
         }
         _cur_pos++;
-        RETURN_IF_ERROR(_read_next_value());
+        auto st = _read_next_value();
+        if (st.is<ErrorCode::END_OF_FILE>()) {
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("all value small than the value");
+        }
+        if (!st.ok()) {
+            return st;
+        }
     }
 }
 

@@ -18,7 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testNDVToHll") {
-
+    sql """set enable_nereids_planner=true;"""
+    sql """set enable_fallback_to_original_planner=false;"""
     sql """ DROP TABLE IF EXISTS user_tags; """
 
     sql """ create table user_tags (

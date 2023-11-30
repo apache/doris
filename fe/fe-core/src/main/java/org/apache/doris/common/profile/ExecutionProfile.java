@@ -18,6 +18,7 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -30,7 +31,9 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -76,12 +79,34 @@ public class ExecutionProfile {
         executionProfile.addChild(loadChannelProfile);
     }
 
+    public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
+        RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
+        for (int i = 0; i < fragmentProfiles.size(); ++i) {
+            RuntimeProfile oldFragmentProfile = fragmentProfiles.get(i);
+            RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
+            fragmentsProfile.addChild(newFragmentProfile);
+            List<RuntimeProfile> allInstanceProfiles = new ArrayList<RuntimeProfile>();
+            for (Pair<RuntimeProfile, Boolean> runtimeProfile : oldFragmentProfile.getChildList()) {
+                allInstanceProfiles.add(runtimeProfile.first);
+            }
+            RuntimeProfile mergedInstanceProfile = new RuntimeProfile("Instance" + "(instance_num="
+                    + allInstanceProfiles.size() + ")", allInstanceProfiles.get(0).nodeId());
+            newFragmentProfile.addChild(mergedInstanceProfile);
+            RuntimeProfile.mergeProfiles(allInstanceProfiles, mergedInstanceProfile, planNodeMap);
+        }
+        return fragmentsProfile;
+    }
+
     public RuntimeProfile getExecutionProfile() {
         return executionProfile;
     }
 
     public RuntimeProfile getLoadChannelProfile() {
         return loadChannelProfile;
+    }
+
+    public List<RuntimeProfile> getFragmentProfiles() {
+        return fragmentProfiles;
     }
 
     public void addToProfileAsChild(RuntimeProfile rootProfile) {
@@ -117,14 +142,14 @@ public class ExecutionProfile {
         if (profileDoneSignal != null) {
             // count down to zero to notify all objects waiting for this
             profileDoneSignal.countDownToZero(new Status());
-            LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks()
-                    .stream().map(e -> DebugUtil.printId(e.getKey())).toArray());
         }
     }
 
     public void markOneInstanceDone(TUniqueId fragmentInstanceId) {
         if (profileDoneSignal != null) {
-            profileDoneSignal.markedCountDown(fragmentInstanceId, -1L);
+            if (!profileDoneSignal.markedCountDown(fragmentInstanceId, -1L)) {
+                LOG.warn("Mark instance {} done failed", DebugUtil.printId(fragmentInstanceId));
+            }
         }
     }
 

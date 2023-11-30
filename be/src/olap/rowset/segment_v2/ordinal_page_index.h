@@ -66,11 +66,14 @@ class OrdinalPageIndexIterator;
 
 class OrdinalIndexReader {
 public:
-    explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, ordinal_t num_values)
-            : _file_reader(std::move(file_reader)), _num_values(num_values) {}
+    explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, ordinal_t num_values,
+                                const OrdinalIndexPB& meta_pb)
+            : _file_reader(std::move(file_reader)), _num_values(num_values) {
+        _meta_pb.reset(new OrdinalIndexPB(meta_pb));
+    }
 
     // load and parse the index page into memory
-    Status load(bool use_page_cache, bool kept_in_memory, const OrdinalIndexPB* index_meta);
+    Status load(bool use_page_cache, bool kept_in_memory);
 
     // the returned iter points to the largest element which is less than `ordinal`,
     // or points to the first element if all elements are greater than `ordinal`,
@@ -88,13 +91,16 @@ public:
     int32_t num_data_pages() const { return _num_pages; }
 
 private:
-    Status _load(bool use_page_cache, bool kept_in_memory, const OrdinalIndexPB* index_meta);
+    Status _load(bool use_page_cache, bool kept_in_memory,
+                 std::unique_ptr<OrdinalIndexPB> index_meta);
 
 private:
     friend OrdinalPageIndexIterator;
 
     io::FileReaderSPtr _file_reader;
     DorisCallOnce<Status> _load_once;
+
+    std::unique_ptr<OrdinalIndexPB> _meta_pb;
 
     // total number of values (including NULLs) in the indexed column,
     // equals to 1 + 'last ordinal of last data pages'
@@ -125,7 +131,7 @@ public:
     ordinal_t last_ordinal() const { return _index->get_last_ordinal(_cur_idx); }
 
 private:
-    OrdinalIndexReader* _index;
+    OrdinalIndexReader* _index = nullptr;
     int32_t _cur_idx;
 };
 

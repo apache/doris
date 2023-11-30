@@ -48,6 +48,9 @@ static std::unordered_map<std::string, std::string> _process_state;
 
 int64_t PerfCounters::_vm_rss = 0;
 std::string PerfCounters::_vm_rss_str = "";
+int64_t PerfCounters::_vm_hwm = 0;
+int64_t PerfCounters::_vm_size = 0;
+int64_t PerfCounters::_vm_peak = 0;
 
 // This is the order of the counters in /proc/self/io
 enum PERF_IO_IDX {
@@ -262,7 +265,7 @@ bool PerfCounters::init_proc_self_io_counter(Counter counter) {
 }
 
 bool PerfCounters::init_proc_self_status_counter(Counter counter) {
-    CounterData data;
+    CounterData data {};
     data.counter = counter;
     data.source = PerfCounters::PROC_SELF_STATUS;
     data.type = TUnit::BYTES;
@@ -579,14 +582,18 @@ void PerfCounters::refresh_proc_status() {
 
     if (statusinfo.is_open()) statusinfo.close();
 
+    _vm_size = parse_bytes("status/VmSize");
+    _vm_peak = parse_bytes("status/VmPeak");
     _vm_rss = parse_bytes("status/VmRSS");
     _vm_rss_str = PrettyPrinter::print(_vm_rss, TUnit::BYTES);
+    _vm_hwm = parse_bytes("status/VmHWM");
 }
 
 void PerfCounters::get_proc_status(ProcStatus* out) {
     out->vm_size = parse_bytes("status/VmSize");
     out->vm_peak = parse_bytes("status/VmPeak");
     out->vm_rss = parse_bytes("status/VmRSS");
+    out->vm_hwm = parse_bytes("status/VmHWM");
 }
 
 } // namespace doris

@@ -27,7 +27,6 @@
 
 #include <algorithm>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -44,7 +43,6 @@
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_cache_fwd.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -959,19 +957,19 @@ std::string LRUFileCache::read_file_cache_version() const {
     std::string version_path = get_version_path();
     const FileSystemSPtr& fs = global_local_filesystem();
     bool exists = false;
-    fs->exists(version_path, &exists);
+    static_cast<void>(fs->exists(version_path, &exists));
     if (!exists) {
         return "1.0";
     }
     FileReaderSPtr version_reader;
     int64_t file_size = -1;
-    fs->file_size(version_path, &file_size);
+    static_cast<void>(fs->file_size(version_path, &file_size));
     char version[file_size];
 
-    fs->open_file(version_path, &version_reader);
+    static_cast<void>(fs->open_file(version_path, &version_reader));
     size_t bytes_read = 0;
-    version_reader->read_at(0, Slice(version, file_size), &bytes_read);
-    version_reader->close();
+    static_cast<void>(version_reader->read_at(0, Slice(version, file_size), &bytes_read));
+    static_cast<void>(version_reader->close());
     return std::string(version, bytes_read);
 }
 
@@ -1004,6 +1002,23 @@ size_t LRUFileCache::get_file_segments_num(CacheType cache_type) const {
 size_t LRUFileCache::get_file_segments_num_unlocked(CacheType cache_type,
                                                     std::lock_guard<std::mutex>& cache_lock) const {
     return get_queue(cache_type).get_elements_num(cache_lock);
+}
+
+void LRUFileCache::change_cache_type(const IFileCache::Key& key, size_t offset, CacheType new_type,
+                                     std::lock_guard<std::mutex>& cache_lock) {
+    if (auto iter = _files.find(key); iter != _files.end()) {
+        auto& file_blocks = iter->second;
+        if (auto cell_it = file_blocks.find(offset); cell_it != file_blocks.end()) {
+            FileBlockCell& cell = cell_it->second;
+            auto& cur_queue = get_queue(cell.cache_type);
+            cell.cache_type = new_type;
+            DCHECK(cell.queue_iterator.has_value());
+            cur_queue.remove(*cell.queue_iterator, cache_lock);
+            auto& new_queue = get_queue(new_type);
+            cell.queue_iterator =
+                    new_queue.add(key, offset, cell.file_block->range().size(), cache_lock);
+        }
+    }
 }
 
 LRUFileCache::FileBlockCell::FileBlockCell(FileBlockSPtr file_block, CacheType cache_type,

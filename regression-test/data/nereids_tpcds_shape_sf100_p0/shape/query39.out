@@ -3,31 +3,32 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------filter((CASE WHEN (mean = 0) THEN 0 ELSE (stdev / mean) END > 1))
+------filter((if((mean = 0), 0, (stdev / mean)) > 1))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)
-------------------hashJoin[INNER_JOIN](inventory.inv_item_sk = item.i_item_sk)
---------------------hashJoin[INNER_JOIN](inventory.inv_date_sk = date_dim.d_date_sk)
-----------------------PhysicalOlapScan[inventory]
+----------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF2 w_warehouse_sk->[inv_warehouse_sk]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[inv_item_sk]
+----------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
+------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1 RF2
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
+------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(d_moy IN (1, 2)(date_dim.d_year = 1998))
-----------------------------PhysicalOlapScan[date_dim]
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[item]
+--------------------------PhysicalOlapScan[item]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[warehouse]
 --PhysicalResultSink
-----PhysicalQuickSort
+----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](inv1.w_warehouse_sk = inv2.w_warehouse_sk)(inv1.i_item_sk = inv2.i_item_sk)
+------------hashJoin[INNER_JOIN] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk)) otherCondition=()
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------filter((inv1.d_moy = 1))

@@ -54,7 +54,7 @@ private:
     // Not own object, just a reference
     const BitmapValue* _cur_bitmap = nullptr;
     // iterator of _cur_bitmap
-    std::unique_ptr<BitmapValueIterator> _cur_iter = nullptr;
+    std::unique_ptr<BitmapValueIterator> _cur_iter;
     ColumnPtr _value_column;
 };
 

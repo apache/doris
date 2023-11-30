@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -89,8 +90,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         this.childrenOutputProperties = Objects.requireNonNull(childrenOutputProperties);
     }
 
-    public PhysicalProperties getOutputProperties(GroupExpression groupExpression) {
-        return groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
+    public PhysicalProperties getOutputProperties(ConnectContext connectContext, GroupExpression groupExpression) {
+        return groupExpression.getPlan().accept(this, new PlanContext(connectContext, groupExpression));
     }
 
     @Override
@@ -125,17 +126,27 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalEsScan(PhysicalEsScan esScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override
     public PhysicalProperties visitPhysicalFileScan(PhysicalFileScan fileScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
+    /**
+     * TODO return ANY after refactor coordinator
+     * return STORAGE_ANY not ANY, in order to generate distribute on jdbc scan.
+     * select * from (select * from external.T) as A union all (select * from external.T)
+     * if visitPhysicalJdbcScan returns ANY, the plan is
+     * union
+     *  |--- JDBCSCAN
+     *  +--- JDBCSCAN
+     *  this breaks coordinator assumption that one fragment has at most only one scan.
+     */
     @Override
     public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override
@@ -338,8 +349,18 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN,
             PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
-        PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
-        return new PhysicalProperties(childOutputProperty.getDistributionSpec());
+        DistributionSpec childDistSpec = childrenOutputProperties.get(0).getDistributionSpec();
+
+        if (partitionTopN.getPhase().isTwoPhaseLocal() || partitionTopN.getPhase().isOnePhaseGlobal()) {
+            return new PhysicalProperties(childDistSpec);
+        } else {
+            Preconditions.checkState(partitionTopN.getPhase().isTwoPhaseGlobal(),
+                    "partition topn phase is not two phase global");
+            Preconditions.checkState(childDistSpec instanceof DistributionSpecHash,
+                    "child dist spec is not hash spec");
+
+            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOrderKeys()));
+        }
     }
 
     @Override
@@ -363,9 +384,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
             int[] offsetsOfCurrentChild = new int[distributionSpecHash.getOrderedShuffledColumns().size()];
-            for (int j = 0; j < setOperation.getChildOutput(i).size(); j++) {
+            for (int j = 0; j < setOperation.getRegularChildOutput(i).size(); j++) {
                 int offset = distributionSpecHash.getExprIdToEquivalenceSet()
-                        .getOrDefault(setOperation.getChildOutput(i).get(j).getExprId(), -1);
+                        .getOrDefault(setOperation.getRegularChildOutput(i).get(j).getExprId(), -1);
                 if (offset >= 0) {
                     offsetsOfCurrentChild[offset] = j;
                 } else {

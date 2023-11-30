@@ -111,7 +111,7 @@ public:
 
     Status execute();
 
-    const vectorized::VecDateTimeValue& start_time() const { return _start_time; }
+    const VecDateTimeValue& start_time() const { return _start_time; }
 
     // Closes the underlying plan fragment and frees up all resources allocated
     // in open()/get_next().
@@ -146,15 +146,15 @@ public:
 
     TUniqueId query_id() const { return _query_ctx->query_id(); }
 
-    bool is_timeout(const vectorized::VecDateTimeValue& now) const;
+    bool is_timeout(const VecDateTimeValue& now) const;
 
     bool is_canceled() { return _runtime_state->is_cancelled(); }
 
     Status update_status(Status status);
 
 private:
-    ExecEnv* _exec_env; // not owned
-    ExecNode* _plan;    // lives in _runtime_state->obj_pool()
+    ExecEnv* _exec_env = nullptr; // not owned
+    ExecNode* _plan = nullptr;    // lives in _runtime_state->obj_pool()
     std::shared_ptr<QueryContext> _query_ctx;
     // Id of this instance
     TUniqueId _fragment_instance_id;
@@ -182,6 +182,9 @@ private:
 
     // true if prepare() returned OK
     bool _prepared;
+
+    // true if open() returned OK
+    bool _opened;
 
     // true if close() has been called
     bool _closed;
@@ -211,12 +214,12 @@ private:
     std::unique_ptr<DataSink> _sink;
 
     // Number of rows returned by this fragment
-    RuntimeProfile::Counter* _rows_produced_counter;
+    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
 
     // Number of blocks returned by this fragment
-    RuntimeProfile::Counter* _blocks_produced_counter;
+    RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    RuntimeProfile::Counter* _fragment_cpu_timer;
+    RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
@@ -226,7 +229,7 @@ private:
     // Timeout of this instance, it is inited from query options
     int _timeout_second = -1;
 
-    vectorized::VecDateTimeValue _start_time;
+    VecDateTimeValue _start_time;
 
     // It is shared with BufferControlBlock and will be called in two different
     // threads. But their calls are all at different time, there is no problem of
@@ -238,7 +241,9 @@ private:
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
 
-    OpentelemetrySpan _span;
+    bool _group_commit = false;
+
+    DescriptorTbl* _desc_tbl = nullptr;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
@@ -273,6 +278,13 @@ private:
     const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
+
+    std::shared_ptr<QueryStatistics> _dml_query_statistics() {
+        if (_query_statistics && _query_statistics->collect_dml_statistics()) {
+            return _query_statistics;
+        }
+        return nullptr;
+    }
 
     void _collect_node_statistics();
 };

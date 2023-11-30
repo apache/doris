@@ -28,7 +28,7 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -51,6 +51,7 @@
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
+#include "util/time.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -64,10 +65,7 @@ Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, RuntimeProfile
 
 DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                          const UniqueId& load_id)
-        : _req(*req),
-          _rowset_builder(*req, storage_engine, profile),
-          _memtable_writer(new MemTableWriter(*req)),
-          _storage_engine(storage_engine) {
+        : _req(*req), _rowset_builder(*req, profile), _memtable_writer(new MemTableWriter(*req)) {
     _init_profile(profile);
 }
 
@@ -83,7 +81,7 @@ DeltaWriter::~DeltaWriter() {
     }
 
     // cancel and wait all memtables in flush queue to be finished
-    _memtable_writer->cancel();
+    static_cast<void>(_memtable_writer->cancel());
 
     if (_rowset_builder.tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
@@ -99,6 +97,7 @@ Status DeltaWriter::init() {
     RETURN_IF_ERROR(_rowset_builder.init());
     RETURN_IF_ERROR(
             _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
+                                   _rowset_builder.get_partial_update_info(),
                                    _rowset_builder.tablet()->enable_unique_key_merge_on_write()));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
@@ -161,6 +160,9 @@ Status DeltaWriter::wait_calc_delete_bitmap() {
 
 Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes,
                                const bool write_single_replica) {
+    if (config::cloud_mode) {
+        return Status::OK();
+    }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
     RETURN_IF_ERROR(_rowset_builder.commit_txn());
@@ -208,6 +210,9 @@ int64_t DeltaWriter::mem_consumption(MemType mem) {
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
+    if (config::cloud_mode) [[unlikely]] {
+        return;
+    }
     std::shared_ptr<PBackendService_Stub> stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                     node_info.host(), node_info.async_internal_port());
@@ -219,85 +224,84 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         return;
     }
 
-    _storage_engine->txn_manager()->add_txn_tablet_delta_writer(_req.txn_id, _req.tablet_id, this);
+    StorageEngine::instance()->txn_manager()->add_txn_tablet_delta_writer(_req.txn_id,
+                                                                          _req.tablet_id, this);
     {
         std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
         _unfinished_slave_node.insert(node_info.id());
     }
 
-    std::vector<int64_t> indices_ids;
+    std::vector<std::pair<int64_t, std::string>> indices_ids;
     auto cur_rowset = _rowset_builder.rowset();
     auto tablet_schema = cur_rowset->rowset_meta()->tablet_schema();
     if (!tablet_schema->skip_write_index_on_load()) {
         for (auto& column : tablet_schema->columns()) {
-            const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
+            const TabletIndex* index_meta = tablet_schema->get_inverted_index(column);
             if (index_meta) {
-                indices_ids.emplace_back(index_meta->index_id());
+                indices_ids.emplace_back(index_meta->index_id(), index_meta->get_index_suffix());
             }
         }
     }
 
-    PTabletWriteSlaveRequest request;
-    RowsetMetaPB rowset_meta_pb = cur_rowset->rowset_meta()->get_rowset_pb();
-    request.set_allocated_rowset_meta(&rowset_meta_pb);
-    request.set_host(BackendOptions::get_localhost());
-    request.set_http_port(config::webserver_port);
+    auto request = std::make_shared<PTabletWriteSlaveRequest>();
+    *(request->mutable_rowset_meta()) = cur_rowset->rowset_meta()->get_rowset_pb();
+    request->set_host(BackendOptions::get_localhost());
+    request->set_http_port(config::webserver_port);
     string tablet_path = _rowset_builder.tablet()->tablet_path();
-    request.set_rowset_path(tablet_path);
-    request.set_token(ExecEnv::GetInstance()->token());
-    request.set_brpc_port(config::brpc_port);
-    request.set_node_id(node_info.id());
+    request->set_rowset_path(tablet_path);
+    request->set_token(ExecEnv::GetInstance()->token());
+    request->set_brpc_port(config::brpc_port);
+    request->set_node_id(node_info.id());
     for (int segment_id = 0; segment_id < cur_rowset->rowset_meta()->num_segments(); segment_id++) {
         std::stringstream segment_name;
         segment_name << cur_rowset->rowset_id() << "_" << segment_id << ".dat";
         int64_t segment_size = std::filesystem::file_size(tablet_path + "/" + segment_name.str());
-        request.mutable_segments_size()->insert({segment_id, segment_size});
+        request->mutable_segments_size()->insert({segment_id, segment_size});
 
         if (!indices_ids.empty()) {
             for (auto index_id : indices_ids) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
-                        tablet_path + "/" + segment_name.str(), index_id);
+                        tablet_path + "/" + segment_name.str(), index_id.first, index_id.second);
                 int64_t size = std::filesystem::file_size(inverted_index_file);
                 PTabletWriteSlaveRequest::IndexSize index_size;
-                index_size.set_indexid(index_id);
+                index_size.set_indexid(index_id.first);
                 index_size.set_size(size);
+                index_size.set_suffix_path(index_id.second);
                 // Fetch the map value for the current segment_id.
                 // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
-                auto& index_size_map_value = (*request.mutable_inverted_indices_size())[segment_id];
+                auto& index_size_map_value =
+                        (*(request->mutable_inverted_indices_size()))[segment_id];
                 // Add the new index size to the map value.
                 *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
             }
         }
     }
-    RefCountClosure<PTabletWriteSlaveResult>* closure =
-            new RefCountClosure<PTabletWriteSlaveResult>();
-    closure->ref();
-    closure->ref();
-    closure->cntl.set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
-    closure->cntl.ignore_eovercrowded();
-    stub->request_slave_tablet_pull_rowset(&closure->cntl, &request, &closure->result, closure);
-    static_cast<void>(request.release_rowset_meta());
 
-    closure->join();
-    if (closure->cntl.Failed()) {
+    auto pull_callback = DummyBrpcCallback<PTabletWriteSlaveResult>::create_shared();
+    auto closure = AutoReleaseClosure<
+            PTabletWriteSlaveRequest,
+            DummyBrpcCallback<PTabletWriteSlaveResult>>::create_unique(request, pull_callback);
+    closure->cntl_->set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
+    closure->cntl_->ignore_eovercrowded();
+    stub->request_slave_tablet_pull_rowset(closure->cntl_.get(), closure->request_.get(),
+                                           closure->response_.get(), closure.get());
+
+    closure.release();
+    pull_callback->join();
+    if (pull_callback->cntl_->Failed()) {
         if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
                     stub, node_info.host(), node_info.async_internal_port())) {
             ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    closure->cntl.remote_side());
+                    pull_callback->cntl_->remote_side());
         }
         LOG(WARNING) << "failed to send pull rowset request to slave replica, error="
-                     << berror(closure->cntl.ErrorCode())
-                     << ", error_text=" << closure->cntl.ErrorText()
+                     << berror(pull_callback->cntl_->ErrorCode())
+                     << ", error_text=" << pull_callback->cntl_->ErrorText()
                      << ". slave host: " << node_info.host() << ", tablet_id=" << _req.tablet_id
                      << ", txn_id=" << _req.txn_id;
         std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
         _unfinished_slave_node.erase(node_info.id());
     }
-
-    if (closure->unref()) {
-        delete closure;
-    }
-    closure = nullptr;
 }
 
 void DeltaWriter::finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed) {

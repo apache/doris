@@ -31,15 +31,15 @@
 #include "io/cache/block/block_file_cache_settings.h"
 #include "io/cache/block/block_lru_file_cache.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 class TUniqueId;
 
 namespace io {
 
-FileCacheFactory& FileCacheFactory::instance() {
-    static FileCacheFactory ret;
-    return ret;
+FileCacheFactory* FileCacheFactory::instance() {
+    return ExecEnv::GetInstance()->file_cache_factory();
 }
 
 size_t FileCacheFactory::try_release() {
@@ -64,9 +64,9 @@ void FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     if (config::clear_file_cache) {
         auto fs = global_local_filesystem();
         bool res = false;
-        fs->exists(cache_base_path, &res);
+        static_cast<void>(fs->exists(cache_base_path, &res));
         if (res) {
-            fs->delete_directory(cache_base_path);
+            static_cast<void>(fs->delete_directory(cache_base_path));
         }
     }
 

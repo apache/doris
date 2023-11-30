@@ -22,7 +22,7 @@ import org.apache.doris.scheduler.exception.JobException;
 /**
  * A functional interface for executing a memory task.
  */
-public interface TransientTaskExecutor<T> {
+public interface TransientTaskExecutor {
 
     /**
      * Executes the memory task.

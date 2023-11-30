@@ -322,7 +322,7 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
 
 Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
                                       const ColumnNumbers& arguments, size_t result,
-                                      size_t input_rows_count) {
+                                      size_t input_rows_count) const {
     const auto values_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(values_col.get());
@@ -350,9 +350,9 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
             for (int i = 0; i < input_rows_count; i++) {
                 const auto pattern_val = str_patterns->get_data_at(i);
                 const auto value_val = values->get_data_at(i);
-                (state->scalar_function)(
+                static_cast<void>((state->scalar_function)(
                         const_cast<vectorized::LikeSearchState*>(&state->search_state), value_val,
-                        pattern_val, &vec_res[i]);
+                        pattern_val, &vec_res[i]));
             }
         } else if (const auto* const_patterns =
                            check_and_get_column<ColumnConst>(pattern_col.get())) {
@@ -375,7 +375,7 @@ Status FunctionLikeBase::close(FunctionContext* context,
 Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
                                            const ColumnString::Offsets& value_offsets,
                                            ColumnUInt8::Container& result,
-                                           LikeSearchState* search_state) {
+                                           LikeSearchState* search_state) const {
     // treat continuous multi string data as a long string data
     const UInt8* begin = values.data();
     const UInt8* end = begin + values.size();
@@ -414,7 +414,7 @@ Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
 
 Status FunctionLikeBase::vector_const(const ColumnString& values, const StringRef* pattern_val,
                                       ColumnUInt8::Container& result, const LikeFn& function,
-                                      LikeSearchState* search_state) {
+                                      LikeSearchState* search_state) const {
     RETURN_IF_ERROR((function)(search_state, values,
                                *reinterpret_cast<const StringRef*>(pattern_val), result));
     return Status::OK();

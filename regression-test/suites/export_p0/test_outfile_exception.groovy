@@ -22,6 +22,12 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_exception") {
+
+    String s3_endpoint = getS3Endpoint()
+    String region = getS3Region()
+
+    // This is a bucket that doesn't exist
+    String bucket = "test-outfile-exception-no-exists"
     
     def tableName = "outfile_exception_test"
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -67,11 +73,11 @@ suite("test_outfile_exception") {
     test {
         sql """
             select * from ${tableName} t ORDER BY user_id
-            into outfile "s3://ftw-datalake-test/test_outfile/exp_"
+            into outfile "s3://${bucket}/test_outfile/exp_"
             format as parquet
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );
@@ -86,11 +92,11 @@ suite("test_outfile_exception") {
     test {
         sql """
             select * from ${tableName} t ORDER BY user_id
-            into outfile "s3://ftw-datalake-test/test_outfile/exp_"
+            into outfile "s3://${bucket}/test_outfile/exp_"
             format as orc
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );
@@ -105,11 +111,11 @@ suite("test_outfile_exception") {
     test {
         sql """
             select * from ${tableName} t ORDER BY user_id
-            into outfile "s3://ftw-datalake-test/test_outfile/exp_"
+            into outfile "s3://${bucket}/test_outfile/exp_"
             format as csv
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );
@@ -124,11 +130,11 @@ suite("test_outfile_exception") {
     test {
         sql """
             select * from ${tableName} t ORDER BY user_id
-            into outfile "s3://ftw-datalake-test/test_outfile/exp_"
+            into outfile "s3://${bucket}/test_outfile/exp_"
             format as csv_with_names
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );
@@ -143,11 +149,11 @@ suite("test_outfile_exception") {
     test {
         sql """
             select * from ${tableName} t ORDER BY user_id
-            into outfile "s3://ftw-datalake-test/test_outfile/exp_"
+            into outfile "s3://${bucket}/test_outfile/exp_"
             format as csv_with_names_and_types
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );

@@ -75,7 +75,8 @@ public:
                                         std::function<bool(const TabletUid&, const RowsetId&,
                                                            const std::string&)> const& collector);
     static Status traverse_binlog_metas(
-            OlapMeta* meta, std::function<bool(const string&, const string&, bool)> const& func);
+            OlapMeta* meta,
+            std::function<bool(const std::string&, const std::string&, bool)> const& func);
 
     static Status remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 
