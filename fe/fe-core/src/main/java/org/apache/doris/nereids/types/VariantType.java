@@ -25,6 +25,8 @@ import java.util.Objects;
 
 /**
  * Variant type in Nereids.
+ * Why Variant is not complex type? Since it's nested structure is not pre-defined, then using
+ * primitive type will be easy to handle meta info in FE.
  */
 @Developing
 public class VariantType extends PrimitiveType {

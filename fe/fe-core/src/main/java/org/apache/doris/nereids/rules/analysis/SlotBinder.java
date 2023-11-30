@@ -125,19 +125,6 @@ public class SlotBinder extends SubExprAnalyzer {
         }
     }
 
-    // @Override
-    // public Expression visitElementAt(ElementAt elementAt, CascadesContext context) {
-    //     Slot slot = elementAt.getInputSlots().stream().findFirst().get();
-    //     if (slot.hasUnbound()) {
-    //         slot = (Slot) visitUnboundSlot((UnboundSlot) slot, context);
-    //     }
-    //     if (slot.getDataType().isVariantType()) {
-    //         // rewrite to slot and bound this slot
-    //         return ElementAtToSlot.rewriteToSlot(elementAt, (SlotReference) slot);
-    //     }
-    //     return visitScalarFunction(elementAt, context);
-    // }
-
     @Override
     public Slot visitUnboundSlot(UnboundSlot unboundSlot, CascadesContext context) {
         Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getScope().getSlots()));
