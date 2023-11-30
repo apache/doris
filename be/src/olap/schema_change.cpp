@@ -1159,6 +1159,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
     return process_alter_exit();
 }
 
+static const std::string WHERE_SIGN_LOWER = to_lower("__DORIS_WHERE_SIGN__");
+
 // @static
 // Analyze the mapping of the column and the mapping of the filter key
 Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
@@ -1182,13 +1184,12 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
          i < new_schema_size; ++i) {
         const TabletColumn& new_column = new_tablet->tablet_schema()->column(i);
-        const std::string& column_name = new_column.name();
+        const std::string& column_name_lower = to_lower(new_column.name());
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
 
-        if (materialized_function_map.find(to_lower(column_name)) !=
-            materialized_function_map.end()) {
-            auto mv_param = materialized_function_map.find(to_lower(column_name))->second;
+        if (materialized_function_map.find(column_name_lower) != materialized_function_map.end()) {
+            auto mv_param = materialized_function_map.find(column_name_lower)->second;
             column_mapping->expr = mv_param.expr;
             int32_t column_index = base_tablet_schema->field_index(mv_param.origin_column_name);
             column_mapping->ref_column = column_index;
@@ -1197,13 +1198,13 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             }
         }
 
-        int32_t column_index = base_tablet_schema->field_index(column_name);
+        int32_t column_index = base_tablet_schema->field_index(new_column.name());
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;
         }
 
-        if (sc_params.alter_tablet_type == ROLLUP && column_name != to_lower(DELETE_SIGN)) {
+        if (sc_params.alter_tablet_type == ROLLUP) {
             std::string materialized_function_map_str;
             for (auto str : materialized_function_map) {
                 if (!materialized_function_map_str.empty()) {
@@ -1213,12 +1214,12 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             }
             return Status::InternalError(
                     "referenced column was missing. [column={},materialized_function_map={}]",
-                    column_name, materialized_function_map_str);
+                    new_column.name(), materialized_function_map_str);
         }
 
-        if (column_name.find("__doris_shadow_") == 0) {
+        if (new_column.name().find("__doris_shadow_") == 0) {
             // Should delete in the future, just a protection for bug.
-            LOG(INFO) << "a shadow column is encountered " << column_name;
+            LOG(INFO) << "a shadow column is encountered " << new_column.name();
             return Status::InternalError("failed due to operate on shadow column");
         }
         // Newly added column go here
@@ -1231,12 +1232,13 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
                 _init_column_mapping(column_mapping, new_column, new_column.default_value()));
 
         LOG(INFO) << "A column with default value will be added after schema changing. "
-                  << "column=" << column_name << ", default_value=" << new_column.default_value()
-                  << " to table " << new_tablet->get_table_id();
+                  << "column=" << new_column.name()
+                  << ", default_value=" << new_column.default_value() << " to table "
+                  << new_tablet->get_table_id();
     }
 
-    if (materialized_function_map.contains(to_lower(WHERE_SIGN))) {
-        changer->set_where_expr(materialized_function_map.find(to_lower(WHERE_SIGN))->second.expr);
+    if (materialized_function_map.contains(WHERE_SIGN_LOWER)) {
+        changer->set_where_expr(materialized_function_map.find(WHERE_SIGN_LOWER)->second.expr);
     }
 
     // Check if re-aggregation is needed.
