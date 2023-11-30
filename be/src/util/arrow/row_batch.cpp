@@ -95,6 +95,9 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_IPV6:
         *result = arrow::utf8();
         break;
+    case TYPE_DECIMAL256:
+        *result = std::make_shared<arrow::Decimal256Type>(type.precision, type.scale);
+        break;
     case TYPE_BOOLEAN:
         *result = arrow::boolean();
         break;
@@ -131,7 +134,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         break;
     }
     default:
-        return Status::InvalidArgument("Unknown primitive type({})", type.type);
+        return Status::InvalidArgument("Unknown primitive type({}) convert to Arrow type", type.type);
     }
     return Status::OK();
 }
