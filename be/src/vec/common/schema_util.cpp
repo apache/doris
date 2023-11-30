@@ -310,7 +310,7 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         TabletColumn common_column;
         // const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
         get_column_by_type(tuple_types[i], tuple_paths[i].get_path(), common_column,
-                           ExtraInfo {.unique_id = variant_col_unique_id,
+                           ExtraInfo {.unique_id = -1,
                                       .parent_unique_id = variant_col_unique_id,
                                       .path_info = tuple_paths[i]});
         common_schema->append_column(common_column);
