@@ -38,12 +38,18 @@ public class TimerDefinition {
     private Long latestSchedulerTimeMs;
 
 
-    public void checkParams(Long createTimeMs) {
+    public void checkParams(boolean immediate) {
         if (null != startTimeMs && startTimeMs < System.currentTimeMillis()) {
             throw new IllegalArgumentException("startTimeMs must be greater than current time");
         }
+        if (null != startTimeMs && immediate) {
+            throw new IllegalArgumentException("startTimeMs must be null when immediate is true");
+        }
+        if (null == startTimeMs && immediate) {
+            startTimeMs = System.currentTimeMillis();
+        }
         if (null == startTimeMs) {
-            startTimeMs = createTimeMs + intervalUnit.getIntervalMs(interval);
+            startTimeMs = System.currentTimeMillis() + intervalUnit.getIntervalMs(interval);
         }
         if (null != endTimeMs && endTimeMs < startTimeMs) {
             throw new IllegalArgumentException("end time cannot be less than start time");

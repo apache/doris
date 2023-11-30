@@ -17,6 +17,8 @@
 
 #pragma once
 #include <brpc/controller.h>
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <bthread/types.h>
 #include <butil/errno.h>
 #include <fmt/format.h>
@@ -121,8 +123,10 @@ private:
         }
 
         void set_dst_id(int64_t dst_id) { _dst_id = dst_id; }
+        void set_load_id(PUniqueId load_id) { _load_id = UniqueId(load_id); }
 
     private:
+        UniqueId _load_id;    // for logging
         int64_t _dst_id = -1; // for logging
         std::atomic<bool> _is_closed;
         bthread::Mutex _mutex;
@@ -133,7 +137,7 @@ private:
         std::vector<int64_t> _success_tablets;
         std::vector<int64_t> _failed_tablets;
 
-        LoadStreamStub* _stub;
+        LoadStreamStub* _stub = nullptr;
     };
 
 public:

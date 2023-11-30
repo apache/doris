@@ -57,13 +57,14 @@ public:
     bool can_write() override { return true; }
 
 private:
-    vectorized::VSetOperationNode<is_intersect>* _set_node;
+    vectorized::VSetOperationNode<is_intersect>* _set_node = nullptr;
 };
 
 class SetSinkDependency final : public Dependency {
 public:
     using SharedState = SetSharedState;
-    SetSinkDependency(int id, int node_id) : Dependency(id, node_id, "SetSinkDependency", true) {}
+    SetSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SetSinkDependency", true, query_ctx) {}
     ~SetSinkDependency() override = default;
 
     void set_cur_child_id(int id) {
@@ -131,7 +132,7 @@ private:
     friend struct HashTableBuild;
 
     Status _process_build_block(SetSinkLocalState<is_intersect>& local_state,
-                                vectorized::Block& block, uint8_t offset, RuntimeState* state);
+                                vectorized::Block& block, RuntimeState* state);
     Status _extract_build_column(SetSinkLocalState<is_intersect>& local_state,
                                  vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs);
 

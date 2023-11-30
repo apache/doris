@@ -46,8 +46,9 @@ IndexSearcherPtr InvertedIndexSearcherCache::build_index_searcher(const io::File
             new DorisCompoundReader(DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
                                     file_name.c_str(), config::inverted_index_read_buffer_size);
     auto closeDirectory = true;
-    auto index_searcher =
-            std::make_shared<lucene::search::IndexSearcher>(directory, closeDirectory);
+    auto reader = lucene::index::IndexReader::open(
+            directory, config::inverted_index_read_buffer_size, closeDirectory);
+    auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader);
     // NOTE: need to cl_refcount-- here, so that directory will be deleted when
     // index_searcher is destroyed
     _CLDECDELETE(directory)

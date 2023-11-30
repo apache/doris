@@ -32,7 +32,7 @@ import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-public class AnalysisTaskExecutor extends Thread {
+public class AnalysisTaskExecutor {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisTaskExecutor.class);
 
@@ -43,24 +43,21 @@ public class AnalysisTaskExecutor extends Thread {
                     Comparator.comparingLong(AnalysisTaskWrapper::getStartTime));
 
     public AnalysisTaskExecutor(int simultaneouslyRunningTaskNum) {
+        this(simultaneouslyRunningTaskNum, Integer.MAX_VALUE);
+    }
+
+    public AnalysisTaskExecutor(int simultaneouslyRunningTaskNum, int taskQueueSize) {
         if (!Env.isCheckpointThread()) {
             executors = ThreadPoolManager.newDaemonThreadPool(
                     simultaneouslyRunningTaskNum,
                     simultaneouslyRunningTaskNum, 0,
-                    TimeUnit.DAYS, new LinkedBlockingQueue<>(),
+                    TimeUnit.DAYS, new LinkedBlockingQueue<>(taskQueueSize),
                     new BlockedPolicy("Analysis Job Executor", Integer.MAX_VALUE),
                     "Analysis Job Executor", true);
+            cancelExpiredTask();
         } else {
             executors = null;
         }
-    }
-
-    @Override
-    public void run() {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
-        cancelExpiredTask();
     }
 
     private void cancelExpiredTask() {

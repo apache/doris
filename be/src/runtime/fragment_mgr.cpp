@@ -217,6 +217,14 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
 
     DCHECK(req.runtime_state != nullptr);
+
+    if (req.query_statistics) {
+        TQueryStatistics queryStatistics;
+        DCHECK(req.query_statistics->collect_dml_statistics());
+        req.query_statistics->to_thrift(&queryStatistics);
+        params.__set_query_statistics(queryStatistics);
+    }
+
     if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
@@ -426,9 +434,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif
 
-    LOG_INFO("Instance {} executing",
-             PrintInstanceStandardInfo(fragment_executor->query_id(),
-                                       fragment_executor->fragment_instance_id()));
+    VLOG_DEBUG << fmt::format("Instance {}|{} executing", print_id(fragment_executor->query_id()),
+                              print_id(fragment_executor->fragment_instance_id()));
 
     Status st = fragment_executor->execute();
     if (!st.ok()) {
@@ -448,9 +455,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
 
-        LOG_INFO("Instance {} finished",
-                 PrintInstanceStandardInfo(fragment_executor->query_id(),
-                                           fragment_executor->fragment_instance_id()));
+        LOG_INFO("Instance {} finished", print_id(fragment_executor->fragment_instance_id()));
+
         if (all_done && query_ctx) {
             _query_ctx_map.erase(query_ctx->query_id());
             LOG_INFO("Query {} finished", print_id(query_ctx->query_id()));
@@ -560,6 +566,12 @@ void FragmentMgr::remove_pipeline_context(
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
     for (const auto& ins_id : ins_ids) {
+        {
+            std::lock_guard<std::mutex> plock(q_context->pipeline_lock);
+            if (q_context->fragment_id_to_pipeline_ctx.contains(f_context->get_fragment_id())) {
+                q_context->fragment_id_to_pipeline_ctx.erase(f_context->get_fragment_id());
+            }
+        }
         LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
                  print_id(ins_id), all_done);
         _pipeline_map.erase(ins_id);
@@ -789,9 +801,9 @@ std::string FragmentMgr::dump_pipeline_tasks() {
         fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
                        _pipeline_map.size());
         for (auto& it : _pipeline_map) {
-            fmt::format_to(debug_string_buffer, "No.{} (elapse time = {}, InstanceId = {}) : {}\n",
-                           i, t - it.second->create_time(), print_id(it.first),
-                           it.second->debug_string());
+            fmt::format_to(
+                    debug_string_buffer, "No.{} (elapse time = {}ns, InstanceId = {}) : {}\n", i,
+                    t - it.second->create_time(), print_id(it.first), it.second->debug_string());
             i++;
         }
     }
@@ -865,6 +877,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             }
 
             _cv.notify_all();
+        }
+        {
+            std::lock_guard<std::mutex> lock(query_ctx->pipeline_lock);
+            query_ctx->fragment_id_to_pipeline_ctx.insert({params.fragment_id, context});
         }
 
         RETURN_IF_ERROR(context->submit());
@@ -1071,7 +1087,7 @@ void FragmentMgr::cancel_worker() {
             }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
-                    LOG_INFO("Query {} is timeout", print_id(it->first));
+                    LOG_WARNING("Query {} is timeout", print_id(it->first));
                     it = _query_ctx_map.erase(it);
                 } else {
                     ++it;

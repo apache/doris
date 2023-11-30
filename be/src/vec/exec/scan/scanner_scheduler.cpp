@@ -284,44 +284,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
             }
         }
     };
-#if !defined(USE_BTHREAD_SCANNER)
     submit_to_thread_pool();
-#else
-    // Only OlapScanner uses bthread scanner
-    // Todo: Make other scanners support bthread scanner
-    if (dynamic_cast<NewOlapScanner*>(*iter) == nullptr) {
-        return submit_to_thread_pool();
-    }
-    ctx->incr_num_scanner_scheduling(this_run.size());
-    while (iter != this_run.end()) {
-        (*iter)->start_wait_worker_timer();
-        AsyncIOCtx io_ctx {.nice = nice};
-
-        auto f = new std::function<void()>([this, scanner = *iter, ctx, io_ctx] {
-            AsyncIOCtx* set_io_ctx =
-                    static_cast<AsyncIOCtx*>(bthread_getspecific(AsyncIO::btls_io_ctx_key));
-            if (set_io_ctx == nullptr) {
-                set_io_ctx = new AsyncIOCtx(io_ctx);
-                CHECK_EQ(0, bthread_setspecific(AsyncIO::btls_io_ctx_key, set_io_ctx));
-            } else {
-                LOG(WARNING) << "New bthread should not have io_nice_key";
-            }
-            this->_scanner_scan(this, ctx, scanner);
-        });
-        bthread_t btid;
-        int ret = bthread_start_background(&btid, nullptr, run_scanner_bthread, (void*)f);
-
-        if (ret == 0) {
-            this_run.erase(iter++);
-            ctx->_btids.push_back(btid);
-        } else {
-            delete f;
-            LOG(FATAL) << "failed to submit scanner to bthread";
-            ctx->set_status_on_error(Status::InternalError("failed to submit scanner to bthread"));
-            break;
-        }
-    }
-#endif
     ctx->incr_ctx_scheduling_time(watch.elapsed_time());
 }
 
@@ -329,15 +292,9 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
                                      VScannerSPtr scanner) {
     SCOPED_ATTACH_TASK(scanner->runtime_state());
     // for cpu hard limit, thread name should not be reset
-#if !defined(USE_BTHREAD_SCANNER)
     if (ctx->_should_reset_thread_name) {
         Thread::set_self_name("_scanner_scan");
     }
-#else
-    if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr && ctx->_should_reset_thread_name) {
-        Thread::set_self_name("_scanner_scan");
-    }
-#endif
 
 #ifndef __APPLE__
     // The configuration item is used to lower the priority of the scanner thread,
@@ -403,7 +360,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         BlockUPtr block = ctx->get_free_block();
 
         status = scanner->get_block(state, block.get(), &eos);
-        VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
         // So, NOT_FOUND for VFileScanner is not a fail case.
@@ -414,6 +370,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             break;
         }
+        VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         if (status.is<ErrorCode::NOT_FOUND>()) {
             // The only case in this "if" branch is external table file delete and fe cache has not been updated yet.
             // Set status to OK.

@@ -180,10 +180,10 @@ public:
 
 class InvertedIndexVisitor : public lucene::util::bkd::bkd_reader::intersect_visitor {
 private:
-    roaring::Roaring* _hits;
+    roaring::Roaring* _hits = nullptr;
     uint32_t _num_hits;
     bool _only_count;
-    lucene::util::bkd::bkd_reader* _reader;
+    lucene::util::bkd::bkd_reader* _reader = nullptr;
     InvertedIndexQueryType _query_type;
 
 public:

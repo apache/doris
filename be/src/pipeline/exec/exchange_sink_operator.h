@@ -67,29 +67,46 @@ private:
 class ExchangeSinkQueueDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
-    ExchangeSinkQueueDependency(int id, int node_id)
-            : Dependency(id, node_id, "ResultQueueDependency", true) {}
+    ExchangeSinkQueueDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ResultQueueDependency", true, query_ctx) {}
     ~ExchangeSinkQueueDependency() override = default;
 };
 
 class BroadcastDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastDependency);
-    BroadcastDependency(int id, int node_id)
-            : Dependency(id, node_id, "BroadcastDependency", true), _available_block(0) {}
+    BroadcastDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "BroadcastDependency", true, query_ctx),
+              _available_block(0) {}
     ~BroadcastDependency() override = default;
+
+    std::string debug_string(int indentation_level = 0) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "{}{}: id={}, block task = {}, ready={}, _available_block = {}",
+                       std::string(indentation_level * 2, ' '), _name, _node_id,
+                       _blocked_task.size(), _ready, _available_block.load());
+        return fmt::to_string(debug_string_buffer);
+    }
 
     void set_available_block(int available_block) { _available_block = available_block; }
 
     void return_available_block() {
         if (_available_block.fetch_add(1) == 0) {
+            std::lock_guard<std::mutex> lock(_lock);
+            if (_available_block == 0) {
+                return;
+            }
             Dependency::set_ready();
         }
     }
 
     void take_available_block() {
         if (_available_block.fetch_sub(1) == 1) {
-            Dependency::block();
+            std::lock_guard<std::mutex> lock(_lock);
+            if (_available_block == 0) {
+                Dependency::block();
+            }
         }
     }
 
@@ -97,6 +114,7 @@ public:
 
 private:
     std::atomic<int> _available_block;
+    std::mutex _lock;
 };
 
 /**
@@ -120,8 +138,8 @@ private:
 class LocalExchangeChannelDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
-    LocalExchangeChannelDependency(int id, int node_id)
-            : Dependency(id, node_id, "LocalExchangeChannelDependency", true) {}
+    LocalExchangeChannelDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "LocalExchangeChannelDependency", true, query_ctx) {}
     ~LocalExchangeChannelDependency() override = default;
     // TODO(gabriel): blocked by memory
 };
@@ -168,6 +186,7 @@ public:
 
     std::string id_name() override;
     segment_v2::CompressionTypePB& compression_type();
+    std::string debug_string(int indentation_level) const override;
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
@@ -212,9 +231,9 @@ private:
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
-    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
-    std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
-    std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
+    std::shared_ptr<AndDependency> _exchange_sink_dependency;
+    std::shared_ptr<BroadcastDependency> _broadcast_dependency;
     std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;

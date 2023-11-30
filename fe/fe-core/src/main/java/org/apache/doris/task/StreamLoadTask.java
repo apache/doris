@@ -456,6 +456,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();
+        } else {
+            this.memtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
         }
         if (request.isSetStreamPerNode()) {
             this.streamPerNode = request.getStreamPerNode();

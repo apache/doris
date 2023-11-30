@@ -56,7 +56,8 @@ public:
 class SetSourceDependency final : public Dependency {
 public:
     using SharedState = SetSharedState;
-    SetSourceDependency(int id, int node_id) : Dependency(id, node_id, "SetSourceDependency") {}
+    SetSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SetSourceDependency", query_ctx) {}
     ~SetSourceDependency() override = default;
 };
 

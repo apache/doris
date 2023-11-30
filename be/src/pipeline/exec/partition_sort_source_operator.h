@@ -52,9 +52,43 @@ public:
 class PartitionSortSourceDependency final : public Dependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortSourceDependency(int id, int node_id)
-            : Dependency(id, node_id, "PartitionSortSourceDependency") {}
+    PartitionSortSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "PartitionSortSourceDependency", query_ctx) {}
     ~PartitionSortSourceDependency() override = default;
+
+    void block() override {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_always_ready) {
+            return;
+        }
+        Dependency::block();
+    }
+
+    void set_always_ready() {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_always_ready) {
+            return;
+        }
+        _always_ready = true;
+        set_ready();
+    }
+
+    std::string debug_string(int indentation_level = 0) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "{}, _always_ready = {}",
+                       Dependency::debug_string(indentation_level), _always_ready);
+        return fmt::to_string(debug_string_buffer);
+    }
+
+private:
+    bool _always_ready {false};
+    std::mutex _always_done_lock;
 };
 
 class PartitionSortSourceOperatorX;
@@ -65,15 +99,13 @@ public:
     using Base = PipelineXLocalState<PartitionSortSourceDependency>;
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<PartitionSortSourceDependency>(state, parent),
-              _get_sorted_timer(nullptr),
-              _get_next_timer(nullptr) {}
+              _get_sorted_timer(nullptr) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class PartitionSortSourceOperatorX;
     RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _get_next_timer;
     std::atomic<int> _sort_idx = 0;
 };
 

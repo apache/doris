@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -221,6 +222,37 @@ public class StatisticsAutoCollectorTest {
     }
 
     @Test
+    public void testSkipWideTable() {
+
+        TableIf tableIf = new OlapTable();
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public List<Column> getBaseSchema() {
+                return Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT));
+            }
+        };
+
+        new MockUp<StatisticsUtil>() {
+            int count = 0;
+            int [] thresholds = {1, 10};
+            @Mock
+            public TableIf findTable(long catalogName, long dbName, long tblName) {
+                return tableIf;
+            }
+
+            @Mock
+            public int getAutoAnalyzeTableWidthThreshold() {
+                return thresholds[count++];
+            }
+        };
+        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().build();
+        StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
+        Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
+        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
+    }
+
+    @Test
     public void testLoop() {
         AtomicBoolean timeChecked = new AtomicBoolean();
         AtomicBoolean switchChecked = new AtomicBoolean();
@@ -247,7 +279,7 @@ public class StatisticsAutoCollectorTest {
     @Test
     public void checkAvailableThread() {
         StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
-        Assertions.assertEquals(Config.full_auto_analyze_simultaneously_running_task_num,
+        Assertions.assertEquals(Config.auto_analyze_simultaneously_running_task_num,
                 autoCollector.analysisTaskExecutor.executors.getMaximumPoolSize());
     }
 
@@ -417,5 +449,78 @@ public class StatisticsAutoCollectorTest {
         for (BaseAnalysisTask task : analysisTasks.values()) {
             Assertions.assertNotNull(task.getTableSample());
         }
+    }
+
+    @Test
+    public void testNeedDropStaleStats() {
+
+        TableIf olapTable = new OlapTable();
+        TableIf otherTable = new ExternalTable();
+
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public TableIf findTable(long catalogId, long dbId, long tblId) {
+                if (tblId == 0) {
+                    return olapTable;
+                } else {
+                    return otherTable;
+                }
+            }
+        };
+
+        new MockUp<OlapTable>() {
+            int count = 0;
+
+            int[] rowCounts = {100, 0};
+            @Mock
+            public long getRowCount() {
+                return rowCounts[count++];
+            }
+
+            @Mock
+            public List<Column> getBaseSchema() {
+                return Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT));
+            }
+        };
+
+        AnalysisInfo analysisInfoOlap = new AnalysisInfoBuilder().setAnalysisMethod(AnalysisMethod.FULL)
+                .setColToPartitions(new HashMap<>())
+                .setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setColName("col1")
+                .setTblId(0)
+                .setJobType(JobType.SYSTEM).build();
+
+        new MockUp<AnalysisManager>() {
+            int count = 0;
+
+            TableStatsMeta[] tableStatsArr =
+                    new TableStatsMeta[] {null,
+                        new TableStatsMeta(0, analysisInfoOlap, olapTable),
+                        new TableStatsMeta(0, analysisInfoOlap, olapTable)};
+
+            {
+                tableStatsArr[1].updatedRows.addAndGet(100);
+                tableStatsArr[2].updatedRows.addAndGet(0);
+            }
+
+
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return tableStatsArr[count++];
+            }
+        };
+
+        AnalysisInfo analysisInfoOtherTable = new AnalysisInfoBuilder().setAnalysisMethod(AnalysisMethod.FULL)
+                .setColToPartitions(new HashMap<>())
+                .setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setColName("col1")
+                .setTblId(1)
+                .setJobType(JobType.SYSTEM).build();
+
+        StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
+        Assertions.assertFalse(statisticsAutoCollector.needDropStaleStats(analysisInfoOtherTable));
+        Assertions.assertFalse(statisticsAutoCollector.needDropStaleStats(analysisInfoOlap));
+        Assertions.assertFalse(statisticsAutoCollector.needDropStaleStats(analysisInfoOlap));
+        Assertions.assertTrue(statisticsAutoCollector.needDropStaleStats(analysisInfoOlap));
     }
 }

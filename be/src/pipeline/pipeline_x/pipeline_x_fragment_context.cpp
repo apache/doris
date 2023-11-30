@@ -116,7 +116,7 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
     auto st = _query_ctx->exec_status();
     if (!_runtime_states.empty()) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_ATTACH_TASK(_runtime_state.get());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         FOR_EACH_RUNTIME_STATE(_call_back(runtime_state.get(), &st); runtime_state.reset();)
     } else {
         _call_back(nullptr, &st);
@@ -131,7 +131,10 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason)
             .tag("error message", msg);
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
+    if (reason == PPlanFragmentCancelReason::TIMEOUT) {
+        LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
+    }
+    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             FOR_EACH_RUNTIME_STATE(LOG(WARNING) << "PipelineXFragmentContext cancel instance: "
                                                 << print_id(runtime_state->fragment_instance_id());)
@@ -148,6 +151,11 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
+    }
+    for (auto& tasks : _tasks) {
+        for (auto& task : tasks) {
+            task->clear_blocking_state();
+        }
     }
 }
 
@@ -253,7 +261,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                 params.__isset.send_query_statistics_with_every_batch
                         ? params.send_query_statistics_with_every_batch
                         : false;
-        _sink.reset(new ExchangeSinkOperatorX(state, row_desc, next_operator_id(),
+        _sink.reset(new ExchangeSinkOperatorX(state, row_desc, next_sink_operator_id(),
                                               thrift_sink.stream_sink, params.destinations,
                                               send_query_statistics_with_every_batch));
         break;
@@ -264,18 +272,18 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         }
 
         // TODO: figure out good buffer size based on size of output row
-        _sink.reset(new ResultSinkOperatorX(next_operator_id(), row_desc, output_exprs,
+        _sink.reset(new ResultSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs,
                                             thrift_sink.result_sink));
         break;
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
-            _sink.reset(new OlapTableSinkV2OperatorX(pool, next_operator_id(), row_desc,
+            _sink.reset(new OlapTableSinkV2OperatorX(pool, next_sink_operator_id(), row_desc,
                                                      output_exprs, false));
         } else {
-            _sink.reset(new OlapTableSinkOperatorX(pool, next_operator_id(), row_desc, output_exprs,
-                                                   false));
+            _sink.reset(new OlapTableSinkOperatorX(pool, next_sink_operator_id(), row_desc,
+                                                   output_exprs, false));
         }
         break;
     }
@@ -284,7 +292,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             return Status::InternalError("Missing data jdbc sink.");
         }
         if (config::enable_java_support) {
-            _sink.reset(new JdbcTableSinkOperatorX(row_desc, next_operator_id(), output_exprs));
+            _sink.reset(
+                    new JdbcTableSinkOperatorX(row_desc, next_sink_operator_id(), output_exprs));
         } else {
             return Status::InternalError(
                     "Jdbc table sink is not enabled, you can change be config "
@@ -305,10 +314,12 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         // Result file sink is not the top sink
         if (params.__isset.destinations && params.destinations.size() > 0) {
             _sink.reset(new ResultFileSinkOperatorX(
-                    next_operator_id(), row_desc, thrift_sink.result_file_sink, params.destinations,
-                    send_query_statistics_with_every_batch, output_exprs, desc_tbl));
+                    next_sink_operator_id(), row_desc, thrift_sink.result_file_sink,
+                    params.destinations, send_query_statistics_with_every_batch, output_exprs,
+                    desc_tbl));
         } else {
-            _sink.reset(new ResultFileSinkOperatorX(next_operator_id(), row_desc, output_exprs));
+            _sink.reset(
+                    new ResultFileSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs));
         }
         break;
     }
@@ -316,7 +327,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
         DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
         // TODO: figure out good buffer size based on size of output row
-        auto sink_id = next_operator_id();
+        auto sink_id = next_sink_operator_id();
         auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
         // one sink has multiple sources.
         std::vector<int> sources;
@@ -351,7 +362,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
 
             DataSinkOperatorXPtr sink_op;
             sink_op.reset(new ExchangeSinkOperatorX(
-                    state, *_row_desc, next_operator_id(),
+                    state, *_row_desc, next_sink_operator_id(),
                     thrift_sink.multi_cast_stream_sink.sinks[i],
                     thrift_sink.multi_cast_stream_sink.destinations[i], false));
 
@@ -413,22 +424,30 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_desc_tbl(_desc_tbl);
         _runtime_states[i]->set_per_fragment_instance_idx(local_params.sender_id);
         _runtime_states[i]->set_num_per_fragment_instances(request.num_senders);
-        _runtime_states[i]->resize_op_id_to_local_state(max_operator_id());
+        _runtime_states[i]->resize_op_id_to_local_state(max_operator_id(), max_sink_operator_id());
         _runtime_states[i]->set_load_stream_per_node(request.load_stream_per_node);
         _runtime_states[i]->set_total_load_streams(request.total_load_streams);
         _runtime_states[i]->set_num_local_sink(request.num_local_sink);
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
-        for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+        auto get_local_exchange_state =
+                [&](PipelinePtr pipeline) -> std::shared_ptr<LocalExchangeSharedState> {
+            auto source_id = pipeline->operator_xs().front()->operator_id();
+            if (auto iter = _op_id_to_le_state.find(source_id); iter != _op_id_to_le_state.end()) {
+                return iter->second;
+            }
+            for (auto sink_to_source_id : pipeline->sink_x()->dests_id()) {
+                if (auto iter = _op_id_to_le_state.find(sink_to_source_id);
+                    iter != _op_id_to_le_state.end()) {
+                    return iter->second;
+                }
+            }
+            return nullptr;
+        };
+        for (auto& pipeline : _pipelines) {
             auto task = std::make_unique<PipelineXTask>(
-                    _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
-                    _runtime_states[i]->runtime_profile(),
-                    _op_id_to_le_state.contains(
-                            _pipelines[pip_idx]->operator_xs().front()->operator_id())
-                            ? _op_id_to_le_state
-                                      [_pipelines[pip_idx]->operator_xs().front()->operator_id()]
-                            : nullptr,
-                    i);
-            pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
+                    pipeline, _total_tasks++, _runtime_states[i].get(), this,
+                    _runtime_states[i]->runtime_profile(), get_local_exchange_state(pipeline), i);
+            pipeline_id_to_task.insert({pipeline->id(), task.get()});
             _tasks[i].emplace_back(std::move(task));
         }
 
@@ -659,8 +678,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             cur_pipe = add_pipeline();
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
             DataSinkOperatorXPtr sink;
-            sink.reset(
-                    new DistinctStreamingAggSinkOperatorX(pool, next_operator_id(), tnode, descs));
+            sink.reset(new DistinctStreamingAggSinkOperatorX(pool, next_sink_operator_id(), tnode,
+                                                             descs));
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -676,7 +695,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             cur_pipe = add_pipeline();
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
             DataSinkOperatorXPtr sink;
-            sink.reset(new StreamingAggSinkOperatorX(pool, next_operator_id(), tnode, descs));
+            sink.reset(new StreamingAggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -692,7 +711,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
             DataSinkOperatorXPtr sink;
-            sink.reset(new AggSinkOperatorX<>(pool, next_operator_id(), tnode, descs));
+            sink.reset(new AggSinkOperatorX<>(pool, next_sink_operator_id(), tnode, descs));
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -717,7 +736,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new HashJoinBuildSinkOperatorX(pool, next_operator_id(), tnode, descs));
+        sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -737,7 +756,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new NestedLoopJoinBuildSinkOperatorX(pool, next_operator_id(), tnode, descs));
+        sink.reset(
+                new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -758,7 +778,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             PipelinePtr build_side_pipe = add_pipeline();
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
             DataSinkOperatorXPtr sink;
-            sink.reset(new UnionSinkOperatorX(i, next_operator_id(), pool, tnode, descs));
+            sink.reset(new UnionSinkOperatorX(i, next_sink_operator_id(), pool, tnode, descs));
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -779,7 +799,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new SortSinkOperatorX(pool, next_operator_id(), tnode, descs));
+        sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -797,7 +817,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new PartitionSortSinkOperatorX(pool, next_operator_id(), tnode, descs));
+        sink.reset(new PartitionSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -815,7 +835,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new AnalyticSinkOperatorX(pool, next_operator_id(), tnode, descs));
+        sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
@@ -896,11 +916,11 @@ Status PipelineXFragmentContext::_build_operators_for_set_operation_node(
 
         DataSinkOperatorXPtr sink;
         if (child_id == 0) {
-            sink.reset(new SetSinkOperatorX<is_intersect>(child_id, next_operator_id(), pool, tnode,
-                                                          descs));
+            sink.reset(new SetSinkOperatorX<is_intersect>(child_id, next_sink_operator_id(), pool,
+                                                          tnode, descs));
         } else {
-            sink.reset(new SetProbeSinkOperatorX<is_intersect>(child_id, next_operator_id(), pool,
-                                                               tnode, descs));
+            sink.reset(new SetProbeSinkOperatorX<is_intersect>(child_id, next_sink_operator_id(),
+                                                               pool, tnode, descs));
         }
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
@@ -1012,7 +1032,8 @@ Status PipelineXFragmentContext::send_report(bool done) {
              _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)},
+                       std::placeholders::_2),
+             nullptr},
             shared_from_this());
 }
 
@@ -1039,9 +1060,6 @@ std::string PipelineXFragmentContext::debug_string() {
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
-            if (_tasks[j][i]->get_state() == PipelineTaskState::FINISHED) {
-                continue;
-            }
             fmt::format_to(debug_string_buffer, "Task {}: {}\n", i, _tasks[j][i]->debug_string());
         }
     }

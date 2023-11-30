@@ -179,8 +179,8 @@ public class MysqlPassword {
         return scramblePassword;
     }
 
-    // 将用户传入的字符串转化为对应的密码Hash值
-    // 用于用户设定密码
+    // Convert plaintext password into the corresponding 2-staged hashed password
+    // Used for users to set password
     private static byte[] twoStageHash(String password) {
         try {
             byte[] passBytes = password.getBytes("UTF-8");

@@ -86,11 +86,6 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
     return block;
 }
 
-void AsyncResultWriter::_return_block_to_queue(std::unique_ptr<Block> add_block) {
-    std::lock_guard l(_m);
-    _data_queue.emplace_back(std::move(add_block));
-}
-
 void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
     static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
             [this, state, profile]() { this->process_block(state, profile); }));
@@ -117,10 +112,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
 
             auto block = _get_block_from_queue();
             auto status = write(block);
-            if (status.is<ErrorCode::NEED_SEND_AGAIN>()) {
-                _return_block_to_queue(std::move(block));
-                continue;
-            } else if (UNLIKELY(!status.ok())) {
+            if (!status.ok()) [[unlikely]] {
                 std::unique_lock l(_m);
                 _writer_status = status;
                 if (_dependency && _is_finished()) {
@@ -178,12 +170,6 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Blo
     }
     b->swap(*block);
     return b;
-}
-
-pipeline::Dependency* AsyncResultWriter::write_blocked_by(pipeline::PipelineXTask* task) {
-    std::lock_guard l(_m);
-    DCHECK(_dependency != nullptr);
-    return _dependency->is_blocked_by(task);
 }
 
 } // namespace vectorized

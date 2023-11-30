@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -92,7 +93,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -158,6 +159,7 @@ public class AnalysisManager implements Writable {
             // Set the job state to RUNNING when its first task becomes RUNNING.
             if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
                 job.state = AnalysisState.RUNNING;
+                job.markStartTime(System.currentTimeMillis());
                 replayCreateAnalysisJob(job);
             }
             boolean allFinished = true;
@@ -200,6 +202,13 @@ public class AnalysisManager implements Writable {
         if (job == null) {
             return null;
         }
+        synchronized (job) {
+            // Set the job state to RUNNING when its first task becomes RUNNING.
+            if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
+                job.state = AnalysisState.RUNNING;
+                job.markStartTime(System.currentTimeMillis());
+            }
+        }
         int failedCount = 0;
         StringJoiner reason = new StringJoiner(", ");
         Map<Long, BaseAnalysisTask> taskMap = analysisJobIdToTaskMap.get(info.jobId);
@@ -229,6 +238,7 @@ public class AnalysisManager implements Writable {
             }
             autoJobs.offer(job);
             systemJobInfoMap.remove(info.jobId);
+            analysisJobIdToTaskMap.remove(info.jobId);
         }
         return null;
     };
@@ -238,9 +248,9 @@ public class AnalysisManager implements Writable {
 
     public AnalysisManager() {
         if (!Env.isCheckpointThread()) {
-            this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num);
+            this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num,
+                    Integer.MAX_VALUE);
             this.statisticsCache = new StatisticsCache();
-            taskExecutor.start();
         }
     }
 
@@ -327,6 +337,12 @@ public class AnalysisManager implements Writable {
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
             return null;
+        }
+        // Only OlapTable and Hive HMSExternalTable support sample analyze.
+        if ((stmt.getSamplePercent() > 0 || stmt.getSampleRows() > 0) && !canSample(stmt.getTable())) {
+            String message = String.format("Table %s doesn't support sample analyze.", stmt.getTable().getName());
+            LOG.info(message);
+            throw new DdlException(message);
         }
 
         boolean isSync = stmt.isSync();
@@ -678,7 +694,7 @@ public class AnalysisManager implements Writable {
         return new ThreadPoolExecutor(0,
                 ConnectContext.get().getSessionVariable().parallelSyncAnalyzeTaskNum,
                 0, TimeUnit.SECONDS,
-                new SynchronousQueue(),
+                new LinkedBlockingQueue<>(),
                 new ThreadFactoryBuilder().setDaemon(true).setNameFormat("SYNC ANALYZE" + "-%d")
                         .build(), new BlockedPolicy(poolName,
                 StatisticsUtil.getAnalyzeTimeout()));
@@ -707,6 +723,21 @@ public class AnalysisManager implements Writable {
         }
         logCreateTableStats(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
+    }
+
+    public void dropStats(TableIf table) throws DdlException {
+        TableStatsMeta tableStats = findTableStatsStatus(table.getId());
+        if (tableStats == null) {
+            return;
+        }
+        Set<String> cols = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+        for (String col : cols) {
+            tableStats.removeColumn(col);
+            Env.getCurrentEnv().getStatisticsCache().invalidate(table.getId(), -1L, col);
+        }
+        tableStats.updatedTime = 0;
+        logCreateTableStats(tableStats);
+        StatisticsRepository.dropStatistics(table.getId(), cols);
     }
 
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
@@ -832,6 +863,9 @@ public class AnalysisManager implements Writable {
                 LOG.warn("Thread got interrupted when waiting sync analyze task execution finished", t);
             }
             if (!colNames.isEmpty()) {
+                if (cancelled) {
+                    throw new RuntimeException("Cancelled");
+                }
                 throw new RuntimeException("Failed to analyze following columns:[" + String.join(",", colNames)
                         + "] Reasons: " + String.join(",", errorMessages));
             }
@@ -999,7 +1033,6 @@ public class AnalysisManager implements Writable {
     }
 
     public void registerSysJob(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> taskInfos) {
-        jobInfo.state = AnalysisState.RUNNING;
         systemJobInfoMap.put(jobInfo.jobId, jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
     }
@@ -1026,7 +1059,7 @@ public class AnalysisManager implements Writable {
                 a -> {
                     // DO NOTHING
                     return null;
-                }, null);
+                }, collection);
     }
 
     // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
@@ -1074,5 +1107,21 @@ public class AnalysisManager implements Writable {
 
     public boolean hasUnFinished() {
         return !analysisJobIdToTaskMap.isEmpty();
+    }
+
+    /**
+     * Only OlapTable and Hive HMSExternalTable can sample for now.
+     * @param table
+     * @return Return true if the given table can do sample analyze. False otherwise.
+     */
+    public boolean canSample(TableIf table) {
+        if (table instanceof OlapTable) {
+            return true;
+        }
+        if (table instanceof HMSExternalTable
+                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
+            return true;
+        }
+        return false;
     }
 }

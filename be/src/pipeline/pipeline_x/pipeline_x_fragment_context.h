@@ -104,7 +104,7 @@ public:
 
     RuntimeState* get_runtime_state(UniqueId fragment_instance_id) override {
         std::lock_guard<std::mutex> l(_state_map_lock);
-        if (_instance_id_to_runtime_state.count(fragment_instance_id) > 0) {
+        if (_instance_id_to_runtime_state.contains(fragment_instance_id)) {
             return _instance_id_to_runtime_state[fragment_instance_id];
         } else {
             return _runtime_state.get();
@@ -114,6 +114,10 @@ public:
     [[nodiscard]] int next_operator_id() { return _operator_id++; }
 
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
+
+    [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id++; }
+
+    [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
 
     std::string debug_string() override;
 
@@ -203,11 +207,9 @@ private:
 
     std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
-    // We can guarantee that a plan node ID can correspond to an operator ID,
-    // but some operators do not have a corresponding plan node ID.
-    // We set these IDs as negative numbers, which are not visible to the user.
-    int _operator_id = 0;
 
+    int _operator_id = 0;
+    int _sink_operator_id = 0;
     std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
 };
 

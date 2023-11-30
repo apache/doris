@@ -241,9 +241,16 @@ public:
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
     /// Warning:
-    ///       if *indices == -1 means the row is null, only use in outer join, do not use in any other place
+    ///       if *indices == -1 means the row is null
     virtual void insert_indices_from(const IColumn& src, const int* indices_begin,
                                      const int* indices_end) = 0;
+
+    /// Appends a batch elements from other column with the same type
+    /// indices_begin + indices_end represent the row indices of column src
+    /// Warning:
+    ///       if *indices == 0 means the row is null, only use in outer join, do not use in any other place
+    virtual void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                          const uint32_t* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
     /// Is used to optimize some computations (in aggregation, for example).
@@ -609,7 +616,7 @@ public:
     virtual bool is_exclusive() const { return use_count() == 1; }
 
     /// Clear data of column, just like vector clear
-    virtual void clear() {}
+    virtual void clear() = 0;
 
     /** Memory layout properties.
       *

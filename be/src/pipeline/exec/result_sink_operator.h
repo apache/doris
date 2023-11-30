@@ -46,8 +46,8 @@ public:
 class ResultSinkDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultSinkDependency);
-    ResultSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "ResultSinkDependency", true) {}
+    ResultSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ResultSinkDependency", true, query_ctx) {}
     ~ResultSinkDependency() override = default;
 };
 
@@ -93,7 +93,7 @@ private:
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+    std::unique_ptr<vectorized::ResultFileOptions> _file_opts = nullptr;
 
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;

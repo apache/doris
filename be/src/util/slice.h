@@ -47,7 +47,7 @@ class faststring;
 /// external synchronization.
 struct Slice {
 public:
-    char* data;
+    char* data = nullptr;
     size_t size;
     // Intentionally copyable
 

@@ -48,8 +48,8 @@ public:
 class AnalyticSinkDependency final : public Dependency {
 public:
     using SharedState = AnalyticSharedState;
-    AnalyticSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "AnalyticSinkDependency", true) {}
+    AnalyticSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AnalyticSinkDependency", true, query_ctx) {}
     ~AnalyticSinkDependency() override = default;
 };
 
@@ -84,9 +84,9 @@ private:
                                                      bool need_check_first = false);
     bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _evaluation_timer;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _evaluation_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
 };

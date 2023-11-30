@@ -59,7 +59,6 @@ public class MTMVRefreshEnum {
      */
     public enum MTMVRefreshState {
         INIT,
-        REFRESHING,
         FAIL,
         SUCCESS
     }

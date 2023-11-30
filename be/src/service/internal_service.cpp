@@ -359,8 +359,8 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::StreamOptions stream_options;
 
-        LOG(INFO) << "open load stream, load_id = " << request->load_id()
-                  << ", src_id = " << request->src_id();
+        LOG(INFO) << "open load stream, load_id=" << request->load_id()
+                  << ", src_id=" << request->src_id();
 
         for (const auto& req : request->tablets()) {
             TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
@@ -521,6 +521,9 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
             uint32_t len = ser_request.size();
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
+        const auto& fragment_list = t_request.paramsList;
+        MonotonicStopWatch timer;
+        timer.start();
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
             if (cb) {
@@ -529,6 +532,15 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
             }
         }
+
+        timer.stop();
+        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
+        if (cost_secs > 5) {
+            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
+                        fragment_list.size(), print_id(fragment_list.front().params.query_id),
+                        cost_secs);
+        }
+
         return Status::OK();
     } else if (version == PFragmentRequestVersion::VERSION_3) {
         TPipelineFragmentParamsList t_request;
@@ -538,13 +550,23 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
 
-        for (const TPipelineFragmentParams& params : t_request.params_list) {
+        const auto& fragment_list = t_request.params_list;
+        MonotonicStopWatch timer;
+        timer.start();
+        for (const TPipelineFragmentParams& fragment : fragment_list) {
             if (cb) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment, cb));
             } else {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment));
             }
         }
+        timer.stop();
+        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
+        if (cost_secs > 5) {
+            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
+                        fragment_list.size(), print_id(fragment_list.front().query_id), cost_secs);
+        }
+
         return Status::OK();
     } else {
         return Status::InternalError("invalid version");
@@ -725,6 +747,9 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
         auto st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
+            if (config::public_access_ip != "") {
+                result->set_be_arrow_flight_ip(config::public_access_ip);
+            }
         }
         st.to_protobuf(result->mutable_status());
     });
@@ -1422,14 +1447,16 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                 for (auto index_size : segment_indices_size.index_sizes()) {
                     auto index_id = index_size.indexid();
                     auto size = index_size.size();
+                    auto suffix_path = index_size.suffix_path();
                     std::string remote_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(remote_file_path,
-                                                                         index_id);
+                            InvertedIndexDescriptor::get_index_file_name(remote_file_path, index_id,
+                                                                         suffix_path);
                     std::string remote_inverted_index_file_url = construct_url(
                             get_host_port(host, http_port), token, remote_inverted_index_file);
 
                     std::string local_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id);
+                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id,
+                                                                         suffix_path);
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);
                     if (!st.ok()) {
@@ -1690,8 +1717,10 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
-            RETURN_IF_ERROR(
-                    segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
+            StorageReadOptions storage_read_opt;
+            storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+            RETURN_IF_ERROR(segment->new_column_iterator(full_read_schema.column(index),
+                                                         &column_iterator, &storage_read_opt));
             segment_v2::ColumnIteratorOptions opt {
                     .use_page_cache = !config::disable_storage_page_cache,
                     .file_reader = segment->file_reader().get(),
@@ -1796,8 +1825,8 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
         ctx->pipe = pipe;
         Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
         if (st.ok()) {
-            doris::Mutex mutex;
-            doris::ConditionVariable cv;
+            std::mutex mutex;
+            std::condition_variable cv;
             bool handled = false;
             try {
                 st = _exec_plan_fragment_impl(
