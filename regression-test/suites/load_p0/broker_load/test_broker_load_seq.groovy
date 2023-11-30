@@ -80,7 +80,7 @@ suite("test_broker_load_seq", "load_p0") {
             result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
                 //sql "sync"
-                qt_select "select * from ${testTablex}"
+                qt_select "select * from ${testTablex} order by user_id, date, group_id"
                 break
             } else {
                 sleep(1000) // wait 1 second every time
