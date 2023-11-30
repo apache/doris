@@ -33,7 +33,7 @@ suite("test_unique_table_sequence") {
         "replication_allocation" = "tag.location.default: 1"
         );
     """
-    // load unique key
+    // test streamload with seq col
     streamLoad {
         table "${tableName}"
 
@@ -60,7 +60,7 @@ suite("test_unique_table_sequence") {
     sql "sync"
     order_qt_all "SELECT * from ${tableName}"
 
-    // load unique key
+    // test update data, using streamload with seq col
     streamLoad {
         table "${tableName}"
 
@@ -92,6 +92,7 @@ suite("test_unique_table_sequence") {
 
     order_qt_all "SELECT * from ${tableName}"
 
+    // test update on table with seq col
     sql "UPDATE ${tableName} SET v1 = 10 WHERE k1 = 1"
 
     sql "UPDATE ${tableName} SET v2 = 14 WHERE k1 = 2"
@@ -106,9 +107,22 @@ suite("test_unique_table_sequence") {
 
     order_qt_all "SELECT * from ${tableName}"
 
-    sql "INSERT INTO ${tableName} values(15, 8, 19, 20, 21)"
+    // test insert into without column list
+    test {
+        sql "INSERT INTO ${tableName} values(15, 8, 19, 20, 21)"
+        exception "Table ${tableName} has sequence column, need to specify the sequence column"
+    }
 
-    sql "INSERT INTO ${tableName} values(15, 9, 18, 21, 22)"
+    // test insert into with column list
+    test {
+        sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4) values(15, 8, 19, 20, 21)"
+        exception "Table ${tableName} has sequence column, need to specify the sequence column"
+    }
+
+    // correct way of insert into with seq col
+    sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4, __DORIS_SEQUENCE_COL__) values(15, 8, 19, 20, 21, 3)"
+
+    sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4, __DORIS_SEQUENCE_COL__) values(15, 9, 18, 21, 22, 2)"
 
     sql "SET show_hidden_columns=true"
 
@@ -138,6 +152,22 @@ suite("test_unique_table_sequence") {
         "replication_allocation" = "tag.location.default: 1"
         );
     """
+
+    // test insert into without column list, in begin/commit
+    sql "begin;"
+    test {
+        sql "INSERT INTO ${tableName} values(15, 8, 19, 20, 21)"
+        exception "Table ${tableName} has sequence column, need to specify the sequence column"
+    }
+    sql "commit;"
+
+    // test insert into with column list, in begin/commit
+    sql "begin;"
+    test {
+        sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4) values(15, 8, 19, 20, 21)"
+        exception "Table ${tableName} has sequence column, need to specify the sequence column"
+    }
+    sql "commit;"
 
     sql "begin;"
     sql "insert into ${tableName} (k1, v1, v2, v3, v4, __DORIS_SEQUENCE_COL__) values (1,1,1,1,1,1),(2,2,2,2,2,2),(3,3,3,3,3,3);"
