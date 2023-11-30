@@ -1449,6 +1449,20 @@ void Tablet::get_compaction_status(std::string* json_result) {
                                            root.GetAllocator());
     root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
 
+    TReplicaInfo replica_info;
+    std::string dummp_token;
+    rapidjson::Value fetch_addr;
+    if (tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
+        StorageEngine::instance()->get_peer_replica_info(tablet_id(), &replica_info,
+                                                         &dummp_token)) {
+        std::string addr = replica_info.host + ":" + std::to_string(replica_info.brpc_port);
+        fetch_addr.SetString(addr.c_str(), addr.length(), root.GetAllocator());
+    } else {
+        // -1 means do compaction locally
+        fetch_addr.SetString("-1", root.GetAllocator());
+    }
+    root.AddMember("fetch from peer", fetch_addr, root.GetAllocator());
+
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
     rapidjson::Document missing_versions_arr;
