@@ -231,6 +231,8 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
     static_cast<void>(root_pipeline->set_sink(_sink));
 
+    //    RETURN_IF_ERROR(_plan_local_shuffle());
+
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
         DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
@@ -244,6 +246,17 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _init_next_report_time();
 
     _prepared = true;
+    return Status::OK();
+}
+
+Status PipelineXFragmentContext::_plan_local_shuffle() {
+    for (int pip_idx = _pipelines.size() - 1; pip_idx >= 0; pip_idx--) {
+        auto& children = _pipelines[pip_idx]->children();
+        if (children.empty()) {
+            _pipelines[pip_idx]->init_need_to_local_shuffle_by_source();
+        } else {
+        }
+    }
     return Status::OK();
 }
 
@@ -595,7 +608,8 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
 
 Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorXPtr& op,
                                                      PipelinePtr& cur_pipe, const TPlanNode& tnode,
-                                                     const std::vector<TExpr>& texprs) {
+                                                     const std::vector<TExpr>& texprs,
+                                                     ExchangeType exchange_type) {
     if (!_runtime_state->enable_local_shuffle() || _num_instances <= 1) {
         return Status::OK();
     }
@@ -617,12 +631,23 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
     sink.reset(new LocalExchangeSinkOperatorX(next_sink_operator_id(), local_exchange_id,
                                               _num_instances, texprs));
     RETURN_IF_ERROR(cur_pipe->set_sink(sink));
-    RETURN_IF_ERROR(cur_pipe->sink_x()->init());
 
+    bool need_partitioner = false;
     auto shared_state = LocalExchangeSharedState::create_shared();
-    shared_state->data_queue.resize(_num_instances);
     shared_state->source_dependencies.resize(_num_instances, nullptr);
-    shared_state->running_sink_operators = _num_instances;
+    switch (exchange_type) {
+    case ExchangeType::SHUFFLE:
+        shared_state->exchanger = ShuffleExchanger::create_unique(_num_instances);
+        need_partitioner = true;
+        break;
+    case ExchangeType::PASSTHROUGH:
+        shared_state->exchanger = PassthroughExchanger::create_unique(_num_instances);
+        break;
+    default:
+        return Status::InternalError("Unsupported local exchange type : " +
+                                     std::to_string((int)exchange_type));
+    }
+    RETURN_IF_ERROR(cur_pipe->sink_x()->init(need_partitioner));
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
@@ -687,6 +712,10 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+            //            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
+            //                                                tnode.agg_node.grouping_exprs,
+            //                                                ExchangeType::PASSTHROUGH));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation) {
             op.reset(new StreamingAggSourceOperatorX(pool, tnode, next_operator_id(), descs));
@@ -703,6 +732,10 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+            //            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
+            //                                                tnode.agg_node.grouping_exprs,
+            //                                                ExchangeType::PASSTHROUGH));
         } else {
             op.reset(new AggSourceOperatorX(pool, tnode, next_operator_id(), descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
@@ -720,10 +753,19 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
 
-            if (!tnode.agg_node.need_finalize) {
-                RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
-                                                    tnode.agg_node.grouping_exprs));
-            }
+            //            if (tnode.agg_node.grouping_exprs.empty()) {
+            //                if (tnode.agg_node.need_finalize) {
+            //                    RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
+            //                                                        tnode.agg_node.grouping_exprs,
+            //                                                        ExchangeType::PASSTHROUGH));
+            //                } else {
+            //                    // TODO(gabriel): maybe use local shuffle
+            //                }
+            //            } else if (cur_pipe->need_to_local_shuffle()) {
+            //                RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
+            //                                                    tnode.agg_node.grouping_exprs,
+            //                                                    ExchangeType::SHUFFLE));
+            //            }
         }
         break;
     }
@@ -750,7 +792,14 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         for (const auto& eq_join_conjunct : eq_join_conjuncts) {
             probe_exprs.push_back(eq_join_conjunct.left);
         }
-        RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode, probe_exprs));
+        if (tnode.hash_join_node.__isset.is_broadcast_join &&
+            tnode.hash_join_node.is_broadcast_join) {
+            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode, probe_exprs,
+                                                ExchangeType::PASSTHROUGH));
+        } else if (cur_pipe->need_to_local_shuffle()) {
+            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode, probe_exprs,
+                                                ExchangeType::SHUFFLE));
+        }
         _pipeline_parent_map.push(op->node_id(), cur_pipe);
         _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         break;
