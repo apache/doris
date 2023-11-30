@@ -313,7 +313,8 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                            ExtraInfo {.unique_id = -1,
                                       .parent_unique_id = variant_col_unique_id,
                                       .path_info = tuple_paths[i]});
-        common_schema->append_column(common_column);
+        // set ColumnType::VARIANT to occupy _field_path_to_index
+        common_schema->append_column(common_column, TabletSchema::ColumnType::VARIANT);
     }
 }
 
