@@ -33,6 +33,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -220,6 +221,12 @@ public class DiskRebalancer extends Rebalancer {
                     continue;
                 }
 
+                // backend not support migrate cooldown tablets
+                TUniqueId cooldownMetaId = replica.getCooldownMetaId();
+                if (cooldownMetaId != null && (cooldownMetaId.getLo() != 0 || cooldownMetaId.getHi() != 0)) {
+                    continue;
+                }
+
                 // check if replica's is on 'high' path.
                 // and only select it if the selected tablets num of this path
                 // does not exceed the limit (BALANCE_SLOT_NUM_FOR_PATH).
@@ -300,18 +307,6 @@ public class DiskRebalancer extends Rebalancer {
         // ignore empty replicas as they do not make disk more balance
         if (replica.getDataSize() == 0) {
             throw new SchedException(Status.UNRECOVERABLE, "size of src replica is zero");
-        }
-        Database db = Env.getCurrentInternalCatalog().getDbOrException(tabletCtx.getDbId(),
-                s -> new SchedException(Status.UNRECOVERABLE, "db " + tabletCtx.getDbId() + " does not exist"));
-        OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(),
-                s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletCtx.getTblId() + " does not exist"));
-        DataProperty dataProperty = tbl.getPartitionInfo().getDataProperty(tabletCtx.getPartitionId());
-        if (dataProperty == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "data property is null");
-        }
-        String storagePolicy = dataProperty.getStoragePolicy();
-        if (!Strings.isNullOrEmpty(storagePolicy)) {
-            throw new SchedException(Status.UNRECOVERABLE, "disk balance not support for cooldown storage");
         }
 
         // check src slot
