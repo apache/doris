@@ -1820,7 +1820,7 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
 ------------PhysicalProject
 --------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute
@@ -1838,7 +1838,7 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
 ------------PhysicalProject
 --------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute
@@ -1856,7 +1856,7 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
 ------------PhysicalProject
 --------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute
@@ -1874,7 +1874,7 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
 ------------PhysicalProject
 --------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute
@@ -1892,8 +1892,8 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[LEFT_SEMI_JOIN](t2.c2 = t3.c3)
+------------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t1]
 --------------PhysicalDistribute
@@ -1901,7 +1901,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
+----------------hashJoin[INNER_JOIN](t3.c3 = t4.c4)
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t4]
 ------------------PhysicalDistribute
@@ -1919,8 +1919,8 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[LEFT_SEMI_JOIN](t2.c2 = t3.c3)
+------------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t1]
 --------------PhysicalDistribute
@@ -1928,7 +1928,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
+----------------hashJoin[INNER_JOIN](t3.c3 = t4.c4)
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t3]
 ------------------PhysicalDistribute
@@ -1946,8 +1946,8 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[LEFT_SEMI_JOIN](t2.c2 = t3.c3)
+------------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t1]
 --------------PhysicalDistribute
@@ -1955,7 +1955,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
+----------------hashJoin[INNER_JOIN](t3.c3 = t4.c4)
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t4]
 ------------------PhysicalDistribute
@@ -2278,3 +2278,4 @@ SyntaxError:
 
 -- !select88_13 --
 119
+

@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * The node of logical plan for sub query and alias
@@ -157,19 +156,6 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
                 children.get(0));
-    }
-
-    @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies
-                .Builder(child(0).getLogicalProperties().getFunctionalDependencies());
-        Map<Slot, Slot> replaceMap = new HashMap<>();
-        List<Slot> outputs = outputSupplier.get();
-        for (int i = 0; i < outputs.size(); i++) {
-            replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
-        }
-        builder.replace(replaceMap);
-        return builder.build();
     }
 
     public void setRelationId(RelationId relationId) {
