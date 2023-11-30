@@ -29,7 +29,9 @@ import lombok.Getter;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 @Data
 public class MetaIdMappingsLog implements Writable {
@@ -44,10 +46,27 @@ public class MetaIdMappingsLog implements Writable {
     @SerializedName(value = "lastSyncedEventId")
     private long lastSyncedEventId = -1L;
 
-    @SerializedName(value = "eventIdMappings")
+    @SerializedName(value = "metaIdMappings")
     private List<MetaIdMapping> metaIdMappings = Lists.newLinkedList();
 
     public MetaIdMappingsLog() {
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(catalogId, lastSyncedEventId,
+                    metaIdMappings == null ? 0 : Arrays.hashCode(metaIdMappings.toArray()));
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof MetaIdMappingsLog)) {
+            return false;
+        }
+        return Objects.equals(this.catalogId, ((MetaIdMappingsLog) obj).catalogId)
+                    && Objects.equals(this.fromHmsEvent, ((MetaIdMappingsLog) obj).fromHmsEvent)
+                    && Objects.equals(this.lastSyncedEventId, ((MetaIdMappingsLog) obj).lastSyncedEventId)
+                    && Objects.equals(this.metaIdMappings, ((MetaIdMappingsLog) obj).metaIdMappings);
     }
 
     @Override
@@ -120,15 +139,21 @@ public class MetaIdMappingsLog implements Writable {
     @Getter
     public static class MetaIdMapping implements Writable {
 
+        @SerializedName(value = "opType")
         private short opType;
+        @SerializedName(value = "metaObjType")
         private short metaObjType;
         // name of Database
+        @SerializedName(value = "dbName")
         private String dbName;
         // name of Table
+        @SerializedName(value = "tblName")
         private String tblName;
         // name of Partition
+        @SerializedName(value = "partitionName")
         private String partitionName;
         // id of Database/Table/Partition
+        @SerializedName(value = "id")
         private long id;
 
         public MetaIdMapping() {}
@@ -155,6 +180,24 @@ public class MetaIdMappingsLog implements Writable {
         public static MetaIdMapping read(DataInput in) throws IOException {
             String json = Text.readString(in);
             return GsonUtils.GSON.fromJson(json, MetaIdMapping.class);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(opType, metaObjType, dbName, tblName, partitionName, id);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof MetaIdMapping)) {
+                return false;
+            }
+            return Objects.equals(this.opType, ((MetaIdMapping) obj).opType)
+                        && Objects.equals(this.metaObjType, ((MetaIdMapping) obj).metaObjType)
+                        && Objects.equals(this.dbName, ((MetaIdMapping) obj).dbName)
+                        && Objects.equals(this.tblName, ((MetaIdMapping) obj).tblName)
+                        && Objects.equals(this.partitionName, ((MetaIdMapping) obj).partitionName)
+                        && Objects.equals(this.id, ((MetaIdMapping) obj).id);
         }
 
     }
