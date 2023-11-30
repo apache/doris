@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_first_value_window") {
-    sql """ set enable_nereids_planner = true; """
-    sql """ set enable_fallback_to_original_planner = false; """
+suite("test_first_value_window_legacy_planner") {
+    sql """ set enable_nereids_planner = false; """
 
-    def tableName = "test_first_value_window_state"
+    def tableName = "test_first_value_window_state_legacy_planner"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -38,7 +37,7 @@ suite("test_first_value_window") {
             );
     """
 
-    sql """ INSERT INTO ${tableName} VALUES 
+    sql """ INSERT INTO ${tableName} VALUES
             (21,"04-21-11",1),
             (22,"04-22-10-21",0),
             (22,"04-22-10-21",1),
@@ -48,7 +47,7 @@ suite("test_first_value_window") {
     qt_select_default """ select *,first_value(state) over(partition by myday order by time_col range between current row and unbounded following) from ${tableName} order by myday, time_col, state; """
 
 
-    def tableName1 = "test_first_value_window_array"
+    def tableName1 = "test_first_value_window_array_legacy_planner"
 
     sql """ DROP TABLE IF EXISTS ${tableName1} """
     sql """
@@ -81,10 +80,10 @@ suite("test_first_value_window") {
             *,
             first_value(1) over(partition by myday order by time_col rows  between 1 preceding and 1 preceding) first_value,
             last_value(999) over(partition by myday order by time_col rows  between 1 preceding and 1 preceding) last_value
-        from test_first_value_window_array order by myday, time_col;
+        from test_first_value_window_array_legacy_planner order by myday, time_col;
     """
 
-    def tableName2 = "test_first_value_window_state_not_null"
+    def tableName2 = "test_first_value_window_state_not_null_legacy_planner"
 
     sql """ DROP TABLE IF EXISTS ${tableName2} """
     sql """
@@ -118,7 +117,7 @@ suite("test_first_value_window") {
         from ${tableName2} order by `myday`, `time_col`, `state`;
     """
 
-    def tableName3 = "test_first_value_window_state_ignore_null"
+    def tableName3 = "test_first_value_window_state_ignore_null_legacy_planner"
 
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """
