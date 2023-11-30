@@ -80,16 +80,24 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> l(_lock);
-        while (_soft_limit_reached()) {
+        while (_hard_limit_reached()) {
+            LOG(INFO) << "reached memtable memory hard limit"
+                      << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+                      << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
+                      << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
+            if (_active_mem_usage > _load_hard_mem_limit / 10) {
+                _flush_active_memtables();
+            }
+            _hard_limit_end_cond.wait(l);
+        }
+        if (_soft_limit_reached()) {
             LOG(INFO) << "reached memtable memory soft limit"
                       << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
                       << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
-            if (_active_mem_usage >= _load_soft_mem_limit ||
-                (_active_mem_usage > _load_hard_mem_limit / 10 && _hard_limit_reached())) {
+            if (_active_mem_usage >= _load_soft_mem_limit / 5 * 4) {
                 _flush_active_memtables();
             }
-            _soft_limit_end_cond.wait(l);
         }
         timer.stop();
         int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
@@ -114,8 +122,8 @@ void MemTableMemoryLimiter::_flush_active_memtables() {
         }
     }
     int64_t mem_to_flush = _hard_limit_reached()
-                                   ? _active_mem_usage - _load_hard_mem_limit / 11
-                                   : _active_mem_usage - _load_soft_mem_limit / 5 * 4;
+                                   ? _active_mem_usage - _load_hard_mem_limit / 10 * 9
+                                   : _active_mem_usage - _load_soft_mem_limit / 10 * 9;
     int64_t mem_flushed = 0;
     int64_t num_flushed = 0;
     while (!mem_heap.empty()) {
@@ -179,8 +187,9 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
                   << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                   << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
                   << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
-    } else {
-        _soft_limit_end_cond.notify_all();
+    }
+    if (!_hard_limit_reached()) {
+        _hard_limit_end_cond.notify_all();
     }
 }
 

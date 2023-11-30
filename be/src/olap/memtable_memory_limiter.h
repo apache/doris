@@ -54,7 +54,7 @@ private:
     void _flush_active_memtables();
 
     std::mutex _lock;
-    std::condition_variable _soft_limit_end_cond;
+    std::condition_variable _hard_limit_end_cond;
     int64_t _mem_usage = 0;
     int64_t _flush_mem_usage = 0;
     int64_t _write_mem_usage = 0;
