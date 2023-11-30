@@ -156,7 +156,7 @@ public interface TableIf {
 
     void write(DataOutput out) throws IOException;
 
-    default Map<String, Constraint> getConstraintMap() {
+    default Map<String, Constraint> getConstraintsMap() {
         throw new RuntimeException("Not implemented constraint for table " + this.toString());
     }
 
@@ -177,7 +177,7 @@ public interface TableIf {
     default void addUniqueConstraint(String name, ImmutableList<Column> columns) {
         writeLock();
         try {
-            Map<String, Constraint> constraintMap = getConstraintMap();
+            Map<String, Constraint> constraintMap = getConstraintsMap();
             UniqueConstraint uniqueConstraint =  new UniqueConstraint(ImmutableSet.copyOf(columns));
             checkConstraintNotExistence(name, uniqueConstraint, constraintMap);
             constraintMap.put(name, uniqueConstraint);
@@ -189,7 +189,7 @@ public interface TableIf {
     default void addPrimaryKeyConstraint(String name, ImmutableList<Column> columns) {
         writeLock();
         try {
-            Map<String, Constraint> constraintMap = getConstraintMap();
+            Map<String, Constraint> constraintMap = getConstraintsMap();
             PrimaryKeyConstraint primaryKeyConstraint = new PrimaryKeyConstraint(ImmutableSet.copyOf(columns));
             checkConstraintNotExistence(name, primaryKeyConstraint, constraintMap);
             constraintMap.put(name, primaryKeyConstraint);
@@ -201,7 +201,7 @@ public interface TableIf {
     default void updatePrimaryKeyForForeignKey(PrimaryKeyConstraint requirePrimaryKey, TableIf referencedTable) {
         referencedTable.writeLock();
         try {
-            Optional<Constraint> primaryKeyConstraint = referencedTable.getConstraintMap().values().stream()
+            Optional<Constraint> primaryKeyConstraint = referencedTable.getConstraintsMap().values().stream()
                     .filter(requirePrimaryKey::equals)
                     .findFirst();
             if (!primaryKeyConstraint.isPresent()) {
@@ -218,7 +218,7 @@ public interface TableIf {
             TableIf referencedTable, ImmutableList<Column> referencedColumns) {
         writeLock();
         try {
-            Map<String, Constraint> constraintMap = getConstraintMap();
+            Map<String, Constraint> constraintMap = getConstraintsMap();
             ForeignKeyConstraint foreignKeyConstraint =
                     new ForeignKeyConstraint(columns, referencedTable, referencedColumns);
             checkConstraintNotExistence(name, foreignKeyConstraint, constraintMap);

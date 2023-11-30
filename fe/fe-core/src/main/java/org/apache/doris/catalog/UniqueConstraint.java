@@ -20,11 +20,13 @@ package org.apache.doris.catalog;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.Set;
+
 public class UniqueConstraint extends Constraint {
     private final ImmutableSet<Column> columns;
 
-    public UniqueConstraint(ImmutableSet<Column> columns) {
-        this.columns = columns;
+    public UniqueConstraint(Set<Column> columns) {
+        this.columns = ImmutableSet.copyOf(columns);
     }
 
     public ImmutableSet<Column> getColumns() {

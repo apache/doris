@@ -44,22 +44,30 @@ public class Constraint {
     final ConstraintType type;
 
     Constraint(ConstraintType type, LogicalPlan curTable, ImmutableList<Slot> slots) {
+        Preconditions.checkArgument(slots != null && !slots.isEmpty(),
+                "slots of constraint can't be null or empty");
         this.type = type;
         this.slots = slots;
+        this.curTable = Objects.requireNonNull(curTable,
+                "table of constraint can't be null");
         this.referenceTable = null;
-        this.curTable = curTable;
         this.referenceSlots = null;
     }
 
     Constraint(LogicalPlan curTable, ImmutableList<Slot> slots,
             LogicalPlan referenceTable, ImmutableList<Slot> referenceSlotSet) {
+        Preconditions.checkArgument(slots != null && !slots.isEmpty(),
+                "slots of constraint can't be null or empty");
         this.type = ConstraintType.FOREIGN_KEY;
         this.slots = slots;
-        this.curTable = curTable;
+        this.curTable = Objects.requireNonNull(curTable,
+                "table of constraint can't be null");
         this.referenceTable = Objects.requireNonNull(referenceTable,
                 "reference table in foreign key can not be null");
         this.referenceSlots = Objects.requireNonNull(referenceSlotSet,
                 "reference slots in foreign key can not be null");
+        Preconditions.checkArgument(referenceSlots.size() == slots.size(),
+                "Foreign key's size must be same as the size of reference slots");
     }
 
     public static Constraint newUniqueConstraint(LogicalPlan curTable, ImmutableList<Slot> slotSet) {

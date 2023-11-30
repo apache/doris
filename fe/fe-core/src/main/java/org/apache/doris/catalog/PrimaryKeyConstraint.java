@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 public class PrimaryKeyConstraint extends Constraint {
     private final ImmutableSet<Column> columns;
@@ -30,8 +31,8 @@ public class PrimaryKeyConstraint extends Constraint {
     // record the foreign table which references the primary key
     private final List<TableIf> foreignTables = new ArrayList<>();
 
-    public PrimaryKeyConstraint(ImmutableSet<Column> columns) {
-        this.columns = columns;
+    public PrimaryKeyConstraint(Set<Column> columns) {
+        this.columns = ImmutableSet.copyOf(columns);
     }
 
     public ImmutableSet<Column> getColumns() {

@@ -80,7 +80,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         Set<LogicalCatalogRelation> logicalCatalogRelationSet = analyzedPlan
                 .collect(LogicalCatalogRelation.class::isInstance);
         if (logicalCatalogRelationSet.size() != 1) {
-            throw new AnalysisException("Can not found table in constraint" + constraint.toString());
+            throw new AnalysisException("Can not found table in constraint " + constraint.toString());
         }
         LogicalCatalogRelation catalogRelation = logicalCatalogRelationSet.iterator().next();
         Preconditions.checkArgument(catalogRelation.getTable() instanceof Table,
@@ -89,7 +89,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
                 .map(s -> {
                     Preconditions.checkArgument(s instanceof SlotReference
                                     && ((SlotReference) s).getColumn().isPresent(),
-                            "Constraint only supports simple slot but meets ", s);
+                            "Constraint contains a invalid slot ", s);
                     return ((SlotReference) s).getColumn().get();
                 }).collect(ImmutableList.toImmutableList());
         return Pair.of(columns, catalogRelation.getTable());
@@ -97,6 +97,6 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitAddConstraint(this, context);
+        return visitor.visitAddConstraintCommand(this, context);
     }
 }

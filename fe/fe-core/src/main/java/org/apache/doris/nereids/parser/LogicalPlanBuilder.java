@@ -621,8 +621,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAddConstraint(AddConstraintContext ctx) {
         LogicalPlan curTable = visitRelation(ctx.table);
-        ImmutableList<Slot> slots = visitNamedExpressionSeq(ctx.constraint().slots).stream()
-                .map(e -> (Slot) e)
+        ImmutableList<Slot> slots = ctx.constraint().slots.stream()
+                .map(RuleContext::getText)
+                .map(UnboundSlot::new)
                 .collect(ImmutableList.toImmutableList());
         Constraint constraint;
         if (ctx.constraint().UNIQUE() != null) {
@@ -630,9 +631,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.constraint().PRIMARY() != null) {
             constraint = Constraint.newPrimaryKeyConstraint(curTable, slots);
         } else if (ctx.constraint().FOREIGN() != null) {
-            ImmutableList<Slot> referenceSlots = visitNamedExpressionSeq(ctx.constraint().referenceSlots)
-                    .stream()
-                    .map(e -> (Slot) e)
+            ImmutableList<Slot> referenceSlots = ctx.constraint().referenceSlots.stream()
+                    .map(RuleContext::getText)
+                    .map(UnboundSlot::new)
                     .collect(ImmutableList.toImmutableList());
             List<String> nameParts = visitMultipartIdentifier(ctx.constraint().referenceTable);
             LogicalPlan referenceTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts);
@@ -640,7 +641,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             throw new AnalysisException("Unsupported constraint " + ctx.getText());
         }
-        return new AddConstraintCommand(ctx.constraintName.getText(), constraint);
+        return new AddConstraintCommand(ctx.constraintName.getText().toLowerCase(), constraint);
     }
 
     @Override

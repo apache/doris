@@ -104,10 +104,11 @@ statement
     ;
 
 constraint
-    : PRIMARY KEY LEFT_PAREN slots=namedExpressionSeq RIGHT_PAREN
-    | UNIQUE LEFT_PAREN slots=namedExpressionSeq RIGHT_PAREN
-    | FOREIGN KEY LEFT_PAREN slots=namedExpressionSeq RIGHT_PAREN
-    REFERENCES referenceTable=multipartIdentifier LEFT_PAREN referenceSlots=namedExpressionSeq RIGHT_PAREN
+    : PRIMARY KEY LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
+    | UNIQUE LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
+    | FOREIGN KEY LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
+        REFERENCES referenceTable=multipartIdentifier
+        LEFT_PAREN referenceSlots+=errorCapturingIdentifier (COMMA referenceSlots+=errorCapturingIdentifier)* RIGHT_PAREN
     ;
 
 dataDesc

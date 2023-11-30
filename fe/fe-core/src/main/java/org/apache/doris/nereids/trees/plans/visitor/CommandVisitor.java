@@ -78,7 +78,7 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterMTMVCommand, context);
     }
 
-    default R visitAddConstraint(AddConstraintCommand addConstraintCommand, C context) {
+    default R visitAddConstraintCommand(AddConstraintCommand addConstraintCommand, C context) {
         return visitCommand(addConstraintCommand, context);
     }
 

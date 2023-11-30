@@ -17,21 +17,28 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.List;
 import java.util.Objects;
 
 public class ForeignKeyConstraint extends Constraint {
     private final ImmutableMap<Column, Column> foreignToReference;
     private final TableIf referencedTable;
 
-    public ForeignKeyConstraint(ImmutableList<Column> columns,
-            TableIf referencedTable, ImmutableList<Column> referencedColumns) {
+    public ForeignKeyConstraint(List<Column> columns,
+            TableIf referencedTable, List<Column> referencedColumns) {
         this.referencedTable = referencedTable;
         ImmutableMap.Builder<Column, Column> builder = new Builder<>();
+        Preconditions.checkArgument(columns.size() == referencedColumns.size(),
+                "Foreign keys' size must be same as the size of reference keys");
+        Preconditions.checkArgument(ImmutableSet.copyOf(columns).size() == columns.size(),
+                "Foreign keys contains duplicate slots.");
+        Preconditions.checkArgument(ImmutableSet.copyOf(referencedColumns).size() == referencedColumns.size(),
+                "Reference keys contains duplicate slots.");
         for (int i = 0; i < columns.size(); i++) {
             builder.put(columns.get(i), referencedColumns.get(i));
         }
