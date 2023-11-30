@@ -428,10 +428,12 @@ Status WalManager::wait_relay_wal_finish(int64_t wal_id) {
 Status WalManager::notify(int64_t wal_id) {
     std::shared_ptr<std::mutex> lock = nullptr;
     std::shared_ptr<std::condition_variable> cv = nullptr;
-    RETURN_IF_ERROR(get_lock_and_cv(wal_id, lock, cv));
-    std::unique_lock l(*(lock));
-    cv->notify_all();
-    LOG(INFO) << "get wal " << wal_id << ",notify all";
+    auto st = get_lock_and_cv(wal_id, lock, cv);
+    if (st.ok()) {
+        std::unique_lock l(*(lock));
+        cv->notify_all();
+        LOG(INFO) << "get wal " << wal_id << ",notify all";
+    }
     return Status::OK();
 }
 
