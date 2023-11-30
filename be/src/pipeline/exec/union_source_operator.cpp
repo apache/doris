@@ -154,6 +154,15 @@ std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
     return data_queue;
 }
 
+std::string UnionSourceLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
+                   _shared_state->data_queue.is_all_finish(),
+                   _shared_state->data_queue.remaining_has_data());
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state) {
     auto& local_state = get_local_state(state);
