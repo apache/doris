@@ -137,7 +137,7 @@ void ColumnString::insert_indices_from(const IColumn& src, const uint32_t* indic
     auto* dst_offsets_data = offsets.data();
 
     for (const auto* x = indices_begin; x != indices_end; ++x) {
-        total_chars_size += src_offset_data[*x] - src_offset_data[*x - 1];
+        total_chars_size += src_offset_data[*x] - src_offset_data[int(*x) - 1];
         dst_offsets_data[dst_offsets_pos++] = total_chars_size;
     }
     check_chars_length(total_chars_size, offsets.size());
@@ -149,8 +149,8 @@ void ColumnString::insert_indices_from(const IColumn& src, const uint32_t* indic
 
     size_t dst_chars_pos = old_char_size;
     for (const auto* x = indices_begin; x != indices_end; ++x) {
-        const size_t size_to_append = src_offset_data[*x] - src_offset_data[*x - 1];
-        const size_t offset = src_offset_data[*x - 1];
+        const size_t size_to_append = src_offset_data[*x] - src_offset_data[int(*x) - 1];
+        const size_t offset = src_offset_data[int(*x) - 1];
         memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
                                                  src_data_ptr + offset, size_to_append);
         dst_chars_pos += size_to_append;
