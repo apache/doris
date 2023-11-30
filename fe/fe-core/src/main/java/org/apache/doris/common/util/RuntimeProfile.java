@@ -494,7 +494,7 @@ public class RuntimeProfile {
             mergeCounters(childCounterName, profiles, simpleProfile);
             if (counter.getLevel() == 1) {
                 Counter oldCounter = profiles.get(0).counterMap.get(childCounterName);
-                AggCounter aggCounter = new AggCounter(oldCounter.getType(), oldCounter.getValue());
+                AggCounter aggCounter = new AggCounter(oldCounter.getType());
                 for (RuntimeProfile profile : profiles) {
                     Counter orgCounter = profile.counterMap.get(childCounterName);
                     aggCounter.addCounter(orgCounter);
