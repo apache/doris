@@ -193,19 +193,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         if (iequal(req->header(HTTP_GROUP_COMMIT), "true") && !ctx->label.empty()) {
             st = Status::InternalError("label and group_commit can't be set at the same time");
         }
-        // 1. req->header(HttpHeaders::CONTENT_LENGTH) will return streamload content length. If it is empty, it means this streamload
-        // is a chunked streamload and we are not sure its size.
-        // 2. if streamload content length is too large, like larger than 80% of the WAL constrain.
-        //
-        // This two cases, we are not certain that the Write-Ahead Logging (WAL) constraints allow for writing down
-        // these blocks within the limited space. So we need to set group_commit = false to avoid dead lock.
-        if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            size_t body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
-            // TODO(Yukang): change it to WalManager::wal_limit
-            ctx->group_commit = !(body_bytes > config::wal_max_disk_size * 0.8);
-        } else {
-            ctx->group_commit = false;
-        }
+        ctx->group_commit = load_size_smaller_than_wal_limit(req);
     } else {
         if (ctx->label.empty()) {
             ctx->label = generate_uuid_string();

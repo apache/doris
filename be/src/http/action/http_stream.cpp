@@ -169,19 +169,7 @@ int HttpStreamAction::on_header(HttpRequest* req) {
 
     if (iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
         config::wait_internal_group_commit_finish) {
-        // 1. req->header(HttpHeaders::CONTENT_LENGTH) will return streamload content length. If it is empty, it means this streamload
-        // is a chunked streamload and we are not sure its size.
-        // 2. if streamload content length is too large, like larger than 80% of the WAL constrain.
-        //
-        // This two cases, we are not certain that the Write-Ahead Logging (WAL) constraints allow for writing down
-        // these blocks within the limited space. So we need to set group_commit = false to avoid dead lock.
-        if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            size_t body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
-            // TODO(Yukang): change it to WalManager::wal_limit
-            ctx->group_commit = !(body_bytes > config::wal_max_disk_size * 0.8);
-        } else {
-            ctx->group_commit = false;
-        }
+        ctx->group_commit = load_size_smaller_than_wal_limit(req);
     }
 
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
