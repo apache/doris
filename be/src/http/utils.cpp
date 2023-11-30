@@ -26,6 +26,7 @@
 #include <ostream>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
