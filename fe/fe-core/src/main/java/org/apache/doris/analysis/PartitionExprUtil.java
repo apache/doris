@@ -114,7 +114,7 @@ public class PartitionExprUtil {
     }
 
     public static Map<String, AddPartitionClause> getAddPartitionClauseFromPartitionValues(OlapTable olapTable,
-            ArrayList<TStringLiteral> partitionValues, PartitionInfo partitionInfo)
+            ArrayList<List<TStringLiteral>> partitionValues, PartitionInfo partitionInfo)
             throws AnalysisException {
         Map<String, AddPartitionClause> result = Maps.newHashMap();
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
@@ -124,16 +124,21 @@ public class PartitionExprUtil {
         FunctionIntervalInfo intervalInfo = getFunctionIntervalInfo(partitionExprs, partitionType);
         Set<String> filterPartitionValues = new HashSet<String>();
 
-        for (TStringLiteral partitionValue : partitionValues) {
+        for (List<TStringLiteral> partitionValueList : partitionValues) {
             PartitionKeyDesc partitionKeyDesc = null;
             String partitionName = "p";
-            String value = partitionValue.value;
-            if (filterPartitionValues.contains(value)) {
+            ArrayList<String> curPartitionValues = new ArrayList<>();
+            for (TStringLiteral tStringLiteral : partitionValueList) {
+                curPartitionValues.add(tStringLiteral.value);
+            }
+            // combine value with '_', eg: "abc_123", but maybe have error
+            String filterStr = String.join("_", curPartitionValues);
+            if (filterPartitionValues.contains(filterStr)) {
                 continue;
             }
-            filterPartitionValues.add(value);
+            filterPartitionValues.add(filterStr);
             if (partitionType == PartitionType.RANGE) {
-                String beginTime = value;
+                String beginTime = curPartitionValues.get(0); // have check range type size must be 1
                 DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
                 partitionName += String.format(DATETIME_NAME_FORMATTER,
                         beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
@@ -142,12 +147,14 @@ public class PartitionExprUtil {
                 partitionKeyDesc = createPartitionKeyDescWithRange(beginDateTime, endDateTime, partitionColumnType);
             } else if (partitionType == PartitionType.LIST) {
                 List<List<PartitionValue>> listValues = new ArrayList<>();
-                String pointValue = value;
-                PartitionValue lowerValue = new PartitionValue(pointValue);
-                listValues.add(Collections.singletonList(lowerValue));
+                List<PartitionValue> inValues = new ArrayList<>();
+                for (String value : curPartitionValues) {
+                    inValues.add(new PartitionValue(value));
+                }
+                listValues.add(inValues);
                 partitionKeyDesc = PartitionKeyDesc.createIn(
                         listValues);
-                partitionName += getFormatPartitionValue(lowerValue.getStringValue());
+                partitionName += getFormatPartitionValue(filterStr);
                 if (partitionColumnType.isStringType()) {
                     partitionName += "_" + System.currentTimeMillis();
                 }
