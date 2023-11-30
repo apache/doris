@@ -458,10 +458,22 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
             uint32_t len = ser_request.size();
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
+        const auto& fragment_list = t_request.paramsList;
+        MonotonicStopWatch timer;
+        timer.start();
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
             RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
         }
+
+        timer.stop();
+        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
+        if (cost_secs > 5) {
+            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
+                        fragment_list.size(), print_id(fragment_list.front().params.query_id),
+                        cost_secs);
+        }
+
         return Status::OK();
     } else if (version == PFragmentRequestVersion::VERSION_3) {
         TPipelineFragmentParamsList t_request;
@@ -471,9 +483,21 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
 
-        for (const TPipelineFragmentParams& params : t_request.params_list) {
-            RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+        const auto& fragment_list = t_request.params_list;
+        MonotonicStopWatch timer;
+        timer.start();
+
+        for (const TPipelineFragmentParams& fragment : fragment_list) {
+            RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment));
         }
+
+        timer.stop();
+        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
+        if (cost_secs > 5) {
+            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
+                        fragment_list.size(), print_id(fragment_list.front().query_id), cost_secs);
+        }
+
         return Status::OK();
     } else {
         return Status::InternalError("invalid version");
