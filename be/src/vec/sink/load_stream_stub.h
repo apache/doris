@@ -99,17 +99,13 @@ private:
         bool is_closed() { return _is_closed.load(); }
 
         Status close_wait(int64_t timeout_ms) {
+            DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
             std::unique_lock<bthread::Mutex> lock(_mutex);
             if (_is_closed) {
                 return Status::OK();
             }
-            if (timeout_ms > 0) {
-                int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-                return ret == 0 ? Status::OK()
-                                : Status::Error<true>(ret, "stream close_wait timeout");
-            }
-            _close_cv.wait(lock);
-            return Status::OK();
+            int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
+            return ret == 0 ? Status::OK() : Status::Error<true>(ret, "stream close_wait timeout");
         };
 
         std::vector<int64_t> success_tablets() {
@@ -183,6 +179,9 @@ public:
     Status close_wait(int64_t timeout_ms = 0) {
         if (!_is_init.load() || _handler.is_closed()) {
             return Status::OK();
+        }
+        if (timeout_ms <= 0) {
+            timeout_ms = config::close_load_stream_timeout_ms;
         }
         return _handler.close_wait(timeout_ms);
     }
