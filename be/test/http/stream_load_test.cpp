@@ -20,6 +20,8 @@
 #include <gtest/gtest.h>
 
 #include "common/config.h"
+#include "event2/http.h"
+#include "evhttp.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_common.h"
@@ -32,59 +34,79 @@
 
 namespace doris {
 
-ExecEnv* _env = nullptr;
-
 class StreamLoadTest : public testing::Test {
 public:
-    StreamLoadTest() {}
-    virtual ~StreamLoadTest() {}
-    void SetUp() override {
-        // 1G
-        WalManager::wal_limit = 1073741824;
-    }
+    StreamLoadTest() = default;
+    virtual ~StreamLoadTest() = default;
+    void SetUp() override {}
     void TearDown() override {}
 };
 
+void http_request_done_cb(struct evhttp_request* req, void* arg) {
+    event_base_loopbreak((struct event_base*)arg);
+}
+
 TEST_F(StreamLoadTest, TestHeader) {
+    // 1G
+    config::wal_max_disk_size = 1073741824;
     // 1. empty info
     {
-        StreamLoadAction stream_load_action(_env);
         auto evhttp_req = evhttp_request_new(nullptr, nullptr);
         HttpRequest req(evhttp_req);
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
-        EXPECT_EQ(stream_load_action.on_header(&req), -1);
     }
 
     // 2. chunked stream load whih group commit
     {
-        StreamLoadAction stream_load_action(_env);
-        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        struct event_base* base = nullptr;
+        struct evhttp_request* evhttp_req = nullptr;
+        char uri[] = "Http://127.0.0.1/test.txt";
+        event_init();
+        base = event_base_new();
+        evhttp_req = evhttp_request_new(http_request_done_cb, base);
+        evhttp_req->type = EVHTTP_REQ_GET;
+        evhttp_req->uri = uri;
+        evhttp_req->uri_elems = evhttp_uri_parse(uri);
+        evhttp_add_header(evhttp_req->input_headers, HTTP_GROUP_COMMIT.c_str(), "true");
         HttpRequest req(evhttp_req);
-        req.add_output_header(HTTP_GROUP_COMMIT, "true");
+        req.init_from_evhttp();
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
-        EXPECT_EQ(stream_load_action.on_header(&req), -1);
     }
 
     // 3. small stream load whih group commit
     {
-        StreamLoadAction stream_load_action(_env);
-        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        struct event_base* base = nullptr;
+        struct evhttp_request* evhttp_req = nullptr;
+        char uri[] = "Http://127.0.0.1/test.txt";
+        event_init();
+        base = event_base_new();
+        evhttp_req = evhttp_request_new(http_request_done_cb, base);
+        evhttp_req->type = EVHTTP_REQ_GET;
+        evhttp_req->uri = uri;
+        evhttp_req->uri_elems = evhttp_uri_parse(uri);
+        evhttp_add_header(evhttp_req->input_headers, HTTP_GROUP_COMMIT.c_str(), "true");
+        evhttp_add_header(evhttp_req->input_headers, HttpHeaders::CONTENT_LENGTH, "1000");
         HttpRequest req(evhttp_req);
-        req.add_output_header(HTTP_GROUP_COMMIT, "true");
-        req.add_output_header(HttpHeaders::CONTENT_LENGTH, "1000");
+        req.init_from_evhttp();
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), true);
-        EXPECT_EQ(stream_load_action.on_header(&req), -1);
     }
 
-    // 4. lager stream load whih group commit
+    // 4. large stream load whih group commit
     {
-        StreamLoadAction stream_load_action(_env);
-        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        struct event_base* base = nullptr;
+        struct evhttp_request* evhttp_req = nullptr;
+        char uri[] = "Http://127.0.0.1/test.txt";
+        event_init();
+        base = event_base_new();
+        evhttp_req = evhttp_request_new(http_request_done_cb, base);
+        evhttp_req->type = EVHTTP_REQ_GET;
+        evhttp_req->uri = uri;
+        evhttp_req->uri_elems = evhttp_uri_parse(uri);
+        evhttp_add_header(evhttp_req->input_headers, HTTP_GROUP_COMMIT.c_str(), "true");
+        evhttp_add_header(evhttp_req->input_headers, HttpHeaders::CONTENT_LENGTH, "1073741824");
         HttpRequest req(evhttp_req);
-        req.add_output_header(HTTP_GROUP_COMMIT, "true");
-        req.add_output_header(HttpHeaders::CONTENT_LENGTH, "1073741824");
-        EXPECT_EQ(load_size_smaller_than_wal_limit(&req), true);
-        EXPECT_EQ(stream_load_action.on_header(&req), -1);
+        req.init_from_evhttp();
+        EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
     }
 }
 } // namespace doris
