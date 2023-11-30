@@ -89,6 +89,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _report_thread_active(false),
           _done(false),
           _prepared(false),
+          _opened(false),
           _closed(false),
           _is_report_success(false),
           _is_report_on_cancel(true),
@@ -318,6 +319,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             return Status::OK();
         }
         RETURN_IF_ERROR(_sink->open(runtime_state()));
+        _opened = true;
         std::unique_ptr<doris::vectorized::Block> block =
                 _group_commit ? doris::vectorized::FutureBlock::create_unique()
                               : doris::vectorized::Block::create_unique();
@@ -659,16 +661,19 @@ void PlanFragmentExecutor::close() {
         }
 
         if (_sink != nullptr) {
-            if (_prepared) {
+            if (!_prepared) {
+                static_cast<void>(
+                        _sink->close(runtime_state(), Status::InternalError("prepare failed")));
+            } else if (!_opened) {
+                static_cast<void>(
+                        _sink->close(runtime_state(), Status::InternalError("open failed")));
+            } else {
                 Status status;
                 {
                     std::lock_guard<std::mutex> l(_status_lock);
                     status = _status;
                 }
                 static_cast<void>(_sink->close(runtime_state(), status));
-            } else {
-                static_cast<void>(
-                        _sink->close(runtime_state(), Status::InternalError("prepare failed")));
             }
         }
 
