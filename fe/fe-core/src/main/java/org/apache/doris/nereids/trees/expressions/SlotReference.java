@@ -126,7 +126,8 @@ public class SlotReference extends Slot {
         DataType dataType = DataType.fromCatalogType(column.getType());
         SlotReference slot = new SlotReference(StatementScopeIdGenerator.newExprId(), column.getName(), dataType,
                 column.isAllowNull(), qualifier, column, Optional.empty(), null);
-        if (relation != null && ConnectContext.get() != null) {
+        if (relation != null && ConnectContext.get() != null
+                && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().addSlotToRelation(slot, relation);
         }
         return slot;
