@@ -555,7 +555,11 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
+
+        constexpr double HOLD_BLOCK_MEMORY_RATE =
+                0.66; // Reserve some memory for use by other parts of this job
+        if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation ||
+            _mem_tracker->consumption() > _memory_limitation * HOLD_BLOCK_MEMORY_RATE) {
             RETURN_IF_ERROR(create_rowset());
 
             if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
