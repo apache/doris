@@ -45,6 +45,8 @@ suite("regression_test_variant_column_limit", "nonConcurrent"){
     } finally {
         set_be_config.call("variant_max_merged_tablet_schema_size", "2048");
     }
+    set_be_config.call("variant_max_merged_tablet_schema_size", "2048");
+    sleep(500)
     sql """insert into ${table_name} values (1, '{"a" : 1, "b" : 2, "c" : 3}')"""
 
 }

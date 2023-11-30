@@ -361,8 +361,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
             path.from_protobuf(column_pb.column_path_info());
             column_path_to_footer_ordinal.emplace(path, ordinal);
         }
-        // unique_id is unsigned
-        if (static_cast<int>(column_pb.unique_id()) > 0) {
+        // unique_id is unsigned, -1 meaning no unique id(e.g. an extracted column)
+        if (static_cast<int>(column_pb.unique_id()) >= 0) {
             // unique id
             column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
         }
