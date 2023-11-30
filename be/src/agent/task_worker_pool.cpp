@@ -1459,7 +1459,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             // Version not continuous, put to queue and wait pre version publish task execute
             PUBLISH_VERSION_count << 1;
             auto st = _thread_pool->submit_func([this, req] {
-                _callback(req);
+                this->publish_version_callback(req);
                 PUBLISH_VERSION_count << -1;
             });
             if (!st.ok()) [[unlikely]] {
