@@ -41,6 +41,8 @@ public class SlotReference extends Slot {
     protected final boolean nullable;
     protected final List<String> qualifier;
 
+    // The sub column path to access type like struct or variant
+    // e.g. For accessing variant["a"]["b"], the parsed paths is ["a", "b"]
     protected final List<String> subColPath;
 
     // the unique string representation of a SlotReference
@@ -101,7 +103,8 @@ public class SlotReference extends Slot {
         this.column = column;
         this.subColPath = subColLabels;
         if (subColLabels != null && !this.subColPath.isEmpty()) {
-            // modify internal name for deduplicate
+            // Modify internal name to distinguish from different sub-columns of same top level column,
+            // using the `.` to connect each part of paths
             String fullName = internalName.orElse(name) + String.join(".", this.subColPath);
             this.internalName = Optional.of(fullName);
         } else {

@@ -192,16 +192,21 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
-        if (boundFunction instanceof ElementAt && boundFunction.getDataType().isVariantType()) {
-            Slot slot = boundFunction.getInputSlots().stream().findFirst().get();
+        boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
+        return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
+    @Override
+    public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
+        if (elementAt.getDataType().isVariantType()) {
+            Slot slot = elementAt.getInputSlots().stream().findFirst().get();
             if (slot.hasUnbound()) {
                 slot = (Slot) super.visit(slot, context);
             }
             // rewrite to slot and bound this slot
-            return ElementAtToSlot.rewriteToSlot((ElementAt) boundFunction, (SlotReference) slot);
+            return ElementAtToSlot.rewriteToSlot(elementAt, (SlotReference) slot);
         }
-        boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
-        return TypeCoercionUtils.processBoundFunction(boundFunction);
+        return visitBoundFunction(elementAt, context);
     }
 
     /**
