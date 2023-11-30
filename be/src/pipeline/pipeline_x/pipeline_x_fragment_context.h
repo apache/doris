@@ -125,7 +125,7 @@ private:
     void _close_fragment_instance() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
     Status _add_local_exchange(ObjectPool* pool, OperatorXPtr& op, PipelinePtr& cur_pipe,
-                               const std::vector<TExpr>& texprs);
+                               const TPlanNode& tnode, const std::vector<TExpr>& texprs);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
@@ -170,7 +170,7 @@ private:
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
-    DataSinkOperatorXPtr _sink;
+    DataSinkOperatorXPtr _sink = nullptr;
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
@@ -210,6 +210,7 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
+    int _num_instances = 0;
     std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
 };
 

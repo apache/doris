@@ -145,7 +145,7 @@ private:
     // Operators for pipelineX. All pipeline tasks share operators from this.
     // [SourceOperator -> ... -> SinkOperator]
     OperatorXs operatorXs;
-    DataSinkOperatorXPtr _sink_x;
+    DataSinkOperatorXPtr _sink_x = nullptr;
 
     std::shared_ptr<ObjectPool> _obj_pool;
 

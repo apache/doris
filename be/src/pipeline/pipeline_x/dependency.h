@@ -584,10 +584,10 @@ public:
     std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> data_queue;
     std::vector<Dependency*> source_dependencies;
     std::atomic<int> running_sink_operators = 0;
-    void add_running_sink_operators() { running_sink_operators++; }
+    std::mutex le_lock;
     void sub_running_sink_operators() {
-        auto val = running_sink_operators.fetch_sub(1);
-        if (val == 1) {
+        std::unique_lock<std::mutex> lc(le_lock);
+        if (running_sink_operators.fetch_sub(1) == 1) {
             _set_ready_for_read();
         }
     }
@@ -599,11 +599,10 @@ public:
     }
     void set_dep_by_channel_id(Dependency* dep, int channel_id) {
         source_dependencies[channel_id] = dep;
-        dep->block();
     }
     void set_ready_for_read(int channel_id) {
         auto* dep = source_dependencies[channel_id];
-        DCHECK(dep);
+        DCHECK(dep) << channel_id << " " << (int64_t)this;
         dep->set_ready();
     }
 };

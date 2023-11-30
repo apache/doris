@@ -51,8 +51,9 @@ private:
 
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
     RuntimeProfile::Counter* _distribute_timer = nullptr;
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    std::vector<size_t> _partition_rows_histogram;
+    std::vector<RuntimeProfile::Counter*> _num_rows_in_queue {};
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
+    std::vector<size_t> _partition_rows_histogram {};
 };
 
 // A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
@@ -69,8 +70,9 @@ struct LocalExchangeChannelIds {
 class LocalExchangeSinkOperatorX final : public DataSinkOperatorX<LocalExchangeSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<LocalExchangeSinkLocalState>;
-    LocalExchangeSinkOperatorX(int sink_id, int num_partitions, const std::vector<TExpr>& texprs)
-            : Base(sink_id, -1), _num_partitions(num_partitions), _texprs(texprs) {}
+    LocalExchangeSinkOperatorX(int sink_id, int dest_id, int num_partitions,
+                               const std::vector<TExpr>& texprs)
+            : Base(sink_id, -1, dest_id), _num_partitions(num_partitions), _texprs(texprs) {}
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override {
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);

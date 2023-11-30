@@ -25,9 +25,14 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     SCOPED_TIMER(_open_timer);
     _compute_hash_value_timer = ADD_TIMER(profile(), "ComputeHashValueTime");
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
+
     auto& p = _parent->cast<LocalExchangeSinkOperatorX>();
+    _num_rows_in_queue.resize(p._num_partitions);
+    for (size_t i = 0; i < p._num_partitions; i++) {
+        _num_rows_in_queue[i] = ADD_COUNTER_WITH_LEVEL(
+                profile(), "NumRowsInQueue" + std::to_string(i), TUnit::UNIT, 1);
+    }
     RETURN_IF_ERROR(p._partitioner->clone(state, _partitioner));
-    _shared_state->add_running_sink_operators();
     return Status::OK();
 }
 
@@ -59,8 +64,9 @@ Status LocalExchangeSinkLocalState::split_rows(RuntimeState* state,
         size_t size = _partition_rows_histogram[i + 1] - start;
         if (size > 0) {
             data_queue[i].enqueue({new_block, {row_idx, start, size}});
+            _shared_state->set_ready_for_read(i);
+            COUNTER_UPDATE(_num_rows_in_queue[i], size);
         }
-        _shared_state->set_ready_for_read(i);
     }
 
     return Status::OK();
