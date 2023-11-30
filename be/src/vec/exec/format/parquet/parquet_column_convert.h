@@ -221,7 +221,7 @@ struct ColumnConvert {
     }
 
 public:
-    ConvertParams* _convert_params;
+    ConvertParams* _convert_params = nullptr;
 };
 
 template <tparquet::Type::type parquet_physical_type, typename dst_type>

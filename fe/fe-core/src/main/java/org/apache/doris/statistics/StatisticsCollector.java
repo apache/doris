@@ -35,8 +35,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
 
     protected final AnalysisTaskExecutor analysisTaskExecutor;
 
-    protected int submittedThisRound = StatisticConstants.SUBMIT_JOB_LIMIT;
-
     public StatisticsCollector(String name, long intervalMs, AnalysisTaskExecutor analysisTaskExecutor) {
         super(name, intervalMs);
         this.analysisTaskExecutor = analysisTaskExecutor;
@@ -54,7 +52,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
         if (Env.isCheckpointThread()) {
             return;
         }
-        submittedThisRound = StatisticConstants.SUBMIT_JOB_LIMIT;
         if (Env.getCurrentEnv().getAnalysisManager().hasUnFinished()) {
             LOG.info("Analyze tasks those submitted in last time is not finished, skip");
             return;
@@ -72,16 +69,13 @@ public abstract class StatisticsCollector extends MasterDaemon {
             // No statistics need to be collected or updated
             return;
         }
-        if (submittedThisRound-- < 0) {
-            return;
-        }
         Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
-        Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
         if (StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)) {
             analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTasks, false);
         }
+        Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
         Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
         analysisTasks.values().forEach(analysisTaskExecutor::submitTask);
     }

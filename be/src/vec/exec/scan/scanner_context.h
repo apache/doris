@@ -188,12 +188,12 @@ protected:
 
     void _set_scanner_done();
 
-    RuntimeState* _state;
-    VScanNode* _parent;
-    pipeline::ScanLocalStateBase* _local_state;
+    RuntimeState* _state = nullptr;
+    VScanNode* _parent = nullptr;
+    pipeline::ScanLocalStateBase* _local_state = nullptr;
 
     // the comment of same fields in VScanNode
-    const TupleDescriptor* _output_tuple_desc;
+    const TupleDescriptor* _output_tuple_desc = nullptr;
 
     // _transfer_lock is used to protect the critical section
     // where the ScanNode and ScannerScheduler interact.
@@ -282,8 +282,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
-    std::shared_ptr<pipeline::ScanDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
+    std::shared_ptr<pipeline::ScanDependency> _dependency;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency;
 };
 } // namespace vectorized
 } // namespace doris

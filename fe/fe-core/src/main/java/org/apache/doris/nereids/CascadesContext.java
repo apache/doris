@@ -27,6 +27,7 @@ import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
@@ -114,6 +115,9 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CascadesContext> parent;
 
     private final List<MaterializationContext> materializationContexts;
+    private boolean isLeadingJoin = false;
+
+    private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
 
     /**
      * Constructor of OptimizerContext.
@@ -536,6 +540,9 @@ public class CascadesContext implements ScheduleContext {
                 cascadesContext.extractTables(plan);
             }
             for (TableIf table : cascadesContext.tables.values()) {
+                if (!table.needReadLockWhenPlan()) {
+                    continue;
+                }
                 if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
                     close();
                     throw new RuntimeException(String.format("Failed to get read lock on table: %s", table.getName()));
@@ -611,5 +618,17 @@ public class CascadesContext implements ScheduleContext {
             }
             p.value().setStatistics(updatedConsumerStats);
         }
+    }
+
+    public boolean isLeadingJoin() {
+        return isLeadingJoin;
+    }
+
+    public void setLeadingJoin(boolean leadingJoin) {
+        isLeadingJoin = leadingJoin;
+    }
+
+    public Map<String, Hint> getHintMap() {
+        return hintMap;
     }
 }

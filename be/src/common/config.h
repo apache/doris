@@ -100,6 +100,11 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// If priority_networks is incorrect but cannot be modified, set public_access_ip as BE’s real IP.
+// For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
+// If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
+DECLARE_mString(public_access_ip);
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
@@ -1124,10 +1129,13 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Whether flatten nested arrays in variant column
 // Notice: TEST ONLY
-DECLARE_mBool(enable_flatten_nested_for_variant);
+DECLARE_mBool(variant_enable_flatten_nested);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
-DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
+DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
+// Threshold to estimate a column is sparsed
+// Notice: TEST ONLY
+DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // rowid conversion correctness check when compaction for mow table
@@ -1198,6 +1206,9 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 DECLARE_Int32(download_binlog_rate_limit_kbs);
 
 DECLARE_mInt32(buffered_reader_read_timeout_ms);
+
+// whether to enable /api/snapshot api
+DECLARE_Bool(enable_snapshot_action);
 
 #ifdef BE_TEST
 // test s3

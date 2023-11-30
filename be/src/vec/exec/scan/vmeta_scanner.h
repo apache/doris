@@ -88,7 +88,7 @@ private:
     bool _meta_eos;
     TupleId _tuple_id;
     TUserIdentity _user_identity;
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
     std::vector<TRow> _batch_data;
     const TScanRange& _scan_range;
 };

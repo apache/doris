@@ -193,6 +193,7 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -992,22 +993,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             SelectClauseContext selectCtx = ctx.selectClause();
             LogicalPlan selectPlan;
+            LogicalPlan relation;
             if (ctx.fromClause() == null) {
                 SelectColumnClauseContext columnCtx = selectCtx.selectColumnClause();
                 if (columnCtx.EXCEPT() != null) {
                     throw new ParseException("select-except cannot be used in one row relation", selectCtx);
                 }
-                selectPlan = withOneRowRelation(columnCtx);
+                relation = withOneRowRelation(columnCtx);
             } else {
-                LogicalPlan relation = visitFromClause(ctx.fromClause());
-                selectPlan = withSelectQuerySpecification(
-                        ctx, relation,
-                        selectCtx,
-                        Optional.ofNullable(ctx.whereClause()),
-                        Optional.ofNullable(ctx.aggClause()),
-                        Optional.ofNullable(ctx.havingClause())
-                );
+                relation = visitFromClause(ctx.fromClause());
             }
+            selectPlan = withSelectQuerySpecification(
+                    ctx, relation,
+                    selectCtx,
+                    Optional.ofNullable(ctx.whereClause()),
+                    Optional.ofNullable(ctx.aggClause()),
+                    Optional.ofNullable(ctx.havingClause()));
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
@@ -2555,6 +2556,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         leadingParameters.add(parameterName);
                     }
                     hints.put(hintName, new SelectHintLeading(hintName, leadingParameters));
+                    break;
+                case "ordered":
+                    hints.put(hintName, new SelectHintOrdered(hintName));
                     break;
                 default:
                     break;

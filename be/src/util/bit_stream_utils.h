@@ -82,7 +82,7 @@ private:
     // buffer_. This is faster than writing values byte by byte directly to buffer_.
     uint64_t buffered_values_;
 
-    faststring* buffer_;
+    faststring* buffer_ = nullptr;
     int byte_offset_; // Offset in buffer_
     int bit_offset_;  // Offset in buffered_values_
 };
@@ -150,7 +150,7 @@ private:
     // the next word into buffer_.
     void BufferValues();
 
-    const uint8_t* buffer_;
+    const uint8_t* buffer_ = nullptr;
     int max_bytes_;
 
     // Bytes are memcpy'd from buffer_ and values are read from this variable. This is

@@ -434,6 +434,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
+    public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
+
     public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
@@ -447,6 +449,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
             = "huge_table_auto_analyze_interval_in_millis";
+
+    public static final String EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
+            = "external_table_auto_analyze_interval_in_millis";
 
     public static final String TABLE_STATS_HEALTH_THRESHOLD
             = "table_stats_health_threshold";
@@ -1312,6 +1317,13 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public boolean enableAutoAnalyze = true;
 
+    @VariableMgr.VarAttr(name = AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
+            description = {"参与自动收集的最大表宽度，列数多于这个参数的表不参与自动收集",
+                "Maximum table width to enable auto analyze, "
+                    + "table with more columns than this value will not be auto analyzed."},
+            flag = VariableMgr.GLOBAL)
+    public int autoAnalyzeTableWidthThreshold = 70;
+
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的开始时间",
                     "This parameter defines the start time for the automatic ANALYZE routine."},
@@ -1365,6 +1377,12 @@ public class SessionVariable implements Serializable, Writable {
                             + "Within this interval,"
                             + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
     public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(12);
+
+    @VariableMgr.VarAttr(name = EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
+            description = {"控制对外表的自动ANALYZE的最小时间间隔，在该时间间隔内的外表仅ANALYZE一次",
+                    "This controls the minimum time interval for automatic ANALYZE on external tables."
+                        + "Within this interval, external tables are analyzed only once."})
+    public long externalTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(24);
 
     @VariableMgr.VarAttr(name = TABLE_STATS_HEALTH_THRESHOLD, flag = VariableMgr.GLOBAL,
             description = {"取值在0-100之间，当自上次统计信息收集操作之后"

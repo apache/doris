@@ -142,7 +142,7 @@ public:
     NodeType* exec_node() const { return _node; }
 
 protected:
-    NodeType* _node;
+    NodeType* _node = nullptr;
 };
 
 template <typename SinkType>
@@ -160,7 +160,7 @@ public:
     SinkType* exec_node() const { return _sink; }
 
 protected:
-    SinkType* _sink;
+    SinkType* _sink = nullptr;
 };
 
 class OperatorBase {
@@ -265,7 +265,7 @@ public:
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
 protected:
-    OperatorBuilderBase* _operator_builder;
+    OperatorBuilderBase* _operator_builder = nullptr;
     OperatorPtr _child;
 
     // Used on pipeline X
@@ -323,7 +323,7 @@ public:
     }
 
 protected:
-    NodeType* _sink;
+    NodeType* _sink = nullptr;
 };
 
 /**
@@ -400,7 +400,7 @@ public:
     }
 
 protected:
-    NodeType* _node;
+    NodeType* _node = nullptr;
     bool _use_projection;
 };
 

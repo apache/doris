@@ -186,6 +186,7 @@ public:
 
     std::string id_name() override;
     segment_v2::CompressionTypePB& compression_type();
+    std::string debug_string(int indentation_level) const override;
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
@@ -230,9 +231,9 @@ private:
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
-    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
-    std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
-    std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
+    std::shared_ptr<AndDependency> _exchange_sink_dependency;
+    std::shared_ptr<BroadcastDependency> _broadcast_dependency;
     std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;

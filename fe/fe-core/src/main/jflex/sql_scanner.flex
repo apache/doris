@@ -292,6 +292,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("join", new Integer(SqlParserSymbols.KW_JOIN));
         keywordMap.put("json", new Integer(SqlParserSymbols.KW_JSON));
         keywordMap.put("jsonb", new Integer(SqlParserSymbols.KW_JSONB));
+        keywordMap.put("variant", new Integer(SqlParserSymbols.KW_VARIANT));
         keywordMap.put("key", new Integer(SqlParserSymbols.KW_KEY));
         keywordMap.put("keys", new Integer(SqlParserSymbols.KW_KEYS));
         keywordMap.put("kill", new Integer(SqlParserSymbols.KW_KILL));
@@ -514,6 +515,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("expired", new Integer(SqlParserSymbols.KW_EXPIRED));
         keywordMap.put("cron", new Integer(SqlParserSymbols.KW_CRON));
         keywordMap.put("convert_light_schema_change_process", new Integer(SqlParserSymbols.KW_CONVERT_LSC));
+        keywordMap.put("unset", new Integer(SqlParserSymbols.KW_UNSET));
+        keywordMap.put("variable", new Integer(SqlParserSymbols.KW_VARIABLE));
    }
     
   // map from token id to token description
