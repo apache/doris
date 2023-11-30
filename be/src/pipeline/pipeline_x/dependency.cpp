@@ -22,7 +22,7 @@
 
 #include "common/logging.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "pipeline/pipeline_task.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
 #include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -177,6 +177,13 @@ void RuntimeFilterDependency::sub_filters() {
         for (auto* task : local_block_task) {
             task->wake_up();
         }
+    }
+}
+
+void LocalExchangeSharedState::sub_running_sink_operators() {
+    std::unique_lock<std::mutex> lc(le_lock);
+    if (exchanger->running_sink_operators.fetch_sub(1) == 1) {
+        _set_ready_for_read();
     }
 }
 

@@ -104,6 +104,11 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
+    bool need_to_local_shuffle() const override {
+        // TODO(gabriel):
+        return false;
+    }
+
 private:
     friend class ExchangeLocalState;
     const int _num_senders;

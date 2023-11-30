@@ -35,6 +35,7 @@
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
 #include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -125,7 +126,8 @@ private:
     void _close_fragment_instance() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
     Status _add_local_exchange(ObjectPool* pool, OperatorXPtr& op, PipelinePtr& cur_pipe,
-                               const TPlanNode& tnode, const std::vector<TExpr>& texprs);
+                               const TPlanNode& tnode, const std::vector<TExpr>& texprs,
+                               ExchangeType exchange_type);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
@@ -151,6 +153,7 @@ private:
                              const TPipelineFragmentParams& params, const RowDescriptor& row_desc,
                              RuntimeState* state, DescriptorTbl& desc_tbl,
                              PipelineId cur_pipeline_id);
+    Status _plan_local_shuffle();
 
     bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 

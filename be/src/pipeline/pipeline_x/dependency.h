@@ -31,6 +31,7 @@
 #include "gutil/integral_types.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
+#include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -579,21 +580,15 @@ public:
     }
 };
 
-using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,
-                                   std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
+class Exchanger;
+
 struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
-    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> data_queue;
+    std::unique_ptr<Exchanger> exchanger {};
     std::vector<Dependency*> source_dependencies;
-    std::atomic<int> running_sink_operators = 0;
     std::mutex le_lock;
-    void sub_running_sink_operators() {
-        std::unique_lock<std::mutex> lc(le_lock);
-        if (running_sink_operators.fetch_sub(1) == 1) {
-            _set_ready_for_read();
-        }
-    }
+    void sub_running_sink_operators();
     void _set_ready_for_read() {
         for (auto* dep : source_dependencies) {
             DCHECK(dep);

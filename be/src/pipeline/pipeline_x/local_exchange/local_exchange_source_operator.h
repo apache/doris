@@ -29,18 +29,12 @@ public:
             : Dependency(id, node_id, "LocalExchangeSourceDependency", query_ctx) {}
     ~LocalExchangeSourceDependency() override = default;
 
-    void block() override {
-        if (((LocalExchangeSharedState*)_shared_state.get())->running_sink_operators == 0) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(((LocalExchangeSharedState*)_shared_state.get())->le_lock);
-        if (((LocalExchangeSharedState*)_shared_state.get())->running_sink_operators == 0) {
-            return;
-        }
-        Dependency::block();
-    }
+    void block() override;
 };
 
+class Exchanger;
+class ShuffleExchanger;
+class PassthroughExchanger;
 class LocalExchangeSourceOperatorX;
 class LocalExchangeSourceLocalState final
         : public PipelineXLocalState<LocalExchangeSourceDependency> {
@@ -54,7 +48,10 @@ public:
 
 private:
     friend class LocalExchangeSourceOperatorX;
+    friend class ShuffleExchanger;
+    friend class PassthroughExchanger;
 
+    Exchanger* _exchanger = nullptr;
     int _channel_id;
     RuntimeProfile::Counter* _get_block_failed_counter = nullptr;
     RuntimeProfile::Counter* _copy_data_timer = nullptr;
