@@ -353,8 +353,26 @@ void inherit_tablet_index(TabletSchemaSPtr& schema) {
 Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                const TabletSchemaSPtr& base_schema, TabletSchemaSPtr& output_schema,
                                bool check_schema_size) {
-    output_schema = std::make_shared<TabletSchema>();
     std::vector<int32_t> variant_column_unique_id;
+
+    // Construct a schema excluding the extracted columns and gather unique identifiers for variants.
+    // Ensure that the output schema also excludes these extracted columns. This approach prevents
+    // duplicated paths following the update_least_common_schema process.
+    auto build_schema_without_extracted_columns = [&](const TabletSchemaSPtr& base_schema) {
+        output_schema = std::make_shared<TabletSchema>();
+        output_schema->copy_from(*base_schema);
+        // Merge columns from other schemas
+        output_schema->clear_columns();
+        // Get all columns without extracted columns and collect variant col unique id
+        for (const TabletColumn& col : base_schema->columns()) {
+            if (col.is_variant_type()) {
+                variant_column_unique_id.push_back(col.unique_id());
+            }
+            if (!col.is_extracted_column()) {
+                output_schema->append_column(col);
+            }
+        }
+    };
     if (base_schema == nullptr) {
         // Pick tablet schema with max schema version
         auto max_version_schema =
@@ -363,27 +381,10 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                       return a->schema_version() < b->schema_version();
                                   });
         CHECK(max_version_schema);
-        output_schema->copy_from(*max_version_schema);
-        // Merge columns from other schemas
-        output_schema->clear_columns();
-        // Get all columns without extracted columns and collect variant col unique id
-        for (const TabletColumn& col : max_version_schema->columns()) {
-            if (col.is_variant_type()) {
-                variant_column_unique_id.push_back(col.unique_id());
-            }
-            if (!col.is_extracted_column()) {
-                output_schema->append_column(col);
-            }
-        }
+        build_schema_without_extracted_columns(max_version_schema);
     } else {
-        // use input common schema as base schema
-        // Get all columns without extracted columns and collect variant col unique id
-        for (const TabletColumn& col : base_schema->columns()) {
-            if (col.is_variant_type()) {
-                variant_column_unique_id.push_back(col.unique_id());
-            }
-        }
-        output_schema->copy_from(*base_schema);
+        // use input base_schema schema as base schema
+        build_schema_without_extracted_columns(base_schema);
     }
 
     for (int32_t unique_id : variant_column_unique_id) {
