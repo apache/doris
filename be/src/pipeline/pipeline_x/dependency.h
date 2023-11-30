@@ -580,6 +580,12 @@ public:
     }
 };
 
+enum class ExchangeType : uint8_t {
+    NOOP = 0,
+    SHUFFLE = 1,
+    PASSTHROUGH = 2,
+};
+
 class Exchanger;
 
 struct LocalExchangeSharedState : public BasicSharedState {

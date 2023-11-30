@@ -194,6 +194,15 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
     return pipeline;
 }
 
+PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent) {
+    // _prepared、_submitted, _canceled should do not add pipeline
+    PipelineId id = _next_pipeline_id++;
+    auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
+    _pipelines.emplace_back(pipeline);
+    parent->set_children(pipeline);
+    return pipeline;
+}
+
 Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
                                         const size_t idx) {
     if (_prepared) {

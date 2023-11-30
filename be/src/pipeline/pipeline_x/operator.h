@@ -20,6 +20,7 @@
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
 
 namespace doris::pipeline {
 
@@ -160,6 +161,10 @@ public:
         LOG(FATAL) << "should not reach here!";
         return Status::OK();
     }
+    virtual Status init() {
+        LOG(FATAL) << "should not reach here!";
+        return Status::OK();
+    }
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Runtime Profile is not owned by operator");
@@ -170,6 +175,8 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
+    virtual std::vector<TExpr> get_local_shuffle_exprs() const { return {}; }
+    virtual ExchangeType get_local_exchange_type() const { return ExchangeType::NOOP; }
 
     Status prepare(RuntimeState* state) override;
 
@@ -450,6 +457,8 @@ public:
     }
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
+    virtual std::vector<TExpr> get_local_shuffle_exprs() const { return {}; }
+    virtual ExchangeType get_local_exchange_type() const { return ExchangeType::NOOP; }
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");

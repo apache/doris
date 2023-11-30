@@ -22,11 +22,6 @@
 
 namespace doris::pipeline {
 
-enum class ExchangeType : uint8_t {
-    SHUFFLE = 0,
-    PASSTHROUGH = 1,
-};
-
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 

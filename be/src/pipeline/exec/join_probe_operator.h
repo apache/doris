@@ -84,7 +84,7 @@ public:
     }
 
     Status set_child(OperatorXPtr child) override {
-        if (OperatorX<LocalStateType>::_child_x) {
+        if (OperatorX<LocalStateType>::_child_x && _build_side_child == nullptr) {
             // when there already (probe) child, others is build child.
             set_build_side_child(child);
         } else {
@@ -113,7 +113,7 @@ protected:
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr
     vectorized::VExprContextSPtrs _output_expr_ctxs;
-    OperatorXPtr _build_side_child;
+    OperatorXPtr _build_side_child = nullptr;
     const bool _short_circuit_for_null_in_build_side;
 };
 
