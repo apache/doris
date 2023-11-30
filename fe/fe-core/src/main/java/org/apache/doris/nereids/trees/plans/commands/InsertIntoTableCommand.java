@@ -152,7 +152,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             ctx.getMysqlChannel().reset();
         }
         String label = this.labelName.orElse(String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
-
         Optional<TreeNode<?>> plan = (planner.getPhysicalPlan()
                 .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
         Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
@@ -185,6 +184,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         Transaction txn = new Transaction(ctx,
                 physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), label, planner);
+        executor.setCoord(txn.getCoordinator());
         isTxnBegin = true;
         boolean isStrictMode = (ctx.getSessionVariable().getEnableInsertStrict()
                 && physicalOlapTableSink.isPartialUpdate()

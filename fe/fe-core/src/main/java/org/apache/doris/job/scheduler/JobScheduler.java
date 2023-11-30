@@ -168,13 +168,13 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
      * We will get the task in the next time window, and then hand it over to the time wheel for timing trigger
      */
     private void executeTimerJobIdsWithinLastTenMinutesWindow() {
-        if (jobMap.isEmpty()) {
-            return;
-        }
         if (latestBatchSchedulerTimerTaskTimeMs < System.currentTimeMillis()) {
             this.latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis();
         }
         this.latestBatchSchedulerTimerTaskTimeMs += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
+        if (jobMap.isEmpty()) {
+            return;
+        }
         for (Map.Entry<Long, T> entry : jobMap.entrySet()) {
             T job = entry.getValue();
             if (!job.getJobConfig().checkIsTimerJob()) {

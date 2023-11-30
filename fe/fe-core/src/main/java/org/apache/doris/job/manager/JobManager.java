@@ -79,9 +79,9 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         jobMap.remove(jobId);
     }
 
-    public void unregisterJob(String jobName, JobType jobType) throws JobException {
+    public void unregisterJob(String jobName) throws JobException {
         for (T a : jobMap.values()) {
-            if (a.getJobName().equals(jobName) && a.getJobType().equals(jobType)) {
+            if (a.getJobName().equals(jobName)) {
                 try {
                     unregisterJob(a.getJobId());
                 } catch (JobException e) {
@@ -98,10 +98,14 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         Env.getCurrentEnv().getEditLog().logUpdateJob(jobMap.get(jobId));
     }
 
-    public void alterJobStatus(String jobName, JobStatus jobStatus, JobType jobType) throws JobException {
+    public void alterJobStatus(String jobName, JobStatus jobStatus) throws JobException {
         for (T a : jobMap.values()) {
-            if (a.getJobName().equals(jobName) && jobType.equals(a.getJobType())) {
+            if (a.getJobName().equals(jobName)) {
                 try {
+                    if (jobStatus.equals(JobStatus.STOPPED)) {
+                        unregisterJob(a.getJobId());
+                        return;
+                    }
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
                     throw new JobException("unregister job error,jobName:" + jobName);
@@ -192,7 +196,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
                 .add("msg", "replay delete scheduler job").build());
     }
 
-    public void cancelTaskById(String  jobName, Long taskId) throws JobException {
+    public void cancelTaskById(String jobName, Long taskId) throws JobException {
         for (T job : jobMap.values()) {
             if (job.getJobName().equals(jobName)) {
                 job.cancelTaskById(taskId);

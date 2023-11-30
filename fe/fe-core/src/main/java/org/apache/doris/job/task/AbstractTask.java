@@ -50,7 +50,7 @@ public abstract class AbstractTask implements Task {
 
     @Override
     public void onFail(String msg) throws JobException {
-        status = TaskStatus.FAILD;
+        status = TaskStatus.FAILED;
         if (!isCallable()) {
             return;
         }
@@ -59,10 +59,10 @@ public abstract class AbstractTask implements Task {
 
     @Override
     public void onFail() throws JobException {
-        if (TaskStatus.CANCEL.equals(status)) {
+        if (TaskStatus.CANCELED.equals(status)) {
             return;
         }
-        status = TaskStatus.FAILD;
+        status = TaskStatus.FAILED;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
             return;
@@ -72,7 +72,7 @@ public abstract class AbstractTask implements Task {
     }
 
     private boolean isCallable() {
-        if (status.equals(TaskStatus.CANCEL)) {
+        if (status.equals(TaskStatus.CANCELED)) {
             return false;
         }
         if (null != Env.getCurrentEnv().getJobManager().getJob(jobId)) {
@@ -83,7 +83,7 @@ public abstract class AbstractTask implements Task {
 
     @Override
     public void onSuccess() throws JobException {
-        if (TaskStatus.CANCEL.equals(status)) {
+        if (TaskStatus.CANCELED.equals(status)) {
             return;
         }
         status = TaskStatus.SUCCESS;
@@ -101,7 +101,7 @@ public abstract class AbstractTask implements Task {
 
     @Override
     public void cancel() throws JobException {
-        status = TaskStatus.CANCEL;
+        status = TaskStatus.CANCELED;
     }
 
     @Override
@@ -122,7 +122,7 @@ public abstract class AbstractTask implements Task {
     }
 
     public boolean isCancelled() {
-        return status.equals(TaskStatus.CANCEL);
+        return status.equals(TaskStatus.CANCELED);
     }
 
 }

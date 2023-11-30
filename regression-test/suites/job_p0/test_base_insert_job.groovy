@@ -25,7 +25,7 @@ suite("test_base_insert_job") {
     def jobName = "insert_recovery_test_base_insert_job"
     sql """drop table if exists `${tableName}` force"""
     sql """
-        STOP JOB for ${jobName}
+        STOP JOB where jobname =  '${jobName}'
     """
 
     sql """
@@ -49,7 +49,7 @@ suite("test_base_insert_job") {
     println jobs
     assert 3>=jobs.size() >= (2 as Boolean) //at least 2 records, some times 3 records
     sql """
-        STOP JOB for ${jobName}
+        STOP JOB where jobname =  '${jobName}'
     """
     sql """drop table if exists `${tableName}` force """
     sql """
@@ -74,11 +74,11 @@ suite("test_base_insert_job") {
           CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
      """
 
-    Thread.sleep(2500)
+    Thread.sleep(5000)
 
-    def datas = sql """select * from ${tableName}"""
+    def datas = sql """show job tasks for ${jobName}"""
     println datas
-    //assert datas.size() == 1
+    assert datas.size() == 1
     try{
         sql """
             CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
@@ -87,7 +87,7 @@ suite("test_base_insert_job") {
         assert true
     }
     sql """
-        STOP JOB for test_one_time_error_starts
+        STOP JOB where jobname =  'test_one_time_error_starts'
     """
     try{
         sql """
@@ -97,7 +97,7 @@ suite("test_base_insert_job") {
         assert true
     }
     sql """
-        STOP JOB for test_error_starts
+        STOP JOB where jobname =  'test_error_starts'
     """
     try{
         sql """

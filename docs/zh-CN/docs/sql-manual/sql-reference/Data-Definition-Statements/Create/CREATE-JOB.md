@@ -36,10 +36,24 @@ CREATE JOB
 Doris Job 是根据既定计划运行的任务，用于在特定时间或指定时间间隔触发预定义的操作，从而帮助我们自动执行一些任务。从功能上来讲，它类似于操作系统上的
 定时任务（如：Linux 中的 cron、Windows 中的计划任务）。但 Doris 的 Job 调度可以精确到秒级。
 
-Job 有两种类型：`ONE_TIME` 和 `BATCH`。其中 `ONE_TIME` 类型的 Job 会在指定的时间点触发，它主要用于一次性任务，而 `BATCH` 类型的 Job 会在指定的时间间隔内循环触发。
-主要用于周期性执行的任务。
+Job 有两种类型：`ONE_TIME` 和 `RECURRING`。其中 `ONE_TIME` 类型的 Job 会在指定的时间点触发，它主要用于一次性任务，而 `RECURRING` 类型的 Job 会在指定的时间间隔内循环触发, 此方式主要用于周期性执行的任务。
+`RECURRING` 类型的 Job 可指定开始时间，结束时间，即 `STARTS\ENDS`, 如果不指定开始时间，则默认首次执行时间为当前时间 + 一次调度周期。如果指定结束时间，则 task 执行完成如果达到结束时间（或超过，或下次执行周期会超过结束时间）则更新为FINISHED状态，此时不会再产生 Task。
 
-目前仅支持 ***ADMIN*** 权限执行此操作。
+JOB 共4种状态（`RUNNING`,`STOPPED`,`PAUSED`,`FINISHED`,），初始状态为RUNNING，RUNNING状态的JOB会根据既定的调度周期去生成 TASK 执行，Job 执行完成达到结束时间则状态变更为 `FINISHED`.
+
+RUNNING 状态的JOB 可以被 pause，即暂停，此时不会再生成 Task。
+
+PAUSE状态的 JOB 可以通过 RESUME 操作来恢复运行，更改为RUNNING状态。
+
+STOP 状态的 JOB 由用户主动触发，此时会 Cancel 正在运行中的作业，然后删除 JOB。
+
+JOB 只描述作业信息， 执行会生成 TASK， TASK 状态分为 PENDING，RUNNNING，SUCCEESS,FAILED,CANCELD
+PENDING 表示到达触发时间了但是等待资源 RUN， 分配到资源后状态变更为RUNNING ，执行成功/失败即变更为 SUCCESS/FAILED. 
+CANCELED 即取消状态 ，TASK持久化最终状态，即SUCCESS/FAILED,其他状态运行中可以查到，但是如果重启则不可见。TASK只保留最新的100条记录。
+
+- 目前仅支持 ***ADMIN*** 权限执行此操作。
+- 目前仅支持 ***INSERT 内表*** 
+
 
  语法：
 
@@ -122,6 +136,18 @@ CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2020-01-01 00:00:00' DO INSERT
 ```sql
 CREATE JOB my_job ON SCHEDULER EVERY 1 DAY STARTS '2020-01-01 00:00:00' ENDS '2020-01-01 00:10:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 create_time >=  days_add(now(),-1);
 ```
+### INSERT JOB
+目前仅支持 ***INSERT 内表***，同时只支持新优化器，即`enable_nereids_planner=true`.
+
+### CONFIG
+
+fe.conf
+
+- job_dispatch_timer_job_thread_num, 用于分发定时任务的线程数, 默认值5，如果含有大量周期执行任务，可以调大这个参数。
+
+- job_dispatch_timer_job_queue_size, 任务堆积时用于存放定时任务的队列大小,默认值 1024.
+
+- job_insert_task_consumer_thread_num = 10;用于执行 Insert 任务的线程数, 值应该大于0，否则默认为5.
 
 ### Keywords
 

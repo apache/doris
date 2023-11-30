@@ -47,6 +47,7 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -66,6 +67,7 @@ public class Transaction {
     private int filteredRows = 0;
     private TransactionStatus txnStatus = TransactionStatus.ABORTED;
     private String errMsg = "";
+    @Getter
     private final Coordinator coordinator;
 
     /**
