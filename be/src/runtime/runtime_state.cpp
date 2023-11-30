@@ -458,8 +458,9 @@ Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
 
 void RuntimeState::emplace_sink_local_state(
         int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
-    DCHECK(id < _op_id_to_sink_local_state.size());
-    DCHECK(!_op_id_to_sink_local_state[id]);
+    DCHECK(id < _op_id_to_sink_local_state.size())
+            << " id=" << id << " state: " << state->debug_string(0);
+    DCHECK(!_op_id_to_sink_local_state[id]) << " id=" << id << " state: " << state->debug_string(0);
     _op_id_to_sink_local_state[id] = std::move(state);
 }
 
