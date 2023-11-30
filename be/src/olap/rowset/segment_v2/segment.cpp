@@ -360,7 +360,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
             vectorized::PathInData path;
             path.from_protobuf(column_pb.column_path_info());
             column_path_to_footer_ordinal.emplace(path, ordinal);
-        } else {
+        }
+        if (column_pb.has_unique_id()) {
             // unique id
             column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
         }
