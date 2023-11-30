@@ -15,13 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_always_nullable_window_function") {
-    sql """ set enable_nereids_planner = true; """
-    sql """ set enable_fallback_to_original_planner = false; """
-    def tableName = "test_always_nullable_window_function_table"
-    def nullableTableName = "test_always_nullable_window_function_table"
+suite("test_always_nullable_window_function_legacy_planner") {
+    sql """ set enable_nereids_planner = false; """
 
-    sql "set enable_nereids_planner = 1"
+    def tableName = "test_always_nullable_window_function_table_legacy_planner"
+    def nullableTableName = "test_always_nullable_window_function_table_legacy_planner"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -79,8 +77,8 @@ suite("test_always_nullable_window_function") {
             avg(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) avg_value,
             max(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) max_value,
             min(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) min_value,
-            lag(state, 0, null) over (partition by myday order by time_col) lag_value,
-            lead(state, 0, null) over (partition by myday order by time_col) lead_value
+            lag(state, 10, null) over (partition by myday order by time_col) lag_value,
+            lead(state, 10, null) over (partition by myday order by time_col) lead_value
         from ${tableName} order by myday, time_col, state;
     """
     qt_select_empty_window """
@@ -104,8 +102,8 @@ suite("test_always_nullable_window_function") {
             avg(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) avg_value,
             max(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) max_value,
             min(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) min_value,
-            lag(state, 0, null) over (partition by myday order by time_col) lag_value,
-            lead(state, 0, null) over (partition by myday order by time_col) lead_value
+            lag(state, 10, null) over (partition by myday order by time_col) lag_value,
+            lead(state, 10, null) over (partition by myday order by time_col) lead_value
         from ${nullableTableName} order by myday, time_col, state;
     """
     qt_select_empty_window_nullable """
@@ -123,7 +121,7 @@ suite("test_always_nullable_window_function") {
 
     sql "set enable_nereids_planner = 0"
 
-    qt_select_default_old_planer """
+    qt_select_default_old_planner """
         select *,
             first_value(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) f_value,
             last_value(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) l_value,
@@ -135,7 +133,7 @@ suite("test_always_nullable_window_function") {
             lead(state, 1, null) over (partition by myday order by time_col) lead_value
         from ${tableName} order by myday, time_col, state;
     """
-    qt_select_empty_window_old_planer """
+    qt_select_empty_window_old_planner """
         select *,
             first_value(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 preceding) f_value,
             last_value(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 preceding) l_value,
@@ -148,7 +146,7 @@ suite("test_always_nullable_window_function") {
         from ${tableName} order by myday, time_col, state;
     """
 
-    qt_select_default_nullable_old_planer """
+    qt_select_default_nullable_old_planner """
         select *,
             first_value(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) f_value,
             last_value(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 following) l_value,
@@ -160,7 +158,7 @@ suite("test_always_nullable_window_function") {
             lead(state, 1, null) over (partition by myday order by time_col) lead_value
         from ${nullableTableName} order by myday, time_col, state;
     """
-    qt_select_empty_window_nullable_old_planer """
+    qt_select_empty_window_nullable_old_planner """
         select *,
             first_value(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 preceding) f_value,
             last_value(state) over(partition by myday order by time_col rows BETWEEN 1 preceding AND 1 preceding) l_value,
