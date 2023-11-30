@@ -62,17 +62,6 @@ public:
     ScanDependency(int id, int node_id)
             : Dependency(id, node_id, "ScanDependency"), _scanner_ctx(nullptr) {}
 
-    // TODO(gabriel):
-    [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
-        if (_scanner_ctx && _scanner_ctx->get_num_running_scanners() == 0 &&
-            _scanner_ctx->should_be_scheduled()) {
-            _scanner_ctx->reschedule_scanner_ctx();
-        }
-        return Dependency::is_blocked_by(task);
-    }
-
-    bool push_to_blocking_queue() override { return true; }
-
     void block() override {
         if (_scanner_done) {
             return;
