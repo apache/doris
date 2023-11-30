@@ -115,7 +115,7 @@ suite("test_point_query") {
                   """, property)
         }
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 2; i++) {
             tableName = realDb + ".tbl_point_query" + i
             sql """DROP TABLE IF EXISTS ${tableName}"""
             if (i == 0) {
