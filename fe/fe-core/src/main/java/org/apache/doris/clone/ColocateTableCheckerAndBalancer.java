@@ -513,8 +513,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
-                            int idx = 0;
-                            for (Long tabletId : index.getTabletIdsInOrder()) {
+                            List<Long> tabletIdsInOrder = index.getTabletIdsInOrder();
+                            for (int idx = 0; idx < tabletIdsInOrder.size(); idx++) {
+                                Long tabletId = tabletIdsInOrder.get(idx);
                                 counter.totalTabletNum++;
                                 Set<Long> bucketsSeq = backendBucketsSeq.get(idx);
                                 Preconditions.checkState(bucketsSeq.size() == replicationNum,
@@ -554,7 +555,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                         counter.tabletInScheduler++;
                                     }
                                 }
-                                idx++;
                             }
                         }
                     }
