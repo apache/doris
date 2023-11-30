@@ -203,8 +203,8 @@ public:
     virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results) = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
-                                                uint16_t* offsets, int number,
-                                                bool is_parse_column) = 0;
+                                                uint16_t* offsets, int number, bool is_parse_column,
+                                                bool is_dict = false) = 0;
 
 protected:
     // bloom filter size
@@ -277,7 +277,7 @@ template <class T>
 struct CommonFindOp : BaseOp {
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
                                     const uint8* nullmap, uint16_t* offsets, int number,
-                                    const bool is_parse_column) {
+                                    const bool is_parse_column, bool is_dict) {
         return find_batch_olap_engine_with_element_size(bloom_filter, data, nullmap, offsets,
                                                         number, is_parse_column, sizeof(T));
     }
@@ -341,7 +341,11 @@ struct CommonFindOp : BaseOp {
 struct StringFindOp : public BaseOp {
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
                                     const uint8* nullmap, uint16_t* offsets, int number,
-                                    const bool is_parse_column) {
+                                    const bool is_parse_column, bool is_dict) {
+        if (is_dict) {
+            return CommonFindOp<uint32_t>().find_batch_olap_engine(
+                    bloom_filter, data, nullmap, offsets, number, is_parse_column, true);
+        }
         return find_batch_olap_engine_with_element_size(bloom_filter, data, nullmap, offsets,
                                                         number, is_parse_column, sizeof(StringRef));
     }
@@ -466,9 +470,10 @@ public:
     }
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
-                                        int number, bool is_parse_column) override {
+                                        int number, bool is_parse_column,
+                                        bool is_dict = false) override {
         return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
-                                            is_parse_column);
+                                            is_parse_column, is_dict);
     }
 
 private:

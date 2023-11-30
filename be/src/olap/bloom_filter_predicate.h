@@ -72,10 +72,15 @@ private:
             const auto* dict_col = reinterpret_cast<const vectorized::ColumnDictI32*>(&column);
             std::vector<uint32_t> data(size);
             for (uint16_t i = 0; i < size; i++) {
+                if constexpr (is_nullable) {
+                    if (null_map[sel[i]]) {
+                        continue;
+                    }
+                }
                 data[i] = dict_col->get_hash_value(sel[i]);
             }
-            new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
-                                                                    sel, size, data.size() != size);
+            new_size = _specific_filter->find_fixed_len_olap_engine(
+                    (char*)data.data(), null_map, sel, size, false, sizeof(uint32_t));
         } else {
             const auto& data =
                     reinterpret_cast<
