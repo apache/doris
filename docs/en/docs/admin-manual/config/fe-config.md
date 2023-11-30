@@ -2557,7 +2557,7 @@ MasterOnly：true
 
 default timeout of backup job
 
-#### `upload_task_num_per_be`
+#### `backup_upload_task_num_per_be`
 
 Default：3
 
@@ -2567,7 +2567,7 @@ MasterOnly：true
 
 The max number of upload tasks assigned to each be during the backup process, the default value is 3.
 
-#### `download_task_num_per_be`
+#### `restore_download_task_num_per_be`
 
 Default：3
 

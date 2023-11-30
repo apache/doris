@@ -615,7 +615,7 @@ public class BackupJob extends AbstractJob {
         for (Long beId : beToSnapshots.keySet()) {
             List<SnapshotInfo> infos = beToSnapshots.get(beId);
             int totalNum = infos.size();
-            int batchNum = Math.min(totalNum, Config.upload_task_num_per_be);
+            int batchNum = Math.min(totalNum, Config.backup_upload_task_num_per_be);
             // each task contains several upload sub tasks
             int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
             LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);

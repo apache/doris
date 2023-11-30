@@ -2295,13 +2295,13 @@ public class Config extends ConfigBase {
             "备份过程中，分配给每个be的upload任务最大个数，默认值为3个。",
             "The max number of upload tasks assigned to each be during the backup process, the default value is 3."
     })
-    public static int upload_task_num_per_be = 3;
+    public static int backup_upload_task_num_per_be = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "恢复过程中，分配给每个be的download任务最大个数，默认值为3个。",
             "The max number of download tasks assigned to each be during the restore process, the default value is 3."
     })
-    public static int download_task_num_per_be = 3;
+    public static int restore_download_task_num_per_be = 3;
 
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})

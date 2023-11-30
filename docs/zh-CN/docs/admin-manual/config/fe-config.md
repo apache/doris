@@ -2558,7 +2558,7 @@ SmallFileMgr 中存储的最大文件数
 
 备份作业的默认超时时间
 
-#### `upload_task_num_per_be`
+#### `backup_upload_task_num_per_be`
 
 默认值：3
 
@@ -2568,7 +2568,7 @@ SmallFileMgr 中存储的最大文件数
 
 备份过程中，分配给每个be的upload任务最大个数，默认值为3个。
 
-#### `download_task_num_per_be`
+#### `restore_download_task_num_per_be`
 
 默认值：3
 
