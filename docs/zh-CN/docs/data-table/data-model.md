@@ -380,7 +380,7 @@ mysql> select group_concat_merge(k3) from aggstate;
 如果不想要聚合的最终结果，可以使用union来合并多个聚合的中间结果，生成一个新的中间结果。
 
 ```sql
-insert into aggstate select 3,sum_union(k2),group_concat_union(k3) from aggstate ;
+insert into aggstate select 3,sum_union(k2),group_concat_union(k3) from aggstate;
 ```
 此时的表结构为
 
