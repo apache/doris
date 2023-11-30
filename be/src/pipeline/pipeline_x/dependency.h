@@ -225,7 +225,10 @@ struct RuntimeFilterTimerQueue {
         _shutdown = true;
     }
 
-    void stop() { _stop = true; }
+    void stop() {
+        _stop = true;
+        cv.notify_all();
+    }
 
     void wait_for_shutdown() const {
         while (!_shutdown) {
