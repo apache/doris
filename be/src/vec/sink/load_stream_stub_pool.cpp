@@ -31,6 +31,18 @@ void LoadStreams::release() {
     int num_use = --_use_cnt;
     if (num_use == 0) {
         LOG(INFO) << "releasing streams, load_id=" << _load_id << ", dst_id=" << _dst_id;
+        for (auto& stream : _streams) {
+            auto st = stream->close_stream();
+            if (!st.ok()) {
+                LOG(WARNING) << "close stream failed " << st;
+            }
+        }
+        for (auto& stream : _streams) {
+            auto st = stream->close_wait();
+            if (!st.ok()) {
+                LOG(WARNING) << "close wait failed " << st;
+            }
+        }
         _pool->erase(_load_id, _dst_id);
     } else {
         LOG(INFO) << "keeping streams, load_id=" << _load_id << ", dst_id=" << _dst_id
