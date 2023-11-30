@@ -26,7 +26,7 @@ import io.netty.util.TimerTask;
 import lombok.extern.log4j.Log4j2;
 
 @Log4j2
-public class TimerJobSchedulerTask<T extends AbstractJob<?>> implements TimerTask {
+public class TimerJobSchedulerTask<T extends AbstractJob> implements TimerTask {
 
     private TaskDisruptor dispatchDisruptor;
 
@@ -41,6 +41,7 @@ public class TimerJobSchedulerTask<T extends AbstractJob<?>> implements TimerTas
     public void run(Timeout timeout) {
         try {
             if (!JobStatus.RUNNING.equals(job.getJobStatus())) {
+                log.info("job status is not running, job id is {},skip dispatch", this.job.getJobId());
                 return;
             }
             dispatchDisruptor.publishEvent(this.job);

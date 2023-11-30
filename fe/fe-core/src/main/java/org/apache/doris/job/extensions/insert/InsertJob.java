@@ -45,11 +45,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Data
 @Slf4j
-public class InsertJob extends AbstractJob<InsertTask> {
+public class InsertJob extends AbstractJob<InsertTask, Map> {
 
     @SerializedName(value = "lp")
     String labelPrefix;
@@ -66,12 +67,9 @@ public class InsertJob extends AbstractJob<InsertTask> {
     // max save task num, do we need to config it?
     private static final int MAX_SAVE_TASK_NUM = 100;
 
-
     @Override
-    public List<InsertTask> createTasks(TaskType taskType) {
-        if (CollectionUtils.isNotEmpty(getRunningTasks())) {
-            return new ArrayList<>();
-        }
+    public List<InsertTask> createTasks(TaskType taskType, Map taskContext) {
+        //nothing need to do in insert job
         InsertTask task = new InsertTask(null, getCurrentDbName(), getExecuteSql(), getCreateUser());
         task.setJobId(getJobId());
         task.setTaskType(taskType);
@@ -103,15 +101,15 @@ public class InsertJob extends AbstractJob<InsertTask> {
         super.cancelTaskById(taskId);
     }
 
+    @Override
+    public boolean isReadyForScheduling(Map taskContext) {
+        return CollectionUtils.isEmpty(getRunningTasks());
+    }
+
 
     @Override
     public void cancelAllTasks() throws JobException {
         super.cancelAllTasks();
-    }
-
-    @Override
-    public boolean isReadyForScheduling() {
-        return true;
     }
 
 

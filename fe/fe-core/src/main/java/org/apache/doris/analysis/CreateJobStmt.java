@@ -66,7 +66,7 @@ public class CreateJobStmt extends DdlStmt {
     private StatementBase doStmt;
 
     @Getter
-    private AbstractJob<?> jobInstance;
+    private AbstractJob jobInstance;
 
     private final LabelName labelName;
 
@@ -126,7 +126,11 @@ public class CreateJobStmt extends DdlStmt {
             timerDefinition.setInterval(interval);
         }
         if (null != intervalTimeUnit) {
-            timerDefinition.setIntervalUnit(IntervalUnit.valueOf(intervalTimeUnit.toUpperCase()));
+            IntervalUnit intervalUnit = IntervalUnit.fromString(intervalTimeUnit.toUpperCase());
+            if (null == intervalUnit) {
+                throw new AnalysisException("invalid interval time unit " + intervalTimeUnit);
+            }
+            timerDefinition.setIntervalUnit(intervalUnit);
         }
         if (null != startsTimeStamp) {
             timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(startsTimeStamp));

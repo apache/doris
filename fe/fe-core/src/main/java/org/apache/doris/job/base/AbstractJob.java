@@ -26,6 +26,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -34,6 +35,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.RandomUtils;
 
@@ -43,11 +45,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Data
-public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Writable {
+@Log4j2
+public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C>, Writable {
 
     @SerializedName(value = "jid")
     private Long jobId;
@@ -75,6 +78,9 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
 
     @SerializedName(value = "sql")
     String executeSql;
+
+    @SerializedName(value = "ftm")
+    private long finishTimeMs;
 
     private List<T> runningTasks = new ArrayList<>();
 
@@ -120,15 +126,27 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         if (CollectionUtils.isNotEmpty(historyTasks)) {
             tasks.addAll(historyTasks);
         }
-        Map<Long, T> loadTask = tasks.stream().collect(Collectors.toMap(AbstractTask::getTaskId, a -> a));
+        Set<Long> loadTaskIds = tasks.stream().map(AbstractTask::getTaskId).collect(Collectors.toSet());
         runningTasks.forEach(task -> {
-            if (!loadTask.containsKey(task.getTaskId())) {
+            if (!loadTaskIds.contains(task.getTaskId())) {
                 tasks.add(task);
             }
         });
         Comparator<T> taskComparator = Comparator.comparingLong(T::getCreateTimeMs).reversed();
         tasks.sort(taskComparator);
         return tasks;
+    }
+
+    public List<T> commonCreateTasks(TaskType taskType, C taskContext) {
+        if (!getJobStatus().equals(JobStatus.RUNNING)) {
+            log.warn("job is not running,job id is {}", jobId);
+            return new ArrayList<>();
+        }
+        if (!isReadyForScheduling(taskContext)) {
+            log.info("job is not ready for scheduling,job id is {}", jobId);
+            return new ArrayList<>();
+        }
+        return createTasks(taskType, taskContext);
     }
 
     public void initTasks(List<? extends AbstractTask> tasks) {
@@ -159,17 +177,19 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         if (null == newJobStatus) {
             throw new IllegalArgumentException("jobStatus cannot be null");
         }
+        String errorMsg = String.format("Can't update job %s status to the %s status",
+                jobStatus.name(), newJobStatus.name());
         if (jobStatus == newJobStatus) {
-            throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
-                    jobStatus.name(), this.jobStatus.name()));
+            throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.RUNNING) && !jobStatus.equals(JobStatus.PAUSED)) {
-            throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
-                    jobStatus.name(), this.jobStatus.name()));
+            throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.STOPPED) && !jobStatus.equals(JobStatus.RUNNING)) {
-            throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
-                    jobStatus.name(), this.jobStatus.name()));
+            throw new IllegalArgumentException(errorMsg);
+        }
+        if (newJobStatus.equals(JobStatus.FINISHED)) {
+            this.finishTimeMs = System.currentTimeMillis();
         }
         if (JobStatus.PAUSED.equals(newJobStatus)) {
             cancelAllTasks();
@@ -182,7 +202,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
 
     public static AbstractJob readFields(DataInput in) throws IOException {
         String jsonJob = Text.readString(in);
-        AbstractJob<?> job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
+        AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
         job.setRunningTasks(new ArrayList<>());
         return job;
     }
@@ -199,6 +219,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         runningTasks.remove(task);
 
     }
+
 
     private void updateJobStatusIfEnd() throws JobException {
         JobExecuteType executeType = getJobConfig().getExecuteType();

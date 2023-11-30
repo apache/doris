@@ -23,7 +23,6 @@ import java.util.function.Function;
 
 public enum IntervalUnit {
 
-    SECOND("second", 0L, TimeUnit.SECONDS::toMillis),
     MINUTE("minute", 0L, TimeUnit.MINUTES::toMillis),
     HOUR("hour", 0L, TimeUnit.HOURS::toMillis),
     DAY("day", 0L, TimeUnit.DAYS::toMillis),
@@ -57,7 +56,7 @@ public enum IntervalUnit {
         return Arrays.stream(IntervalUnit.values())
                 .filter(config -> config.getUnit().equals(name))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown configuration " + name));
+                .orElseThrow(() -> new IllegalArgumentException("Unknown configuration interval " + name));
     }
 
     public Long getIntervalMs(Long interval) {

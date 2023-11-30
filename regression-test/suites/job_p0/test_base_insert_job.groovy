@@ -25,7 +25,7 @@ suite("test_base_insert_job") {
     def jobName = "insert_recovery_test_base_insert_job"
     sql """drop table if exists `${tableName}` force"""
     sql """
-        STOP JOB where jobname =  '${jobName}'
+        DROP JOB where jobname =  '${jobName}'
     """
 
     sql """
@@ -42,14 +42,14 @@ suite("test_base_insert_job") {
         );
         """
     sql """
-       CREATE JOB ${jobName}  ON SCHEDULER every 1 second   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+       CREATE JOB ${jobName}  ON SCHEDULER every 1 minute   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
     """
-    Thread.sleep(2500)
+    Thread.sleep(2500*60)
     def jobs = sql """select * from ${tableName}"""
     println jobs
     assert 3>=jobs.size() >= (2 as Boolean) //at least 2 records, some times 3 records
     sql """
-        STOP JOB where jobname =  '${jobName}'
+        DROP JOB where jobname =  '${jobName}'
     """
     sql """drop table if exists `${tableName}` force """
     sql """
@@ -74,7 +74,7 @@ suite("test_base_insert_job") {
           CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
      """
 
-    Thread.sleep(5000)
+    Thread.sleep(3000*60)
 
     def datas = sql """show job tasks for ${jobName}"""
     println datas
@@ -87,7 +87,7 @@ suite("test_base_insert_job") {
         assert true
     }
     sql """
-        STOP JOB where jobname =  'test_one_time_error_starts'
+        DROP JOB where jobname =  'test_one_time_error_starts'
     """
     try{
         sql """
@@ -97,7 +97,7 @@ suite("test_base_insert_job") {
         assert true
     }
     sql """
-        STOP JOB where jobname =  'test_error_starts'
+        DROP JOB where jobname =  'test_error_starts'
     """
     try{
         sql """

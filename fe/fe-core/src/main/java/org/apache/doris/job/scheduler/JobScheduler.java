@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.scheduler;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
@@ -40,7 +41,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Log4j2
-public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
+public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
 
     /**
      * scheduler tasks, it's used to scheduler job
@@ -67,6 +68,11 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
      * batch scheduler interval ms time
      */
     private static final long BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS = BATCH_SCHEDULER_INTERVAL_SECONDS * 1000L;
+
+    /**
+     * Finished job will be cleared after 24 hours
+     */
+    private static final long MAX_JOB_LIVE_TIME_MS = 24 * 60 * 60 * 1000L;
 
     public void start() {
         timerTaskScheduler = new HashedWheelTimer(new CustomThreadFactory("timer-task-scheduler"), 1,
@@ -105,20 +111,20 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
             //manual job will not scheduler
             if (JobExecuteType.MANUAL.equals(job.getJobConfig().getExecuteType())) {
                 if (job.getJobConfig().isImmediate()) {
-                    schedulerInstantJob(job, TaskType.MANUAL);
+                    schedulerInstantJob(job, TaskType.MANUAL, null);
                 }
                 return;
             }
 
             //todo skip streaming job,improve in the future
             if (JobExecuteType.INSTANT.equals(job.getJobConfig().getExecuteType())) {
-                schedulerInstantJob(job, TaskType.SCHEDULED);
+                schedulerInstantJob(job, TaskType.SCHEDULED, null);
             }
         }
         //RECURRING job and  immediate is true
         if (job.getJobConfig().isImmediate()) {
             job.getJobConfig().getTimerDefinition().setLatestSchedulerTimeMs(System.currentTimeMillis());
-            schedulerInstantJob(job, TaskType.SCHEDULED);
+            schedulerInstantJob(job, TaskType.SCHEDULED, null);
         }
         //if it's timer job and trigger last window already start, we will scheduler it immediately
         cycleTimerJobScheduler(job);
@@ -142,15 +148,8 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
     }
 
 
-    public void schedulerInstantJob(T job, TaskType taskType) throws JobException {
-        if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
-            throw new JobException("job is not running,job id is %d", job.getJobId());
-        }
-        if (!job.isReadyForScheduling()) {
-            log.info("job is not ready for scheduling,job id is {}", job.getJobId());
-            return;
-        }
-        List<? extends AbstractTask> tasks = job.createTasks(taskType);
+    public void schedulerInstantJob(T job, TaskType taskType, C context) {
+        List<? extends AbstractTask> tasks = job.commonCreateTasks(taskType, context);
         if (CollectionUtils.isEmpty(tasks)) {
             log.info("job create task is empty, skip scheduler, job id is {},job name is {}", job.getJobId(),
                     job.getJobName());
@@ -177,10 +176,25 @@ public class JobScheduler<T extends AbstractJob<?>> implements Closeable {
         }
         for (Map.Entry<Long, T> entry : jobMap.entrySet()) {
             T job = entry.getValue();
-            if (!job.getJobConfig().checkIsTimerJob()) {
+            if (job.getJobStatus().equals(JobStatus.FINISHED)) {
+                clearFinishedJob(job);
+                continue;
+            }
+            if (!job.getJobStatus().equals(JobStatus.RUNNING) && !job.getJobConfig().checkIsTimerJob()) {
                 continue;
             }
             cycleTimerJobScheduler(job);
+        }
+    }
+
+    private void clearFinishedJob(T job) {
+        if (job.getFinishTimeMs() + MAX_JOB_LIVE_TIME_MS < System.currentTimeMillis()) {
+            return;
+        }
+        try {
+            Env.getCurrentEnv().getJobManager().unregisterJob(job.getJobId());
+        } catch (JobException e) {
+            log.error("clear finish job error,job id is {}", job.getJobId(), e);
         }
     }
 }

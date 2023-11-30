@@ -38,7 +38,7 @@ import java.util.Map;
  * we will create task and publish to task disruptor @see DefaultTaskExecutorHandler
  */
 @Log4j2
-public class DispatchTaskHandler<T extends AbstractJob<?>> implements WorkHandler<TimerJobEvent<T>> {
+public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<TimerJobEvent<T>> {
 
     private final Map<JobType, TaskDisruptor<T>> disruptorMap;
 
@@ -56,11 +56,11 @@ public class DispatchTaskHandler<T extends AbstractJob<?>> implements WorkHandle
                 log.info("job is null,may be job is deleted, ignore");
                 return;
             }
-            if (event.getJob().isReadyForScheduling() && event.getJob().getJobStatus() == JobStatus.RUNNING) {
-                List<? extends AbstractTask> tasks = event.getJob().createTasks(TaskType.SCHEDULED);
+            if (event.getJob().isReadyForScheduling(null) && event.getJob().getJobStatus() == JobStatus.RUNNING) {
+                List<? extends AbstractTask> tasks = event.getJob().commonCreateTasks(TaskType.SCHEDULED, null);
                 if (CollectionUtils.isEmpty(tasks)) {
                     log.warn("job is ready for scheduling, but create task is empty, skip scheduler,"
-                            + "job id is {}," + " job name is {}", event.getJob().getJobId(),
+                                    + "job id is {}," + " job name is {}", event.getJob().getJobId(),
                             event.getJob().getJobName());
                     return;
                 }

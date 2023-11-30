@@ -40,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Log4j2
-public class JobManager<T extends AbstractJob<?>> implements Writable {
+public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
 
     private final ConcurrentHashMap<Long, T> jobMap = new ConcurrentHashMap<>(32);
@@ -164,9 +164,9 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
         return jobMap.get(jobId).queryAllTasks();
     }
 
-    public void triggerJob(long jobId) throws JobException {
+    public void triggerJob(long jobId, C context) throws JobException {
         checkJobExist(jobId);
-        jobScheduler.schedulerInstantJob(jobMap.get(jobId), TaskType.MANUAL);
+        jobScheduler.schedulerInstantJob(jobMap.get(jobId), TaskType.MANUAL, context);
     }
 
     public void replayCreateJob(T job) {

@@ -1156,6 +1156,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | pause_job_stmt : stmt   
     {: RESULT = stmt; :}
+    | cancel_job_task_stmt : stmt
+    {: RESULT = stmt; :}       
     | show_job_stmt : stmt   
     {: RESULT = stmt; :}
     | stop_job_stmt : stmt   
@@ -2588,13 +2590,7 @@ create_job_stmt ::=
      {:  
           RESULT = endTime;  
      :}
-     ;       
-resume_job_stmt ::=
-    KW_RESUME KW_JOB  KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ResumeJobStmt(jobLabel);
-    :}
-    ;    
+     ;        
 show_job_stmt ::=
     KW_SHOW KW_JOBS
     {:
@@ -2622,18 +2618,30 @@ show_job_stmt ::=
     :}       
     ;
 pause_job_stmt ::=
-    KW_PAUSE KW_JOB KW_FOR job_label:jobLabel
+    KW_PAUSE KW_JOB opt_wild_where
     {:
-        RESULT = new PauseJobStmt(jobLabel);
+       RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.PAUSED);
     :}
     ;
 
 stop_job_stmt ::=
-    KW_STOP KW_JOB KW_FOR job_label:jobLabel
+    KW_DROP KW_JOB opt_wild_where
     {:
-        RESULT = new StopJobStmt(jobLabel);
+      RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.STOPPED);
     :}
-    ;                       
+    ;    
+resume_job_stmt ::=
+    KW_RESUME KW_JOB  opt_wild_where
+    {:
+        RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.RUNNING);
+    :}
+    ;    
+cancel_job_task_stmt ::=
+   KW_CANCEL KW_TASK opt_wild_where
+    {:
+      RESULT = new CancelJobTaskStmt(parser.where);
+    :}
+    ;                          
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName

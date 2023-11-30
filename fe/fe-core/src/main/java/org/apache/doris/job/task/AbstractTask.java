@@ -48,6 +48,9 @@ public abstract class AbstractTask implements Task {
     @SerializedName(value = "tt")
     private TaskType taskType;
 
+    @SerializedName(value = "emg")
+    private String errMsg;
+
     @Override
     public void onFail(String msg) throws JobException {
         status = TaskStatus.FAILED;

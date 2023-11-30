@@ -1566,7 +1566,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(description = {"用于分发定时任务的线程数",
             "The number of threads used to dispatch timer job."})
-    public static int job_dispatch_timer_job_thread_num = 5;
+    public static int job_dispatch_timer_job_thread_num = 2;
 
     /**
      * The number of timer jobs that can be queued.

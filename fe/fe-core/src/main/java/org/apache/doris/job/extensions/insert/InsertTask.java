@@ -116,6 +116,7 @@ public class InsertTask extends AbstractTask {
     public void run() throws JobException {
         try {
             if (isCanceled.get()) {
+                log.info("task has been canceled, task id is {}", getTaskId());
                 return;
             }
             command.run(ctx, stmtExecutor);

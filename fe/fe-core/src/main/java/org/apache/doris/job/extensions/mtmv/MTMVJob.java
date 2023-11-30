@@ -43,8 +43,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
-public class MTMVJob extends AbstractJob<MTMVTask> {
+public class MTMVJob extends AbstractJob<MTMVTask, Map> {
     private static final Logger LOG = LogManager.getLogger(MTMVJob.class);
     private static final ShowResultSetMetaData JOB_META_DATA =
             ShowResultSetMetaData.builder()
@@ -85,7 +86,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     }
 
     @Override
-    public List<MTMVTask> createTasks(TaskType taskType) {
+    public List<MTMVTask> createTasks(TaskType taskType, Map taskContext) {
         MTMVTask task = new MTMVTask(dbId, mtmvId);
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
@@ -95,7 +96,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     }
 
     @Override
-    public boolean isReadyForScheduling() {
+    public boolean isReadyForScheduling(Map taskContext) {
         return CollectionUtils.isEmpty(getRunningTasks());
     }
 
