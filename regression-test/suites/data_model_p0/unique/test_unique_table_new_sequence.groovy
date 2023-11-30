@@ -149,7 +149,7 @@ suite("test_unique_table_new_sequence") {
     );
     """
 
-    // test insert into with column list, which not contains the seq mapping column v2
+    // test insert into with column list, which not contains the seq mapping column v4
     // in begin/commit
     sql "begin;"
     test {
