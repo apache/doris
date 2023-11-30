@@ -228,6 +228,8 @@ public:
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
+    std::atomic<bool> use_task_group_for_cpu_limit = false;
+
 private:
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;

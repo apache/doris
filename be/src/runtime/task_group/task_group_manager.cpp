@@ -67,7 +67,7 @@ TaskGroupPtr TaskGroupManager::get_task_group_by_id(uint64_t tg_id) {
     return nullptr;
 }
 
-bool TaskGroupManager::set_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr) {
+bool TaskGroupManager::set_cg_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr) {
     std::lock_guard<std::mutex> lock(_task_scheduler_lock);
     if (_tg_sche_map.find(tg_id) != _tg_sche_map.end()) {
         query_ctx_ptr->set_task_scheduler(_tg_sche_map.at(tg_id).get());
@@ -83,8 +83,8 @@ bool TaskGroupManager::set_task_sche_for_query_ctx(uint64_t tg_id, QueryContext*
     return true;
 }
 
-Status TaskGroupManager::upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info,
-                                               ExecEnv* exec_env) {
+Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info,
+                                                  ExecEnv* exec_env) {
     uint64_t tg_id = tg_info->id;
     std::string tg_name = tg_info->name;
     int cpu_hard_limit = tg_info->cpu_hard_limit;
