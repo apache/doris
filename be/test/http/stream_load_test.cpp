@@ -20,10 +20,10 @@
 #include <gtest/gtest.h>
 
 #include "common/config.h"
-#include "event2/http.h"
-#include "event2/http_struct.h"
 #include "event2/buffer.h"
 #include "event2/event.h"
+#include "event2/http.h"
+#include "event2/http_struct.h"
 #include "evhttp.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
@@ -73,8 +73,8 @@ TEST_F(StreamLoadTest, TestHeader) {
         req.init_from_evhttp();
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
         evhttp_uri_free(evhttp_req->uri_elems);
-        evhttp_req->uri=nullptr;
-        evhttp_req->uri_elems=nullptr;
+        evhttp_req->uri = nullptr;
+        evhttp_req->uri_elems = nullptr;
         evhttp_request_free(evhttp_req);
     }
 
@@ -91,8 +91,8 @@ TEST_F(StreamLoadTest, TestHeader) {
         req.init_from_evhttp();
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), true);
         evhttp_uri_free(evhttp_req->uri_elems);
-        evhttp_req->uri=nullptr;
-        evhttp_req->uri_elems=nullptr;
+        evhttp_req->uri = nullptr;
+        evhttp_req->uri_elems = nullptr;
         evhttp_request_free(evhttp_req);
     }
 
@@ -109,8 +109,8 @@ TEST_F(StreamLoadTest, TestHeader) {
         req.init_from_evhttp();
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
         evhttp_uri_free(evhttp_req->uri_elems);
-        evhttp_req->uri=nullptr;
-        evhttp_req->uri_elems=nullptr;
+        evhttp_req->uri = nullptr;
+        evhttp_req->uri_elems = nullptr;
         evhttp_request_free(evhttp_req);
     }
 }
