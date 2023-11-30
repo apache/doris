@@ -21,6 +21,9 @@
 
 #include "common/config.h"
 #include "event2/http.h"
+#include "event2/http_struct.h"
+#include "event2/buffer.h"
+#include "event2/event.h"
 #include "evhttp.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
@@ -54,16 +57,14 @@ TEST_F(StreamLoadTest, TestHeader) {
         auto evhttp_req = evhttp_request_new(nullptr, nullptr);
         HttpRequest req(evhttp_req);
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
+        evhttp_request_free(evhttp_req);
     }
 
     // 2. chunked stream load whih group commit
     {
-        struct event_base* base = nullptr;
-        struct evhttp_request* evhttp_req = nullptr;
+        //struct event_base* base = nullptr;
         char uri[] = "Http://127.0.0.1/test.txt";
-        event_init();
-        base = event_base_new();
-        evhttp_req = evhttp_request_new(http_request_done_cb, base);
+        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
         evhttp_req->type = EVHTTP_REQ_GET;
         evhttp_req->uri = uri;
         evhttp_req->uri_elems = evhttp_uri_parse(uri);
@@ -71,16 +72,16 @@ TEST_F(StreamLoadTest, TestHeader) {
         HttpRequest req(evhttp_req);
         req.init_from_evhttp();
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
+        evhttp_uri_free(evhttp_req->uri_elems);
+        evhttp_req->uri=nullptr;
+        evhttp_req->uri_elems=nullptr;
+        evhttp_request_free(evhttp_req);
     }
 
     // 3. small stream load whih group commit
     {
-        struct event_base* base = nullptr;
-        struct evhttp_request* evhttp_req = nullptr;
         char uri[] = "Http://127.0.0.1/test.txt";
-        event_init();
-        base = event_base_new();
-        evhttp_req = evhttp_request_new(http_request_done_cb, base);
+        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
         evhttp_req->type = EVHTTP_REQ_GET;
         evhttp_req->uri = uri;
         evhttp_req->uri_elems = evhttp_uri_parse(uri);
@@ -89,16 +90,16 @@ TEST_F(StreamLoadTest, TestHeader) {
         HttpRequest req(evhttp_req);
         req.init_from_evhttp();
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), true);
+        evhttp_uri_free(evhttp_req->uri_elems);
+        evhttp_req->uri=nullptr;
+        evhttp_req->uri_elems=nullptr;
+        evhttp_request_free(evhttp_req);
     }
 
     // 4. large stream load whih group commit
     {
-        struct event_base* base = nullptr;
-        struct evhttp_request* evhttp_req = nullptr;
         char uri[] = "Http://127.0.0.1/test.txt";
-        event_init();
-        base = event_base_new();
-        evhttp_req = evhttp_request_new(http_request_done_cb, base);
+        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
         evhttp_req->type = EVHTTP_REQ_GET;
         evhttp_req->uri = uri;
         evhttp_req->uri_elems = evhttp_uri_parse(uri);
@@ -107,6 +108,10 @@ TEST_F(StreamLoadTest, TestHeader) {
         HttpRequest req(evhttp_req);
         req.init_from_evhttp();
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
+        evhttp_uri_free(evhttp_req->uri_elems);
+        evhttp_req->uri=nullptr;
+        evhttp_req->uri_elems=nullptr;
+        evhttp_request_free(evhttp_req);
     }
 }
 } // namespace doris
