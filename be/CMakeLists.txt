@@ -559,6 +559,7 @@ set(COMMON_THIRDPARTY
     xml2
     lzma
     simdjson
+    deflate
 )
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
