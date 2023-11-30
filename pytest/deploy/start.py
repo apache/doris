@@ -182,6 +182,7 @@ def add_auditload_plugin():
               client_ip varchar(32) comment 'Client IP', \
               user varchar(64) comment 'User name', \
               db varchar(96) comment 'Database of this query', \
+              query_tables string comment "Query tables and indexs", \
               state varchar(8) comment 'Query result state. EOF, ERR, OK', \
               query_time bigint comment 'Query execution time in millisecond', \
               scan_bytes bigint comment 'Total scan bytes of this query', \
