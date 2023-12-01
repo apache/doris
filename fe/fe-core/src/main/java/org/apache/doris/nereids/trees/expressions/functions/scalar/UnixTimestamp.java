@@ -83,8 +83,8 @@ public class UnixTimestamp extends ScalarFunction
      * [['unix_timestamp'], 'INT', ['DATE'], 'DEPEND_ON_ARGUMENT'],
      * [['unix_timestamp'], 'DECIMAL64', ['DATETIMEV2'], 'DEPEND_ON_ARGUMENT'],
      * [['unix_timestamp'], 'INT', ['DATEV2'], 'DEPEND_ON_ARGUMENT'],
-     * [['unix_timestamp'], 'INT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-     * [['unix_timestamp'], 'INT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+     * [['unix_timestamp'], 'DECIMAL64', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+     * [['unix_timestamp'], 'DECIMAL64', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
      */
     @Override
     public boolean nullable() {
