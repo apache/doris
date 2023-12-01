@@ -266,7 +266,7 @@ public class CacheTest extends TestWithFeService {
                 table.getColumnStatistic("col");
                 result = new ColumnStatistic(1, 2,
                         null, 3, 4, 5, 6, 7,
-                        null, null, false, null, new Date().toString(), null);
+                        null, null, false, new Date().toString());
             }
         };
         try {
@@ -283,7 +283,7 @@ public class CacheTest extends TestWithFeService {
             Assertions.assertEquals(7, columnStatistic.maxValue);
         } catch (Throwable t) {
             t.printStackTrace();
-        }
+        }git a
     }
 
     @Test
