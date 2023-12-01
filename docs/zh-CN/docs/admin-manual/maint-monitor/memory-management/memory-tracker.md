@@ -70,7 +70,7 @@ https://shimo.im/docs/DT6JXDRkdTvdyV3G
   - StorageEngine:，存储引擎加载数据目录过程中消耗的内存，Orphan的子集。
   - SegCompaction: 所有 SegCompaction 任务的内存总和，Orphan的子集。
   - SegmentMeta: memory use by segment meta data such as footer or index page，Orphan的子集。
-  - TabletManager: 存储引擎 get、add、delte Tablet 过程中消耗的内存，Orphan的子集。
+  - TabletManager: 存储引擎 get、add、delete Tablet 过程中消耗的内存，Orphan的子集。
   - BufferAllocator: 仅用于非向量化Partitioned Agg过程中的内存复用，Orphan的子集。
 
 - DataPageCache: 用于缓存数据 Page，用于加速 Scan。
