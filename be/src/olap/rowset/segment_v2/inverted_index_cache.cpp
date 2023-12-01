@@ -128,13 +128,7 @@ Status InvertedIndexSearcherCache::get_index_searcher(
         InvertedIndexCacheHandle* cache_handle, OlapReaderStatistics* stats,
         InvertedIndexReaderType reader_type, bool& has_null, bool use_cache) {
     auto file_path = index_dir + "/" + file_name;
-    bool exists = false;
-    RETURN_IF_ERROR(fs->exists(file_path, &exists));
-    if (!exists) {
-        LOG(WARNING) << "inverted index: " << file_path << " not exist.";
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "inverted index input file {} not found", file_path);
-    }
+
     using namespace std::chrono;
     auto start_time = steady_clock::now();
     Defer cost {[&]() {
@@ -155,6 +149,13 @@ Status InvertedIndexSearcherCache::get_index_searcher(
             std::unique_ptr<MemTracker>(new MemTracker("InvertedIndexSearcherCacheWithRead"));
 #ifndef BE_TEST
     {
+        bool exists = false;
+        RETURN_IF_ERROR(fs->exists(file_path, &exists));
+        if (!exists) {
+            LOG(WARNING) << "inverted index: " << file_path << " not exist.";
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index input file {} not found", file_path);
+        }
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker.get());
         switch (reader_type) {
@@ -215,13 +216,7 @@ Status InvertedIndexSearcherCache::insert(const io::FileSystemSPtr& fs,
                                           const std::string& file_name,
                                           InvertedIndexReaderType reader_type) {
     auto file_path = index_dir + "/" + file_name;
-    bool exists = false;
-    RETURN_IF_ERROR(fs->exists(file_path, &exists));
-    if (!exists) {
-        LOG(WARNING) << "inverted index: " << file_path << " not exist.";
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "inverted index input file {} not found", file_path);
-    }
+
     using namespace std::chrono;
     auto start_time = steady_clock::now();
     Defer cost {[&]() {
@@ -236,6 +231,13 @@ Status InvertedIndexSearcherCache::insert(const io::FileSystemSPtr& fs,
     auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithInsert");
 #ifndef BE_TEST
     {
+        bool exists = false;
+        RETURN_IF_ERROR(fs->exists(file_path, &exists));
+        if (!exists) {
+            LOG(WARNING) << "inverted index: " << file_path << " not exist.";
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index input file {} not found", file_path);
+        }
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker.get());
         switch (reader_type) {
         case InvertedIndexReaderType::STRING_TYPE:

@@ -131,7 +131,7 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         InvertedIndexCacheHandle inverted_index_cache_handle_2;
         status = index_searcher_cache->get_index_searcher(
                 fs, kTestDir, file_name_not_exist_2, &inverted_index_cache_handle_2, &stats,
-                InvertedIndexReaderType::FULLTEXT, has_null);
+                InvertedIndexReaderType::FULLTEXT, has_null, false);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_TRUE(inverted_index_cache_handle_2.owned);
         EXPECT_EQ(nullptr, inverted_index_cache_handle_2._cache);
