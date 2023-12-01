@@ -44,6 +44,7 @@ under the License.
 | 1.2.1    | 1.15  | 1.0+   | 8    | -         |
 | 1.3.0     | 1.16  | 1.0+   | 8    | -         |
 | 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
+| 1.5.0 | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
 
 ## USE
 
@@ -309,16 +310,18 @@ ON a.city = c.city
 
 ### General configuration items
 
-| Key                              | Default Value | Required | Comment                                                                                                                                                 |
-|----------------------------------|---------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas                                                                            |
+| Key                              | Default Value | Required | Comment                                                      |
+| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas |
 | benodes                          | --            | N        | Doris BE http address, multiple addresses are supported, separated by commas. refer to [#187](https://github.com/apache/doris-flink-connector/pull/187) |
-| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                                                                                                                       |
-| username                         | --            | Y        | username to access Doris                                                                                                                                |
-| password                         | --            | Y        | Password to access Doris                                                                                                                                |
-| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                                                                                                             |
-| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris                                                                                                        |
-| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                                                                                                              |
+| jdbc-url                         | --            | N        | jdbc connection information, such as: jdbc:mysql://127.0.0.1:9030 |
+| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                            |
+| username                         | --            | Y        | username to access Doris                                     |
+| password                         | --            | Y        | Password to access Doris                                     |
+| auto-redirect                    | false         | N        | Whether to redirect StreamLoad requests. After being turned on, StreamLoad will be written through FE, and BE information will no longer be displayed. At the same time, it can also be written to SelectDB Cloud by turning on this parameter. |
+| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                  |
+| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris             |
+| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                   |
 
 ### Source configuration item
 
@@ -335,21 +338,27 @@ ON a.city = c.city
 
 ### Sink configuration items
 
-| Key                | Default Value | Required | Comment                                                      |
-| ------------------ | ------------- | -------- | ------------------------------------------------------------ |
-| sink.label-prefix  | --            | Y        | The label prefix used by Stream load import. In the 2pc scenario, global uniqueness is required to ensure Flink's EOS semantics. |
-| sink.properties.*  | --            | N        | Import parameters for Stream Load. <br/>For example: 'sink.properties.column_separator' = ', ' defines column delimiters, 'sink.properties.escape_delimiters' = 'true' special characters as delimiters, '\x01' will be converted to binary 0x01 <br/><br/>JSON format import<br/>'sink.properties.format' = 'json' 'sink.properties. read_json_by_line' = 'true'<br/>Detailed parameters refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
-| sink.enable-delete | TRUE          | N        | Whether to enable delete. This option requires the Doris table to enable the batch delete function (Doris 0.15+ version is enabled by default), and only supports the Unique model. |
-| sink.enable-2pc    | TRUE          | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
-| sink.buffer-size   | 1MB           | N        | The size of the write data cache buffer, in bytes. It is not recommended to modify, the default configuration is enough |
-| sink.buffer-count  | 3             | N        | The number of write data buffers. It is not recommended to modify, the default configuration is enough |
-| sink.max-retries   | 3             | N        | Maximum number of retries after Commit failure, default 3    |
+| Key                         | Default Value | Required | Comment                                                      |
+| --------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| sink.label-prefix           | --            | Y        | The label prefix used by Stream load import. In the 2pc scenario, global uniqueness is required to ensure Flink's EOS semantics. |
+| sink.properties.*           | --            | N        | Import parameters for Stream Load. <br/>For example: 'sink.properties.column_separator' = ', ' defines column delimiters, 'sink.properties.escape_delimiters' = 'true' special characters as delimiters, '\x01' will be converted to binary 0x01 <br/><br/>JSON format import<br/>'sink.properties.format' = 'json' 'sink.properties. read_json_by_line' = 'true'<br/>Detailed parameters refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
+| sink.enable-delete          | TRUE          | N        | Whether to enable delete. This option requires the Doris table to enable the batch delete function (Doris 0.15+ version is enabled by default), and only supports the Unique model. |
+| sink.enable-2pc             | TRUE          | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
+| sink.buffer-size            | 1MB           | N        | The size of the write data cache buffer, in bytes. It is not recommended to modify, the default configuration is enough |
+| sink.buffer-count           | 3             | N        | The number of write data buffers. It is not recommended to modify, the default configuration is enough |
+| sink.max-retries            | 3             | N        | Maximum number of retries after Commit failure, default 3    |
+| sink.use-cache              | false         | N        | In case of an exception, whether to use the memory cache for recovery. When enabled, the data during the Checkpoint period will be retained in the cache. |
+| sink.enable.batch-mode      | false         | N        | Whether to use the batch mode to write to Doris. After it is enabled, the writing timing does not depend on Checkpoint. The writing is controlled through the sink.buffer-flush.max-rows/sink.buffer-flush.max-bytes/sink.buffer-flush.interval parameter. Enter the opportunity. <br />After being turned on at the same time, Exactly-once semantics will not be guaranteed. Uniq model can be used to achieve idempotence. |
+| sink.flush.queue-size       | 2             | N        | In batch mode, the cached column size.                       |
+| sink.buffer-flush.max-rows  | 50000         | N        | In batch mode, the maximum number of data rows written in a single batch. |
+| sink.buffer-flush.max-bytes | 10MB          | N        | In batch mode, the maximum number of bytes written in a single batch. |
+| sink.buffer-flush.interval  | 10s           | N        | In batch mode, the interval for asynchronously refreshing the cache |
+| sink.ignore.update-before   | true          | N        | Whether to ignore the update-before event, ignored by default. |
 
 ### Lookup Join configuration item
 
 | Key                               | Default Value | Required | Comment                                                      |
 | --------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
-| jdbc-url                          | --            | Y        | jdbc connection information                                  |
 | lookup.cache.max-rows             | -1            | N        | The maximum number of rows in the lookup cache, the default value is -1, and the cache is not enabled |
 | lookup.cache.ttl                  | 10s           | N        | The maximum time of lookup cache, the default is 10s         |
 | lookup.max-retries                | 1             | N        | The number of retries after a lookup query fails             |
@@ -500,6 +509,7 @@ insert into doris_sink select id,name,bank,age from cdc_mysql_source;
 - **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
 - **--ignore-default-value** Turn off the default for synchronizing mysql table structures. It is suitable for synchronizing mysql data to doris, the field has a default value, but the actual inserted data is null. refer to[#152](https://github.com/apache/doris-flink-connector/pull/152)
 - **--use-new-schema-change** The new schema change supports synchronous mysql multi-column changes and default values. refer to[#167](https://github.com/apache/doris-flink-connector/pull/167)
+- **--single-sink** Whether to use a single Sink to synchronize all tables. When turned on, newly created tables in the upstream can also be automatically recognized and tables automatically created.
 
 >Note: When synchronizing, you need to add the corresponding Flink CDC dependencies in the $FLINK_HOME/lib directory, such as flink-sql-connector-mysql-cdc-${version}.jar, flink-sql-connector-oracle-cdc-${version}.jar
 
