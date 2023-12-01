@@ -35,6 +35,9 @@ public class AggCounter extends Counter {
     }
 
     public void addCounter(Counter counter) {
+        if (counter == null) {
+            return;
+        }
         if (number == 0) {
             max.setValue(counter.getValue());
             sum.setValue(counter.getValue());

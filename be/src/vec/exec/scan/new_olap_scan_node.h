@@ -202,6 +202,8 @@ private:
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
+    RuntimeProfile::Counter* _runtime_filter_info = nullptr;
+
     // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
