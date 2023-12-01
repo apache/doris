@@ -70,13 +70,16 @@ public class ExchangeNode extends PlanNode {
     /**
      * use for Nereids only.
      */
-    public ExchangeNode(PlanNodeId id, PlanNode inputNode, TPartitionType partitionType) {
+    public ExchangeNode(PlanNodeId id, PlanNode inputNode) {
         super(id, inputNode, EXCHANGE_NODE, StatisticalType.EXCHANGE_NODE);
         offset = 0;
         limit = -1;
         this.conjuncts = Collections.emptyList();
         children.add(inputNode);
         computeTupleIds();
+    }
+
+    public void setPartitionType(TPartitionType partitionType) {
         this.partitionType = partitionType;
     }
 
