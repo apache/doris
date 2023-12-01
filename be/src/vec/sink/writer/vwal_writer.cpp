@@ -83,20 +83,20 @@ Status VWalWriter::init() {
                                                         WalManager::WAL_STATUS::CREATE);
 #ifndef BE_TEST
     if (config::wait_relay_wal_finish) {
-        LOG(INFO) << "add wal " << wal_writer()->file_name();
-        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_recover_wal(
-                std::to_string(_db_id), std::to_string(_tb_id),
-                std::vector<std::string> {wal_writer()->file_name()}));
         std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
         std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
         RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_cv_map(_wal_id, lock, cv));
     }
 #endif
     std::stringstream ss;
+    std::stringstream ss1;
     for (auto slot_desc : _output_tuple_desc->slots()) {
         ss << std::to_string(slot_desc->col_unique_id()) << ",";
+        ss1 << slot_desc->col_name() << ",";
     }
     std::string col_ids = ss.str().substr(0, ss.str().size() - 1);
+    LOG(INFO) << "col_name:" << ss1.str();
+    LOG(INFO) << "col_ids:" << ss.str();
     RETURN_IF_ERROR(_wal_writer->append_header(_version, col_ids));
     return Status::OK();
 }

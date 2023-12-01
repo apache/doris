@@ -3546,8 +3546,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         StringBuilder sb = new StringBuilder();
-        for (Column column : table.getFullSchema()) {
+        for (Column column : table.getBaseSchema(false)) {
             sb.append(column.getName() + ":" + column.getUniqueId() + ",");
+        }
+        Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
+        if (deleteSignColumn != null) {
+            sb.append(deleteSignColumn.getName() + ":" + deleteSignColumn.getUniqueId() + ",");
         }
         String columnInfo = sb.toString();
         columnInfo = columnInfo.substring(0, columnInfo.length() - 1);

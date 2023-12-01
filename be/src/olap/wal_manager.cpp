@@ -257,6 +257,12 @@ Status WalManager::scan_wals(const std::string& wal_path) {
                         _wal_path_map.emplace(wal_id, wal_file);
                         int64_t tb_id = std::strtoll(table_id.file_name.c_str(), NULL, 10);
                         add_wal_status_queue(tb_id, wal_id, WalManager::WAL_STATUS::REPLAY);
+                        if (config::wait_relay_wal_finish) {
+                            std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+                            std::shared_ptr<std::condition_variable> cv =
+                                    std::make_shared<std::condition_variable>();
+                            RETURN_IF_ERROR(add_wal_cv_map(wal_id, lock, cv));
+                        }
                     } catch (const std::invalid_argument& e) {
                         return Status::InvalidArgument("Invalid format, {}", e.what());
                     }
@@ -416,12 +422,23 @@ Status WalManager::erase_wal_cv_map(int64_t wal_id) {
 Status WalManager::wait_relay_wal_finish(int64_t wal_id) {
     std::shared_ptr<std::mutex> lock = nullptr;
     std::shared_ptr<std::condition_variable> cv = nullptr;
-    RETURN_IF_ERROR(get_lock_and_cv(wal_id, lock, cv));
-    std::unique_lock l(*(lock));
-    cv->wait(l);
-    LOG(INFO) << "get wal " << wal_id << ",finish wait";
-    RETURN_IF_ERROR(erase_wal_cv_map(wal_id));
-    LOG(INFO) << "erase wal " << wal_id;
+    auto st = get_lock_and_cv(wal_id, lock, cv);
+    if (st.ok()) {
+        std::unique_lock l(*(lock));
+        LOG(INFO) << "start wait " << wal_id;
+        auto const end = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
+        bool done = false;
+        while (!done) {
+            if (cv->wait_until(l, end) == std::cv_status::timeout) {
+                done = true;
+                LOG(WARNING) << "wait for " << wal_id << " is time out";
+                break;
+            }
+        }
+        LOG(INFO) << "get wal " << wal_id << ",finish wait";
+        RETURN_IF_ERROR(erase_wal_cv_map(wal_id));
+        LOG(INFO) << "erase wal " << wal_id;
+    }
     return Status::OK();
 }
 

@@ -89,9 +89,9 @@ Status WalTable::replay_wals() {
                 }
                 continue;
             }
-            if (_need_replay(info)) {
+//            if (_need_replay(info)) {
                 need_replay_wals.push_back(wal);
-            }
+//            }
         }
         std::sort(need_replay_wals.begin(), need_replay_wals.end());
         for (const auto& wal : need_erase_wals) {
@@ -157,8 +157,9 @@ std::string WalTable::_get_tmp_path(const std::string wal) {
 bool WalTable::_need_replay(const doris::WalTable::replay_wal_info& info) {
 #ifndef BE_TEST
     auto& [retry_num, start_ts, replaying] = info;
-    auto replay_interval =
-            pow(2, retry_num) * config::group_commit_replay_wal_retry_interval_seconds * 1000;
+//    auto replay_interval =
+//            pow(2, retry_num) * config::group_commit_replay_wal_retry_interval_seconds * 1000;
+    auto replay_interval = config::group_commit_replay_wal_retry_interval_seconds;
     return UnixMillis() - start_ts >= replay_interval;
 #else
     return true;
@@ -235,38 +236,50 @@ Status WalTable::_get_wal_info(const std::string& wal,
 }
 
 void http_request_done(struct evhttp_request* req, void* arg) {
+    LOG(INFO) << "http_request_done";
     std::stringstream out;
     std::string status;
     std::string msg;
     std::string wal_id;
     size_t len = 0;
-    auto input = evhttp_request_get_input_buffer(req);
-    char* request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
-    while (request_line != nullptr) {
-        std::string s(request_line);
-        out << request_line;
-        request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
-    }
-    auto out_str = out.str();
-    rapidjson::Document doc;
-    if (!out_str.empty()) {
-        doc.Parse(out.str().c_str());
-        status = std::string(doc["Status"].GetString());
-        msg = std::string(doc["Message"].GetString());
-        LOG(INFO) << "replay wal " << wal_id << " status:" << status << ",msg:" << msg;
-        if (status.find("Fail") != status.npos) {
-            if (msg.find("Label") != msg.npos && msg.find("has already been used") != msg.npos) {
-                retry = false;
+    if (req != nullptr) {
+        auto input = evhttp_request_get_input_buffer(req);
+        char* request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
+        while (request_line != nullptr) {
+            std::string s(request_line);
+            out << request_line;
+            request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
+        }
+        auto out_str = out.str();
+        LOG(INFO) << "out_str:" << out_str;
+        rapidjson::Document doc;
+        if (!out_str.empty()) {
+            doc.Parse(out.str().c_str());
+            status = std::string(doc["Status"].GetString());
+            msg = std::string(doc["Message"].GetString());
+            LOG(INFO) << "replay wal " << wal_id << " status:" << status << ",msg:" << msg;
+            if (status.find("Fail") != status.npos) {
+                if (msg.find("Label") != msg.npos &&
+                    msg.find("has already been used") != msg.npos) {
+                    retry = false;
+                } else {
+                    retry = true;
+                }
             } else {
-                retry = true;
+                retry = false;
             }
         } else {
-            retry = false;
+            retry = true;
         }
     } else {
-        retry = true;
+        LOG(INFO) << "req is null";
     }
-    event_base_loopbreak((struct event_base*)arg);
+
+    if (arg != nullptr) {
+        event_base_loopbreak((struct event_base*)arg);
+    } else {
+        LOG(INFO) << "arg is null";
+    }
 }
 
 Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std::string& label) {
