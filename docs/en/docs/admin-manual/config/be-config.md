@@ -194,7 +194,7 @@ There are two ways to configure BE configuration items:
 
 * Type: int32
 * Description: Configure the cluster id to which the BE belongs.
-    - This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Drois cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
+    - This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Doris cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
 * Default value: -1
 
 #### `custom_config_dir`
@@ -215,7 +215,7 @@ There are two ways to configure BE configuration items:
 
 #### `es_scroll_keepalive`
 
-* Description: es scroll Keeplive hold time
+* Description: es scroll keep-alive hold time
 * Default value: 5 (m)
 
 #### `external_table_connect_timeout_sec`
@@ -400,7 +400,7 @@ There are two ways to configure BE configuration items:
 #### `enable_prefetch`
 
 * Type: bool
-* Description: When using PartitionedHashTable for aggregation and join calculations, whether to perform HashBuket prefetch. Recommended to be set to true
+* Description: When using PartitionedHashTable for aggregation and join calculations, whether to perform HashBucket prefetch. Recommended to be set to true
 * Default value: true
 
 #### `enable_quadratic_probing`
@@ -637,7 +637,7 @@ BaseCompaction:546859:
 #### `segcompaction_batch_size`
 
 * Type: int32
-* Description: Max number of segments allowed in a single segcompaction task.
+* Description: Max number of segments allowed in a single segment compaction task.
 * Default value: 10
 
 #### `segcompaction_candidate_max_rows`
@@ -736,7 +736,7 @@ BaseCompaction:546859:
 
 #### `load_process_soft_mem_limit_percent`
 
-* Description: The soft limit refers to the proportion of the load memory limit of a single node. For example, the load memory limit for all load tasks is 20GB, and the soft limit defaults to 50% of this value, that is, 10GB. When the load memory usage exceeds the soft limit, the job with the largest memory consuption will be selected to be flushed to release the memory space, the default is 50%
+* Description: The soft limit refers to the proportion of the load memory limit of a single node. For example, the load memory limit for all load tasks is 20GB, and the soft limit defaults to 50% of this value, that is, 10GB. When the load memory usage exceeds the soft limit, the job with the largest memory consumption will be selected to be flushed to release the memory space, the default is 50%
 * Default value: 50 (%)
 
 #### `routine_load_thread_pool_size`
@@ -996,7 +996,7 @@ BaseCompaction:546859:
 #### `memory_mode`
 
 * Type: string
-* Description: Control gc of tcmalloc, in performance mode doirs releases memory of tcmalloc cache when usgae >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
+* Description: Control gc of tcmalloc, in performance mode Doris releases memory of tcmalloc cache when usage >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
 * Default value: performance
 
 #### `max_sys_mem_available_low_water_mark_bytes`

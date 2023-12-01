@@ -441,7 +441,7 @@ FE https 使能标志位，false 表示支持 http，true 表示同时支持 htt
 
 默认值: true
 
-如果设置为 ture，doris 将与 mysql服务 建立基于 SSL 协议的加密通道。
+如果设置为 true，doris 将与 mysql服务 建立基于 SSL 协议的加密通道。
 
 #### `qe_max_connection`
 
@@ -639,7 +639,7 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 默认值：从官方 0.14.0 release 版之后默认是 true，之前默认 false
 
-HTTP Server V2 由 SpringBoot 实现, 并采用前后端分离的架构。只有启用 httpv2，用户才能使用新的前端 UI 界面
+HTTP Server V2 由 SpringBoot 实现, 并采用前后端分离的架构。只有启用 HTTPv2，用户才能使用新的前端 UI 界面
 
 #### `http_api_extra_base_path`
 
@@ -997,7 +997,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 该变量为 session variable，session 级别生效。
 
 - 类型：boolean
-- 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distnct 会改写为 bitmap_union_count(c1)。 当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1) 如果变量为 false，则不发生任何改写。
+- 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distinct 会改写为 bitmap_union_count(c1)。 当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1) 如果变量为 false，则不发生任何改写。
 
 ### 导入与导出
 
