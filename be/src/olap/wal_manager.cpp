@@ -261,7 +261,10 @@ Status WalManager::scan_wals(const std::string& wal_path) {
                             std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
                             std::shared_ptr<std::condition_variable> cv =
                                     std::make_shared<std::condition_variable>();
-                            RETURN_IF_ERROR(add_wal_cv_map(wal_id, lock, cv));
+                            auto st1 = add_wal_cv_map(wal_id, lock, cv);
+                            if (!st1.ok()) {
+                                LOG(WARNING) << "fail to add wal_id " << wal_id << " to wal_cv_map";
+                            }
                         }
                     } catch (const std::invalid_argument& e) {
                         return Status::InvalidArgument("Invalid format, {}", e.what());
@@ -426,14 +429,8 @@ Status WalManager::wait_relay_wal_finish(int64_t wal_id) {
     if (st.ok()) {
         std::unique_lock l(*(lock));
         LOG(INFO) << "start wait " << wal_id;
-        auto const end = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
-        bool done = false;
-        while (!done) {
-            if (cv->wait_until(l, end) == std::cv_status::timeout) {
-                done = true;
-                LOG(WARNING) << "wait for " << wal_id << " is time out";
-                break;
-            }
+        if (cv->wait_for(l, std::chrono::seconds(5)) == std::cv_status::timeout) {
+            LOG(WARNING) << "wait for " << wal_id << " is time out";
         }
         LOG(INFO) << "get wal " << wal_id << ",finish wait";
         RETURN_IF_ERROR(erase_wal_cv_map(wal_id));

@@ -85,7 +85,10 @@ Status VWalWriter::init() {
     if (config::wait_relay_wal_finish) {
         std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
         std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
-        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_cv_map(_wal_id, lock, cv));
+        auto st1 = _state->exec_env()->wal_mgr()->add_wal_cv_map(_wal_id, lock, cv);
+        if (!st1.ok()) {
+            LOG(WARNING) << "fail to add wal_id " << _wal_id << " to wal_cv_map";
+        }
     }
 #endif
     std::stringstream ss;
