@@ -127,6 +127,28 @@ suite("test_broker_load_with_merge", "load_p0") {
         assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
     }
 
+    def load_from_hdfs_check_merge_type_3 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
+        def result1= sql """
+                        LOAD LABEL ${label} (
+                            DELETE
+                            DATA INFILE("${hdfsFilePath}")
+                            NEGATIVE
+                            INTO TABLE ${testTablex}
+                            COLUMNS TERMINATED BY ","
+                            FORMAT as "${format}"
+                        )
+                        with BROKER "${brokerName}" (
+                        "username"="${hdfsUser}",
+                        "password"="${hdfsPasswd}")
+                        PROPERTIES  (
+                        "timeout"="1200",
+                        "max_filter_ratio"="0.1");
+                        """
+
+        assertTrue(result1.size() == 1)
+        assertTrue(result1[0].size() == 1)
+        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
+    }
 
     def load_from_hdfs_check_merge_type_4 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
         def result1= sql """
@@ -194,6 +216,25 @@ suite("test_broker_load_with_merge", "load_p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+
+        // case3: has merge with NEGATIVEs on condition
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+
+            try {
+                load_from_hdfs_check_merge_type_3.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
+                        brokerName, hdfsUser, hdfsPasswd)
+            }catch (Exception e) {
+                log.info(e.getMessage())
+                assertTrue(e.getMessage().contains("not support MERGE or DELETE with NEGATIVE."))
+            }
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
 
         // case4: agg table and merge type
         try {
