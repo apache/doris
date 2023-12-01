@@ -175,6 +175,8 @@ private:
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
 
+    RuntimeProfile::Counter* _runtime_filter_info = nullptr;
+
     std::mutex _profile_mtx;
 };
 
