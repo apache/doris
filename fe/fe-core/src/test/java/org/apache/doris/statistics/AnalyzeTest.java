@@ -157,7 +157,7 @@ public class AnalyzeTest extends TestWithFeService {
         new MockUp<BaseAnalysisTask>() {
 
             @Mock
-            protected void runQuery(String sql, boolean needEncode) {}
+            protected void runQuery(String sql) {}
         };
         HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
         colToPartitions.put("col1", Collections.singleton("t1"));
