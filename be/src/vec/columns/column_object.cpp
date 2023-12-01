@@ -1440,4 +1440,17 @@ void ColumnObject::insert_indices_from_join(const IColumn& src, const uint32_t* 
     }
 }
 
+void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
+    for_each_imutable_subcolumn(
+            [&](const auto& subcolumn) { return subcolumn.update_hash_with_value(n, hash); });
+}
+
+void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {
+    for (const auto& entry : subcolumns) {
+        for (auto& part : entry->data.data) {
+            callback(*part);
+        }
+    }
+}
+
 } // namespace doris::vectorized
