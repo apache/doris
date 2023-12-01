@@ -120,7 +120,7 @@ public class NativeInsertStmt extends InsertStmt {
     // this result expr in the order of target table's columns
     private final List<Expr> resultExprs = Lists.newArrayList();
 
-    private final Map<String, Expr> exprByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, Expr> exprByName = Maps.newLinkedHashMap();
 
     protected Table targetTable;
 
@@ -884,15 +884,21 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         List<Pair<String, Expr>> resultExprByName = Lists.newArrayList();
-        Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        // reorder resultExprs in table column order
+        Map<String, Expr> slotToIndex = Maps.newHashMap();
+
+        // keep resultExprs in order of user setting
+        for (Map.Entry<String, Expr> entry : exprByName.entrySet()) {
+            resultExprByName.add(Pair.of(entry.getKey(), entry.getValue()));
+            slotToIndex.put(entry.getKey(), entry.getValue());
+        }
         for (Column col : targetTable.getFullSchema()) {
             if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
                 continue;
             }
             Expr targetExpr;
             if (exprByName.containsKey(col.getName())) {
-                targetExpr = exprByName.get(col.getName());
+                // columns in exprByName are processed in advance
+                continue;
             } else if (targetTable.getType().equals(TableIf.TableType.JDBC_EXTERNAL_TABLE)) {
                 // For JdbcTable,we do not need to generate plans for columns that are not specified at write time
                 continue;
