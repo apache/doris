@@ -99,15 +99,6 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     }
 
     /**
-     * prune partition with `partitionInfo` as parameter.
-     */
-    public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
-            PartitionInfo partitionInfo, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
-        return prune(partitionSlots, partitionPredicate, partitionInfo.getAllPartitions(), cascadesContext,
-                partitionTableType);
-    }
-
-    /**
      * prune partition with `idToPartitions` as parameter.
      */
     public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
