@@ -181,7 +181,7 @@ public abstract class BaseAnalysisTask {
 
     protected void executeWithRetry() {
         int retriedTimes = 0;
-        while (retriedTimes <= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+        while (retriedTimes < StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
             if (killed) {
                 break;
             }
@@ -193,7 +193,7 @@ public abstract class BaseAnalysisTask {
                     throw new RuntimeException(t);
                 }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
-                if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+                if (retriedTimes >= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     job.taskFailed(this, t.getMessage());
                     throw new RuntimeException(t);
                 }
