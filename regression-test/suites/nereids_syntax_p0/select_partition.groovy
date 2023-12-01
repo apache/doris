@@ -140,5 +140,10 @@ suite("query_on_specific_partition") {
     explain {
         sql "select * from ut_p partitions(p2) where val > 0"
         contains "partitions=1/2 (p2)"
+    }
+
+    explain {
+        sql "select * from ut_p temporary partitions(tp1) where id = 8"
+        contains "VEMPTYSET"
     }    
 }
