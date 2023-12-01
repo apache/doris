@@ -331,6 +331,8 @@ public:
 
     bool is_dropped_column(const TabletColumn& col) const;
 
+    void copy_extracted_columns(const TabletSchema& src_schema);
+
     string get_all_field_names() const {
         string str = "[";
         for (auto p : _field_name_to_index) {

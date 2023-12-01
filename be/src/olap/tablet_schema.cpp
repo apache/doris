@@ -1019,6 +1019,23 @@ bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
            column(col.name()).unique_id() != col.unique_id();
 }
 
+void TabletSchema::copy_extracted_columns(const TabletSchema& src_schema) {
+    std::unordered_set<int32_t> variant_columns;
+    for (const auto& col : columns()) {
+        if (col.is_variant_type()) {
+            variant_columns.insert(col.unique_id());
+        }
+    }
+    for (const TabletColumn& col : src_schema.columns()) {
+        if (col.is_extracted_column() && variant_columns.contains(col.parent_unique_id())) {
+            ColumnPB col_pb;
+            col.to_schema_pb(&col_pb);
+            TabletColumn new_col(col_pb);
+            append_column(new_col, ColumnType::VARIANT);
+        }
+    }
+}
+
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     for (const auto& i : _cluster_key_idxes) {
         tablet_schema_pb->add_cluster_key_idxes(i);
