@@ -668,7 +668,20 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
             }
         }
-        return new Statistics(rowCount, columnStatisticMap);
+        Statistics stats = new Statistics(rowCount, columnStatisticMap);
+        stats = normalizeCatalogRelationColumnStatsRowCount(stats);
+        return stats;
+    }
+
+    private Statistics normalizeCatalogRelationColumnStatsRowCount(Statistics stats) {
+        for (Expression slot : stats.columnStatistics().keySet()) {
+            ColumnStatistic colStats = stats.findColumnStatistics(slot);
+            Preconditions.checkArgument(colStats != null,
+                    "can not find col stats for %s  in table", slot.toSql());
+            stats.addColumnStats(slot,
+                    new ColumnStatisticBuilder(colStats).setCount(stats.getRowCount()).build());
+        }
+        return stats;
     }
 
     private Statistics computeTopN(TopN topN) {
