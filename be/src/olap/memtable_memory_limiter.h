@@ -49,6 +49,9 @@ public:
     int64_t mem_usage() const { return _mem_usage; }
 
 private:
+    static int64_t _avail_mem_lack();
+    static int64_t _proc_mem_extra();
+
     bool _soft_limit_reached();
     bool _hard_limit_reached();
     void _flush_active_memtables();

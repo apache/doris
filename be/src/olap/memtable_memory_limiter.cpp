@@ -59,13 +59,21 @@ void MemTableMemoryLimiter::register_writer(std::weak_ptr<MemTableWriter> writer
     _writers.push_back(writer);
 }
 
+int64_t MemTableMemoryLimiter::_avail_mem_lack() {
+    return doris::MemInfo::sys_mem_available_warning_water_mark() - MemInfo::sys_mem_available();
+}
+
+int64_t MemTableMemoryLimiter::_proc_mem_extra() {
+    return MemInfo::proc_mem_no_allocator_cache() - MemInfo::soft_mem_limit();
+}
+
 bool MemTableMemoryLimiter::_soft_limit_reached() {
     return _mem_tracker->consumption() >= _load_soft_mem_limit || _hard_limit_reached();
 }
 
 bool MemTableMemoryLimiter::_hard_limit_reached() {
-    return _mem_tracker->consumption() >= _load_hard_mem_limit ||
-           MemInfo::proc_mem_no_allocator_cache() >= MemInfo::soft_mem_limit();
+    return _mem_tracker->consumption() >= _load_hard_mem_limit || _avail_mem_lack() >= 0 ||
+           _proc_mem_extra() >= 0;
 }
 
 void MemTableMemoryLimiter::handle_memtable_flush() {
@@ -127,9 +135,8 @@ void MemTableMemoryLimiter::_flush_active_memtables() {
     int64_t mem_to_flush = 0; // flush 1 memtable each time on soft limit
     if (_hard_limit_reached()) {
         int64_t flushing_mem = _write_mem_usage - _active_mem_usage + _flush_mem_usage;
-        int64_t extra_mem = _mem_tracker->consumption() - _load_hard_mem_limit;
-        int64_t extra_mem2 = MemInfo::proc_mem_no_allocator_cache() - MemInfo::soft_mem_limit();
-        mem_to_flush = std::max(extra_mem, extra_mem2) - flushing_mem;
+        int64_t load_mem_extra = _mem_tracker->consumption() - _load_hard_mem_limit;
+        mem_to_flush = std::max({load_mem_extra, _proc_mem_extra(), _avail_mem_lack()}) - flushing_mem;
     }
     int64_t mem_flushed = 0;
     int64_t num_flushed = 0;
