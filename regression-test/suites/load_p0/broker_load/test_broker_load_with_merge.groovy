@@ -44,7 +44,7 @@ suite("test_broker_load_with_merge", "load_p0") {
 
         // insert 1 row to check whether the table is ok
         def result2 = sql """ INSERT INTO ${testTable} VALUES
-                        (1,2023-09-01,1,1,1)
+                        (1,'2023-09-01',1,1,1)
                         """
         assertTrue(result2.size() == 1)
         assertTrue(result2[0].size() == 1)
@@ -76,7 +76,7 @@ suite("test_broker_load_with_merge", "load_p0") {
 
         // insert 1 row to check whether the table is ok
         def result2 = sql """ INSERT INTO ${testTable} VALUES
-                        (1,2023-09-01,1,1,1)
+                        (1,'2023-09-01',1,1,1)
                         """
         assertTrue(result2.size() == 1)
         assertTrue(result2[0].size() == 1)
@@ -108,7 +108,7 @@ suite("test_broker_load_with_merge", "load_p0") {
     def load_from_hdfs_check_merge_type_2 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
         def result1= sql """
                         LOAD LABEL ${label} (
-                            MEREGE
+                            MERGE
                             DATA INFILE("${hdfsFilePath}")
                             INTO TABLE ${testTablex}
                             COLUMNS TERMINATED BY ","
@@ -131,7 +131,7 @@ suite("test_broker_load_with_merge", "load_p0") {
     def load_from_hdfs_check_merge_type_4 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
         def result1= sql """
                         LOAD LABEL ${label} (
-                            MEREGE
+                            DELETE
                             DATA INFILE("${hdfsFilePath}")
                             INTO TABLE ${testTablex}
                             COLUMNS TERMINATED BY ","
@@ -170,6 +170,7 @@ suite("test_broker_load_with_merge", "load_p0") {
                         brokerName, hdfsUser, hdfsPasswd)
             }catch (Exception e) {
                 log.info(e.getMessage())
+                assertTrue(e.getMessage().contains("not support DELETE ON clause when merge type is not MERGE."))
             }
 
         } finally {
@@ -188,6 +189,7 @@ suite("test_broker_load_with_merge", "load_p0") {
                         brokerName, hdfsUser, hdfsPasswd)
             }catch (Exception e) {
                 log.info(e.getMessage())
+                assertTrue(e.getMessage().contains("Excepted DELETE ON clause when merge type is MERGE."))
             }
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -205,6 +207,7 @@ suite("test_broker_load_with_merge", "load_p0") {
                         brokerName, hdfsUser, hdfsPasswd)
             }catch (Exception e) {
                 log.info(e.getMessage())
+                assertTrue(e.getMessage().contains("load by MERGE or DELETE is only supported in unique tables."))
             }
 
         } finally {
