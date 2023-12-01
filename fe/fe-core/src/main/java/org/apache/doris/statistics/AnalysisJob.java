@@ -178,6 +178,18 @@ public class AnalysisJob {
 
     public void deregisterJob() {
         analysisManager.removeJob(jobInfo.jobId);
+        for (BaseAnalysisTask task : queryingTask) {
+            task.info.colToPartitions.clear();
+            if (task.info.partitionNames != null) {
+                task.info.partitionNames.clear();
+            }
+        }
+        for (BaseAnalysisTask task : queryFinished) {
+            task.info.colToPartitions.clear();
+            if (task.info.partitionNames != null) {
+                task.info.partitionNames.clear();
+            }
+        }
     }
 
     protected void syncLoadStats() {
