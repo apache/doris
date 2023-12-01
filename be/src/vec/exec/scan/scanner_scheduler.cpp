@@ -347,8 +347,8 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     bool should_stop = false;
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold &&
-           num_rows_in_block < state->batch_size()) {
+    while (!eos && (num_rows_in_block < state->batch_size() ||
+                    (raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold))) {
         // TODO llj task group should should_yield?
         if (UNLIKELY(ctx->done())) {
             // No need to set status on error here.
