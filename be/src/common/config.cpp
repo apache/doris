@@ -1112,7 +1112,7 @@ DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 DEFINE_Int32(group_commit_max_queue_size, "67108864");
 
 // Max size(bytes) of wal disk using, used for disk space back pressure, default 64M.
-DEFINE_Int32(wal_max_disk_size, "67108864");
+DEFINE_Int32(wal_max_disk_size, "2147483647");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
