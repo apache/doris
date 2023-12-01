@@ -40,7 +40,7 @@ VRowDistribution::_get_partition_function() {
     return {_vpartition->get_part_func_ctx(), _vpartition->get_partition_function()};
 }
 
-Status VRowDistribution::_save_missing_values(const std::vector<std::vector<std::string>>& col_strs,
+Status VRowDistribution::_save_missing_values(std::vector<std::vector<std::string>>& col_strs,
                                               int col_size, Block* block,
                                               std::vector<int64_t> filter) {
     // de-duplication for new partitions but save all rows.
@@ -50,7 +50,7 @@ Status VRowDistribution::_save_missing_values(const std::vector<std::vector<std:
         cur_row_values.clear();
         for (int col = 0; col < col_size; ++col) {
             TStringLiteral node;
-            node.value = col_strs[col][row];
+            node.value = std::move(col_strs[col][row]);
             cur_row_values.push_back(node);
         }
         //For duplicate cur_values, they will be filtered in FE
