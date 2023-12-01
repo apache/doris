@@ -244,6 +244,9 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     case TYPE_STRUCT: {
         return column_type->to_string(*column_ptr, 0);
     }
+    case TYPE_QUANTILE_STATE: {
+        return column_type->to_string(*column_ptr, 0);
+    }
     default:
         DCHECK(false) << "Type not implemented: " << type.debug_string();
         return "";
