@@ -431,14 +431,13 @@ public class HyperGraph {
     private Pair<BitSet, Long> buildStructInfo(Plan plan) {
         if (plan instanceof GroupPlan) {
             Group group = ((GroupPlan) plan).getGroup();
-            buildStructInfo(group.getLogicalExpressions().get(0).getPlan());
             List<HyperGraph> childGraphs = ((GroupPlan) plan).getGroup().getHyperGraphs();
             if (childGraphs.size() != 0) {
                 int idx = addStructInfoNode(childGraphs);
                 return Pair.of(new BitSet(), LongBitmap.newBitmap(idx));
             }
             GroupExpression groupExpression = group.getLogicalExpressions().get(0);
-            buildStructInfo(groupExpression.getPlan()
+            return buildStructInfo(groupExpression.getPlan()
                     .withChildren(
                             groupExpression.children().stream().map(GroupPlan::new).collect(Collectors.toList())));
         }
