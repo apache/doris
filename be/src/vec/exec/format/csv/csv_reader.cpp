@@ -365,7 +365,6 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
     }
-    _options.converted_from_string = _trim_double_quotes;
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
 
     std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
@@ -374,7 +373,8 @@ Status CsvReader::init_reader(bool is_load) {
                 std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length);
 
         _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
-                _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
+                _trim_tailing_spaces, _trim_double_quotes, _value_separator,
+                _value_separator_length, '\"');
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
@@ -619,7 +619,7 @@ Status CsvReader::_create_decompressor() {
 template <bool from_json>
 Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    if (!(from_json && _options.converted_from_string && slice.trim_quote())) {
+    if (!from_json) {
         if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
@@ -860,7 +860,6 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         _escape = _params.file_attributes.text_params.escape;
     }
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
-    _options.converted_from_string = _trim_double_quotes;
     _options.escape_char = _escape;
     if (_params.file_attributes.text_params.collection_delimiter.size() == 0) {
         switch (_text_serde_type) {
