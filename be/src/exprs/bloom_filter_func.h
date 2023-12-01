@@ -20,6 +20,7 @@
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/runtime_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
+#include "vec/columns/column_dictionary.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
@@ -277,7 +278,7 @@ template <class T>
 struct CommonFindOp : BaseOp {
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
                                     const uint8* nullmap, uint16_t* offsets, int number,
-                                    const bool is_parse_column, bool is_dict) {
+                                    const bool is_parse_column) {
         return find_batch_olap_engine_with_element_size(bloom_filter, data, nullmap, offsets,
                                                         number, is_parse_column, sizeof(T));
     }
@@ -330,22 +331,18 @@ struct CommonFindOp : BaseOp {
     }
 
     void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
-        bloom_filter.add_element(((T*)data)[0]);
+        bloom_filter.add_element(*(T*)data);
     }
 
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const override {
-        return bloom_filter.test_element(((T*)data)[0]);
+        return bloom_filter.test_element(*(T*)data);
     }
 };
 
 struct StringFindOp : public BaseOp {
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
                                     const uint8* nullmap, uint16_t* offsets, int number,
-                                    const bool is_parse_column, bool is_dict) {
-        if (is_dict) {
-            return CommonFindOp<uint32_t>().find_batch_olap_engine(
-                    bloom_filter, data, nullmap, offsets, number, is_parse_column, true);
-        }
+                                    const bool is_parse_column) {
         return find_batch_olap_engine_with_element_size(bloom_filter, data, nullmap, offsets,
                                                         number, is_parse_column, sizeof(StringRef));
     }
@@ -469,11 +466,27 @@ public:
         dummy.find_batch(*_bloom_filter, column, results);
     }
 
+    template <bool is_nullable>
+    uint16_t find_dict_olap_engine(const vectorized::ColumnDictI32* column, const uint8* nullmap,
+                                   uint16_t* offsets, int number) {
+        uint16_t new_size = 0;
+        for (uint16_t i = 0; i < number; i++) {
+            uint16_t idx = offsets[i];
+            offsets[new_size] = idx;
+            if constexpr (is_nullable) {
+                new_size += !nullmap[idx] && _bloom_filter->test(column->get_hash_value(idx));
+            } else {
+                new_size += _bloom_filter->test(column->get_hash_value(idx));
+            }
+        }
+        return new_size;
+    }
+
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
                                         int number, bool is_parse_column,
                                         bool is_dict = false) override {
         return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
-                                            is_parse_column, is_dict);
+                                            is_parse_column);
     }
 
 private:

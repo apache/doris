@@ -69,22 +69,12 @@ private:
 
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
-            const auto* dict_col = reinterpret_cast<const vectorized::ColumnDictI32*>(&column);
-            std::vector<uint32_t> data(size);
-            for (uint16_t i = 0; i < size; i++) {
-                if constexpr (is_nullable) {
-                    if (null_map[sel[i]]) {
-                        continue;
-                    }
-                }
-                data[i] = dict_col->get_hash_value(sel[i]);
-            }
-            new_size = _specific_filter->find_fixed_len_olap_engine(
-                    (char*)data.data(), null_map, sel, size, false, sizeof(uint32_t));
+            const auto* dict_col = assert_cast<const vectorized::ColumnDictI32*>(&column);
+            new_size = _specific_filter->template find_dict_olap_engine<is_nullable>(
+                    dict_col, null_map, sel, size);
         } else {
             const auto& data =
-                    reinterpret_cast<
-                            const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
+                    assert_cast<const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
                             &column)
                             ->get_data();
             new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
