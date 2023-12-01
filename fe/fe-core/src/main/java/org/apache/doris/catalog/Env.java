@@ -851,6 +851,10 @@ public class Env {
         return externalMetaIdMgr;
     }
 
+    public MetastoreEventsProcessor getMetastoreEventsProcessor() {
+        return metastoreEventsProcessor;
+    }
+
     // use this to get correct ClusterInfoService instance
     public static SystemInfoService getCurrentSystemInfo() {
         return getCurrentEnv().getClusterInfo();

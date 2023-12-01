@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -113,7 +114,9 @@ public class ExternalMetaIdMgr {
         if (log.isFromHmsEvent()) {
             CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
             if (catalogIf != null) {
-                ((HMSExternalCatalog) catalogIf).setMasterLastSyncedEventId(log.getLastSyncedEventId());
+                MetastoreEventsProcessor metastoreEventsProcessor = Env.getCurrentEnv().getMetastoreEventsProcessor();
+                metastoreEventsProcessor.updateMasterLastSyncedEventId(
+                            (HMSExternalCatalog) catalogIf, log.getLastSyncedEventId());
             }
         }
     }

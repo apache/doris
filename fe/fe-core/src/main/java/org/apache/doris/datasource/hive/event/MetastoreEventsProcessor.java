@@ -256,7 +256,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                     && e.getMessage().contains(HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE)) {
                 refreshCatalog(hmsExternalCatalog);
                 // set masterLastSyncedEventId to lastSyncedEventId after refresh catalog successfully
-                updateMasterLastSyncedEventId(hmsExternalCatalog, masterLastSyncedEventId);
+                updateLastSyncedEventId(hmsExternalCatalog, masterLastSyncedEventId);
                 LOG.warn("Notification events are missing, maybe an event can not be handled "
                         + "or processing rate is too low, fallback to refresh the catalog");
                 return null;
@@ -289,7 +289,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         return masterLastSyncedEventIdMap.getOrDefault(hmsExternalCatalog.getId(), -1L);
     }
 
-    private void updateMasterLastSyncedEventId(HMSExternalCatalog hmsExternalCatalog, long eventId) {
+    public void updateMasterLastSyncedEventId(HMSExternalCatalog hmsExternalCatalog, long eventId) {
         masterLastSyncedEventIdMap.put(hmsExternalCatalog.getId(), eventId);
     }
 
