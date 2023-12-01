@@ -660,7 +660,6 @@ Status PipelineXFragmentContext::_add_local_exchange(int idx, int node_id, Objec
                                               _num_instances, texprs));
     RETURN_IF_ERROR(new_pip->set_sink(sink));
 
-    bool need_partitioner = false;
     auto shared_state = LocalExchangeSharedState::create_shared();
     shared_state->source_dependencies.resize(_num_instances, nullptr);
     switch (exchange_type) {
@@ -668,7 +667,6 @@ Status PipelineXFragmentContext::_add_local_exchange(int idx, int node_id, Objec
         shared_state->exchanger = ShuffleExchanger::create_unique(_num_instances);
         new_pip->set_need_to_local_shuffle(false);
         cur_pipe->set_need_to_local_shuffle(false);
-        need_partitioner = true;
         break;
     case ExchangeType::PASSTHROUGH:
         shared_state->exchanger = PassthroughExchanger::create_unique(_num_instances);
@@ -679,7 +677,7 @@ Status PipelineXFragmentContext::_add_local_exchange(int idx, int node_id, Objec
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)exchange_type));
     }
-    RETURN_IF_ERROR(new_pip->sink_x()->init(need_partitioner));
+    RETURN_IF_ERROR(new_pip->sink_x()->init(exchange_type));
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
 
     // 2. Initialize operators list.
@@ -689,7 +687,7 @@ Status PipelineXFragmentContext::_add_local_exchange(int idx, int node_id, Objec
     // 3. Erase operators in new pipeline.
     OperatorXPtr source_op;
     source_op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
-    RETURN_IF_ERROR(source_op->init());
+    RETURN_IF_ERROR(source_op->init(exchange_type));
     operator_xs.erase(operator_xs.begin(), operator_xs.begin() + idx);
     if (operator_xs.size() > 0) {
         RETURN_IF_ERROR(operator_xs.front()->set_child(source_op));

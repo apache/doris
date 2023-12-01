@@ -89,10 +89,10 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(bool need_partitioner) override {
-        _name = "LOCAL_EXCHANGE_SINK_OPERATOR";
-        _need_partitioner = need_partitioner;
-        if (_need_partitioner) {
+    Status init(ExchangeType type) override {
+        _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
+        _type = type;
+        if (_type == ExchangeType::SHUFFLE) {
             _partitioner.reset(
                     new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_num_partitions));
             RETURN_IF_ERROR(_partitioner->init(_texprs));
@@ -102,7 +102,7 @@ public:
     }
 
     Status prepare(RuntimeState* state) override {
-        if (_need_partitioner) {
+        if (_type == ExchangeType::SHUFFLE) {
             RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
         }
 
@@ -110,7 +110,7 @@ public:
     }
 
     Status open(RuntimeState* state) override {
-        if (_need_partitioner) {
+        if (_type == ExchangeType::SHUFFLE) {
             RETURN_IF_ERROR(_partitioner->open(state));
         }
 
@@ -122,7 +122,7 @@ public:
 
 private:
     friend class LocalExchangeSinkLocalState;
-    bool _need_partitioner;
+    ExchangeType _type;
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;

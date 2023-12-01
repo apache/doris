@@ -161,7 +161,7 @@ public:
         LOG(FATAL) << "should not reach here!";
         return Status::OK();
     }
-    virtual Status init() {
+    virtual Status init(ExchangeType type) {
         LOG(FATAL) << "should not reach here!";
         return Status::OK();
     }
@@ -436,7 +436,7 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    virtual Status init(bool need_partitioner) {
+    virtual Status init(ExchangeType type) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 

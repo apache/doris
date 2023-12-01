@@ -61,8 +61,8 @@ class LocalExchangeSourceOperatorX final : public OperatorX<LocalExchangeSourceL
 public:
     using Base = OperatorX<LocalExchangeSourceLocalState>;
     LocalExchangeSourceOperatorX(ObjectPool* pool, int id) : Base(pool, -1, id) {}
-    Status init() override {
-        _op_name = "LOCAL_EXCHANGE_OPERATOR";
+    Status init(ExchangeType type) override {
+        _op_name = "LOCAL_EXCHANGE_OPERATOR (" + get_exchange_type_name(type) + ")";
         return Status::OK();
     }
     Status prepare(RuntimeState* state) override { return Status::OK(); }

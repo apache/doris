@@ -278,8 +278,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
-        ExchangeNode exchangeNode = new ExchangeNode(distribute.translatePlanNodeId(), inputFragment.getPlanRoot(),
-                inputFragment.getOutputPartition().getType());
+        ExchangeNode exchangeNode = new ExchangeNode(distribute.translatePlanNodeId(), inputFragment.getPlanRoot());
         updateLegacyPlanIdToPhysicalPlan(exchangeNode, distribute);
         List<ExprId> validOutputIds = distribute.getOutputExprIds();
         if (distribute.child() instanceof PhysicalHashAggregate) {

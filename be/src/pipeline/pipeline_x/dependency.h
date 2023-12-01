@@ -586,6 +586,19 @@ enum class ExchangeType : uint8_t {
     PASSTHROUGH = 2,
 };
 
+inline std::string get_exchange_type_name(ExchangeType idx) {
+    switch (idx) {
+    case ExchangeType::NOOP:
+        return "NOOP";
+    case ExchangeType::SHUFFLE:
+        return "SHUFFLE";
+    case ExchangeType::PASSTHROUGH:
+        return "PASSTHROUGH";
+    }
+    LOG(FATAL) << "__builtin_unreachable";
+    __builtin_unreachable();
+}
+
 class Exchanger;
 
 struct LocalExchangeSharedState : public BasicSharedState {
