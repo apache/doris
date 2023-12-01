@@ -448,7 +448,12 @@ public class RuntimeProfile {
     private static List<RuntimeProfile> getChildListFromLists(String profileName, List<RuntimeProfile> profiles) {
         List<RuntimeProfile> ret = new ArrayList<RuntimeProfile>();
         for (RuntimeProfile profile : profiles) {
-            ret.add(profile.getChildMap().get(profileName));
+            RuntimeProfile tmp = profile.getChildMap().get(profileName);
+            if (tmp != null) {
+                ret.add(profile.getChildMap().get(profileName));
+            } else {
+                LOG.debug("could not find {} from {}", profileName, profile.toString());
+            }
         }
         return ret;
     }
