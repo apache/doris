@@ -92,8 +92,8 @@ public abstract class BaseAnalysisTask {
             + "${rowCount} AS `row_count`, "
             + "${ndvFunction} as `ndv`, "
             + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
-            + "'${min}' AS `min`, "
-            + "'${max}' AS `max`, "
+            + "${min} AS `min`, "
+            + "${max} AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
             + "FROM ( "
@@ -115,8 +115,8 @@ public abstract class BaseAnalysisTask {
             + "${row_count} AS `row_count`, "
             + "${ndv} AS `ndv`, "
             + "${null_count} AS `null_count`, "
-            + "'${min}' AS `min`, "
-            + "'${max}' AS `max`, "
+            + "${min} AS `min`, "
+            + "${max} AS `max`, "
             + "${data_size} AS `data_size`, "
             + "NOW() ";
 
@@ -311,7 +311,7 @@ public abstract class BaseAnalysisTask {
         this.job = job;
     }
 
-    protected void runQuery(String sql, boolean needEncode) {
+    protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
