@@ -255,8 +255,7 @@ public:
 template <typename T>
 void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
                          ColumnString::Chars& vec_res, ColumnString::Offsets& offsets_res,
-                         ColumnUInt8::MutablePtr& null_map,
-                         std::vector<IPv6Address>& ipv6_addresses) {
+                         ColumnUInt8::MutablePtr& null_map, IPv6Address& ipv6_address) {
     auto* begin = reinterpret_cast<char*>(vec_res.data());
     auto* pos = begin;
 
@@ -267,7 +266,7 @@ void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
 
         if constexpr (std::is_same_v<T, ColumnIPv6>) {
             const auto& vec_in = col->get_data();
-            memcpy(ipv6_addresses[i].data, reinterpret_cast<const unsigned char*>(&vec_in[i]),
+            memcpy(ipv6_address.data, reinterpret_cast<const unsigned char*>(&vec_in[i]),
                    IPV6_BINARY_LENGTH);
         } else {
             const auto str_ref = col->get_data_at(i);
@@ -277,12 +276,12 @@ void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
             if (value_size > IPV6_BINARY_LENGTH || value == nullptr || value_size == 0) {
                 is_empty = true;
             } else {
-                memcpy(ipv6_addresses[i].data, value, value_size);
-                memset(ipv6_addresses[i].data + value_size, 0, IPV6_BINARY_LENGTH - value_size);
+                memcpy(ipv6_address.data, value, value_size);
+                memset(ipv6_address.data + value_size, 0, IPV6_BINARY_LENGTH - value_size);
             }
         }
 
-        const unsigned char* src = ipv6_addresses[i].data;
+        const unsigned char* src = ipv6_address.data;
         bool is_zero_address =
                 std::all_of(src, src + IPV6_BINARY_LENGTH, [](unsigned char c) { return c == 0; });
 
@@ -323,8 +322,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return true; }
 
-    std::vector<IPv6Address> ipv6_addresses;
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
@@ -343,14 +340,15 @@ public:
         offsets_res.resize(input_rows_count);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        ipv6_addresses.resize(input_rows_count);
+
+        IPv6Address ipv6_address;
 
         if (col_ipv6) {
             process_ipv6_column<ColumnIPv6>(column, input_rows_count, vec_res, offsets_res,
-                                            null_map, ipv6_addresses);
+                                            null_map, ipv6_address);
         } else {
             process_ipv6_column<ColumnString>(column, input_rows_count, vec_res, offsets_res,
-                                              null_map, ipv6_addresses);
+                                              null_map, ipv6_address);
         }
 
         block.replace_by_position(result,
