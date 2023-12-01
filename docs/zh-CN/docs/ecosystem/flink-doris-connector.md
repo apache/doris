@@ -360,7 +360,7 @@ ON a.city = c.city
 
 ### Lookup Join 配置项
 
-| Key                               | Default Value | Required | Commen                                     |
+| Key                               | Default Value | Required | Comment                                    |
 | --------------------------------- | ------------- | -------- | ------------------------------------------ |
 | lookup.cache.max-rows             | -1            | N        | lookup缓存的最大行数，默认值-1，不开启缓存 |
 | lookup.cache.ttl                  | 10s           | N        | lookup缓存的最大时间，默认10s              |
@@ -496,22 +496,27 @@ insert into doris_sink select id,name,bank,age from cdc_mysql_source;
     [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
 ```
 
-- **--job-name** Flink任务名称, 非必需。
-- **--database** 同步到Doris的数据库名。
-- **--table-prefix**  Doris表前缀名，例如 --table-prefix ods_。
-- **--table-suffix** 同上，Doris表的后缀名。
-- **--including-tables** 需要同步的MySQL表，可以使用"|" 分隔多个表，并支持正则表达式。 比如--including-tables table1|tbl.*就是同步table1和所有以tbl开头的表。
-- **--excluding-tables** 不需要同步的表，用法同上。
-- **--mysql-conf** MySQL CDCSource 配置，例如--mysql-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)查看所有配置MySQL-CDC，其中hostname/username/password/database-name 是必需的。同步的库表中含有非主键表时，必须设置 `scan.incremental.snapshot.chunk.key-column`，且只能选择非空类型的一个字段。
-例如：`scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1:column...`，不同的库表列之间用`,`隔开。
-- **--oracle-conf** Oracle CDCSource 配置，例如--oracle-conf hostname=127.0.0.1，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html)查看所有配置Oracle-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
-- **--postgres-conf** Postgres CDCSource 配置，例如--postgres-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)查看所有配置Postgres-CDC，其中hostname/username/password/database-name/schema-name/slot.name 是必需的。
-- **--sqlserver-conf** SQLServer CDCSource 配置，例如--sqlserver-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)查看所有配置SQLServer-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
-- **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
-- **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
-- **--ignore-default-value** 关闭同步mysql表结构的默认值。适用于同步mysql数据到doris时，字段有默认值，但实际插入数据为null情况。参考[#152](https://github.com/apache/doris-flink-connector/pull/152)
-- **--use-new-schema-change** 是否使用新的schema change，支持同步mysql多列变更、默认值。参考[#167](https://github.com/apache/doris-flink-connector/pull/167)
-- **--single-sink** 是否使用单个Sink同步所有表，开启后也可自动识别上游新创建的表，自动创建表。
+
+
+| Key                     | Comment                                                      |
+| ----------------------- | ------------------------------------------------------------ |
+| --job-name              | Flink任务名称, 非必需                                        |
+| --database              | 同步到Doris的数据库名                                        |
+| --table-prefix          | Doris表前缀名，例如 --table-prefix ods_。                    |
+| --table-suffix          | 同上，Doris表的后缀名。                                      |
+| --including-tables      | 需要同步的MySQL表，可以使用"\|" 分隔多个表，并支持正则表达式。 比如--including-tables table1 |
+| --excluding-tables      | 不需要同步的表，用法同上。                                   |
+| --mysql-conf            | MySQL CDCSource 配置，例如--mysql-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)查看所有配置MySQL-CDC，其中hostname/username/password/database-name 是必需的。同步的库表中含有非主键表时，必须设置 `scan.incremental.snapshot.chunk.key-column`，且只能选择非空类型的一个字段。<br/>例如：`scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1:column...`，不同的库表列之间用`,`隔开。 |
+| --oracle-conf           | Oracle CDCSource 配置，例如--oracle-conf hostname=127.0.0.1，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html)查看所有配置Oracle-CDC，其中hostname/username/password/database-name/schema-name 是必需的。 |
+| --postgres-conf         | Postgres CDCSource 配置，例如--postgres-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)查看所有配置Postgres-CDC，其中hostname/username/password/database-name/schema-name/slot.name 是必需的。 |
+| --sqlserver-conf        | SQLServer CDCSource 配置，例如--sqlserver-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)查看所有配置SQLServer-CDC，其中hostname/username/password/database-name/schema-name 是必需的。 |
+| --sink-conf             | Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。 |
+| --table-conf            | Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1 |
+| --ignore-default-value  | 关闭同步mysql表结构的默认值。适用于同步mysql数据到doris时，字段有默认值，但实际插入数据为null情况。参考[#152](https://github.com/apache/doris-flink-connector/pull/152) |
+| --use-new-schema-change | 是否使用新的schema change，支持同步mysql多列变更、默认值。参考[#167](https://github.com/apache/doris-flink-connector/pull/167) |
+| --single-sink           | 是否使用单个Sink同步所有表，开启后也可自动识别上游新创建的表，自动创建表。 |
+| --multi-to-one-origin   | 将上游多张表写入同一张表时，源表的配置，比如：--multi-to-one-origin="a\_.\*\|b_.\*"， 具体参考[这里](https://github.com/apache/doris-flink-connector/pull/208) |
+| --multi-to-one-target   | 与multi-to-one-origin搭配使用，目标表的配置，比如：--multi-to-one-target="a\|b" |
 
 >注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-${version}.jar，flink-sql-connector-oracle-cdc-${version}.jar
 
