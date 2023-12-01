@@ -379,7 +379,7 @@ public class AnalysisManagerTest {
         new MockUp<OlapTable>() {
 
             int count = 0;
-            int[] rowCount = new int[]{100, 200};
+            int[] rowCount = new int[]{100, 100, 200, 200};
 
             final Column c = new Column("col1", PrimitiveType.INT);
             @Mock
