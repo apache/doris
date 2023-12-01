@@ -204,8 +204,8 @@ public:
     virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results) = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
-                                                uint16_t* offsets, int number, bool is_parse_column,
-                                                bool is_dict = false) = 0;
+                                                uint16_t* offsets, int number,
+                                                bool is_parse_column) = 0;
 
 protected:
     // bloom filter size
@@ -483,8 +483,7 @@ public:
     }
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
-                                        int number, bool is_parse_column,
-                                        bool is_dict = false) override {
+                                        int number, bool is_parse_column) override {
         return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
                                             is_parse_column);
     }
