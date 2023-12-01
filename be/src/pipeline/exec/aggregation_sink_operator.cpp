@@ -243,10 +243,9 @@ void AggSinkLocalState<DependencyType, Derived>::_update_memusage_with_serialize
                         _agg_arena_pool->size() +
                         Base::_shared_state->aggregate_data_container->memory_usage() -
                         Base::_shared_state->mem_usage_record.used_in_arena;
-                Base::_shared_state->mem_tracker->consume(arena_memory_usage);
-                Base::_shared_state->mem_tracker->consume(
-                        data.get_buffer_size_in_bytes() -
-                        Base::_shared_state->mem_usage_record.used_in_state);
+                Base::_mem_tracker->consume(arena_memory_usage);
+                Base::_mem_tracker->consume(data.get_buffer_size_in_bytes() -
+                                            Base::_shared_state->mem_usage_record.used_in_state);
                 _serialize_key_arena_memory_usage->add(arena_memory_usage);
                 COUNTER_UPDATE(_hash_table_memory_usage,
                                data.get_buffer_size_in_bytes() -
@@ -438,7 +437,7 @@ template <typename DependencyType, typename Derived>
 void AggSinkLocalState<DependencyType, Derived>::_update_memusage_without_key() {
     auto arena_memory_usage =
             _agg_arena_pool->size() - Base::_shared_state->mem_usage_record.used_in_arena;
-    Base::_shared_state->mem_tracker->consume(arena_memory_usage);
+    Base::_mem_tracker->consume(arena_memory_usage);
     _serialize_key_arena_memory_usage->add(arena_memory_usage);
     Base::_shared_state->mem_usage_record.used_in_arena = _agg_arena_pool->size();
 }
@@ -877,7 +876,8 @@ Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state, St
 
     std::vector<char> tmp_deserialize_buffer;
     _deserialize_buffer.swap(tmp_deserialize_buffer);
-
+    Base::_mem_tracker->release(Base::_shared_state->mem_usage_record.used_in_state +
+                                Base::_shared_state->mem_usage_record.used_in_arena);
     return Base::close(state, exec_status);
 }
 
