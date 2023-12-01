@@ -18,8 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -130,8 +132,15 @@ public class ArrayLiteral extends LiteralExpr {
 
     @Override
     public String getStringValueInFe() {
-        List<String> list = new ArrayList<>(getChildren().size());
-        getChildren().forEach(v -> list.add(v.getStringValueForArray()));
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> {
+            if (v.getType().isScalarType() && (Type.getNumericTypes().contains((ScalarType) v.getType())
+                    || v.getType() == Type.BOOLEAN)) {
+                list.add(v.getStringValueInFe());
+            } else {
+                list.add(v.getStringValueForArray());
+            }
+        });
         return "[" + StringUtils.join(list, ", ") + "]";
     }
 

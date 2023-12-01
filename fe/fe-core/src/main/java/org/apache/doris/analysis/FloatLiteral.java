@@ -154,7 +154,12 @@ public class FloatLiteral extends LiteralExpr {
 
     @Override
     public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+        String ret = getStringValue();
+        if (type == Type.TIME || type == Type.TIMEV2) {
+            // here already wrapped in ''
+            ret = ret.substring(1, ret.length() - 1);
+        }
+        return "\"" + ret + "\"";
     }
 
     public static Type getDefaultTimeType(Type type) throws AnalysisException {
