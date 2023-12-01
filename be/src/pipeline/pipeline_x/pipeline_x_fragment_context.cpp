@@ -257,21 +257,31 @@ Status PipelineXFragmentContext::_plan_local_shuffle() {
         } else if (children.size() == 1) {
             _pipelines[pip_idx]->set_need_to_local_shuffle(children[0]->need_to_local_shuffle());
         }
-        auto& ops = _pipelines[pip_idx]->operator_xs();
+
         int idx = 0;
-        for (auto& op : ops) {
-            if (op->get_local_exchange_type() != ExchangeType::NOOP) {
-                RETURN_IF_ERROR(_add_local_exchange(
-                        idx, op->node_id(), _runtime_state->obj_pool(), _pipelines[pip_idx],
-                        op->get_local_shuffle_exprs(), op->get_local_exchange_type()));
+        bool do_local_exchange = false;
+        do {
+            auto& ops = _pipelines[pip_idx]->operator_xs();
+            do_local_exchange = false;
+            for (; idx < ops.size();) {
+                if (ops[idx]->get_local_exchange_type() != ExchangeType::NOOP) {
+                    RETURN_IF_ERROR(_add_local_exchange(
+                            idx, ops[idx]->node_id(), _runtime_state->obj_pool(),
+                            _pipelines[pip_idx], ops[idx]->get_local_shuffle_exprs(),
+                            ops[idx]->get_local_exchange_type(), &do_local_exchange));
+                }
+                if (do_local_exchange) {
+                    idx = 2;
+                    break;
+                }
+                idx++;
             }
-            idx++;
-        }
+        } while (do_local_exchange);
         if (_pipelines[pip_idx]->sink_x()->get_local_exchange_type() != ExchangeType::NOOP) {
             RETURN_IF_ERROR(_add_local_exchange(
                     idx, _pipelines[pip_idx]->sink_x()->node_id(), _runtime_state->obj_pool(),
                     _pipelines[pip_idx], _pipelines[pip_idx]->sink_x()->get_local_shuffle_exprs(),
-                    _pipelines[pip_idx]->sink_x()->get_local_exchange_type()));
+                    _pipelines[pip_idx]->sink_x()->get_local_exchange_type(), &do_local_exchange));
         }
     }
     return Status::OK();
@@ -626,7 +636,8 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
 Status PipelineXFragmentContext::_add_local_exchange(int idx, int node_id, ObjectPool* pool,
                                                      PipelinePtr cur_pipe,
                                                      const std::vector<TExpr>& texprs,
-                                                     ExchangeType exchange_type) {
+                                                     ExchangeType exchange_type,
+                                                     bool* do_local_exchange) {
     if (!_runtime_state->enable_local_shuffle() || _num_instances <= 1) {
         return Status::OK();
     }
@@ -634,6 +645,7 @@ Status PipelineXFragmentContext::_add_local_exchange(int idx, int node_id, Objec
     if (!cur_pipe->need_to_local_shuffle() && exchange_type == ExchangeType::SHUFFLE) {
         return Status::OK();
     }
+    *do_local_exchange = true;
 
     auto& operator_xs = cur_pipe->operator_xs();
     auto total_op_num = operator_xs.size();

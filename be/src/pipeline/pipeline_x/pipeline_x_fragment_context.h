@@ -126,7 +126,8 @@ private:
     void _close_fragment_instance() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
     Status _add_local_exchange(int idx, int node_id, ObjectPool* pool, PipelinePtr cur_pipe,
-                               const std::vector<TExpr>& texprs, ExchangeType exchange_type);
+                               const std::vector<TExpr>& texprs, ExchangeType exchange_type,
+                               bool* do_local_exchange);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
