@@ -17,21 +17,24 @@
 
 package org.apache.doris.planner.external;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive");
+import java.util.Optional;
 
-    private final String tableFormatType;
+public class MaxComputeSplit extends FileSplit {
+    private final Optional<String> partitionSpec;
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
+    public MaxComputeSplit(FileSplit rangeSplit) {
+        super(rangeSplit.path, rangeSplit.start, rangeSplit.length, rangeSplit.fileLength,
+                rangeSplit.hosts, rangeSplit.partitionValues);
+        this.partitionSpec = Optional.empty();
     }
 
-    public String value() {
-        return tableFormatType;
+    public MaxComputeSplit(String partitionSpec, FileSplit rangeSplit) {
+        super(rangeSplit.path, rangeSplit.start, rangeSplit.length, rangeSplit.fileLength,
+                rangeSplit.hosts, rangeSplit.partitionValues);
+        this.partitionSpec = Optional.of(partitionSpec);
+    }
+
+    public Optional<String> getPartitionSpec() {
+        return partitionSpec;
     }
 }
