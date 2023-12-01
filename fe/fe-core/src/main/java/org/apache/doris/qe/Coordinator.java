@@ -635,7 +635,12 @@ public class Coordinator implements CoordInterface {
             Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
-        executionProfile.markInstances(instanceIds);
+        if (enablePipelineXEngine) {
+            executionProfile.markFragments(fragments.size());
+        } else {
+            executionProfile.markInstances(instanceIds);
+        }
+
         if (enablePipelineEngine) {
             sendPipelineCtx();
         } else {
@@ -1394,7 +1399,7 @@ public class Coordinator implements CoordInterface {
     private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
-                ctx.cancelFragmentInstance(cancelReason);
+                ctx.cancelFragmentInstance(cancelReason, enablePipelineXEngine);
             }
         } else {
             for (BackendExecState backendExecState : backendExecStates) {
@@ -1407,7 +1412,7 @@ public class Coordinator implements CoordInterface {
         Preconditions.checkArgument(enablePipelineXEngine);
         for (PipelineExecContext ctx : pipelineExecContexts.values()) {
             if (!Objects.equals(idToBackend.get(backendId), ctx.backend)) {
-                ctx.cancelFragmentInstance(cancelReason);
+                ctx.cancelFragmentInstance(cancelReason, enablePipelineXEngine);
             }
         }
     }
@@ -2420,12 +2425,10 @@ public class Coordinator implements CoordInterface {
             }
 
             Preconditions.checkArgument(params.isSetDetailedReport());
-            for (TDetailedReportParams param : params.detailed_report) {
-                if (ctx.fragmentInstancesMap.get(param.fragment_instance_id).getIsDone()) {
-                    LOG.debug("Query {} instance {} is marked done",
-                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
-                    executionProfile.markOneInstanceDone(param.getFragmentInstanceId());
-                }
+            if (ctx.done) {
+                LOG.debug("Query {} fragment {} is marked done",
+                        DebugUtil.printId(queryId), ctx.profileFragmentId);
+                executionProfile.markOneFragmentDone(ctx.profileFragmentId);
             }
         } else if (enablePipelineEngine) {
             PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
@@ -2567,7 +2570,11 @@ public class Coordinator implements CoordInterface {
             long waitTime = Math.min(leftTimeoutS, fixedMaxWaitTime);
             boolean awaitRes = false;
             try {
-                awaitRes = executionProfile.awaitAllInstancesDone(waitTime);
+                if (enablePipelineXEngine) {
+                    awaitRes = executionProfile.awaitAllFragmentsDone(waitTime);
+                } else {
+                    awaitRes = executionProfile.awaitAllInstancesDone(waitTime);
+                }
             } catch (InterruptedException e) {
                 // Do nothing
             }
@@ -2610,7 +2617,11 @@ public class Coordinator implements CoordInterface {
     }
 
     public boolean isDone() {
-        return executionProfile.isAllInstancesDone();
+        if (enablePipelineXEngine) {
+            return executionProfile.isAllFragmentsDone();
+        } else {
+            return executionProfile.isAllInstancesDone();
+        }
     }
 
     // map from a BE host address to the per-node assigned scan ranges;
@@ -3058,11 +3069,14 @@ public class Coordinator implements CoordInterface {
         public synchronized boolean updateProfile(TReportExecStatusParams params, boolean isPipelineX) {
             if (isPipelineX) {
                 for (TDetailedReportParams param : params.detailed_report) {
-                    RuntimeProfile profile = fragmentInstancesMap.get(param.fragment_instance_id);
-                    if (params.done && profile.getIsDone()) {
-                        continue;
+                    if (!fragmentInstancesMap.containsKey(param.fragment_instance_id)) {
+                        String name = "Instance " + DebugUtil.printId(param.fragment_instance_id)
+                                + " (host=" + address + ")";
+                        RuntimeProfile profile = new RuntimeProfile(name);
+                        fragmentInstancesMap.put(param.fragment_instance_id, profile);
                     }
 
+                    RuntimeProfile profile = fragmentInstancesMap.get(param.fragment_instance_id);
                     if (param.isSetProfile()) {
                         profile.update(param.profile);
                     }
@@ -3071,13 +3085,10 @@ public class Coordinator implements CoordInterface {
                     }
                     if (params.done) {
                         profile.setIsDone(true);
-                        profileReportProgress++;
                     }
                 }
-                if (profileReportProgress == numInstances) {
-                    this.done = true;
-                }
-                return true;
+                this.done = params.done;
+                return this.done;
             } else {
                 RuntimeProfile profile = fragmentInstancesMap.get(params.fragment_instance_id);
                 if (params.done && profile.getIsDone()) {
@@ -3111,7 +3122,9 @@ public class Coordinator implements CoordInterface {
 
         // cancel all fragment instances.
         // return true if cancel success. Otherwise, return false
-        public synchronized boolean cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
+        /// TODO: refactor rpcParams
+        public synchronized boolean cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason,
+                boolean isPipelineX) {
             if (!this.initiated) {
                 LOG.warn("Query {}, ccancel before initiated", DebugUtil.printId(queryId));
                 return false;
@@ -3157,11 +3170,17 @@ public class Coordinator implements CoordInterface {
             if (!this.hasCanceled) {
                 return false;
             }
-
-            for (int i = 0; i < this.numInstances; i++) {
-                fragmentInstancesMap.get(rpcParams.local_params.get(i).fragment_instance_id).setIsCancel(true);
+            if (isPipelineX) {
+                for (RuntimeProfile profile : fragmentInstancesMap.values()) {
+                    profile.setIsCancel(true);
+                }
+            } else {
+                for (int i = 0; i < this.numInstances; i++) {
+                    fragmentInstancesMap.get(rpcParams.local_params.get(i).fragment_instance_id).setIsCancel(true);
+                }
+                cancelProgress = numInstances;
             }
-            cancelProgress = numInstances;
+
             return true;
         }
 
