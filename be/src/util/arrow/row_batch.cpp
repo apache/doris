@@ -138,7 +138,8 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         break;
     }
     default:
-        return Status::InvalidArgument("Unknown primitive type({}) convert to Arrow type", type.type);
+        return Status::InvalidArgument("Unknown primitive type({}) convert to Arrow type",
+                                       type.type);
     }
     return Status::OK();
 }
