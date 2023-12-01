@@ -42,7 +42,7 @@ IPv6映射的IPv4地址以::ffff:111.222.33。
 ### example
 
 ```
-mysql> select inet6_ntoa(unhex('2A0206B8000000000000000000000011')) as addr;
+mysql> select ipv6numtostring(unhex('2A0206B8000000000000000000000011')) as addr;
 +--------------+
 | addr         |
 +--------------+
