@@ -27,12 +27,12 @@ suite("test_backup_restore_bloom_filter", "backup_restore") {
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
         CREATE TABLE ${dbName}.${tableName} (
-            `sale_date` date NOT NULL,
             `saler_id` int NOT NULL,
-            `category_id` int NOT NULL
+            `category_id` int NOT NULL,
+            `sale_date` date NOT NULL
         )
-        DUPLICATE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        DUPLICATE KEY(`saler_id`)
+        DISTRIBUTED BY HASH(`saler_id`) BUCKETS 10
         PROPERTIES 
         (
             "replication_num" = "1",
@@ -40,7 +40,7 @@ suite("test_backup_restore_bloom_filter", "backup_restore") {
         )
         """
 
-    sql """INSERT INTO ${dbName}.${tableName} VALUES ('2023-11-01', 1, 1),('2023-11-02', 2, 2)"""
+    sql """INSERT INTO ${dbName}.${tableName} VALUES (1, 1, '2023-11-01'),(2, 2, '2023-11-02')"""
 
     def result = sql"SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 2)
@@ -80,7 +80,7 @@ suite("test_backup_restore_bloom_filter", "backup_restore") {
 
     def restore_index_comment = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
 
-    assertTrue(restore_index_comment[0][1].contains("\"bloom_filter_columns\"=\"saler_id,category_id\""))
+    assertTrue(restore_index_comment[0][1].contains("\"bloom_filter_columns\" = \"category_id, saler_id\""))
 
     result = sql"SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 2)
