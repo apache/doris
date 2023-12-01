@@ -376,6 +376,18 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 是否开启单BE的多标签功能
 
+#### `initial_root_password`
+
+设置 root 用户初始化2阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。后续 root 用户的 `set password` 操作会将 root 初始化密码覆盖。
+
+示例：如要配置密码的明文是 `root@123`，可在Doris执行SQL `select password('root@123')` 获取加密密码 `*A00C34073A26B40AB4307650BFB9309D6BFA6999`。
+
+默认值：空字符串
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：true
+
 ### 服务
 
 #### `query_port`
@@ -1728,6 +1740,12 @@ HOUR: log前缀是：yyyyMMddHH
 
 控制是否压缩 fe.audit.log。如果开启，则使用gzip算法进行压缩。
 
+#### `nereids_trace_log_dir`
+
+默认值：DorisFE.DORIS_HOME_DIR + "/log/nereids_trace"
+
+用于存储 nereids trace 日志的目录
+
 ### 存储
 
 #### `min_replication_num_per_tablet`
@@ -2235,6 +2253,16 @@ tablet 状态更新间隔
 
 与 `tablet_create_timeout_second` 含义相同，但在删除 tablet 时使用
 
+#### `delete_job_max_timeout_second`
+
+默认值: 300(s)
+
+是否可以动态配置: true
+
+是否为 Master FE 节点独有的配置项: true
+
+Delete 操作的最大超时时间，单位是秒
+
 #### `alter_table_timeout_second`
 
 默认值：86400 * 30 （1月）
@@ -2297,60 +2325,15 @@ multi catalog 并发文件扫描线程数
 
 multi catalog 并发文件扫描大小
 
-#### `enable_odbc_table`
+#### `enable_odbc_mysql_broker_table`
 
 默认值：false
 
 是否可以动态配置：true
 
-是否为 Master FE 节点独有的配置项：true
-
-是否启用 ODBC 表，默认不启用，在使用的时候需要手动配置启用，该参数可以通过：
-
-`ADMIN SET FRONTEND CONFIG("key"="value") `方式进行设置
-
-**注意：** 这个参数在1.2版本中已经删除，默认启用ODBC外表，并且会在以后的某个版本中删除ODBC外表，推荐使用JDBC外表
-
-#### `disable_iceberg_hudi_table`
-
-默认值：true
-
-是否可以动态配置：true
-
 是否为 Master FE 节点独有的配置项：false
 
-从 1.2 版本开始，我们不再支持创建hudi和iceberg外表。请改用multi catalog功能。
-
-#### `iceberg_table_creation_interval_second`
-
-默认值：10 (s)
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：false
-
-fe 将每隔 iceberg_table_creation_interval_second 创建iceberg table
-
-#### `iceberg_table_creation_strict_mode`
-
-默认值：true
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-如果设置为 true，iceberg 表和 Doris 表的列定义必须一致。
-如果设置为 false，Doris 只创建支持的数据类型的列。
-
-#### `max_iceberg_table_creation_record_size`
-
-内存中可以存储的最近iceberg库表创建记录的默认最大数量
-
-默认值：2000
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
+从 2.1 版本开始，我们不再支持创建 odbc, mysql 和 broker外表。对于 odbc 外表，可以使用 jdbc 外表或者 jdbc catalog 替代。对于 broker 外表，可以使用 table valued function 替代。
 
 #### `max_hive_partition_cache_num`
 

@@ -44,7 +44,7 @@ struct InvertedIndexCtx {
     InvertedIndexParserType parser_type;
     std::string parser_mode;
     CharFilterMap char_filter_map;
-    lucene::analysis::Analyzer* analyzer;
+    lucene::analysis::Analyzer* analyzer = nullptr;
 };
 
 using InvertedIndexCtxSPtr = std::shared_ptr<InvertedIndexCtx>;

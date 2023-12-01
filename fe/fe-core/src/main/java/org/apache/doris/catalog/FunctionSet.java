@@ -1426,6 +1426,22 @@ public class FunctionSet<T> {
                     null,
                     "",
                     "", true));
+
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
+                    Lists.newArrayList(new ArrayType(t), Type.BOOLEAN), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    "", true));
+
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
+                    Lists.newArrayList(new ArrayType(t), Type.BOOLEAN), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    "", true));
         }
 
         // Avg
@@ -1584,7 +1600,7 @@ public class FunctionSet<T> {
 
             //vec first_value
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                    "first_value", Lists.newArrayList(t), t, t,
+                    "first_value", Lists.newArrayList(t, Type.BOOLEAN), t, t,
                     "",
                     "",
                     null,
@@ -1601,7 +1617,7 @@ public class FunctionSet<T> {
                     false, false));
             //vec last_value
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                    "last_value", Lists.newArrayList(t), t, t,
+                    "last_value", Lists.newArrayList(t, Type.BOOLEAN), t, t,
                     "",
                     "",
                     "",

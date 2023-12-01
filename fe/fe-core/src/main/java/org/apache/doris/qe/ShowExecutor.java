@@ -179,7 +179,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
@@ -2495,21 +2494,8 @@ public class ShowExecutor {
 
     private void handleShowTableCreation() throws AnalysisException {
         ShowTableCreationStmt showStmt = (ShowTableCreationStmt) stmt;
-        String dbName = showStmt.getDbName();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
-
-        List<IcebergTableCreationRecord> records = ctx.getEnv().getIcebergTableCreationRecordMgr()
-                .getTableCreationRecordByDbId(db.getId());
 
         List<List<Comparable>> rowSet = Lists.newArrayList();
-        for (IcebergTableCreationRecord record : records) {
-            List<Comparable> row = record.getTableCreationRecord();
-            // like predicate
-            if (Strings.isNullOrEmpty(showStmt.getWild()) || showStmt.like(record.getTable())) {
-                rowSet.add(row);
-            }
-        }
-
         // sort function rows by fourth column (Create Time) asc
         ListComparator<List<Comparable>> comparator = null;
         OrderByPair orderByPair = new OrderByPair(3, false);
@@ -2636,44 +2622,51 @@ public class ShowExecutor {
         List<List<String>> resultRows = Lists.newArrayList();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
-            List<String> row = new ArrayList<>();
-            row.add(String.valueOf(analysisInfo.jobId));
-            CatalogIf<? extends DatabaseIf<? extends TableIf>> c = StatisticsUtil.findCatalog(analysisInfo.catalogId);
-            row.add(c.getName());
-            Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
-            row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
-            if (databaseIf.isPresent()) {
-                Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
-            } else {
-                row.add("DB may get deleted");
-            }
-            row.add(analysisInfo.colName);
-            row.add(analysisInfo.jobType.toString());
-            row.add(analysisInfo.analysisType.toString());
-            row.add(analysisInfo.message);
-            row.add(TimeUtils.DATETIME_FORMAT.format(
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
-                            ZoneId.systemDefault())));
-            row.add(analysisInfo.state.toString());
             try {
-                row.add(showStmt.isAuto()
-                        ? analysisInfo.progress
-                        : Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+                List<String> row = new ArrayList<>();
+                row.add(String.valueOf(analysisInfo.jobId));
+                CatalogIf<? extends DatabaseIf<? extends TableIf>> c
+                        = StatisticsUtil.findCatalog(analysisInfo.catalogId);
+                row.add(c.getName());
+                Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
+                row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
+                if (databaseIf.isPresent()) {
+                    Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
+                    row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+                } else {
+                    row.add("DB may get deleted");
+                }
+                row.add(analysisInfo.colName);
+                row.add(analysisInfo.jobType.toString());
+                row.add(analysisInfo.analysisType.toString());
+                row.add(analysisInfo.message);
+                row.add(TimeUtils.DATETIME_FORMAT.format(
+                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
+                        ZoneId.systemDefault())));
+                row.add(analysisInfo.state.toString());
+                try {
+                    row.add(showStmt.isAuto()
+                            ? analysisInfo.progress
+                            : Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+                } catch (Exception e) {
+                    row.add("N/A");
+                    LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
+                }
+                row.add(analysisInfo.scheduleType.toString());
+                LocalDateTime startTime =
+                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),
+                        java.time.ZoneId.systemDefault());
+                LocalDateTime endTime =
+                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.endTime),
+                        java.time.ZoneId.systemDefault());
+                row.add(startTime.format(formatter));
+                row.add(endTime.format(formatter));
+                resultRows.add(row);
             } catch (Exception e) {
-                row.add("N/A");
-                LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
+                LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",
+                        analysisInfo.catalogId, analysisInfo.dbId, analysisInfo.tblId, e.getMessage());
+                continue;
             }
-            row.add(analysisInfo.scheduleType.toString());
-            LocalDateTime startTime =
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),
-                            java.time.ZoneId.systemDefault());
-            LocalDateTime endTime =
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.endTime),
-                            java.time.ZoneId.systemDefault());
-            row.add(startTime.format(formatter));
-            row.add(endTime.format(formatter));
-            resultRows.add(row);
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
     }

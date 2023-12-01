@@ -625,7 +625,7 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            Config.enable_odbc_table = true;
+            Config.enable_odbc_mysql_broker_table = true;
             createTables(enableNerieds, sql);
         } catch (Exception e) {
             e.printStackTrace();
@@ -724,7 +724,7 @@ public abstract class TestWithFeService {
 
     protected void useUser(String userName) throws AnalysisException {
         UserIdentity user = new UserIdentity(userName, "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         connectContext.setCurrentUserIdentity(user);
         connectContext.setQualifiedUser(SystemInfoService.DEFAULT_CLUSTER + ":" + userName);
     }

@@ -376,6 +376,18 @@ Is it a configuration item unique to the Master FE node: true
 
 Whether to enable the multi-tags function of a single BE
 
+#### `initial_root_password`
+
+Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. Subsequent `set password` operations for root user will overwrite the initial root password.
+
+Example: If you want to configure a plaintext password `root@123`. You can execute Doris SQL `select password('root@123')` to generate encrypted password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`.
+
+Default: empty string
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
+
 ### Service
 
 #### `query_port`
@@ -1728,6 +1740,12 @@ Default: false
 
 If true, will compress fe.audit.log by gzip
 
+#### `nereids_trace_log_dir`
+
+Default: DorisFE.DORIS_HOME_DIR + "/log/nereids_trace"
+
+Used to specify the directory of the nereids trace log
+
 ### Storage
 
 #### `min_replication_num_per_tablet`
@@ -2234,6 +2252,16 @@ MasterOnly：true
 
 Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
 
+#### `delete_job_max_timeout_second`
+
+Default: 300(s)
+
+Mutable: true
+
+Master only: true
+
+Maximal timeout for delete job, in seconds.
+
 #### `alter_table_timeout_second`
 
 Default：86400 * 30（1 month）
@@ -2296,60 +2324,15 @@ MasterOnly：false
 
 multi catalog concurrent file scan size
 
-#### `enable_odbc_table`
+#### `enable_odbc_mysql_broker_table`
 
 Default：false
 
 IsMutable：true
 
-MasterOnly：true
-
-Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it.
-
-This parameter can be set by: ADMIN SET FRONTEND CONFIG("key"="value")
-
-**Note:** This parameter has been deleted in version 1.2. The ODBC External Table is enabled by default, and the ODBC External Table will be deleted in a later version. It is recommended to use the JDBC External Table
-
-#### `disable_iceberg_hudi_table`
-
-Default：true
-
-IsMutable：true
-
 MasterOnly：false
 
-Starting from version 1.2, we no longer support create hudi and iceberg External Table. Please use the multi catalog.
-
-#### `iceberg_table_creation_interval_second`
-
-Default：10 (s)
-
-IsMutable：true
-
-MasterOnly：false
-
-fe will create iceberg table every iceberg_table_creation_interval_second
-
-#### `iceberg_table_creation_strict_mode`
-
-Default：true
-
-IsMutable：true
-
-MasterOnly：true
-
-If set to TRUE, the column definitions of iceberg table and the doris table must be consistent
-If set to FALSE, Doris only creates columns of supported data types.
-
-#### `max_iceberg_table_creation_record_size`
-
-Default max number of recent iceberg database table creation record that can be stored in memory.
-
-Default：2000
-
-IsMutable：true
-
-MasterOnly：true
+Starting from version 2.1, we no longer support create odbc, jdbc and broker external table. For odbc and mysql external table, use jdbc table or jdbc catalog instead. For broker table, use table valued function instead.
 
 #### `max_hive_partition_cache_num`
 

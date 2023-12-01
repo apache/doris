@@ -143,7 +143,7 @@ private:
         return result;
     }
 
-    const char* _data;
+    const char* _data = nullptr;
     size_t _size;
 };
 
@@ -239,7 +239,7 @@ private:
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
 struct LRUHandle {
-    void* value;
+    void* value = nullptr;
     void (*deleter)(const CacheKey&, void* value);
     struct LRUHandle* next_hash = nullptr; // next entry in hash table
     struct LRUHandle* next = nullptr;      // next entry in lru list
@@ -307,7 +307,7 @@ private:
     // a linked list of cache entries that hash into the bucket.
     uint32_t _length;
     uint32_t _elems;
-    LRUHandle** _list;
+    LRUHandle** _list = nullptr;
 
     // Return a pointer to slot that points to a cache entry that
     // matches key/hash.  If there is no such cache entry, return a
@@ -430,12 +430,12 @@ private:
     std::string _name;
     const int _num_shard_bits;
     const uint32_t _num_shards;
-    LRUCache** _shards;
+    LRUCache** _shards = nullptr;
     std::atomic<uint64_t> _last_id;
     size_t _total_capacity;
 
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
-    std::shared_ptr<MetricEntity> _entity = nullptr;
+    std::shared_ptr<MetricEntity> _entity;
     IntGauge* cache_capacity = nullptr;
     IntGauge* cache_usage = nullptr;
     DoubleGauge* cache_usage_ratio = nullptr;

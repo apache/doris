@@ -175,10 +175,12 @@ public class RoutineLoadManager implements Writable {
 
         routineLoadJob.setOrigStmt(createRoutineLoadStmt.getOrigStmt());
         routineLoadJob.setComment(createRoutineLoadStmt.getComment());
-        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName());
+        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName(),
+                    createRoutineLoadStmt.getTableName());
     }
 
-    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName) throws DdlException {
+    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName, String tableName)
+                    throws DdlException {
         writeLock();
         try {
             // check if db.routineLoadName has been used
@@ -195,10 +197,12 @@ public class RoutineLoadManager implements Writable {
 
             unprotectedAddJob(routineLoadJob);
             Env.getCurrentEnv().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
-            LOG.info("create routine load job: id: {}, name: {}", routineLoadJob.getId(), routineLoadJob.getName());
         } finally {
             writeUnlock();
         }
+
+        LOG.info("create routine load job: id: {}, job name: {}, db name: {}, table name: {}",
+                 routineLoadJob.getId(), routineLoadJob.getName(), dbName, tableName);
     }
 
     private void unprotectedAddJob(RoutineLoadJob routineLoadJob) {
@@ -715,10 +719,10 @@ public class RoutineLoadManager implements Writable {
             if (job != null) {
                 unprotectedRemoveJobFromDb(job);
             }
-            LOG.info("replay remove routine load job: {}", operation.getId());
         } finally {
             writeUnlock();
         }
+        LOG.info("replay remove routine load job: {}", operation.getId());
     }
 
     private void unprotectedRemoveJobFromDb(RoutineLoadJob routineLoadJob) {

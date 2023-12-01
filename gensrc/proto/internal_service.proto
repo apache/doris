@@ -258,6 +258,7 @@ message PFetchArrowFlightSchemaResult {
     optional PStatus status = 1;
     // valid when status is ok
     optional bytes schema = 2;
+    optional bytes be_arrow_flight_ip = 3;
 };
 
 message KeyTuple {
@@ -589,6 +590,7 @@ message PTabletWriteSlaveRequest {
     message IndexSize {
         required int64 indexId = 1;
         required int64 size = 2;
+        optional string suffix_path = 3;
     };
 
     message IndexSizeMap{

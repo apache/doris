@@ -13,14 +13,13 @@ PhysicalResultSink
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[cs_item_sk]
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk]
+--------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
+----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_date <= '2002-07-18') and (date_dim.d_date >= '2002-06-18'))
-------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------filter((date_dim.d_date <= '2002-07-18') and (date_dim.d_date >= '2002-06-18'))
+----------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
 ------------------------------filter(i_category IN ('Books', 'Music', 'Sports'))

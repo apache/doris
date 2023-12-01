@@ -438,10 +438,9 @@ protected:
     using cell_type = Cell;
 
     size_t m_size = 0;   /// Amount of elements
-    Cell* buf {nullptr}; /// A piece of memory for all elements except the element with zero key.
+    Cell* buf = nullptr; /// A piece of memory for all elements except the element with zero key.
     Grower grower;
     int64_t _resize_timer_ns;
-
     // the bucket count threshold above which it's converted to partioned hash table
     // > 0: enable convert dynamically
     // 0: convert is disabled
@@ -542,8 +541,8 @@ protected:
         using Container = std::conditional_t<is_const, const Self, Self>;
         using cell_type = std::conditional_t<is_const, const Cell, Cell>;
 
-        Container* container;
-        cell_type* ptr;
+        Container* container = nullptr;
+        cell_type* ptr = nullptr;
 
         friend class HashTable;
 
@@ -877,7 +876,7 @@ public:
 
     private:
         Constructor(Cell* cell) : _cell(cell) {}
-        Cell* _cell;
+        Cell* _cell = nullptr;
     };
 
     /** Insert the key.

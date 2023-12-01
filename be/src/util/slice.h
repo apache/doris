@@ -47,7 +47,7 @@ class faststring;
 /// external synchronization.
 struct Slice {
 public:
-    char* data;
+    char* data = nullptr;
     size_t size;
     // Intentionally copyable
 
@@ -336,7 +336,7 @@ public:
         return *this;
     }
 
-    ~OwnedSlice() { Allocator::free(_slice.data); }
+    ~OwnedSlice() { Allocator::free(_slice.data, _slice.size); }
 
     const Slice& slice() const { return _slice; }
 

@@ -96,7 +96,7 @@ public:
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
     std::mutex _block_mutex;
     // prevent from allocte too many tmp blocks
     std::vector<std::unique_ptr<vectorized::Block>> _block_pool;
@@ -187,7 +187,7 @@ public:
 private:
     static constexpr uint32_t kDefaultNumShards = 128;
     RowCache(int64_t capacity, int num_shards = kDefaultNumShards);
-    std::unique_ptr<Cache> _cache = nullptr;
+    std::unique_ptr<Cache> _cache;
 };
 
 // A cache used for prepare stmt.
@@ -243,7 +243,7 @@ private:
     }
 
     struct CacheValue : public LRUCacheValueBase {
-        std::shared_ptr<Reusable> item = nullptr;
+        std::shared_ptr<Reusable> item;
     };
 };
 
@@ -302,7 +302,7 @@ private:
         std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)> _rowset_ptr;
     };
 
-    PTabletKeyLookupResponse* _response;
+    PTabletKeyLookupResponse* _response = nullptr;
     TabletSharedPtr _tablet;
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;

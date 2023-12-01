@@ -138,7 +138,7 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     auto st = _query_ctx->exec_status();
     if (_runtime_state != nullptr) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_ATTACH_TASK(_runtime_state.get());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         _call_back(_runtime_state.get(), &st);
         _runtime_state.reset();
     } else {
@@ -208,9 +208,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     auto* fragment_context = this;
 
-    LOG_INFO("Preparing instance {}, backend_num {}",
-             PrintInstanceStandardInfo(_query_id, local_params.fragment_instance_id),
-             local_params.backend_num);
+    LOG_INFO("Preparing instance {}|{}, backend_num {}", print_id(_query_id),
+             print_id(local_params.fragment_instance_id), local_params.backend_num);
 
     // 1. init _runtime_state
     _runtime_state = RuntimeState::create_unique(
@@ -697,7 +696,7 @@ Status PipelineFragmentContext::submit() {
     auto* scheduler = _exec_env->pipeline_task_scheduler();
     if (_query_ctx->get_task_scheduler()) {
         scheduler = _query_ctx->get_task_scheduler();
-    } else if (_task_group_entity) {
+    } else if (_task_group_entity && _query_ctx->use_task_group_for_cpu_limit.load()) {
         scheduler = _exec_env->pipeline_task_group_scheduler();
     }
     for (auto& task : _tasks) {
@@ -754,9 +753,8 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
-        std::stringstream msg;
-        msg << "query " << print_id(_query_id) << " closed since prepare failed";
-        WARN_IF_ERROR(task->close(Status::OK()), msg.str());
+        WARN_IF_ERROR(task->close(Status::OK()),
+                      fmt::format("Query {} closed since prepare failed", print_id(_query_id)));
         close_a_pipeline();
     }
 }
@@ -917,7 +915,8 @@ Status PipelineFragmentContext::send_report(bool done) {
              _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)},
+                       std::placeholders::_2),
+             _dml_query_statistics()},
             shared_from_this());
 }
 

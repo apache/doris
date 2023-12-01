@@ -53,7 +53,7 @@ public:
                   int64_t bufferLength);
 
 private:
-    CL_NS(store)::Directory* directory;
+    CL_NS(store)::Directory* directory = nullptr;
 };
 
 class CLUCENE_EXPORT DorisCompoundDirectory : public lucene::store::Directory {
@@ -127,13 +127,13 @@ class DorisCompoundDirectory::FSIndexInput : public lucene::store::BufferedIndex
         io::FileReaderSPtr _reader;
         uint64_t _length;
         int64_t _fpos;
-        std::mutex* _shared_lock;
+        std::mutex* _shared_lock = nullptr;
         char path[4096];
         SharedHandle(const char* path);
         ~SharedHandle() override;
     };
 
-    SharedHandle* _handle;
+    SharedHandle* _handle = nullptr;
     int64_t _pos;
 
     FSIndexInput(SharedHandle* handle, int32_t buffer_size) : BufferedIndexInput(buffer_size) {

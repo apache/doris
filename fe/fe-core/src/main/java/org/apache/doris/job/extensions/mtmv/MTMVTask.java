@@ -59,6 +59,7 @@ public class MTMVTask extends AbstractTask {
 
     private MTMV mtmv;
     private MTMVRelation relation;
+    private StmtExecutor executor;
 
     public MTMVTask(long dbId, long mtmvId) {
         this.dbId = dbId;
@@ -73,7 +74,7 @@ public class MTMVTask extends AbstractTask {
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             relation = MTMVCacheManager.generateMTMVRelation(mtmv, ctx);
-            StmtExecutor executor = new StmtExecutor(ctx, sql);
+            executor = new StmtExecutor(ctx, sql);
             executor.execute(queryId);
         } catch (Throwable e) {
             LOG.warn(e);
@@ -82,20 +83,23 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
-    public void onFail() throws JobException {
+    public synchronized void onFail() throws JobException {
         super.onFail();
         after();
     }
 
     @Override
-    public void onSuccess() throws JobException {
+    public synchronized void onSuccess() throws JobException {
         super.onSuccess();
         after();
     }
 
     @Override
-    public void cancel() throws JobException {
+    public synchronized void cancel() throws JobException {
         super.cancel();
+        if (executor != null) {
+            executor.cancel();
+        }
         after();
     }
 
@@ -165,5 +169,6 @@ public class MTMVTask extends AbstractTask {
                 .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation);
         mtmv = null;
         relation = null;
+        executor = null;
     }
 }

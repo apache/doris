@@ -66,7 +66,7 @@ private:
     friend class SchemaScanOperatorX;
 
     SchemaScannerParam _scanner_param;
-    std::unique_ptr<SchemaScanner> _schema_scanner = nullptr;
+    std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
 class SchemaScanOperatorX final : public OperatorX<SchemaScanLocalState> {
@@ -94,13 +94,13 @@ private:
     TupleId _tuple_id;
 
     // Descriptor of dest tuples
-    const TupleDescriptor* _dest_tuple_desc;
+    const TupleDescriptor* _dest_tuple_desc = nullptr;
     // Tuple index in tuple row.
     int _tuple_idx;
     // slot num need to fill in and return
     int _slot_num;
 
-    std::unique_ptr<SchemaScanner> _schema_scanner = nullptr;
+    std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
 } // namespace doris::pipeline

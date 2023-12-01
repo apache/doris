@@ -51,7 +51,7 @@ public:
 private:
     int _slot_id;
     int _column_id;
-    const std::string* _column_name;
+    const std::string* _column_name = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

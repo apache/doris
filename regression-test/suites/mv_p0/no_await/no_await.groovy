@@ -26,7 +26,7 @@ suite ("no_await") {
         sql "sync;"
         while (!result.contains("FINISHED")) {
             result = (sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tblName}' ORDER BY CreateTime DESC LIMIT 1;")[0]
-            if (result.contains("CANCELLED")) {
+            if (!result.contains("RUNNING")&&!result.contains("PENDING")&&!result.contains("FINISHED")&&!result.contains("WAITING_TXN")) {
                 log.info("result: ${result}")
                 assertTrue(false)
             }
