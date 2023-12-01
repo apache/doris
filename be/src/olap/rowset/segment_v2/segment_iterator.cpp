@@ -1056,7 +1056,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
             return res;
         } else {
             //TODO:mock until AndBlockColumnPredicate evaluate is ok.
-            if (res.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+            if (res.code() == ErrorCode::INVERTED_INDEX_NOT_IMPLEMENTED) {
                 return Status::OK();
             }
             LOG(WARNING) << "failed to evaluate index"
