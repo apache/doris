@@ -68,5 +68,7 @@ private:
     int64_t _load_soft_mem_limit = -1;
 
     std::vector<std::weak_ptr<MemTableWriter>> _writers;
+    std::weak_ptr<MemTableWriter> _largest_active_writer;
+    int64_t _largest_active_mem = 0;
 };
 } // namespace doris

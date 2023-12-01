@@ -98,13 +98,12 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                       << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
                       << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
-            if (_active_mem_usage > _write_mem_usage / 2 ||
-                _active_mem_usage >= _load_hard_mem_limit) {
+            if (_active_mem_usage >= _write_mem_usage * 0.8) {
                 _flush_active_memtables();
             }
             auto st = _hard_limit_end_cond.wait_for(l, std::chrono::milliseconds(1000));
             if (st == std::cv_status::timeout) {
-                LOG(INFO) << "timeout when waiting for memory hard limit end, try flush again";
+                LOG(INFO) << "timeout when waiting for memory hard limit end, try again";
             }
         }
         if (_soft_limit_reached()) {
@@ -112,8 +111,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                       << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
                       << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
-            if (_active_mem_usage > _write_mem_usage / 2 ||
-                _active_mem_usage >= _load_soft_mem_limit) {
+            if (_active_mem_usage >= _write_mem_usage * 0.8) {
                 _flush_active_memtables();
             }
         }
@@ -124,59 +122,26 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
 }
 
 void MemTableMemoryLimiter::_flush_active_memtables() {
-    auto cmp = [](WriterMemItem& lhs, WriterMemItem& rhs) { return lhs.mem_size < rhs.mem_size; };
-    std::priority_queue<WriterMemItem, std::vector<WriterMemItem>, decltype(cmp)> mem_heap(cmp);
-
-    _active_mem_usage = 0;
-    for (auto it = _writers.begin(); it != _writers.end();) {
-        if (auto writer = it->lock()) {
-            int64_t active_memtable_mem = writer->active_memtable_mem_consumption();
-            _active_mem_usage += active_memtable_mem;
-            mem_heap.emplace(writer, active_memtable_mem);
-            ++it;
-        } else {
-            *it = std::move(_writers.back());
-            _writers.pop_back();
-        }
+    auto writer = _largest_active_writer.lock();
+    if (!writer) {
+        return;
     }
-    int64_t mem_to_flush = 0; // flush 1 memtable each time on soft limit
-    if (_hard_limit_reached()) {
-        int64_t flushing_mem = _write_mem_usage - _active_mem_usage + _flush_mem_usage;
-        int64_t load_mem_extra = _mem_tracker->consumption() - _load_hard_mem_limit;
-        mem_to_flush = std::max({load_mem_extra, _proc_mem_extra(), _avail_mem_lack()}) - flushing_mem;
+    auto mem_usage = writer->active_memtable_mem_consumption();
+    // if the memtable writer just got flushed, don't flush it again
+    if (mem_usage < _largest_active_mem / 2) {
+        return;
     }
-    int64_t mem_flushed = 0;
-    int64_t num_flushed = 0;
-    while (!mem_heap.empty()) {
-        WriterMemItem mem_item = mem_heap.top();
-        mem_heap.pop();
-        num_flushed++;
-        mem_flushed += mem_item.mem_size;
-        auto writer = mem_item.writer.lock();
-        if (!writer) {
-            continue;
-        }
-        int64_t active_mem = writer->active_memtable_mem_consumption();
-        // if the memtable writer just got flushed, don't flush it again
-        if (active_mem < mem_item.mem_size / 2) {
-            mem_flushed -= active_mem;
-            continue;
-        }
-        Status st = writer->flush_async();
-        if (!st.ok()) {
-            auto err_msg = fmt::format(
-                    "tablet writer failed to reduce mem consumption by flushing memtable, "
-                    "tablet_id={}, err={}",
-                    writer->tablet_id(), st.to_string());
-            LOG(WARNING) << err_msg;
-            static_cast<void>(writer->cancel_with_status(st));
-        }
-        if (mem_flushed > mem_to_flush) {
-            break;
-        }
+    Status st = writer->flush_async();
+    if (!st.ok()) {
+        auto err_msg = fmt::format(
+                "tablet writer failed to reduce mem consumption by flushing memtable, "
+                "tablet_id={}, err={}",
+                writer->tablet_id(), st.to_string());
+        LOG(WARNING) << err_msg;
+        static_cast<void>(writer->cancel_with_status(st));
+        return;
     }
-    LOG(INFO) << "flushed " << num_flushed
-              << " memtable writers (total mem: " << PrettyPrinter::print_bytes(mem_flushed) << ")";
+    LOG(INFO) << "flushed 1 memtable (mem: " << PrettyPrinter::print_bytes(mem_usage) << ")";
 }
 
 void MemTableMemoryLimiter::refresh_mem_tracker() {
@@ -186,7 +151,12 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
     _active_mem_usage = 0;
     for (auto it = _writers.begin(); it != _writers.end();) {
         if (auto writer = it->lock()) {
-            _active_mem_usage += writer->active_memtable_mem_consumption();
+            auto active_usage = writer->active_memtable_mem_consumption();
+            _active_mem_usage += active_usage;
+            if (active_usage > _largest_active_mem) {
+                _largest_active_mem = active_usage;
+                _largest_active_writer = writer;
+            }
             _flush_mem_usage += writer->mem_consumption(MemType::FLUSH);
             _write_mem_usage += writer->mem_consumption(MemType::WRITE);
             ++it;
