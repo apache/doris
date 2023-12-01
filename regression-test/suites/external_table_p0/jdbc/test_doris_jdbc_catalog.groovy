@@ -158,6 +158,25 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """insert into ${arr_table} values (2, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
     order_qt_arr1 """ select * from ${arr_table} order by int_col; """
 
+    sql """drop table if exists test_insert_order"""
+
+    sql """
+         CREATE TABLE test_insert_order (
+             gameid varchar(50) NOT NULL DEFAULT "",
+             aid int(11) NOT NULL DEFAULT "0",
+             bid int(11) NOT NULL DEFAULT "0",
+             cid int(11) NOT NULL DEFAULT "0",
+             did int(11) NOT NULL DEFAULT "0",
+             pname varchar(255) NOT NULL DEFAULT "其他"
+         ) ENGINE=OLAP
+         UNIQUE KEY(gameid, aid, bid, cid)
+         COMMENT 'OLAP'
+         DISTRIBUTED BY HASH(gameid) BUCKETS 3
+         PROPERTIES (
+             "replication_allocation" = "tag.location.default: 1"
+         );
+    """
+
 
     sql """ set return_object_data_as_binary=true """
     order_qt_tb1 """ select pin_id, hll_union_agg(user_log_acct) from ${hllTable} group by pin_id; """
@@ -180,6 +199,11 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     order_qt_query_ctas_base """ select * from internal.${internal_db_name}.ctas_base order by int_col; """
     order_qt_query_ctas_arr """ select * from internal.${internal_db_name}.ctas_arr order by int_col; """
 
+    // test insert order
+    sql """insert into test_insert_order(gameid,did,cid,bid,aid,pname) values('g1',4,3,2,1,'p1')""";
+    sql """insert into test_insert_order(gameid,did,cid,bid,aid,pname) select 'g2',4,3,2,1,'p2'""";
+    qt_sql """select * from test_insert_order order by gameid, aid, bid, cid, did;"""
+
     //clean
     qt_sql """select current_catalog()"""
     sql "switch internal"
@@ -189,5 +213,6 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """ drop table if exists ${hllTable} """
     sql """ drop table if exists ${base_table} """
     sql """ drop table if exists ${arr_table} """
+    sql """ drop table if exists test_insert_order """
 
 }
