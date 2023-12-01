@@ -131,6 +131,9 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason)
             .tag("error message", msg);
+    if (reason == PPlanFragmentCancelReason::TIMEOUT) {
+        LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
+    }
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             FOR_EACH_RUNTIME_STATE(LOG(WARNING) << "PipelineXFragmentContext cancel instance: "
@@ -149,9 +152,6 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     }
-    if (reason == PPlanFragmentCancelReason::TIMEOUT) {
-        LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
-    }
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
             task->clear_blocking_state();
@@ -163,6 +163,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
+    _num_instances = request.local_params.size();
     _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
     _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
     COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
@@ -230,9 +231,11 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
     static_cast<void>(root_pipeline->set_sink(_sink));
 
+    //    RETURN_IF_ERROR(_plan_local_shuffle());
+
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
-        //TODO: can we do this in set_sink?
+        DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
         static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
         RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
@@ -243,6 +246,17 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _init_next_report_time();
 
     _prepared = true;
+    return Status::OK();
+}
+
+Status PipelineXFragmentContext::_plan_local_shuffle() {
+    for (int pip_idx = _pipelines.size() - 1; pip_idx >= 0; pip_idx--) {
+        auto& children = _pipelines[pip_idx]->children();
+        if (children.empty()) {
+            _pipelines[pip_idx]->init_need_to_local_shuffle_by_source();
+        } else {
+        }
+    }
     return Status::OK();
 }
 
@@ -593,15 +607,18 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
 }
 
 Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorXPtr& op,
-                                                     PipelinePtr& cur_pipe,
-                                                     const std::vector<TExpr>& texprs) {
-    if (!_runtime_state->enable_local_shuffle() ||
-        _runtime_state->query_parallel_instance_num() == 1) {
+                                                     PipelinePtr& cur_pipe, const TPlanNode& tnode,
+                                                     const std::vector<TExpr>& texprs,
+                                                     ExchangeType exchange_type) {
+    if (!_runtime_state->enable_local_shuffle() || _num_instances <= 1) {
         return Status::OK();
     }
+    auto parent = op;
+    RETURN_IF_ERROR(parent->init(tnode, _runtime_state.get()));
     auto local_exchange_id = next_operator_id();
-    op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
+    op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id, parent.get()));
     RETURN_IF_ERROR(cur_pipe->add_operator(op));
+    RETURN_IF_ERROR(parent->set_child(op));
 
     const auto downstream_pipeline_id = cur_pipe->id();
     if (_dag.find(downstream_pipeline_id) == _dag.end()) {
@@ -611,14 +628,26 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
     _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
     DataSinkOperatorXPtr sink;
-    auto num_instances = _runtime_state->query_parallel_instance_num();
-    sink.reset(new LocalExchangeSinkOperatorX(local_exchange_id, num_instances, texprs));
+    sink.reset(new LocalExchangeSinkOperatorX(next_sink_operator_id(), local_exchange_id,
+                                              _num_instances, texprs));
     RETURN_IF_ERROR(cur_pipe->set_sink(sink));
-    RETURN_IF_ERROR(cur_pipe->sink_x()->init());
 
+    bool need_partitioner = false;
     auto shared_state = LocalExchangeSharedState::create_shared();
-    shared_state->data_queue.resize(num_instances);
-    shared_state->source_dependencies.resize(num_instances, nullptr);
+    shared_state->source_dependencies.resize(_num_instances, nullptr);
+    switch (exchange_type) {
+    case ExchangeType::SHUFFLE:
+        shared_state->exchanger = ShuffleExchanger::create_unique(_num_instances);
+        need_partitioner = true;
+        break;
+    case ExchangeType::PASSTHROUGH:
+        shared_state->exchanger = PassthroughExchanger::create_unique(_num_instances);
+        break;
+    default:
+        return Status::InternalError("Unsupported local exchange type : " +
+                                     std::to_string((int)exchange_type));
+    }
+    RETURN_IF_ERROR(cur_pipe->sink_x()->init(need_partitioner));
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
@@ -683,6 +712,10 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+            //            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
+            //                                                tnode.agg_node.grouping_exprs,
+            //                                                ExchangeType::PASSTHROUGH));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation) {
             op.reset(new StreamingAggSourceOperatorX(pool, tnode, next_operator_id(), descs));
@@ -699,6 +732,10 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+            //            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
+            //                                                tnode.agg_node.grouping_exprs,
+            //                                                ExchangeType::PASSTHROUGH));
         } else {
             op.reset(new AggSourceOperatorX(pool, tnode, next_operator_id(), descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
@@ -716,11 +753,19 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
 
-            if (!tnode.agg_node.need_finalize) {
-                RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
-                RETURN_IF_ERROR(
-                        _add_local_exchange(pool, op, cur_pipe, tnode.agg_node.grouping_exprs));
-            }
+            //            if (tnode.agg_node.grouping_exprs.empty()) {
+            //                if (tnode.agg_node.need_finalize) {
+            //                    RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
+            //                                                        tnode.agg_node.grouping_exprs,
+            //                                                        ExchangeType::PASSTHROUGH));
+            //                } else {
+            //                    // TODO(gabriel): maybe use local shuffle
+            //                }
+            //            } else if (cur_pipe->need_to_local_shuffle()) {
+            //                RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
+            //                                                    tnode.agg_node.grouping_exprs,
+            //                                                    ExchangeType::SHUFFLE));
+            //            }
         }
         break;
     }
@@ -740,6 +785,21 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+        std::vector<TExpr> probe_exprs;
+        const std::vector<TEqJoinCondition>& eq_join_conjuncts =
+                tnode.hash_join_node.eq_join_conjuncts;
+        for (const auto& eq_join_conjunct : eq_join_conjuncts) {
+            probe_exprs.push_back(eq_join_conjunct.left);
+        }
+        if (tnode.hash_join_node.__isset.is_broadcast_join &&
+            tnode.hash_join_node.is_broadcast_join) {
+            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode, probe_exprs,
+                                                ExchangeType::PASSTHROUGH));
+        } else if (cur_pipe->need_to_local_shuffle()) {
+            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode, probe_exprs,
+                                                ExchangeType::SHUFFLE));
+        }
         _pipeline_parent_map.push(op->node_id(), cur_pipe);
         _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         break;
@@ -1032,7 +1092,8 @@ Status PipelineXFragmentContext::send_report(bool done) {
              _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)},
+                       std::placeholders::_2),
+             nullptr},
             shared_from_this());
 }
 
@@ -1059,9 +1120,6 @@ std::string PipelineXFragmentContext::debug_string() {
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
-            if (_tasks[j][i]->is_finished()) {
-                continue;
-            }
             fmt::format_to(debug_string_buffer, "Task {}: {}\n", i, _tasks[j][i]->debug_string());
         }
     }

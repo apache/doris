@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -52,7 +53,7 @@ import java.util.Optional;
  * firstChild [RIGHT (OUTER/SEMI/ANTI) JOIN] children[1, last].
  * eg: MJ([ROJ] A, B, C, D) is {A} [ROJ] {B C D}.
  */
-public class MultiJoin extends AbstractLogicalPlan {
+public class MultiJoin extends AbstractLogicalPlan implements BlockFuncDepsPropagation {
     /*
      *        topJoin
      *        /     \            MultiJoin

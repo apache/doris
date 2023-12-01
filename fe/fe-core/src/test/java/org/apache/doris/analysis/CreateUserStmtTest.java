@@ -61,22 +61,22 @@ public class CreateUserStmtTest {
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("user", "%"), "passwd", true));
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("CREATE USER 'testCluster:user'@'%' IDENTIFIED BY '*XXX'", stmt.toString());
+        Assert.assertEquals("CREATE USER 'user'@'%' IDENTIFIED BY '*XXX'", stmt.toString());
         Assert.assertEquals(new String(stmt.getPassword()), "*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0");
 
         stmt = new CreateUserStmt(
                 new UserDesc(new UserIdentity("user", "%"), "*59c70da2f3e3a5bdf46b68f5c8b8f25762bccef0", false));
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:user", stmt.getUserIdent().getQualifiedUser());
+        Assert.assertEquals("user", stmt.getUserIdent().getQualifiedUser());
 
-        Assert.assertEquals("CREATE USER 'testCluster:user'@'%' IDENTIFIED BY PASSWORD '*59c70da2f3e3a5bdf46b68f5c8b8f25762bccef0'",
+        Assert.assertEquals("CREATE USER 'user'@'%' IDENTIFIED BY PASSWORD '*59c70da2f3e3a5bdf46b68f5c8b8f25762bccef0'",
                 stmt.toString());
         Assert.assertEquals(new String(stmt.getPassword()), "*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0");
 
         stmt = new CreateUserStmt(new UserDesc(new UserIdentity("user", "%"), "", false));
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("CREATE USER 'testCluster:user'@'%'", stmt.toString());
+        Assert.assertEquals("CREATE USER 'user'@'%'", stmt.toString());
         Assert.assertEquals(new String(stmt.getPassword()), "");
     }
 

@@ -42,6 +42,7 @@
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
@@ -498,10 +499,12 @@ Status VTabletWriterV2::close(Status exec_status) {
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
 
-        // release streams from the pool first, to prevent memory leak
-        for (const auto& [_, streams] : _streams_for_node) {
-            streams->release();
-        }
+        // defer stream release to prevent memory leak
+        Defer defer([&] {
+            for (const auto& [_, streams] : _streams_for_node) {
+                streams->release();
+            }
+        });
 
         {
             SCOPED_TIMER(_close_writer_timer);

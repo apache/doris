@@ -28,8 +28,13 @@ public:
     LocalExchangeSourceDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "LocalExchangeSourceDependency", query_ctx) {}
     ~LocalExchangeSourceDependency() override = default;
+
+    void block() override;
 };
 
+class Exchanger;
+class ShuffleExchanger;
+class PassthroughExchanger;
 class LocalExchangeSourceOperatorX;
 class LocalExchangeSourceLocalState final
         : public PipelineXLocalState<LocalExchangeSourceDependency> {
@@ -43,7 +48,10 @@ public:
 
 private:
     friend class LocalExchangeSourceOperatorX;
+    friend class ShuffleExchanger;
+    friend class PassthroughExchanger;
 
+    Exchanger* _exchanger = nullptr;
     int _channel_id;
     RuntimeProfile::Counter* _get_block_failed_counter = nullptr;
     RuntimeProfile::Counter* _copy_data_timer = nullptr;
@@ -52,7 +60,8 @@ private:
 class LocalExchangeSourceOperatorX final : public OperatorX<LocalExchangeSourceLocalState> {
 public:
     using Base = OperatorX<LocalExchangeSourceLocalState>;
-    LocalExchangeSourceOperatorX(ObjectPool* pool, int id) : Base(pool, -1, id) {}
+    LocalExchangeSourceOperatorX(ObjectPool* pool, int id, OperatorXBase* parent)
+            : Base(pool, -1, id), _parent(parent) {}
     Status init(const TPlanNode& tnode, RuntimeState* state) override {
         _op_name = "LOCAL_EXCHANGE_OPERATOR";
         return Status::OK();
@@ -70,8 +79,21 @@ public:
 
     bool is_source() const override { return true; }
 
+    Status set_child(OperatorXPtr child) override {
+        if (_child_x) {
+            // Set build side child for join probe operator
+            DCHECK(_parent != nullptr);
+            RETURN_IF_ERROR(_parent->set_child(child));
+        } else {
+            _child_x = std::move(child);
+        }
+        return Status::OK();
+    }
+
 private:
     friend class LocalExchangeSourceLocalState;
+
+    OperatorXBase* _parent = nullptr;
 };
 
 } // namespace doris::pipeline

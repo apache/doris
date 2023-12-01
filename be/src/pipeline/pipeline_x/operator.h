@@ -23,14 +23,6 @@
 
 namespace doris::pipeline {
 
-#define CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state) \
-    auto _sptr = state->get_local_state(operator_id()); \
-    auto& local_state = _sptr->template cast<LocalState>();
-
-#define CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state) \
-    auto _sptr = state->get_sink_local_state(operator_id()); \
-    auto& local_state = _sptr->template cast<LocalState>();
-
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
@@ -187,6 +179,8 @@ public:
 
     [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
 
+    [[nodiscard]] virtual bool need_to_local_shuffle() const { return true; }
+
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
         return false;
@@ -279,7 +273,7 @@ protected:
 
     RowDescriptor _row_descriptor;
 
-    std::unique_ptr<RowDescriptor> _output_row_descriptor;
+    std::unique_ptr<RowDescriptor> _output_row_descriptor = nullptr;
     vectorized::VExprContextSPtrs _projections;
 
     /// Resource information sent from the frontend.
@@ -431,7 +425,7 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    virtual Status init() {
+    virtual Status init(bool need_partitioner) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 

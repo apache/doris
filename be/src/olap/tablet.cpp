@@ -641,9 +641,7 @@ TabletSchemaSPtr Tablet::tablet_schema_with_merged_max_schema_version(
         std::vector<TabletSchemaSPtr> schemas;
         std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
                        [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
-        target_schema = std::make_shared<TabletSchema>();
-        // TODO(lhy) maybe slow?
-        vectorized::schema_util::get_least_common_schema(schemas, target_schema);
+        target_schema = vectorized::schema_util::get_least_common_schema(schemas, nullptr);
         VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
     }
     return target_schema;
@@ -1342,7 +1340,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
         std::shared_lock rlock(_meta_lock);
         auto has_alter_inverted_index = [&](RowsetSharedPtr rowset) -> bool {
             for (const auto& index_id : alter_index_uids) {
-                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
+                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id, "")) {
                     return true;
                 }
             }
@@ -1450,6 +1448,20 @@ void Tablet::get_compaction_status(std::string* json_result) {
                                            _last_base_compaction_status.length(),
                                            root.GetAllocator());
     root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
+
+    TReplicaInfo replica_info;
+    std::string dummp_token;
+    rapidjson::Value fetch_addr;
+    if (tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
+        StorageEngine::instance()->get_peer_replica_info(tablet_id(), &replica_info,
+                                                         &dummp_token)) {
+        std::string addr = replica_info.host + ":" + std::to_string(replica_info.brpc_port);
+        fetch_addr.SetString(addr.c_str(), addr.length(), root.GetAllocator());
+    } else {
+        // -1 means do compaction locally
+        fetch_addr.SetString("-1", root.GetAllocator());
+    }
+    root.AddMember("fetch from peer", fetch_addr, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;

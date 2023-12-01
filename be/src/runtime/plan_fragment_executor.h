@@ -183,6 +183,9 @@ private:
     // true if prepare() returned OK
     bool _prepared;
 
+    // true if open() returned OK
+    bool _opened;
+
     // true if close() has been called
     bool _closed;
 
@@ -275,6 +278,13 @@ private:
     const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
+
+    std::shared_ptr<QueryStatistics> _dml_query_statistics() {
+        if (_query_statistics && _query_statistics->collect_dml_statistics()) {
+            return _query_statistics;
+        }
+        return nullptr;
+    }
 
     void _collect_node_statistics();
 };

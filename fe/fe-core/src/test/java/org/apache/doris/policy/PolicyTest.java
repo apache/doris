@@ -70,7 +70,7 @@ public class PolicyTest extends TestWithFeService {
                 + "properties(\"replication_num\" = \"1\");");
         // create user
         UserIdentity user = new UserIdentity("test_policy", "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
         List<AccessPrivilegeWithCols> privileges = Lists
@@ -332,7 +332,7 @@ public class PolicyTest extends TestWithFeService {
         String policyName = "policy_name";
         long dbId = 10;
         UserIdentity user = new UserIdentity("test_policy", "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         String originStmt = "CREATE ROW POLICY test_row_policy ON test.table1"
                 + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
         long tableId = 100;
@@ -355,8 +355,8 @@ public class PolicyTest extends TestWithFeService {
         Assertions.assertEquals(type, newRowPolicy.getType());
         Assertions.assertEquals(policyName, newRowPolicy.getPolicyName());
         Assertions.assertEquals(dbId, newRowPolicy.getDbId());
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
-        newRowPolicy.getUser().analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
+        newRowPolicy.getUser().analyze();
         Assertions.assertEquals(user.getQualifiedUser(), newRowPolicy.getUser().getQualifiedUser());
         Assertions.assertEquals(originStmt, newRowPolicy.getOriginStmt());
         Assertions.assertEquals(tableId, newRowPolicy.getTableId());

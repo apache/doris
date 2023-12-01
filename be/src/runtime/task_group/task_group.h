@@ -173,7 +173,7 @@ struct TaskGroupInfo {
     bool enable_cpu_hard_limit;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
-    uint64_t cgroup_cpu_hard_limit = 0;
+    int cgroup_cpu_hard_limit = 0;
 
     static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
                                    taskgroup::TaskGroupInfo* task_group_info);

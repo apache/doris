@@ -196,6 +196,17 @@ void ColumnMap::insert_indices_from(const IColumn& src, const int* indices_begin
     }
 }
 
+void ColumnMap::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                         const uint32_t* indices_end) {
+    for (auto x = indices_begin; x != indices_end; ++x) {
+        if (*x == 0) {
+            ColumnMap::insert_default();
+        } else {
+            ColumnMap::insert_from(src, *x);
+        }
+    }
+}
+
 StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
     size_t array_size = size_at(n);
     size_t offset = offset_at(n);

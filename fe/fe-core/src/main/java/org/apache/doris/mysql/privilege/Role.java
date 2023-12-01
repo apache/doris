@@ -835,8 +835,14 @@ public class Role implements Writable, GsonPostProcessable {
             return role;
         } else {
             String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, Role.class);
+            Role r = GsonUtils.GSON.fromJson(json, Role.class);
+            return r;
         }
+    }
+
+    // should be removed after version 3.0
+    private void removeClusterPrefix() {
+        roleName = ClusterNamespace.getNameFromFullName(roleName);
     }
 
     @Deprecated
@@ -866,6 +872,7 @@ public class Role implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
+        removeClusterPrefix();
         rebuildPrivTables();
     }
 

@@ -495,7 +495,9 @@ private:
         const void* get_data_at(size_t offset) const override;
 
     private:
+        // encodes sparsed columns
         const ColumnString* _root_data_column;
+        // _nullmap contains null info for this variant
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
     };
 

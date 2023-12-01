@@ -52,7 +52,8 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     public StatisticsAutoCollector() {
         super("Automatic Analyzer",
                 TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
-                new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num));
+                new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num,
+                        StatisticConstants.TASK_QUEUE_CAP));
     }
 
     @Override
@@ -91,15 +92,21 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     public void analyzeDb(DatabaseIf<TableIf> databaseIf) throws DdlException {
         List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
         for (AnalysisInfo analysisInfo : analysisInfos) {
-            analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
-            if (analysisInfo == null) {
-                continue;
-            }
             try {
+                if (needDropStaleStats(analysisInfo)) {
+                    Env.getCurrentEnv().getAnalysisManager().dropStats(databaseIf.getTable(analysisInfo.tblId).get());
+                    continue;
+                }
+                analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
+                if (analysisInfo == null) {
+                    continue;
+                }
                 createSystemAnalysisJob(analysisInfo);
             } catch (Throwable t) {
                 analysisInfo.message = t.getMessage();
-                throw t;
+                LOG.warn("Failed to auto analyze table {}.{}, reason {}",
+                        databaseIf.getFullName(), analysisInfo.tblId, analysisInfo.message, t);
+                continue;
             }
         }
     }
@@ -175,9 +182,13 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
+        // Skip tables that are too width.
+        if (table.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
+            return null;
+        }
+
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
-
         if (!table.needReAnalyzeTable(tblStats)) {
             return null;
         }
@@ -191,4 +202,29 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         return new AnalysisInfoBuilder(jobInfo).setColToPartitions(needRunPartitions).build();
     }
 
+    /**
+     * Check if the given table should drop stale stats. User may truncate table,
+     * in this case, we need to drop the stale stats.
+     * @param jobInfo
+     * @return True if you need to drop, false otherwise.
+     */
+    protected boolean needDropStaleStats(AnalysisInfo jobInfo) {
+        TableIf table = StatisticsUtil
+                .findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+        AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
+        if (tblStats == null) {
+            return false;
+        }
+        if (tblStats.analyzeColumns().isEmpty()) {
+            return false;
+        }
+        if (table.getRowCount() == 0) {
+            return true;
+        }
+        return false;
+    }
 }

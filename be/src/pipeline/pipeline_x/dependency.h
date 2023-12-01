@@ -31,6 +31,7 @@
 #include "gutil/integral_types.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
+#include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -188,6 +189,71 @@ private:
     const int64_t _registration_time;
     const int32_t _wait_time_ms;
     IRuntimeFilter* _runtime_filter = nullptr;
+};
+
+struct RuntimeFilterTimerQueue {
+    constexpr static int64_t interval = 10;
+    void run() { _thread.detach(); }
+    void start() {
+        while (!_stop) {
+            std::unique_lock<std::mutex> lk(cv_m);
+
+            cv.wait(lk, [this] { return !_que.empty() || _stop; });
+            if (_stop) {
+                break;
+            }
+            {
+                std::unique_lock<std::mutex> lc(_que_lock);
+                std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> new_que;
+                for (auto& it : _que) {
+                    if (it.use_count() == 1) {
+                        it->call_has_release();
+                    } else if (it->has_ready()) {
+                        it->call_has_ready();
+                    } else {
+                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                        if (ms_since_registration > it->wait_time_ms()) {
+                            it->call_timeout();
+                        } else {
+                            new_que.push_back(std::move(it));
+                        }
+                    }
+                }
+                new_que.swap(_que);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+        }
+        _shutdown = true;
+    }
+
+    void stop() {
+        _stop = true;
+        cv.notify_all();
+    }
+
+    void wait_for_shutdown() const {
+        while (!_shutdown) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+        }
+    }
+
+    ~RuntimeFilterTimerQueue() { wait_for_shutdown(); }
+    RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
+    void push_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) { push(filter); }
+
+    void push(std::shared_ptr<pipeline::RuntimeFilterTimer> filter) {
+        std::unique_lock<std::mutex> lc(_que_lock);
+        _que.push_back(filter);
+        cv.notify_all();
+    }
+
+    std::thread _thread;
+    std::condition_variable cv;
+    std::mutex cv_m;
+    std::mutex _que_lock;
+    std::atomic_bool _stop = false;
+    std::atomic_bool _shutdown = false;
+    std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> _que;
 };
 
 class RuntimeFilterDependency final : public Dependency {
@@ -398,7 +464,7 @@ struct HashJoinSharedState : public JoinSharedState {
             std::make_shared<vectorized::HashTableVariants>();
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks;
+    std::shared_ptr<vectorized::Block> build_block;
     bool probe_ignore_null = false;
 };
 
@@ -434,8 +500,7 @@ public:
     /// default init
     //record memory during running
     int64_t mem_used = 0;
-    std::vector<vectorized::Block> build_blocks; // build to source
-    int build_block_index = 0;                   // build to source
+    vectorized::Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;
     //first:column_id, could point to origin column or cast column
@@ -506,7 +571,7 @@ public:
             return;
         }
 
-        if (!try_get_hash_map_context_fixed<PartitionedHashMap, HashCRC32,
+        if (!try_get_hash_map_context_fixed<JoinFixedHashMap, HashCRC32,
                                             vectorized::RowRefListWithFlags>(
                     *hash_table_variants, child_exprs_lists[0])) {
             hash_table_variants->emplace<
@@ -515,21 +580,15 @@ public:
     }
 };
 
-using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,
-                                   std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
+class Exchanger;
+
 struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
-    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> data_queue;
+    std::unique_ptr<Exchanger> exchanger {};
     std::vector<Dependency*> source_dependencies;
-    std::atomic<int> running_sink_operators = 0;
-    void add_running_sink_operators() { running_sink_operators++; }
-    void sub_running_sink_operators() {
-        auto val = running_sink_operators.fetch_sub(1);
-        if (val == 1) {
-            _set_ready_for_read();
-        }
-    }
+    std::mutex le_lock;
+    void sub_running_sink_operators();
     void _set_ready_for_read() {
         for (auto* dep : source_dependencies) {
             DCHECK(dep);
@@ -538,11 +597,10 @@ public:
     }
     void set_dep_by_channel_id(Dependency* dep, int channel_id) {
         source_dependencies[channel_id] = dep;
-        dep->block();
     }
     void set_ready_for_read(int channel_id) {
         auto* dep = source_dependencies[channel_id];
-        DCHECK(dep);
+        DCHECK(dep) << channel_id << " " << (int64_t)this;
         dep->set_ready();
     }
 };

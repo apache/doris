@@ -76,9 +76,6 @@ template <typename DependencyType>
 std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
-    if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, " Dependency: {}", _dependency->debug_string());
-    }
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -86,9 +83,6 @@ template <typename DependencyType>
 std::string PipelineXSinkLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
-    if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, ", Dependency: {}", _dependency->debug_string());
-    }
     return fmt::to_string(debug_string_buffer);
 }
 
