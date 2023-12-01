@@ -286,8 +286,9 @@ void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
                 std::all_of(src, src + IPV6_BINARY_LENGTH, [](unsigned char c) { return c == 0; });
 
         if constexpr (std::is_same_v<T, ColumnString>) {
-            is_empty = !is_zero_address && std::all_of(src, src + IPV6_BINARY_LENGTH,
-                                                       [](unsigned char c) { return c == '\0'; });
+            is_empty = is_empty ||
+                       (!is_zero_address && std::all_of(src, src + IPV6_BINARY_LENGTH,
+                                                        [](unsigned char c) { return c == '\0'; }));
         }
 
         if (is_empty) {
