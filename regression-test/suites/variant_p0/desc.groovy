@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_desc", "variant_type_desc"){
+suite("regression_test_variant_desc", "nonConcurrent"){
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -187,6 +187,43 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         sql """set describe_extend_variant_column = true"""
         qt_sql_9_1 """desc ${table_name}"""
         sql "truncate table ${table_name}"
+
+        // schema change: add varaint
+        table_name = "schema_change_table"
+        create_table.call(table_name, "5")
+        // add, drop columns
+        sql """INSERT INTO ${table_name} values(0, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}')"""
+        sql """set describe_extend_variant_column = true"""
+        qt_sql_10 """desc ${table_name}"""
+        // add column
+        sql "alter table ${table_name} add column v2 variant default null"
+        sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}',
+                 '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+        qt_sql_10_1 """desc ${table_name}"""
+        // drop cloumn
+        sql "alter table ${table_name} drop column v2"
+        qt_sql_10_2 """desc ${table_name}"""
+        // add column
+        sql "alter table ${table_name} add column v3 variant default null"
+        sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}',
+                     '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+        qt_sql_10_3 """desc ${table_name}"""
+        //sql "truncate table ${table_name}"
+
+        // varaint column name: chinese name, unicode 
+        table_name = "chinese_table"
+        sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                k bigint,
+                v variant
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 5
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        """
+        sql """ insert into ${table_name} values (0, '{"名字" : "jack", "!@#^&*()": "11111", "金额" : 200, "画像" : {"地址" : "北京", "\\\u4E2C\\\u6587": "unicode"}}')"""
+        sql """set describe_extend_variant_column = true"""
+        qt_sql_11 """desc ${table_name}"""
     } finally {
         // reset flags
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")

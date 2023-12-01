@@ -121,3 +121,81 @@ v.c.c	SMALLINT	Yes	false	\N	NONE
 v.c.e	DOUBLE	Yes	false	\N	NONE
 v.oooo.xxxx.xxx	TINYINT	Yes	false	\N	NONE
 
+-- !sql_10 --
+k	BIGINT	Yes	true	\N	
+v	VARIANT	Yes	false	\N	NONE
+v.k1	TINYINT	Yes	false	\N	NONE
+v.k2	TEXT	Yes	false	\N	NONE
+v.k3	ARRAY<SMALLINT>	Yes	false	[]	NONE
+v.k4	DOUBLE	Yes	false	\N	NONE
+v.k5	JSON	Yes	false	\N	NONE
+
+-- !sql_10_1 --
+k	BIGINT	Yes	true	\N	
+v	VARIANT	Yes	false	\N	NONE
+v.a	SMALLINT	Yes	false	\N	NONE
+v.b	JSON	Yes	false	\N	NONE
+v.c.c	SMALLINT	Yes	false	\N	NONE
+v.c.e	DOUBLE	Yes	false	\N	NONE
+v.k1	TINYINT	Yes	false	\N	NONE
+v.k2	TEXT	Yes	false	\N	NONE
+v.k3	ARRAY<SMALLINT>	Yes	false	[]	NONE
+v.k4	DOUBLE	Yes	false	\N	NONE
+v.k5	JSON	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	TINYINT	Yes	false	\N	NONE
+v2	VARIANT	Yes	false	\N	NONE
+v2.a	SMALLINT	Yes	false	\N	NONE
+v2.b	JSON	Yes	false	\N	NONE
+v2.c.c	SMALLINT	Yes	false	\N	NONE
+v2.c.e	DOUBLE	Yes	false	\N	NONE
+v2.oooo.xxxx.xxx	TINYINT	Yes	false	\N	NONE
+
+-- !sql_10_2 --
+k	BIGINT	Yes	true	\N	
+v	VARIANT	Yes	false	\N	NONE
+v.a	SMALLINT	Yes	false	\N	NONE
+v.b	JSON	Yes	false	\N	NONE
+v.c.c	SMALLINT	Yes	false	\N	NONE
+v.c.e	DOUBLE	Yes	false	\N	NONE
+v.k1	TINYINT	Yes	false	\N	NONE
+v.k2	TEXT	Yes	false	\N	NONE
+v.k3	ARRAY<SMALLINT>	Yes	false	[]	NONE
+v.k4	DOUBLE	Yes	false	\N	NONE
+v.k5	JSON	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	TINYINT	Yes	false	\N	NONE
+v2	VARIANT	Yes	false	\N	NONE
+v2.a	SMALLINT	Yes	false	\N	NONE
+v2.b	JSON	Yes	false	\N	NONE
+v2.c.c	SMALLINT	Yes	false	\N	NONE
+v2.c.e	DOUBLE	Yes	false	\N	NONE
+v2.oooo.xxxx.xxx	TINYINT	Yes	false	\N	NONE
+
+-- !sql_10_3 --
+k	BIGINT	Yes	true	\N	
+v	VARIANT	Yes	false	\N	NONE
+v.a	SMALLINT	Yes	false	\N	NONE
+v.b	JSON	Yes	false	\N	NONE
+v.c.c	SMALLINT	Yes	false	\N	NONE
+v.c.e	DOUBLE	Yes	false	\N	NONE
+v.k1	TINYINT	Yes	false	\N	NONE
+v.k2	TEXT	Yes	false	\N	NONE
+v.k3	ARRAY<SMALLINT>	Yes	false	[]	NONE
+v.k4	DOUBLE	Yes	false	\N	NONE
+v.k5	JSON	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	TINYINT	Yes	false	\N	NONE
+v3	VARIANT	Yes	false	\N	NONE
+v3.a	SMALLINT	Yes	false	\N	NONE
+v3.b	JSON	Yes	false	\N	NONE
+v3.c.c	SMALLINT	Yes	false	\N	NONE
+v3.c.e	DOUBLE	Yes	false	\N	NONE
+v3.oooo.xxxx.xxx	TINYINT	Yes	false	\N	NONE
+
+-- !sql_11 --
+k	BIGINT	Yes	true	\N	
+v	VARIANT	Yes	false	\N	NONE
+v.!@#^&*()	TEXT	Yes	false	\N	NONE
+v.名字	TEXT	Yes	false	\N	NONE
+v.画像.丬文	TEXT	Yes	false	\N	NONE
+v.画像.地址	TEXT	Yes	false	\N	NONE
+v.金额	SMALLINT	Yes	false	\N	NONE
+
