@@ -45,7 +45,6 @@ Status VRowDistribution::_save_missing_values(const std::vector<std::vector<std:
                                               std::vector<int64_t> filter) {
     // de-duplication for new partitions but save all rows.
     _batching_block->add_rows(block, filter);
-    _partitions_need_create.clear();
     std::vector<TStringLiteral> cur_row_values;
     for (int row = 0; row < col_strs[0].size(); ++row) {
         cur_row_values.clear();

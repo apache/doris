@@ -34,6 +34,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public class PartitionExprUtil {
@@ -131,8 +132,9 @@ public class PartitionExprUtil {
             for (TStringLiteral tStringLiteral : partitionValueList) {
                 curPartitionValues.add(tStringLiteral.value);
             }
-            // combine value with '_', eg: "abc_123", but maybe have error
-            String filterStr = String.join("_", curPartitionValues);
+            String filterStr = curPartitionValues.stream()
+                    .map(s -> s + s.length()) // Concatenate each string with its length
+                    .reduce("", (s1, s2) -> s1 + s2);
             if (filterPartitionValues.contains(filterStr)) {
                 continue;
             }
@@ -156,7 +158,9 @@ public class PartitionExprUtil {
                         listValues);
                 partitionName += getFormatPartitionValue(filterStr);
                 if (partitionColumnType.isStringType()) {
-                    partitionName += "_" + System.currentTimeMillis();
+                    if (partitionName.length() > 50) {
+                        partitionName = partitionName.substring(40) + Objects.hash(partitionName) + "_" + System.currentTimeMillis();
+                    }
                 }
             } else {
                 throw new AnalysisException("now only support range and list partition");
