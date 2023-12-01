@@ -973,7 +973,7 @@ Status CsvReader::close() {
     if (_file_reader) {
         RETURN_IF_ERROR(_file_reader->close());
     }
-    
+
     return Status::OK();
 }
 
