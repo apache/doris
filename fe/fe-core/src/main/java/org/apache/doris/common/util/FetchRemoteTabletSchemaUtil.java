@@ -54,37 +54,48 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-
+// This class is used to pull the specified tablets' columns existing on the Backend (BE)
+// including regular columns and columns decomposed by variants
 public class FetchRemoteTabletSchemaUtil {
     private static final Logger LOG = LogManager.getLogger(FetchRemoteTabletSchemaUtil.class);
 
-    private List<Tablet> tablets;
-    private List<Column> columns;
+    private List<Tablet> remoteTablets;
+    private List<Column> tableColumns;
 
     public FetchRemoteTabletSchemaUtil(List<Tablet> tablets) {
-        this.tablets = tablets;
-        this.columns = Lists.newArrayList();
+        this.remoteTablets = tablets;
+        this.tableColumns = Lists.newArrayList();
     }
 
     public List<Column> fetch() {
-        // find be
-        Preconditions.checkNotNull(tablets);
+        // 1. Find which Backend (BE) servers the tablets are on
+        Preconditions.checkNotNull(remoteTablets);
         Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
-        for (Tablet tablet : tablets) {
+        for (Tablet tablet : remoteTablets) {
             for (Replica replica : tablet.getReplicas()) {
-                Set<Long> tabletIds = beIdToTabletId.computeIfAbsent(
+                // only need alive replica
+                if (replica.isAlive()) {
+                    Set<Long> tabletIds = beIdToTabletId.computeIfAbsent(
                                     replica.getBackendId(), k -> Sets.newHashSet());
-                tabletIds.add(tablet.getId());
+                    tabletIds.add(tablet.getId());
+                }
             }
         }
 
-        // build PTabletsLocation
+        // 2. Randomly select 2 Backend (BE) servers to act as coordinators.
+        // Coordinator BE is responsible for collecting all table columns and returning to the FE.
+        // Two BE provide a retry opportunity with the second one in case the first attempt fails.
         List<PTabletsLocation> locations = Lists.newArrayList();
         List<Backend> coordinatorBackend = Lists.newArrayList();
         for (Map.Entry<Long, Set<Long>> entry : beIdToTabletId.entrySet()) {
             Long backendId = entry.getKey();
             Set<Long> tabletIds = entry.getValue();
             Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(backendId);
+            // only need alive be
+            if (!backend.isAlive()) {
+                continue;
+            }
+            // need 2 be to provide a retry
             if (coordinatorBackend.size() < 2) {
                 coordinatorBackend.add(backend);
             }
@@ -97,7 +108,7 @@ public class FetchRemoteTabletSchemaUtil {
         PFetchRemoteSchemaRequest.Builder requestBuilder = PFetchRemoteSchemaRequest.newBuilder()
                                                                     .addAllTabletLocation(locations)
                                                                     .setIsCoordinator(true);
-        // send rpc to coordinatorBackend util succeed or 2 times
+        // 3. Send rpc to coordinatorBackend util succeed or retry
         for (Backend be : coordinatorBackend) {
             try {
                 PFetchRemoteSchemaRequest request = requestBuilder.build();
@@ -115,10 +126,10 @@ public class FetchRemoteTabletSchemaUtil {
                             errMsg = "fetchRemoteTabletSchemaAsync failed. backend address: "
                                     + be.getHost() + " : " + be.getBrpcPort();
                         }
-                        throw new AnalysisException(errMsg);
+                        throw new RpcException(be.getHost(), errMsg);
                     }
                     fillColumns(response);
-                    break;
+                    return tableColumns;
                 } catch (AnalysisException e) {
                     // continue to get result
                     LOG.warn(e);
@@ -130,13 +141,13 @@ public class FetchRemoteTabletSchemaUtil {
                     // continue to get result
                     LOG.warn("fetch remote schema result timeout, addr {}", be.getBrpcAddress());
                 }
-            } catch (RpcException e) {
+            }    catch (RpcException e) {
                 LOG.warn("fetch remote schema result rpc exception {}, e {}", be.getBrpcAddress(), e);
             } catch (ExecutionException e) {
-                LOG.warn("fetch remote schema result execution exception {}, addr {}", e, be.getBrpcAddress());
+                LOG.warn("fetch remote schema ExecutionException, addr {}, e {}", be.getBrpcAddress(), e);
             }
         }
-        return columns;
+        return tableColumns;
     }
 
     private void fillColumns(PFetchRemoteSchemaResponse response) throws AnalysisException {
@@ -144,22 +155,22 @@ public class FetchRemoteTabletSchemaUtil {
         for (ColumnPB columnPB : schemaPB.getColumnList()) {
             try {
                 Column remoteColumn = initColumnFromPB(columnPB);
-                columns.add(remoteColumn);
+                tableColumns.add(remoteColumn);
             } catch (Exception e) {
-                throw new AnalysisException("default value to string failed");
+                throw new AnalysisException("column default value to string failed");
             }
         }
         int variantColumntIdx = 0;
-        for (Column column : columns) {
+        for (Column column : tableColumns) {
             variantColumntIdx++;
             if (column.getType().isVariantType()) {
                 break;
             }
         }
-        if (variantColumntIdx == columns.size()) {
+        if (variantColumntIdx == tableColumns.size()) {
             return;
         }
-        List<Column> subList = columns.subList(variantColumntIdx, columns.size());
+        List<Column> subList = tableColumns.subList(variantColumntIdx, tableColumns.size());
         Collections.sort(subList, new Comparator<Column>() {
             @Override
             public int compare(Column c1, Column c2) {
