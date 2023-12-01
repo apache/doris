@@ -19,3 +19,9 @@
 7	8	3	abc	2022-12-01	2022-12-01T09:30:31
 8	9	3	abc	2022-12-01	2022-12-01T09:30:31
 
+-- !sql_test_single_quote --
+'a'	21	'b'
+
+-- !sql_test_double_quotes_with_enclose --
+"a"	21	"b"
+
