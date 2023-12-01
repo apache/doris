@@ -281,21 +281,11 @@ void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
             }
         }
 
-        const unsigned char* src = ipv6_address_data;
-        bool is_zero_address =
-                std::all_of(src, src + IPV6_BINARY_LENGTH, [](unsigned char c) { return c == 0; });
-
-        if constexpr (std::is_same_v<T, ColumnString>) {
-            is_empty = is_empty ||
-                       (!is_zero_address && std::all_of(src, src + IPV6_BINARY_LENGTH,
-                                                        [](unsigned char c) { return c == '\0'; }));
-        }
-
         if (is_empty) {
             offsets_res[i] = pos - begin;
             null_map->get_data()[i] = 1;
         } else {
-            formatIPv6(src, pos);
+            formatIPv6(ipv6_address_data, pos);
             offsets_res[i] = pos - begin;
         }
     }
