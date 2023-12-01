@@ -30,7 +30,7 @@ suite("test_backup_restore_bloom_filter", "backup_restore") {
             `sale_date` date NOT NULL,
             `saler_id` int NOT NULL,
             `category_id` int NOT NULL
-	)
+        )
         DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 10
         PROPERTIES 
