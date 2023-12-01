@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_window_fn") {
+suite("test_window_fn", "arrow_flight_sql") {
     def tbName1 = "empsalary"
     def tbName2 = "tenk1"
     sql """ DROP TABLE IF EXISTS ${tbName1} """

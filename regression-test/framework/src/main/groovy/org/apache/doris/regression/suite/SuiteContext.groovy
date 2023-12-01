@@ -129,6 +129,14 @@ class SuiteContext implements Closeable {
         return getConnection()
     }
 
+    boolean useArrowFlightSql() {
+        if (group.contains("arrow_flight_sql") && config.groups.contains("arrow_flight_sql")) {
+            return true
+        }
+        return false
+    }
+
+    // jdbc:mysql
     Connection getConnection() {
         def threadConnInfo = threadLocalConn.get()
         if (threadConnInfo == null) {
@@ -150,6 +158,7 @@ class SuiteContext implements Closeable {
             threadConnInfo.password = config.jdbcPassword
             threadArrowFlightSqlConn.set(threadConnInfo)
         }
+        println("Use arrow flight sql connection")
         return threadConnInfo.conn
     }
 
