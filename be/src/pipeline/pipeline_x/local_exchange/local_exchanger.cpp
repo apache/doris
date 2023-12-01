@@ -115,8 +115,8 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
 Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_block,
                                   SourceState source_state,
                                   LocalExchangeSinkLocalState& local_state) {
-    auto new_block = vectorized::Block::create_unique(in_block->clone_empty());
-    new_block->swap(*in_block);
+    vectorized::Block new_block(in_block->clone_empty());
+    new_block.swap(*in_block);
     auto channel_id = (local_state._channel_id++) % _num_instances;
     _data_queue[channel_id].enqueue(std::move(new_block));
     local_state._shared_state->set_ready_for_read(channel_id);
@@ -127,16 +127,16 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
 Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state,
                                        LocalExchangeSourceLocalState& local_state) {
-    std::unique_ptr<vectorized::Block> next_block;
+    vectorized::Block next_block;
     if (running_sink_operators == 0) {
         if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
-            *block = *next_block.release();
+            *block = std::move(next_block);
         } else {
             COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
             source_state = SourceState::FINISHED;
         }
     } else if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
-        *block = *next_block.release();
+        *block = std::move(next_block);
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
         local_state._dependency->block();

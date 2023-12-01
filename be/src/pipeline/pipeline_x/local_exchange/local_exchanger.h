@@ -87,7 +87,7 @@ public:
     ExchangeType get_type() const override { return ExchangeType::PASSTHROUGH; }
 
 private:
-    std::vector<moodycamel::ConcurrentQueue<std::unique_ptr<vectorized::Block>>> _data_queue;
+    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
 };
 
 } // namespace doris::pipeline
