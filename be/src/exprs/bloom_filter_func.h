@@ -20,6 +20,7 @@
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/runtime_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
+#include "vec/columns/column_dictionary.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
@@ -198,12 +199,6 @@ public:
 
     virtual void insert(const void* data) = 0;
 
-    virtual bool find(const void* data) const = 0;
-
-    virtual bool find_olap_engine(const void* data) const = 0;
-
-    virtual bool find_uint32_t(uint32_t data) const = 0;
-
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
 
     virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results) = 0;
@@ -336,16 +331,11 @@ struct CommonFindOp : BaseOp {
     }
 
     void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
-        bloom_filter.add_element(((T*)data)[0]);
+        bloom_filter.add_element(*(T*)data);
     }
-    bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        return bloom_filter.test_element(((T*)data)[0]);
-    }
+
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const override {
-        return find(bloom_filter, data);
-    }
-    bool find(const BloomFilterAdaptor& bloom_filter, uint32_t data) const {
-        return bloom_filter.test(data);
+        return bloom_filter.test_element(*(T*)data);
     }
 };
 
@@ -412,20 +402,9 @@ struct StringFindOp : public BaseOp {
         }
     }
 
-    static bool find(const BloomFilterAdaptor& bloom_filter, const void* data) {
-        const auto* value = reinterpret_cast<const StringRef*>(data);
-        if (value == nullptr) {
-            return false;
-        }
-        return bloom_filter.test(*value);
-    }
-
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const override {
-        return StringFindOp::find(bloom_filter, data);
-    }
-
-    static bool find(const BloomFilterAdaptor& bloom_filter, uint32_t data) {
-        return bloom_filter.test(data);
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        return bloom_filter.test(*value);
     }
 };
 
@@ -487,16 +466,21 @@ public:
         dummy.find_batch(*_bloom_filter, column, results);
     }
 
-    bool find(const void* data) const override {
-        DCHECK(_bloom_filter != nullptr);
-        return dummy.find(*_bloom_filter, data);
+    template <bool is_nullable>
+    uint16_t find_dict_olap_engine(const vectorized::ColumnDictI32* column, const uint8* nullmap,
+                                   uint16_t* offsets, int number) {
+        uint16_t new_size = 0;
+        for (uint16_t i = 0; i < number; i++) {
+            uint16_t idx = offsets[i];
+            offsets[new_size] = idx;
+            if constexpr (is_nullable) {
+                new_size += !nullmap[idx] && _bloom_filter->test(column->get_hash_value(idx));
+            } else {
+                new_size += _bloom_filter->test(column->get_hash_value(idx));
+            }
+        }
+        return new_size;
     }
-
-    bool find_olap_engine(const void* data) const override {
-        return dummy.find_olap_engine(*_bloom_filter, data);
-    }
-
-    bool find_uint32_t(uint32_t data) const override { return dummy.find(*_bloom_filter, data); }
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
                                         int number, bool is_parse_column) override {
