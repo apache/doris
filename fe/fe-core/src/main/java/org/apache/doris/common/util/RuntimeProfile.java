@@ -484,19 +484,18 @@ public class RuntimeProfile {
         }
     }
 
-    private static void mergeCounters(String counterName, List<RuntimeProfile> profiles,
+    private static void mergeCounters(String parentCounterName, List<RuntimeProfile> profiles,
             RuntimeProfile simpleProfile) {
         if (profiles.size() == 0) {
             return;
         }
         RuntimeProfile templateProfile = profiles.get(0);
-        Set<String> childCounterSet = templateProfile.childCounterMap.get(counterName);
+        Set<String> childCounterSet = templateProfile.childCounterMap.get(parentCounterName);
         if (childCounterSet == null) {
             return;
         }
         for (String childCounterName : childCounterSet) {
             Counter counter = templateProfile.counterMap.get(childCounterName);
-            mergeCounters(childCounterName, profiles, simpleProfile);
             if (counter.getLevel() == 1) {
                 Counter oldCounter = profiles.get(0).counterMap.get(childCounterName);
                 AggCounter aggCounter = new AggCounter(oldCounter.getType());
@@ -504,8 +503,13 @@ public class RuntimeProfile {
                     Counter orgCounter = profile.counterMap.get(childCounterName);
                     aggCounter.addCounter(orgCounter);
                 }
-                simpleProfile.addCounter(childCounterName, aggCounter, ROOT_COUNTER);
+                if (simpleProfile.counterMap.containsKey(parentCounterName)) {
+                    simpleProfile.addCounter(childCounterName, aggCounter, parentCounterName);
+                } else {
+                    simpleProfile.addCounter(childCounterName, aggCounter, ROOT_COUNTER);
+                }
             }
+            mergeCounters(childCounterName, profiles, simpleProfile);
         }
     }
 

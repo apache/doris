@@ -127,6 +127,7 @@ Status OlapScanLocalState::_init_profile() {
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
+    _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "RuntimeFilterInfo", 1);
     return Status::OK();
 }
 
@@ -477,6 +478,16 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
 
     // add info
     _segment_profile->add_info_string(filter_name, info_str);
+
+    const std::string rf_name = "filter id = " + std::to_string(id) + " ";
+
+    // add counter
+    auto* input_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "input",
+                                                     TUnit::UNIT, "RuntimeFilterInfo", 1);
+    auto* filtered_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "filtered",
+                                                        TUnit::UNIT, "RuntimeFilterInfo", 1);
+    COUNTER_UPDATE(input_count, info.input_row);
+    COUNTER_UPDATE(filtered_count, info.filtered_row);
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
