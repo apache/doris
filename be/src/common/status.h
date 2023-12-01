@@ -272,9 +272,10 @@ E(INVERTED_INDEX_NO_TERMS, -6005);
 E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
 E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
 E(INVERTED_INDEX_BUILD_WAITTING, -6008);
-E(KEY_NOT_FOUND, -6009);
-E(KEY_ALREADY_EXISTS, -6010);
-E(ENTRY_NOT_FOUND, -6011);
+E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009);
+E(KEY_NOT_FOUND, -7000);
+E(KEY_ALREADY_EXISTS, -7001);
+E(ENTRY_NOT_FOUND, -7002);
 #undef E
 } // namespace ErrorCode
 
@@ -300,6 +301,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
         && code != ErrorCode::SEGCOMPACTION_FAILED
+        && code != ErrorCode::INVALID_ARGUMENT
         && code != ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS
         && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
@@ -308,6 +310,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::INVERTED_INDEX_NO_TERMS
         && code != ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED
         && code != ErrorCode::INVERTED_INDEX_BUILD_WAITTING
+        && code != ErrorCode::INVERTED_INDEX_NOT_IMPLEMENTED
         && code != ErrorCode::META_KEY_NOT_FOUND
         && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
         && code != ErrorCode::VERSION_NOT_EXIST
