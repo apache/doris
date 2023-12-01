@@ -36,10 +36,12 @@ import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.DatabaseNotFoundException;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
+import com.sleepycat.je.StatsConfig;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.ReplicaWriteException;
+import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.RollbackException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -517,5 +519,18 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
     public BDBEnvironment getBDBEnvironment() {
         return this.bdbEnvironment;
+    }
+
+    public String getBDBStats() {
+        if (bdbEnvironment == null) {
+            return "";
+        }
+
+        ReplicatedEnvironment repEnv = bdbEnvironment.getReplicatedEnvironment();
+        if (repEnv == null) {
+            return "";
+        }
+
+        return repEnv.getRepStats(StatsConfig.DEFAULT).toString();
     }
 }
