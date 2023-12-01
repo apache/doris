@@ -267,10 +267,4 @@ private:
     int32_t _seq_col_idx_in_block = -1;
 }; // class MemTable
 
-inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
-    os << "MemTable(addr=" << &table << ", tablet=" << table.tablet_id()
-       << ", mem=" << table.memory_usage();
-    return os;
-}
-
 } // namespace doris
