@@ -94,4 +94,23 @@ suite("test_cast") {
         sql "select cast(true as date);"
         result([[null]])
     }
+    sql """ DROP TABLE IF EXISTS table_decimal38_4;"""
+    sql """
+        CREATE TABLE IF NOT EXISTS table_decimal38_4 (
+            `k0` decimal(38, 4)
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 5 properties("replication_num" = "1");
+        """
+
+    sql """ DROP TABLE IF EXISTS table_decimal27_9;"""
+    sql """
+        CREATE TABLE IF NOT EXISTS table_decimal27_9 (
+            `k0` decimal(27, 9)
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 5 properties("replication_num" = "1");
+        """
+    explain {
+        sql """select k0 from table_decimal38_4 union all select k0 from table_decimal27_9;"""
+        contains """AS DECIMALV3(38, 4)"""
+    }
 }
