@@ -60,11 +60,16 @@ void MemTableMemoryLimiter::register_writer(std::weak_ptr<MemTableWriter> writer
 }
 
 int64_t MemTableMemoryLimiter::_avail_mem_lack() {
-    return doris::MemInfo::sys_mem_available_warning_water_mark() - MemInfo::sys_mem_available();
+    // reserve small amount of memory so we do not trigger MinorGC
+    auto reserved_mem = doris::MemInfo::sys_mem_available_low_water_mark();
+    return doris::MemInfo::sys_mem_available_warning_water_mark() - MemInfo::sys_mem_available() +
+           reserved_mem;
 }
 
 int64_t MemTableMemoryLimiter::_proc_mem_extra() {
-    return MemInfo::proc_mem_no_allocator_cache() - MemInfo::soft_mem_limit();
+    // reserve small amount of memory so we do not trigger MinorGC
+    auto reserved_mem = doris::MemInfo::sys_mem_available_low_water_mark();
+    return MemInfo::proc_mem_no_allocator_cache() - MemInfo::soft_mem_limit() + reserved_mem;
 }
 
 bool MemTableMemoryLimiter::_soft_limit_reached() {
