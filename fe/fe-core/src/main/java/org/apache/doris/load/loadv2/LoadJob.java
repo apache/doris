@@ -334,10 +334,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         this.loadStatistic.totalFileSizeB = fileSize;
     }
 
-    public TUniqueId getRequestId() {
-        return requestId;
-    }
-
     /**
      * Show table names for frontend
      * If table name could not be found by id, the table id will be used instead.
@@ -396,14 +392,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public UserIdentity getUserInfo() {
         return userInfo;
-    }
-
-    public void setUserInfo(UserIdentity userInfo) {
-        this.userInfo = userInfo;
-    }
-
-    public String getComment() {
-        return comment;
     }
 
     public void setComment(String comment) {
