@@ -1183,6 +1183,9 @@ public class EditLog {
         } catch (Throwable t) {
             // Throwable contains all Exception and Error, such as IOException and
             // OutOfMemoryError
+            if (journal instanceof BDBJEJournal) {
+                LOG.error("BDBJE stats : {}", ((BDBJEJournal) journal).getBDBStats());
+            }
             LOG.error("Fatal Error : write stream Exception", t);
             System.exit(-1);
         }

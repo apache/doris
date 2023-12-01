@@ -281,11 +281,13 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -381,6 +383,7 @@ public class Env {
     // canRead can be true even if isReady is false.
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
     private AtomicBoolean canRead = new AtomicBoolean(false);
+    private String toMasterProgress = "";
     private BlockingQueue<FrontendNodeType> typeTransferQueue;
 
     // node name is used for bdbje NodeName.
@@ -1386,6 +1389,7 @@ public class Env {
         isReady.set(false);
         canRead.set(false);
 
+        toMasterProgress = "open editlog";
         editLog.open();
 
         if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
@@ -1395,6 +1399,7 @@ public class Env {
             }
         }
 
+        toMasterProgress = "replay journal";
         long replayStartTime = System.currentTimeMillis();
         // replay journals. -1 means replay all the journals larger than current journal id.
         replayJournal(-1);
@@ -1405,11 +1410,13 @@ public class Env {
 
         checkBeExecVersion();
 
+        toMasterProgress = "roll editlog";
         editLog.rollEditLog();
 
         // Log meta_version
         long journalVersion = MetaContext.get().getMetaVersion();
         if (journalVersion < FeConstants.meta_version) {
+            toMasterProgress = "log meta version";
             editLog.logMetaVersion(FeConstants.meta_version);
             MetaContext.get().setMetaVersion(FeConstants.meta_version);
         }
@@ -1451,6 +1458,7 @@ public class Env {
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
 
+        toMasterProgress = "log master info";
         this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
                 Config.http_port,
                 Config.rpc_port);
@@ -1464,6 +1472,8 @@ public class Env {
         // so no need to check 'isReady' flag in this method
         postProcessAfterMetadataReplayed(false);
 
+        toMasterProgress = "start daemon threads";
+
         // start all daemon threads that only running on MASTER FE
         startMasterOnlyDaemonThreads();
         // start other daemon threads that should running on all FE
@@ -1471,6 +1481,7 @@ public class Env {
 
         MetricRepo.init();
 
+        toMasterProgress = "finished";
         canRead.set(true);
         isReady.set(true);
         checkLowerCaseTableNames();
@@ -5813,5 +5824,58 @@ public class Env {
         alter.setTask(task);
         alter.setRelation(relation);
         this.alter.processAlterMTMV(alter, false);
+    }
+
+    // Ensure the env is ready, otherwise throw an exception.
+    public void checkReadyOrThrow() throws Exception {
+        if (isReady()) {
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Node catalog is not ready, please wait for a while. ")
+                .append("To master progress: " + toMasterProgress + ".\n")
+                .append("Frontends: \n");
+
+        for (String name : frontends.keySet()) {
+            Frontend frontend = frontends.get(name);
+            if (name == null) {
+                continue;
+            }
+            sb.append(frontend.toString()).append("\n");
+        }
+
+        if (haProtocol instanceof BDBHA) {
+            try {
+                BDBHA ha = (BDBHA) haProtocol;
+                List<InetSocketAddress> electableNodes = ha.getElectableNodes(true);
+                if (!electableNodes.isEmpty()) {
+                    sb.append("Electable nodes: \n");
+                    for (InetSocketAddress addr : electableNodes) {
+                        sb.append(addr.toString()).append("\n");
+                    }
+                }
+                List<InetSocketAddress> observerNodes = ha.getObserverNodes();
+                if (!observerNodes.isEmpty()) {
+                    sb.append("Observer nodes: \n");
+                    for (InetSocketAddress addr : electableNodes) {
+                        sb.append(addr.toString()).append("\n");
+                    }
+                }
+
+            } catch (Exception e) {
+                // pass
+            }
+        }
+
+        throw new Exception(sb.toString());
+    }
+
+    public void checkReadyOrThrowTException() throws TException {
+        try {
+            checkReadyOrThrow();
+        } catch (Exception e) {
+            throw new TException(e);
+        }
     }
 }
