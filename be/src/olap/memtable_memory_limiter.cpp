@@ -60,7 +60,7 @@ void MemTableMemoryLimiter::register_writer(std::weak_ptr<MemTableWriter> writer
 }
 
 bool MemTableMemoryLimiter::_soft_limit_reached() {
-    return _mem_tracker->consumption() >= _load_soft_mem_limit;
+    return _mem_tracker->consumption() >= _load_soft_mem_limit || _hard_limit_reached();
 }
 
 bool MemTableMemoryLimiter::_hard_limit_reached() {
