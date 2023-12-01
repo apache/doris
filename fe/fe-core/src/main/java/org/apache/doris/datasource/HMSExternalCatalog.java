@@ -35,12 +35,8 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
-import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
-import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,6 +59,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // Reference to https://github.com/apDdlache/doris/issues/18251
     private long lastSyncedEventId = -1L;
     private volatile long masterLastSyncedEventId = -1L;
+
     public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     // broker name for file split and query scan.
@@ -132,18 +129,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
                         "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
             }
         }
-    }
-
-    public String getHiveMetastoreUris() {
-        return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
-    }
-
-    public String getHiveVersion() {
-        return catalogProperty.getOrDefault(HMSProperties.HIVE_VERSION, "");
-    }
-
-    protected List<String> listDatabaseNames() {
-        return client.getAllDatabases();
     }
 
     @Override
@@ -216,6 +201,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return hmsExternalDatabase.getTable(ClusterNamespace.getNameFromFullName(tblName)).isPresent();
     }
 
+<<<<<<< HEAD
     public HMSCachedClient getClient() {
         makeSureInitialized();
         return client;
@@ -334,6 +320,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return currentNotificationEventId.getEventId();
     }
 
+=======
+>>>>>>> 4ddf33f067 ([Enhancement](multi-catalog) Speed up consume rate of hms event.)
     @Override
     public void dropDatabase(String dbName) {
         LOG.debug("drop database [{}]", dbName);
@@ -370,5 +358,22 @@ public class HMSExternalCatalog extends ExternalCatalog {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
+    }
+
+    public String getHiveMetastoreUris() {
+        return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
+    }
+
+    public String getHiveVersion() {
+        return catalogProperty.getOrDefault(HMSProperties.HIVE_VERSION, "");
+    }
+
+    protected List<String> listDatabaseNames() {
+        return client.getAllDatabases();
+    }
+
+    public PooledHiveMetaStoreClient getClient() {
+        makeSureInitialized();
+        return client;
     }
 }
