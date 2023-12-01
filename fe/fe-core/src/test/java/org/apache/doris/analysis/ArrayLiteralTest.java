@@ -79,8 +79,8 @@ public class ArrayLiteralTest  {
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
         Assert.assertEquals("[1.0, 2.15]", arrayLiteral1.getStringValueInFe());
-        ArrayLiteral arrayLiteral_ = new ArrayLiteral(floatLiteral1);
-        Assert.assertEquals("[\"11:22:33\"]", arrayLiteral_.getStringValueInFe());
+        ArrayLiteral arrayLiteralWithTime = new ArrayLiteral(floatLiteral1);
+        Assert.assertEquals("[\"11:22:33\"]", arrayLiteralWithTime.getStringValueInFe());
 
         ArrayLiteral arrayLiteral2 = new ArrayLiteral(boolLiteral, boolLiteral);
         Assert.assertEquals("[1, 1]", arrayLiteral2.getStringValueInFe());
@@ -102,7 +102,7 @@ public class ArrayLiteralTest  {
 
         ArrayLiteral arrayLiteral8 = new ArrayLiteral(arrayLiteral7, arrayLiteral7);
         Assert.assertEquals("[[\"2022-10-10 12:10:10\", \"2022-10-10 12:10:10\"], [\"2022-10-10 12:10:10\", \"2022-10-10 12:10:10\"]]",
-            arrayLiteral8.getStringValueInFe());
+                arrayLiteral8.getStringValueInFe());
 
         ArrayLiteral arrayLiteral9 = new ArrayLiteral();
         Assert.assertEquals("[]", arrayLiteral9.getStringValueInFe());
