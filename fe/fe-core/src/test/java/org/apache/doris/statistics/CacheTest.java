@@ -283,7 +283,7 @@ public class CacheTest extends TestWithFeService {
             Assertions.assertEquals(7, columnStatistic.maxValue);
         } catch (Throwable t) {
             t.printStackTrace();
-        }git a
+        }
     }
 
     @Test
