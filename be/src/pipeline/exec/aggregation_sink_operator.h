@@ -367,6 +367,12 @@ public:
                 SourceState source_state) override;
 
     std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
+    ExchangeType get_local_exchange_type() const override {
+        if (_probe_expr_ctxs.empty()) {
+            return _needs_finalize ? ExchangeType::PASSTHROUGH : ExchangeType::NOOP;
+        }
+        return ExchangeType::SHUFFLE;
+    }
 
     using DataSinkOperatorX<LocalStateType>::id;
     using DataSinkOperatorX<LocalStateType>::operator_id;

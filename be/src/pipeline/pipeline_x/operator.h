@@ -29,7 +29,7 @@ struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams> scan_ranges;
     std::vector<DependencySPtr>& upstream_dependencies;
-    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
+    std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map;
     int task_idx;
 
     DependencySPtr dependency;
@@ -40,7 +40,7 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     std::vector<DependencySPtr>& dependencys;
-    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
+    std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map;
     const TDataSink& tsink;
 };
 

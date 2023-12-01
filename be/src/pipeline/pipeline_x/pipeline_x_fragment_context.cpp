@@ -470,19 +470,20 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_total_load_streams(request.total_load_streams);
         _runtime_states[i]->set_num_local_sink(request.num_local_sink);
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
-        auto get_local_exchange_state =
-                [&](PipelinePtr pipeline) -> std::shared_ptr<LocalExchangeSharedState> {
+        auto get_local_exchange_state = [&](PipelinePtr pipeline)
+                -> std::map<int, std::shared_ptr<LocalExchangeSharedState>> {
+            std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map;
             auto source_id = pipeline->operator_xs().front()->operator_id();
             if (auto iter = _op_id_to_le_state.find(source_id); iter != _op_id_to_le_state.end()) {
-                return iter->second;
+                le_state_map.insert({source_id, iter->second});
             }
             for (auto sink_to_source_id : pipeline->sink_x()->dests_id()) {
                 if (auto iter = _op_id_to_le_state.find(sink_to_source_id);
                     iter != _op_id_to_le_state.end()) {
-                    return iter->second;
+                    le_state_map.insert({sink_to_source_id, iter->second});
                 }
             }
-            return nullptr;
+            return le_state_map;
         };
         for (auto& pipeline : _pipelines) {
             auto task = std::make_unique<PipelineXTask>(

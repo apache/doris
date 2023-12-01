@@ -29,6 +29,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
@@ -64,17 +65,19 @@ public class ExchangeNode extends PlanNode {
     private SortInfo mergeInfo;
 
     private boolean isRightChildOfBroadcastHashJoin = false;
+    private TPartitionType partitionType;
 
     /**
      * use for Nereids only.
      */
-    public ExchangeNode(PlanNodeId id, PlanNode inputNode) {
+    public ExchangeNode(PlanNodeId id, PlanNode inputNode, TPartitionType partitionType) {
         super(id, inputNode, EXCHANGE_NODE, StatisticalType.EXCHANGE_NODE);
         offset = 0;
         limit = -1;
         this.conjuncts = Collections.emptyList();
         children.add(inputNode);
         computeTupleIds();
+        this.partitionType = partitionType;
     }
 
     /**
@@ -171,6 +174,7 @@ public class ExchangeNode extends PlanNode {
             msg.exchange_node.setSortInfo(mergeInfo.toThrift());
         }
         msg.exchange_node.setOffset(offset);
+        msg.exchange_node.setPartitionType(partitionType);
     }
 
     @Override
