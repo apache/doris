@@ -110,7 +110,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(sb.toString());
-        runQuery(sql, true);
+        runQuery(sql);
     }
 
     private Map<String, String> buildTableStatsParams(String partId) {
