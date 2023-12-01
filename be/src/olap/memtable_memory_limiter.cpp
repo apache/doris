@@ -60,9 +60,7 @@ void MemTableMemoryLimiter::register_writer(std::weak_ptr<MemTableWriter> writer
 }
 
 bool MemTableMemoryLimiter::_soft_limit_reached() {
-    return _mem_tracker->consumption() >= _load_soft_mem_limit ||
-           (MemInfo::proc_mem_no_allocator_cache() >= MemInfo::soft_mem_limit() &&
-            _mem_tracker->consumption() >= _load_hard_mem_limit / 10);
+    return _mem_tracker->consumption() >= _load_soft_mem_limit;
 }
 
 bool MemTableMemoryLimiter::_hard_limit_reached() {
@@ -85,17 +83,22 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                       << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
                       << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
-            if (_active_mem_usage > _load_hard_mem_limit / 10) {
+            if (_active_mem_usage > _write_mem_usage / 2 ||
+                _active_mem_usage >= _load_hard_mem_limit) {
                 _flush_active_memtables();
             }
-            _hard_limit_end_cond.wait(l);
+            auto st = _hard_limit_end_cond.wait_for(l, std::chrono::milliseconds(1000));
+            if (st == std::cv_status::timeout) {
+                LOG(INFO) << "timeout when waiting for memory hard limit end, try flush again";
+            }
         }
         if (_soft_limit_reached()) {
             LOG(INFO) << "reached memtable memory soft limit"
                       << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
                       << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
-            if (_active_mem_usage >= _load_soft_mem_limit / 5 * 4) {
+            if (_active_mem_usage > _write_mem_usage / 2 ||
+                _active_mem_usage >= _load_soft_mem_limit) {
                 _flush_active_memtables();
             }
         }
@@ -121,9 +124,13 @@ void MemTableMemoryLimiter::_flush_active_memtables() {
             _writers.pop_back();
         }
     }
-    int64_t mem_to_flush = _hard_limit_reached()
-                                   ? _active_mem_usage - _load_hard_mem_limit / 10 * 9
-                                   : _active_mem_usage - _load_soft_mem_limit / 10 * 9;
+    int64_t mem_to_flush = 0; // flush 1 memtable each time on soft limit
+    if (_hard_limit_reached()) {
+        int64_t flushing_mem = _write_mem_usage - _active_mem_usage + _flush_mem_usage;
+        int64_t extra_mem = _mem_tracker->consumption() - _load_hard_mem_limit;
+        int64_t extra_mem2 = MemInfo::proc_mem_no_allocator_cache() - MemInfo::soft_mem_limit();
+        mem_to_flush = std::max(extra_mem, extra_mem2) - flushing_mem;
+    }
     int64_t mem_flushed = 0;
     int64_t num_flushed = 0;
     while (!mem_heap.empty()) {
@@ -150,7 +157,7 @@ void MemTableMemoryLimiter::_flush_active_memtables() {
             LOG(WARNING) << err_msg;
             static_cast<void>(writer->cancel_with_status(st));
         }
-        if (mem_flushed >= mem_to_flush) {
+        if (mem_flushed > mem_to_flush) {
             break;
         }
     }
