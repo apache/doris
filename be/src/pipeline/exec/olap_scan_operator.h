@@ -183,6 +183,11 @@ public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs);
 
+    std::string name_suffix() const override {
+        return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
+                           _olap_scan_node.table_name);
+    }
+
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;

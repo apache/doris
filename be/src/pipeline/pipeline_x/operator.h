@@ -320,6 +320,10 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
+    virtual std::string name_suffix() const {
+        return " (id=" + std::to_string(_parent->node_id()) + ")";
+    }
+
     Status close(RuntimeState* state) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
@@ -577,7 +581,7 @@ public:
 
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
 
-    virtual std::string id_name() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
+    virtual std::string name_suffix() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
     Dependency* dependency() override { return _dependency; }
 
