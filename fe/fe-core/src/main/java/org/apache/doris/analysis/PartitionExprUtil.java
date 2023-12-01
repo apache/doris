@@ -159,7 +159,8 @@ public class PartitionExprUtil {
                 partitionName += getFormatPartitionValue(filterStr);
                 if (partitionColumnType.isStringType()) {
                     if (partitionName.length() > 50) {
-                        partitionName = partitionName.substring(40) + Objects.hash(partitionName) + "_" + System.currentTimeMillis();
+                        partitionName = partitionName.substring(40) + Objects.hash(partitionName)
+                                + "_" + System.currentTimeMillis();
                     }
                 }
             } else {
