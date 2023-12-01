@@ -848,42 +848,28 @@ public:
         return Status::OK();
     }
 
-    // follow ZSTD official example
-    //  https://github.com/facebook/zstd/blob/dev/examples/streaming_decompression.c
     Status decompress(const Slice& input, Slice* output) override {
         DContext* context;
-        bool compress_failed = false;
+        bool decompress_failed = false;
         RETURN_IF_ERROR(_acquire_decompression_ctx(&context));
         Defer defer {[&] {
-            if (compress_failed) {
+            if (decompress_failed) {
                 _delete_decompression_ctx(context);
             } else {
                 _release_decompression_ctx(context);
             }
         }};
 
-        ZSTD_inBuffer in_buf = {input.data, input.size, 0};
-        ZSTD_outBuffer out_buf = {output->data, output->size, 0};
-
-        while (in_buf.pos < in_buf.size) {
-            // do decompress
-            auto ret = ZSTD_decompressStream(context->ctx, &out_buf, &in_buf);
-
-            if (ZSTD_isError(ret)) {
-                compress_failed = true;
-                return Status::InvalidArgument("ZSTD_decompressStream error: {}",
-                                               ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
-            }
-
-            // ret is ZSTD hint for needed output buffer size
-            if (ret > 0 && out_buf.pos == out_buf.size) {
-                compress_failed = true;
-                return Status::InvalidArgument("ZSTD_decompressStream output buffer full");
-            }
+        size_t ret = ZSTD_decompressDCtx(context->ctx, output->data, output->size, input.data,
+                                         input.size);
+        if (ZSTD_isError(ret)) {
+            decompress_failed = true;
+            return Status::InvalidArgument("ZSTD_decompressDCtx error: {}",
+                                           ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
         }
 
         // set decompressed size for caller
-        output->size = out_buf.pos;
+        output->size = ret;
 
         return Status::OK();
     }
