@@ -96,7 +96,7 @@ under the License.
 | OLAP_ERR_CE_TRY_CE_LOCK_ERROR | -306 | Attempt to obtain execution command lock error |
 | Tablet error exception code | | |
 | OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR | -400 | Tablet copy version error |
-| OLAP_ERR_TABLE_VERSION_INDEX_MISMATCH_ERROR | -401 | teblet version index mismatch exception |
+| OLAP_ERR_TABLE_VERSION_INDEX_MISMATCH_ERROR | -401 | tablet version index mismatch exception |
 | OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR | -402 | The initial version of the tablet is not checked here, because if the BE is restarted during a schema-change of a tablet, we may encounter an empty tablet exception |
 | OLAP_ERR_TABLE_INDEX_FIND_ERROR | -403 | Unable to get the position of the first block or failure to find the last block of the block will cause this exception |
 | OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR | -404 | This exception is triggered when the tablet cannot be loaded |
