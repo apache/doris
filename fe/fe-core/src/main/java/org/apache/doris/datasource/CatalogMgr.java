@@ -681,12 +681,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         ((HMSExternalTable) table).unsetObjectCreated();
         ((HMSExternalTable) table).setEventUpdateTime(updateTime);
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
-        ExternalObjectLog log = new ExternalObjectLog();
-        log.setCatalogId(catalog.getId());
-        log.setDbId(db.getId());
-        log.setTableId(table.getId());
-        log.setLastUpdateTime(updateTime);
-        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 
     public void refreshExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfNotExists)

@@ -79,7 +79,7 @@ public class ExternalMetaIdMgr {
         return partitionMetaIdMgr.partitionId;
     }
 
-    public @Nullable DbMetaIdMgr getDbMetaIdMgr(long catalogId, String dbName) {
+    private @Nullable DbMetaIdMgr getDbMetaIdMgr(long catalogId, String dbName) {
         CtlMetaIdMgr ctlMetaIdMgr = idToCtlMgr.get(catalogId);
         if (ctlMetaIdMgr == null) {
             return null;
@@ -87,7 +87,7 @@ public class ExternalMetaIdMgr {
         return ctlMetaIdMgr.dbNameToMgr.get(dbName);
     }
 
-    public @Nullable TblMetaIdMgr getTblMetaIdMgr(long catalogId, String dbName, String tblName) {
+    private @Nullable TblMetaIdMgr getTblMetaIdMgr(long catalogId, String dbName, String tblName) {
         DbMetaIdMgr dbMetaIdMgr = getDbMetaIdMgr(catalogId, dbName);
         if (dbMetaIdMgr == null) {
             return null;
@@ -95,7 +95,7 @@ public class ExternalMetaIdMgr {
         return dbMetaIdMgr.tblNameToMgr.get(tblName);
     }
 
-    public PartitionMetaIdMgr getPartitionMetaIdMgr(long catalogId, String dbName,
+    private PartitionMetaIdMgr getPartitionMetaIdMgr(long catalogId, String dbName,
                                                     String tblName, String partitionName) {
         TblMetaIdMgr tblMetaIdMgr = getTblMetaIdMgr(catalogId, dbName, tblName);
         if (tblMetaIdMgr == null) {
