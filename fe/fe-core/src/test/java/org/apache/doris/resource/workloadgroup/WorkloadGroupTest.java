@@ -83,7 +83,7 @@ public class WorkloadGroupTest {
         WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
 
         BaseProcResult result = new BaseProcResult();
-        group1.getProcNodeData(result);
+        group1.getProcNodeData(result, null);
         List<List<String>> rows = result.getRows();
         Assert.assertEquals(1, rows.size());
     }
