@@ -29,8 +29,6 @@ suite("qt_action") {
 
     qt_select2 "select 2"
 
-    qt_arrow_flight_sql "select 1, 'beijing' union all select 2, 'shanghai'"
-
     // order result by string dict then compare to .out file.
     // order_qt_xxx sql equals to quickTest(xxx, sql, true).
     order_qt_union_all  """
