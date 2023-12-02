@@ -184,7 +184,7 @@ public:
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
-    std::string id_name() override;
+    std::string name_suffix() override;
     segment_v2::CompressionTypePB& compression_type();
     std::string debug_string(int indentation_level) const override;
 

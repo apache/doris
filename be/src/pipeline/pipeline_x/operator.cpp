@@ -330,8 +330,7 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
 
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
-    _runtime_profile.reset(new RuntimeProfile(_parent->get_name() +
-                                              " (id=" + std::to_string(_parent->node_id()) + ")"));
+    _runtime_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _runtime_profile->set_metadata(_parent->node_id());
     _runtime_profile->set_is_sink(false);
     info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
@@ -341,7 +340,7 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
         auto& deps = info.upstream_dependencies;
         if constexpr (std::is_same_v<LocalExchangeSourceDependency, DependencyType>) {
-            _dependency->set_shared_state(info.local_exchange_state);
+            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()]);
         } else {
             _dependency->set_shared_state(deps.front()->shared_state());
         }
@@ -402,7 +401,7 @@ template <typename DependencyType>
 Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
                                                      LocalSinkStateInfo& info) {
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + id_name()));
+    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _profile->set_metadata(_parent->node_id());
     _profile->set_is_sink(true);
     _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
@@ -410,7 +409,7 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
         auto& deps = info.dependencys;
         _dependency = (DependencyType*)deps.front().get();
         if constexpr (std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
-            _dependency->set_shared_state(info.local_exchange_state);
+            _dependency->set_shared_state(info.le_state_map[_parent->dests_id().front()]);
         }
         if (_dependency) {
             _shared_state =

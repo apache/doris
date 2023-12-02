@@ -52,7 +52,8 @@ class PipelineXTask : public PipelineTask {
 public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                  std::shared_ptr<LocalExchangeSharedState> local_exchange_state, int task_idx);
+                  std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map,
+                  int task_idx);
 
     Status prepare(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
@@ -209,7 +210,7 @@ private:
     DependencyMap _upstream_dependency;
     std::map<int, DependencySPtr> _source_dependency;
     std::vector<DependencySPtr> _downstream_dependency;
-    std::shared_ptr<LocalExchangeSharedState> _local_exchange_state;
+    std::map<int, std::shared_ptr<LocalExchangeSharedState>> _le_state_map;
     int _task_idx;
     bool _dry_run = false;
 

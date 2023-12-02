@@ -730,7 +730,8 @@ AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operato
           _pool(pool),
           _limit(tnode.limit),
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
-          _is_streaming(is_streaming) {
+          _is_streaming(is_streaming),
+          _partition_exprs(tnode.agg_node.grouping_exprs) {
     _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
 }
 
