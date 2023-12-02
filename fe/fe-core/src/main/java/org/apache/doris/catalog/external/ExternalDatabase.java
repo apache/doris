@@ -141,8 +141,15 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
             T table = getTableForReplay(log.getRefreshTableIds().get(i));
-            tmpTableNameToId.put(table.getName(), table.getId());
-            tmpIdToTbl.put(table.getId(), table);
+            // When upgrade cluster with this pr: https://github.com/apache/doris/pull/27666
+            // Maybe there are some create table events will be skipped
+            // if the cluster has any hms catalog(s) and with hms event listener enabled.
+            // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
+            // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
+            if (table != null) {
+                tmpTableNameToId.put(table.getName(), table.getId());
+                tmpIdToTbl.put(table.getId(), table);
+            }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
             T table = getExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
