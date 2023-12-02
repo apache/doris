@@ -984,6 +984,8 @@ public class Env {
         TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wgPublisher);
         topicPublisherThread.start();
+
+        workloadGroupMgr.startUpdateThread();
     }
 
     // wait until FE is ready.
