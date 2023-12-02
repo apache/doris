@@ -396,6 +396,16 @@ struct TDetailedReportParams {
   3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 }
 
+
+struct TQueryStatistics {
+    // A thrift structure identical to the PQueryStatistics structure.
+    1: optional i64 scan_rows
+    2: optional i64 scan_bytes
+    3: optional i64 returned_rows
+    4: optional i64 cpu_ms
+    5: optional i64 max_peak_memory_bytes
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -458,6 +468,8 @@ struct TReportExecStatusParams {
   22: optional i32 finished_scan_ranges
 
   23: optional list<TDetailedReportParams> detailed_report
+
+  24: optional TQueryStatistics query_statistics
 }
 
 struct TFeResult {
@@ -905,23 +917,6 @@ struct TFetchSchemaTableDataResult {
   2: optional list<Data.TRow> data_batch;
 }
 
-// Only support base table add columns
-struct TAddColumnsRequest {
-    1: optional i64 table_id
-    2: optional list<TColumnDef> addColumns
-    3: optional string table_name
-    4: optional string db_name
-    5: optional bool allow_type_conflict
-}
-
-// Only support base table add columns
-struct TAddColumnsResult {
-    1: optional Status.TStatus status
-    2: optional i64 table_id
-    3: optional list<Descriptors.TColumn> allColumns
-    4: optional i32 schema_version
-}
-
 struct TMySqlLoadAcquireTokenResult {
     1: optional Status.TStatus status
     2: optional string token
@@ -1353,8 +1348,6 @@ service FrontendService {
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
-
-    TAddColumnsResult addColumns(1: TAddColumnsRequest request)
 
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 

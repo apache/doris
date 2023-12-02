@@ -61,7 +61,7 @@ private:
     std::shared_ptr<Status> _failed_st;
     PUniqueId _load_id;
     int64_t _txn_id;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
@@ -92,7 +92,7 @@ private:
     int64_t _txn_id;
     std::shared_ptr<OlapTableSchemaParam> _schema;
     std::unordered_map<int64_t, int64_t> _tablet_partitions;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;

@@ -126,6 +126,33 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "FORMAT" = "${format}");
         """
 
+    order_qt_10 """
+           select arrayMapBoolean,aBoolean,aMap,aLong,aUnion from s3(
+            "uri" = "${s3Uri}",
+            "ACCESS_KEY" = "${ak}",
+            "SECRET_KEY" = "${sk}",
+            "REGION" = "${region}",
+            "FORMAT" = "${format}");
+        """
+
+    order_qt_11 """
+           select aString,aDouble,anEnum from s3(
+            "uri" = "${s3Uri}",
+            "ACCESS_KEY" = "${ak}",
+            "SECRET_KEY" = "${sk}",
+            "REGION" = "${region}",
+            "FORMAT" = "${format}");
+        """
+
+    order_qt_12 """
+           select aRecord,aMap,aFloat from s3(
+            "uri" = "${s3Uri}",
+            "ACCESS_KEY" = "${ak}",
+            "SECRET_KEY" = "${sk}",
+            "REGION" = "${region}",
+            "FORMAT" = "${format}");
+        """
+
     // TVF hdfs()
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -148,6 +175,24 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
                         "fs.defaultFS" = "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}"); """
+
+            order_qt_13 """ select arrayMapBoolean,aBoolean,aMap,aLong,aUnion from HDFS(
+                        "uri" = "${hdfsUri}",
+                        "fs.defaultFS" = "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}")"""
+
+            order_qt_14 """ select aString,aDouble,anEnum from HDFS(
+                        "uri" = "${hdfsUri}",
+                        "fs.defaultFS" = "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}")"""
+
+            order_qt_15 """ select aRecord,aMap,aFloat from HDFS(
+                        "uri" = "${hdfsUri}",
+                        "fs.defaultFS" = "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}")"""
         } finally {
         }
     }

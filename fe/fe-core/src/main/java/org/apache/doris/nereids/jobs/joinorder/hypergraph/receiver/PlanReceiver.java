@@ -27,6 +27,7 @@ import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -214,7 +215,7 @@ public class PlanReceiver implements AbstractReceiver {
             List<Expression> otherConjuncts) {
         // Check whether only NSL can be performed
         LogicalProperties joinProperties = new LogicalProperties(
-                () -> JoinUtils.getJoinOutput(joinType, left, right));
+                () -> JoinUtils.getJoinOutput(joinType, left, right), () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
         List<Plan> plans = Lists.newArrayList();
         if (JoinUtils.shouldNestedLoopJoin(joinType, hashConjuncts)) {
             plans.add(new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts,
@@ -378,7 +379,9 @@ public class PlanReceiver implements AbstractReceiver {
                 .collect(Collectors.toList());
         if (!outputSet.equals(new HashSet<>(projects))) {
             LogicalProperties projectProperties = new LogicalProperties(
-                    () -> projects.stream().map(p -> p.toSlot()).collect(Collectors.toList()));
+                    () -> projects.stream()
+                            .map(p -> p.toSlot())
+                            .collect(Collectors.toList()), () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
             allChild = allChild.stream()
                     .map(c -> new PhysicalProject<>(projects, projectProperties, c))
                     .collect(Collectors.toList());

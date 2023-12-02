@@ -97,10 +97,8 @@ public class AnalysisInfo implements Writable {
     public final long tblId;
 
     // TODO: Map here is wired, List is enough
-    @SerializedName("colToPartitions")
     public final Map<String, Set<String>> colToPartitions;
 
-    @SerializedName("partitionNames")
     public final Set<String> partitionNames;
 
     @SerializedName("colName")

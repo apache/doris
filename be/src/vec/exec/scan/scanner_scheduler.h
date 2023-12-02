@@ -102,7 +102,7 @@ private:
     // and put it to the _scheduling_map.
     // If any scanner finish, it will take ctx from and put it to pending queue again.
     std::atomic_uint _queue_idx = {0};
-    BlockingQueue<ScannerContext*>** _pending_queues;
+    BlockingQueue<ScannerContext*>** _pending_queues = nullptr;
 
     // scheduling thread pool
     std::unique_ptr<ThreadPool> _scheduler_pool;
@@ -132,7 +132,7 @@ struct SimplifiedScanTask {
     }
 
     std::function<void()> scan_func;
-    vectorized::ScannerContext* scanner_context;
+    vectorized::ScannerContext* scanner_context = nullptr;
 };
 
 // used for cpu hard limit
@@ -186,7 +186,7 @@ private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::unique_ptr<BlockingQueue<SimplifiedScanTask>> _scan_task_queue;
     std::atomic<bool> _is_stop;
-    CgroupCpuCtl* _cgroup_cpu_ctl;
+    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
     std::string _wg_name;
 };
 

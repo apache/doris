@@ -98,11 +98,11 @@ private:
     std::pair<int, int> _segment_offsets;
 
     SchemaSPtr _input_schema;
-    RowsetReaderContext* _read_context;
+    RowsetReaderContext* _read_context = nullptr;
     BetaRowsetSharedPtr _rowset;
 
     OlapReaderStatistics _owned_stats;
-    OlapReaderStatistics* _stats;
+    OlapReaderStatistics* _stats = nullptr;
 
     std::unique_ptr<RowwiseIterator> _iterator;
 

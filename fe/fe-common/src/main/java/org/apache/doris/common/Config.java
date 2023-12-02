@@ -236,10 +236,16 @@ public class Config extends ConfigBase {
                     + "If there are many ReplicaWriteException in FE WARN log, you can try to increase this value"})
     public static int bdbje_replica_ack_timeout_second = 10;
 
+    @ConfField(description = {"在HA模式下，BDBJE 中保留的预留空间字节数的期望上限。非 HA 模式下无效",
+            "The desired upper limit on the number of bytes of reserved space to retain "
+                    + "in a replicated JE Environment. "
+                    + "This parameter is ignored in a non-replicated JE Environment."})
+    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+
     @ConfField(description = {"BDBJE 所需的空闲磁盘空间大小。如果空闲磁盘空间小于这个值，则BDBJE将无法写入。",
             "Amount of free disk space required by BDBJE. "
                     + "If the free disk space is less than this value, BDBJE will not be able to write."})
-    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+    public static int bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
     @ConfField(masterOnly = true, description = {"心跳线程池的线程数",
             "Num of thread to handle heartbeat events"})
@@ -1982,7 +1988,7 @@ public class Config extends ConfigBase {
      * OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
      */
     @ConfField
-    public static String bdbje_file_logging_level = "ALL";
+    public static String bdbje_file_logging_level = "INFO";
 
     /**
      * When holding lock time exceeds the threshold, need to report it.
@@ -2269,7 +2275,23 @@ public class Config extends ConfigBase {
     })
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 
+    @ConfField(masterOnly = true, description = {
+            "设置 root 用户初始化2阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。"
+                    + "后续 root 用户的 `set password` 操作会将 root 初始化密码覆盖。"
+                    + "示例：如要配置密码的明文是 `root@123`，可在Doris执行SQL `select password('root@123')` "
+                    + "获取加密密码 `*A00C34073A26B40AB4307650BFB9309D6BFA6999`",
+            "Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. "
+                    + "Subsequent `set password` operations for root user will overwrite the initial root password. "
+                    + "Example: If you want to configure a plaintext password `root@123`."
+                    + "You can execute Doris SQL `select password('root@123')` to generate encrypted "
+                    + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`"})
+    public static String initial_root_password = "";
+
     @ConfField(description = {"nereids trace文件的存放路径。",
             "The path of the nereids trace file."})
     public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
+
+    @ConfField(description = {"是否开启通过http接口获取log文件的功能",
+            "Whether to enable the function of getting log files through http interface"})
+    public static boolean enable_get_log_file_api = false;
 }

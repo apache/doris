@@ -175,8 +175,8 @@ private:
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
-    TabletManager* _tablet_manager;
-    TxnManager* _txn_manager;
+    TabletManager* _tablet_manager = nullptr;
+    TxnManager* _txn_manager = nullptr;
     int32_t _cluster_id;
     bool _cluster_id_incomplete = false;
     // This flag will be set true if this store was not in root path when reloading
@@ -193,14 +193,14 @@ private:
     RowsetIdGenerator* _id_generator = nullptr;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
-    IntGauge* disks_total_capacity;
-    IntGauge* disks_avail_capacity;
-    IntGauge* disks_local_used_capacity;
-    IntGauge* disks_remote_used_capacity;
-    IntGauge* disks_trash_used_capacity;
-    IntGauge* disks_state;
-    IntGauge* disks_compaction_score;
-    IntGauge* disks_compaction_num;
+    IntGauge* disks_total_capacity = nullptr;
+    IntGauge* disks_avail_capacity = nullptr;
+    IntGauge* disks_local_used_capacity = nullptr;
+    IntGauge* disks_remote_used_capacity = nullptr;
+    IntGauge* disks_trash_used_capacity = nullptr;
+    IntGauge* disks_state = nullptr;
+    IntGauge* disks_compaction_score = nullptr;
+    IntGauge* disks_compaction_num = nullptr;
 };
 
 } // namespace doris

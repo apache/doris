@@ -10,20 +10,20 @@ PhysicalResultSink
 --------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[ps_suppkey]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = partsupp.ps_partkey) and (lineitem.l_suppkey = partsupp.ps_suppkey)) otherCondition=((cast(ps_availqty as DECIMALV3(38, 3)) > (0.5 * sum(l_quantity)))) build RFs:RF1 l_partkey->[ps_partkey];RF2 l_suppkey->[ps_suppkey]
-----------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((partsupp.ps_partkey = part.p_partkey)) otherCondition=() build RFs:RF0 p_partkey->[ps_partkey]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[partsupp] apply RFs: RF0 RF1 RF2 RF3
-------------------------PhysicalProject
---------------------------filter((p_name like 'forest%'))
-----------------------------PhysicalOlapScan[part]
+--------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = partsupp.ps_partkey) and (lineitem.l_suppkey = partsupp.ps_suppkey)) otherCondition=((cast(ps_availqty as DECIMALV3(38, 3)) > (0.5 * sum(l_quantity)))) build RFs:RF1 ps_partkey->[l_partkey];RF2 ps_suppkey->[l_suppkey]
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalDistribute
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalProject
+------------------------------filter((lineitem.l_shipdate < '1995-01-01') and (lineitem.l_shipdate >= '1994-01-01'))
+--------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2
 ----------------------PhysicalDistribute
-------------------------hashAgg[GLOBAL]
---------------------------PhysicalDistribute
-----------------------------hashAgg[LOCAL]
-------------------------------PhysicalProject
---------------------------------filter((lineitem.l_shipdate < '1995-01-01') and (lineitem.l_shipdate >= '1994-01-01'))
-----------------------------------PhysicalOlapScan[lineitem]
+------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((partsupp.ps_partkey = part.p_partkey)) otherCondition=() build RFs:RF0 p_partkey->[ps_partkey]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[partsupp] apply RFs: RF0 RF3
+--------------------------PhysicalProject
+----------------------------filter((p_name like 'forest%'))
+------------------------------PhysicalOlapScan[part]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[supplier] apply RFs: RF4

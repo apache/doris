@@ -52,8 +52,7 @@
 #include "util/slice.h"
 #include "util/time.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
-#include "vec/common/schema_util.h" // variant column
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -321,17 +320,19 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     int ret;
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (_context.tablet_schema->has_inverted_index(column.unique_id())) {
-            auto index_id =
-                    _context.tablet_schema->get_inverted_index(column.unique_id())->index_id();
+        if (_context.tablet_schema->has_inverted_index(column)) {
+            auto index_info = _context.tablet_schema->get_inverted_index(column);
+            auto index_id = index_info->index_id();
             auto src_idx_path =
                     begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
-                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id)
+                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id,
+                                        index_info->get_index_suffix())
                               : InvertedIndexDescriptor::local_inverted_index_path_segcompacted(
                                         _context.rowset_dir, _context.rowset_id, begin, end,
-                                        index_id);
+                                        index_id, index_info->get_index_suffix());
             auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
-                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id);
+                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id,
+                    index_info->get_index_suffix());
             VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
                        << dst_idx_path;
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
@@ -427,6 +428,13 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
     }
+    // Update the tablet schema in the rowset metadata if the tablet schema contains a variant.
+    // During the build process, _context.tablet_schema will be used as the rowset schema.
+    // This situation may arise in the event of a linked schema change. If this schema is not set,
+    // the subcolumns of the variant will be lost.
+    if (_context.tablet_schema->num_variant_columns() > 0 && rowset->tablet_schema() != nullptr) {
+        _context.tablet_schema = rowset->tablet_schema();
+    }
     return Status::OK();
 }
 
@@ -445,15 +453,9 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
         return Status::OK();
     }
 
-    TabletSchemaSPtr flush_schema;
-    if (_context.tablet_schema->num_variant_columns() > 0) {
-        // Unfold variant column
-        RETURN_IF_ERROR(expand_variant_to_subcolumns(*block, flush_schema));
-    }
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
-        RETURN_IF_ERROR(
-                _segment_creator.flush_single_block(block, segment_id, flush_size, flush_schema));
+        RETURN_IF_ERROR(_segment_creator.flush_single_block(block, segment_id, flush_size));
     }
     return Status::OK();
 }
@@ -559,9 +561,8 @@ bool BetaRowsetWriter::_is_segment_overlapping(
 //  => update_schema:       A(bigint), B(double), C(int), D(int)
 void BetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     std::lock_guard<std::mutex> lock(*(_context.schema_lock));
-    TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
-    vectorized::schema_util::get_least_common_schema({_context.tablet_schema, flush_schema},
-                                                     update_schema);
+    TabletSchemaSPtr update_schema = vectorized::schema_util::get_least_common_schema(
+            {_context.tablet_schema, flush_schema}, nullptr);
     CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()
             << ", but flush_schema is larger " << flush_schema->num_columns()
@@ -775,115 +776,6 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     writer->reset();
 
-    return Status::OK();
-}
-
-Status BetaRowsetWriter::expand_variant_to_subcolumns(vectorized::Block& block,
-                                                      TabletSchemaSPtr& flush_schema) {
-    size_t num_rows = block.rows();
-    if (num_rows == 0) {
-        return Status::OK();
-    }
-
-    std::vector<int> variant_column_pos;
-    if (is_partial_update()) {
-        // check columns that used to do partial updates should not include variant
-        for (int i : get_partial_update_info()->update_cids) {
-            if (_context.tablet_schema->columns()[i].is_variant_type()) {
-                return Status::InvalidArgument("Not implement partial updates for variant");
-            }
-        }
-    } else {
-        for (int i = 0; i < _context.tablet_schema->columns().size(); ++i) {
-            if (_context.tablet_schema->columns()[i].is_variant_type()) {
-                variant_column_pos.push_back(i);
-            }
-        }
-    }
-
-    if (variant_column_pos.empty()) {
-        return Status::OK();
-    }
-
-    try {
-        // Parse each variant column from raw string column
-        vectorized::schema_util::parse_variant_columns(block, variant_column_pos);
-        vectorized::schema_util::finalize_variant_columns(block, variant_column_pos,
-                                                          false /*not ingore sparse*/);
-        vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_column_pos);
-    } catch (const doris::Exception& e) {
-        // TODO more graceful, max_filter_ratio
-        LOG(WARNING) << "encounter execption " << e.to_string();
-        return Status::InternalError(e.to_string());
-    }
-
-    // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
-    //     static     extracted
-    // | --------- | ----------- |
-    // The static ones are original _tablet_schame columns
-    flush_schema = std::make_shared<TabletSchema>();
-    flush_schema->copy_from(*_context.tablet_schema);
-    vectorized::Block flush_block(std::move(block));
-
-    // If column already exist in original tablet schema, then we pick common type
-    // and cast column to common type, and modify tablet column to common type,
-    // otherwise it's a new column, we should add to frontend
-    auto append_column = [&](const TabletColumn& parent_variant, auto& column_entry_from_object) {
-        const std::string& column_name =
-                parent_variant.name_lower_case() + "." + column_entry_from_object->path.get_path();
-        const vectorized::DataTypePtr& final_data_type_from_object =
-                column_entry_from_object->data.get_least_common_type();
-        TabletColumn tablet_column;
-        vectorized::PathInDataBuilder full_path_builder;
-        auto full_path = full_path_builder.append(parent_variant.name_lower_case(), false)
-                                 .append(column_entry_from_object->path.get_parts(), false)
-                                 .build();
-        vectorized::schema_util::get_column_by_type(
-                final_data_type_from_object, column_name, tablet_column,
-                vectorized::schema_util::ExtraInfo {.unique_id = -1,
-                                                    .parent_unique_id = parent_variant.unique_id(),
-                                                    .path_info = full_path});
-        flush_schema->append_column(std::move(tablet_column));
-        flush_block.insert({column_entry_from_object->data.get_finalized_column_ptr()->get_ptr(),
-                            final_data_type_from_object, column_name});
-    };
-
-    // 1. Flatten variant column into flat columns, append flatten columns to the back of original Block and TabletSchema
-    // those columns are extracted columns, leave none extracted columns remain in original variant column, which is
-    // JSONB format at present.
-    // 2. Collect columns that need to be added or modified when data type changes or new columns encountered
-    for (size_t i = 0; i < variant_column_pos.size(); ++i) {
-        size_t variant_pos = variant_column_pos[i];
-        vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
-                flush_block.get_by_position(variant_pos).column->assume_mutable_ref());
-        const TabletColumn& parent_column = _context.tablet_schema->columns()[variant_pos];
-        CHECK(object_column.is_finalized());
-        std::shared_ptr<vectorized::ColumnObject::Subcolumns::Node> root;
-        for (auto& entry : object_column.get_subcolumns()) {
-            if (entry->path.empty()) {
-                // root
-                root = entry;
-                continue;
-            }
-            append_column(parent_column, entry);
-        }
-        // Create new variant column and set root column
-        auto obj = vectorized::ColumnObject::create(true, false);
-        // '{}' indicates a root path
-        static_cast<vectorized::ColumnObject*>(obj.get())->add_sub_column(
-                {}, root->data.get_finalized_column_ptr()->assume_mutable(),
-                root->data.get_least_common_type());
-        flush_block.get_by_position(variant_pos).column = obj->get_ptr();
-        vectorized::PathInDataBuilder full_root_path_builder;
-        auto full_root_path =
-                full_root_path_builder.append(parent_column.name_lower_case(), false).build();
-        flush_schema->mutable_columns()[variant_pos].set_path_info(full_root_path);
-        VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
-    }
-    update_rowset_schema(flush_schema);
-    block.swap(flush_block);
-    VLOG_DEBUG << "dump block: " << block.dump_data();
-    VLOG_DEBUG << "dump flush schema: " << flush_schema->dump_structure();
     return Status::OK();
 }
 

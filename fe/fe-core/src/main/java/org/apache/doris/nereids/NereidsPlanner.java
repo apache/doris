@@ -68,7 +68,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -98,6 +97,8 @@ public class NereidsPlanner extends Planner {
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) {
         if (statementContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
             NereidsTracer.init();
+        } else {
+            NereidsTracer.disable();
         }
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
@@ -259,6 +260,10 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getTables() != null) {
             cascadesContext.setTables(statementContext.getConnectContext().getTables());
         }
+        if (statementContext.getConnectContext().getSessionVariable().isEnableMaterializedViewRewrite()) {
+            // TODO Pre handle materialized view to materializationContext and
+            //  call cascadesContext.addMaterializationContext() to add it
+        }
     }
 
     private void analyze() {
@@ -347,30 +352,30 @@ public class NereidsPlanner extends Planner {
 
     /**
      * getting hints explain string, which specified by enumerate and show in lists
-     * @param hintMap hint map recorded in statement context
+     * @param hints hint map recorded in statement context
      * @return explain string shows using of hint
      */
-    public String getHintExplainString(Map<String, Hint> hintMap) {
+    public String getHintExplainString(List<Hint> hints) {
         String used = "";
         String unUsed = "";
         String syntaxError = "";
-        for (Map.Entry<String, Hint> entry : hintMap.entrySet()) {
-            switch (entry.getValue().getStatus()) {
+        for (Hint hint : hints) {
+            switch (hint.getStatus()) {
                 case UNUSED:
-                    unUsed = unUsed + " " + entry.getValue().getExplainString();
+                    unUsed = unUsed + " " + hint.getExplainString();
                     break;
                 case SYNTAX_ERROR:
-                    syntaxError = syntaxError + " " + entry.getValue().getExplainString()
-                        + " Msg:" + entry.getValue().getErrorMessage();
+                    syntaxError = syntaxError + " " + hint.getExplainString()
+                        + " Msg:" + hint.getErrorMessage();
                     break;
                 case SUCCESS:
-                    used = used + " " + entry.getValue().getExplainString();
+                    used = used + " " + hint.getExplainString();
                     break;
                 default:
                     break;
             }
         }
-        return "\nUsed:" + used + "\nUnUsed:" + unUsed + "\nSyntaxError:" + syntaxError;
+        return "\nHint log:" + "\nUsed:" + used + "\nUnUsed:" + unUsed + "\nSyntaxError:" + syntaxError;
     }
 
     @Override
@@ -411,8 +416,8 @@ public class NereidsPlanner extends Planner {
             default:
                 plan = super.getExplainString(explainOptions);
         }
-        if (!statementContext.getHintMap().isEmpty()) {
-            String hint = getHintExplainString(cascadesContext.getStatementContext().getHintMap());
+        if (statementContext != null && !statementContext.getHints().isEmpty()) {
+            String hint = getHintExplainString(statementContext.getHints());
             return plan + hint;
         }
         return plan;

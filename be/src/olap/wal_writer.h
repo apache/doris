@@ -35,7 +35,8 @@ extern const uint32_t k_wal_magic_length;
 class WalWriter {
 public:
     explicit WalWriter(const std::string& file_name,
-                       const std::shared_ptr<std::atomic_size_t>& all_wal_disk_bytes);
+                       const std::shared_ptr<std::atomic_size_t>& all_wal_disk_bytes,
+                       const std::shared_ptr<std::condition_variable>& cv);
     ~WalWriter();
 
     Status init();
@@ -50,7 +51,7 @@ public:
 public:
     static const int64_t LENGTH_SIZE = 8;
     static const int64_t CHECKSUM_SIZE = 4;
-    std::condition_variable cv;
+    std::shared_ptr<std::condition_variable> cv;
     static const int64_t VERSION_SIZE = 4;
 
 private:
@@ -60,6 +61,7 @@ private:
     std::atomic_size_t _disk_bytes;
     std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
     std::mutex _mutex;
+    bool _is_first_append_blocks;
 };
 
 } // namespace doris

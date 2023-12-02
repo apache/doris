@@ -61,6 +61,8 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "-1");
 
+DEFINE_mString(public_access_ip, "");
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DEFINE_Int32(brpc_num_threads, "256");
@@ -745,7 +747,9 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 // share delta writers when memtable_on_sink_node = true
 DEFINE_Bool(share_delta_writers, "true");
 // timeout for open load stream rpc in ms
-DEFINE_Int64(open_load_stream_timeout_ms, "500");
+DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
+// timeout for load stream close wait in ms
+DEFINE_Int64(close_load_stream_timeout_ms, "600000"); // 10 min
 
 // idle timeout for load stream in ms
 DEFINE_Int64(load_stream_idle_timeout_ms, "600000");
@@ -955,8 +959,9 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 // Will remove after fully test.
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
-DEFINE_mBool(enable_flatten_nested_for_variant, "false");
-DEFINE_mDouble(ratio_of_defaults_as_sparse_column, "0.95");
+DEFINE_mBool(variant_enable_flatten_nested, "false");
+DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "0.95");
+DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
@@ -1120,6 +1125,8 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
+
+DEFINE_Bool(enable_snapshot_action, "false");
 
 // clang-format off
 #ifdef BE_TEST

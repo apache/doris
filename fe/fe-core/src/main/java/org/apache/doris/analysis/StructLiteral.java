@@ -32,6 +32,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class StructLiteral extends LiteralExpr {
     // only for persist
@@ -163,5 +164,22 @@ public class StructLiteral extends LiteralExpr {
         for (Expr e : children) {
             e.checkValueValid();
         }
+    }
+
+    public int hashCode() {
+        return Objects.hashCode(children);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof StructLiteral)) {
+            return false;
+        }
+        if (this == o) {
+            return true;
+        }
+
+        StructLiteral that = (StructLiteral) o;
+        return Objects.equals(children, that.children);
     }
 }

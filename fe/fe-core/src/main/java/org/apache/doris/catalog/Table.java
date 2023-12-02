@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -48,6 +49,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -114,6 +116,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     protected String comment = "";
     // sql for creating this table, default is "";
     protected String ddlSql = "";
+
+    @SerializedName(value = "constraints")
+    private HashMap<String, Constraint> constraintsMap = new HashMap<>();
 
     public Table(TableType type) {
         this.type = type;
@@ -291,6 +296,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         }
     }
 
+    public Constraint getConstraint(String name) {
+        return constraintsMap.get(name);
+    }
+
+    @Override
+    public Map<String, Constraint> getConstraintsMap() {
+        return constraintsMap;
+    }
+
     public TableType getType() {
         return type;
     }
@@ -342,6 +356,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public long getRowCount() {
         return 0;
+    }
+
+    public long getCacheRowCount() {
+        return getRowCount();
     }
 
     public long getAvgRowLength() {

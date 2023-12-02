@@ -272,6 +272,7 @@ public abstract class TestWithFeService {
         ctx.setRemoteIP(host);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
+        ctx.setStatementContext(new StatementContext());
         return ctx;
     }
 
@@ -724,7 +725,7 @@ public abstract class TestWithFeService {
 
     protected void useUser(String userName) throws AnalysisException {
         UserIdentity user = new UserIdentity(userName, "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         connectContext.setCurrentUserIdentity(user);
         connectContext.setQualifiedUser(SystemInfoService.DEFAULT_CLUSTER + ":" + userName);
     }

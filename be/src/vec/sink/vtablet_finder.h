@@ -64,7 +64,7 @@ public:
     Bitmap& filter_bitmap() { return _filter_bitmap; }
 
 private:
-    VOlapTablePartitionParam* _vpartition;
+    VOlapTablePartitionParam* _vpartition = nullptr;
     FindTabletMode _find_tablet_mode;
     std::map<VOlapTablePartition*, int64_t> _partition_to_tablet_map;
     vectorized::flat_hash_set<int64_t> _partition_ids;
