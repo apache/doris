@@ -620,13 +620,9 @@ Status CsvReader::_create_decompressor() {
 template <bool from_json>
 Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    if (!(from_json && _options.converted_from_string)) {
-        if ((slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') ||
-            (slice.size == 4 && slice[0] == '\'' && slice[1] == '\\' && slice[2] == 'N' &&
-             slice[3] == '\'')) {
-            null_column.insert_data(nullptr, 0);
-            return Status::OK();
-        }
+    if ((slice.size == 2 && slice[0] == '\\' && slice[1] == 'N')) {
+        null_column.insert_data(nullptr, 0);
+        return Status::OK();
     }
     static DataTypeStringSerDe stringSerDe;
     auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
