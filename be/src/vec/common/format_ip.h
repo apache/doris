@@ -20,7 +20,9 @@
 
 #pragma once
 
+#include <vec/common/hex.h>
 #include <vec/common/string_utils/string_utils.h>
+#include <vec/core/types.h>
 
 #include <algorithm>
 #include <array>

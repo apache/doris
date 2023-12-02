@@ -194,6 +194,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -590,6 +593,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ipv4StringToNumOrDefault.class, "ipv4stringtonumordefault"),
             scalar(Ipv4StringToNumOrNull.class, "ipv4stringtonumornull"),
             scalar(Ipv6NumToString.class, "ipv6numtostring", "inet6_ntoa"),
+            scalar(Ipv6StringToNum.class, "ipv6stringtonum", "inet6_aton"),
+            scalar(Ipv6StringToNumOrDefault.class, "ipv6stringtonumordefault"),
+            scalar(Ipv6StringToNumOrNull.class, "ipv6stringtonumornull"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),

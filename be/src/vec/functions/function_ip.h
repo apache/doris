@@ -348,6 +348,7 @@ public:
     }
 };
 
+namespace detail {
 template <IPStringToNumExceptionMode exception_mode, typename ToColumn = ColumnIPv6,
           typename StringColumnType>
 ColumnPtr convertToIPv6(const StringColumnType& string_column,
@@ -355,9 +356,9 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
     if constexpr (!std::is_same_v<ToColumn, ColumnString> && !std::is_same_v<ToColumn, ColumnIPv6>)
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Illegal return column type {}. Expected IPv6 or String",
-                        TypeName<typename ToColumn::ValueType>);
+                        TypeName<typename ToColumn::ValueType>::get());
 
-    size_t column_size = string_column.size();
+    const size_t column_size = string_column.size();
 
     ColumnUInt8::MutablePtr col_null_map_to;
     ColumnUInt8::Container* vec_null_map_to = nullptr;
@@ -370,14 +371,15 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
     /// This is a special treatment for source column of type String
     /// to preserve previous behavior when IPv6 was a domain type of String
     if constexpr (std::is_same_v<StringColumnType, ColumnString>) {
-        if (string_column.get_n() == IPV6_BINARY_LENGTH) {
+        if (string_column.get_offsets()[0] - 1 == IPV6_BINARY_LENGTH) {
             if constexpr (std::is_same_v<ToColumn, ColumnString>) {
-                auto col_res = ColumnString::create(string_column);
+                auto col_res = ColumnString::create();
 
                 if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
                     col_null_map_to = ColumnUInt8::create(column_size, false);
                     if (null_map)
                         memcpy(col_null_map_to->get_data().data(), null_map->data(), column_size);
+
                     return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
                 }
 
@@ -391,6 +393,7 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
                        column_size * IPV6_BINARY_LENGTH);
 
                 if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+
                     col_null_map_to = ColumnUInt8::create(column_size, false);
                     if (null_map)
                         memcpy(col_null_map_to->get_data().data(), null_map->data(), column_size);
@@ -402,11 +405,15 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
         }
     }
 
-    auto column_create = []() -> typename ToColumn::MutablePtr {
-        if constexpr (std::is_same_v<ToColumn, ColumnString>)
-            return ColumnString::create(IPV6_BINARY_LENGTH);
-        else
+    auto column_create = [](size_t column_size) -> typename ToColumn::MutablePtr {
+        if constexpr (std::is_same_v<ToColumn, ColumnString>) {
+            auto column_string = ColumnString::create();
+            column_string->get_chars().reserve(column_size * IPV6_BINARY_LENGTH);
+            column_string->get_offsets().reserve(column_size);
+            return column_string;
+        } else {
             return ColumnIPv6::create();
+        }
     };
 
     auto get_vector = [](auto& col_res, size_t col_size) -> decltype(auto) {
@@ -421,7 +428,7 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
         }
     };
 
-    auto col_res = column_create();
+    auto col_res = column_create(column_size);
     auto& vec_res = get_vector(col_res, column_size);
 
     using Chars = typename StringColumnType::Chars;
@@ -434,14 +441,11 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
     /// TODO fix this - now parseIPv6/parseIPv4 accept end iterator, so can be parsed in-place
     std::string string_buffer;
 
-    if constexpr (std::is_same_v<StringColumnType, ColumnString>) {
-        string_buffer.resize(string_column.getN());
-    }
-
     int offset_inc = 1;
     if constexpr (std::is_same_v<ToColumn, ColumnString>) offset_inc = IPV6_BINARY_LENGTH;
 
     for (size_t out_offset = 0, i = 0; i < column_size; out_offset += offset_inc, ++i) {
+
         size_t src_next_offset = src_offset;
 
         const char* src_value = nullptr;
@@ -449,48 +453,84 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
 
         if constexpr (std::is_same_v<StringColumnType, ColumnString>) {
             src_value = reinterpret_cast<const char*>(&vec_src[src_offset]);
-            src_next_offset = string_column.getOffsets()[i];
+            src_next_offset = string_column.get_offsets()[i];
+
+            string_buffer.assign(src_value, src_next_offset - src_offset);
+            src_value = string_buffer.c_str();
         }
 
         if (null_map && (*null_map)[i]) {
             std::fill_n(&vec_res[out_offset], offset_inc, 0);
             src_offset = src_next_offset;
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
                 (*vec_null_map_to)[i] = true;
+                if constexpr (std::is_same_v<ToColumn, ColumnString>) {
+                    auto* column_string = assert_cast<ColumnString*>(col_res.get());
+                    column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
+                }
+            }
             continue;
         }
 
         bool parse_result = false;
-        UInt32 dummy_result = 0;
+        Int64 dummy_result = 0;
 
         /// For both cases below: In case of failure, the function parseIPv6 fills vec_res with zero bytes.
 
         /// If the source IP address is parsable as an IPv4 address, then transform it into a valid IPv6 address.
         /// Keeping it simple by just prefixing `::ffff:` to the IPv4 address to represent it as a valid IPv6 address.
-        if (tryParseIPv4(src_value, dummy_result)) {
-            std::memcpy(src_ipv4_buf + std::strlen("::ffff:"), src_value,
-                        std::min<UInt64>(src_next_offset - src_offset, IPV4_MAX_TEXT_LENGTH + 1));
-            parse_result = parseIPv6whole(src_ipv4_buf, res_value);
-        } else {
-            parse_result = parseIPv6whole(src_value, res_value);
+        size_t string_length = src_next_offset - src_offset;
+        if (string_length != 0) {
+            if (tryParseIPv4(src_value, dummy_result)) {
+                strcat(src_ipv4_buf, src_value);
+                parse_result = parseIPv6whole(src_ipv4_buf, res_value);
+            } else {
+                parse_result = parseIPv6whole(src_value, res_value);
+            }
         }
 
-        if (!parse_result) {
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Throw)
-                throw Exception(ErrorCodes::CANNOT_PARSE_IPV6, "Invalid IPv6 value");
-            else if constexpr (exception_mode == IPStringToNumExceptionMode::Default)
-                vec_res[i] = 0;
-            else if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
+        if (parse_result && string_length != 0) {
+            if constexpr (std::is_same_v<ToColumn, ColumnString>) {
+                auto* column_string = assert_cast<ColumnString*>(col_res.get());
+                std::copy(res_value, res_value + IPV6_BINARY_LENGTH,
+                          column_string->get_chars().begin() + i * IPV6_BINARY_LENGTH);
+                column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
+            } else {
+                col_res->insert_data(reinterpret_cast<const char*>(res_value), IPV6_BINARY_LENGTH);
+            }
+        } else {
+            if (exception_mode == IPStringToNumExceptionMode::Throw) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 value");
+            }
+            std::fill_n(&vec_res[out_offset], offset_inc, 0);
+            if constexpr (std::is_same_v<ToColumn, ColumnString>) {
+                auto* column_string = assert_cast<ColumnString*>(col_res.get());
+                column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
+            }
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
                 (*vec_null_map_to)[i] = true;
         }
-
         src_offset = src_next_offset;
     }
 
-    if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
+    if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
         return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
-
+    }
     return col_res;
+}
+} // namespace detail
+
+template <IPStringToNumExceptionMode exception_mode, typename ToColumn = ColumnIPv6>
+ColumnPtr convertToIPv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
+
+    if (const auto* column_input_string = check_and_get_column<ColumnString>(column.get())) {
+        auto result =
+                detail::convertToIPv6<exception_mode, ToColumn>(*column_input_string, null_map);
+        return result;
+    } else {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal column type {}. Expected String",
+                        column->get_name());
+    }
 }
 
 template <IPStringToNumExceptionMode exception_mode>
@@ -530,23 +570,18 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        const ColumnPtr& column = arguments[0].column;
+
+        ColumnPtr column = block.get_by_position(arguments[0]).column;
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
         if (column->is_nullable()) {
             const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
-            column = column_nullable->get_nested_columnPtr();
+            column = column_nullable->get_nested_column_ptr();
             null_map_column = column_nullable->get_null_map_column_ptr();
             null_map = &column_nullable->get_null_map_data();
         }
 
-        if (const auto* column_input_string = check_and_getColumn<ColumnString>(column.get())) {
-            auto col_res =
-                    convertToIPv6<exception_mode, ColumnString>(*column_input_string, null_map);
-        } else {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal column type {}. Expected String",
-                            column->get_name());
-        }
+        auto col_res = convertToIPv6<exception_mode, ColumnString>(column, null_map);
 
         if (null_map && !col_res->is_nullable()) {
             block.replace_by_position(result,
