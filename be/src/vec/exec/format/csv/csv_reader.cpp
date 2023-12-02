@@ -374,8 +374,7 @@ Status CsvReader::init_reader(bool is_load) {
                 std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length);
 
         _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
-                _trim_tailing_spaces, _trim_double_quotes, _value_separator,
-                _value_separator_length, '\"');
+                _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
@@ -620,9 +619,11 @@ Status CsvReader::_create_decompressor() {
 template <bool from_json>
 Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    if ((slice.size == 2 && slice[0] == '\\' && slice[1] == 'N')) {
-        null_column.insert_data(nullptr, 0);
-        return Status::OK();
+    if (!(from_json && _options.converted_from_string && slice.trim_double_quotes())) {
+        if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+            null_column.insert_data(nullptr, 0);
+            return Status::OK();
+        }
     }
     static DataTypeStringSerDe stringSerDe;
     auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
