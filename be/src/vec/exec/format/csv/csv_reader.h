@@ -197,7 +197,7 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
-    void close() override;
+    Status close() override;
 
 private:
     // used for stream/broker load of csv file.

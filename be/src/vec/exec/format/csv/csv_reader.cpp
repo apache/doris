@@ -667,10 +667,10 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                static_cast<void>(deserialize_nullable_string<true>(*col_ptr, slice));
+                RETURN_IF_ERROR(deserialize_nullable_string<true>(*col_ptr, slice));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                static_cast<void>(deserialize_nullable_string<false>(*col_ptr, slice));
+                RETURN_IF_ERROR(deserialize_nullable_string<false>(*col_ptr, slice));
                 break;
             default:
                 break;
@@ -678,11 +678,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         } else {
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                static_cast<void>(
+                RETURN_IF_ERROR(
                         _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                static_cast<void>(
+                RETURN_IF_ERROR(
                         _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options));
                 break;
             default:
@@ -965,14 +965,16 @@ Status CsvReader::_parse_col_types(size_t col_nums, std::vector<TypeDescriptor>*
     return Status::OK();
 }
 
-void CsvReader::close() {
+Status CsvReader::close() {
     if (_line_reader) {
         _line_reader->close();
     }
 
     if (_file_reader) {
-        static_cast<void>(_file_reader->close());
+        RETURN_IF_ERROR(_file_reader->close());
     }
+
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

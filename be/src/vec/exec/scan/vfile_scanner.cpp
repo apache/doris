@@ -713,7 +713,7 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
 Status VFileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
-            _cur_reader->close();
+            RETURN_IF_ERROR(_cur_reader->close());
         }
         _cur_reader.reset(nullptr);
         _src_block_init = false;
@@ -1096,7 +1096,7 @@ Status VFileScanner::close(RuntimeState* state) {
     }
 
     if (_cur_reader) {
-        _cur_reader->close();
+        RETURN_IF_ERROR(_cur_reader->close());
     }
 
     RETURN_IF_ERROR(VScanner::close(state));
