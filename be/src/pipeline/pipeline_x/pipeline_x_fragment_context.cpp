@@ -231,7 +231,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
     static_cast<void>(root_pipeline->set_sink(_sink));
 
-    //    RETURN_IF_ERROR(_plan_local_shuffle());
+    RETURN_IF_ERROR(_plan_local_shuffle());
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
@@ -254,7 +254,34 @@ Status PipelineXFragmentContext::_plan_local_shuffle() {
         auto& children = _pipelines[pip_idx]->children();
         if (children.empty()) {
             _pipelines[pip_idx]->init_need_to_local_shuffle_by_source();
-        } else {
+        } else if (children.size() == 1) {
+            _pipelines[pip_idx]->set_need_to_local_shuffle(children[0]->need_to_local_shuffle());
+        }
+
+        int idx = 0;
+        bool do_local_exchange = false;
+        do {
+            auto& ops = _pipelines[pip_idx]->operator_xs();
+            do_local_exchange = false;
+            for (; idx < ops.size();) {
+                if (ops[idx]->get_local_exchange_type() != ExchangeType::NOOP) {
+                    RETURN_IF_ERROR(_add_local_exchange(
+                            idx, ops[idx]->node_id(), _runtime_state->obj_pool(),
+                            _pipelines[pip_idx], ops[idx]->get_local_shuffle_exprs(),
+                            ops[idx]->get_local_exchange_type(), &do_local_exchange));
+                }
+                if (do_local_exchange) {
+                    idx = 2;
+                    break;
+                }
+                idx++;
+            }
+        } while (do_local_exchange);
+        if (_pipelines[pip_idx]->sink_x()->get_local_exchange_type() != ExchangeType::NOOP) {
+            RETURN_IF_ERROR(_add_local_exchange(
+                    idx, _pipelines[pip_idx]->sink_x()->node_id(), _runtime_state->obj_pool(),
+                    _pipelines[pip_idx], _pipelines[pip_idx]->sink_x()->get_local_shuffle_exprs(),
+                    _pipelines[pip_idx]->sink_x()->get_local_exchange_type(), &do_local_exchange));
         }
     }
     return Status::OK();
@@ -443,19 +470,20 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_total_load_streams(request.total_load_streams);
         _runtime_states[i]->set_num_local_sink(request.num_local_sink);
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
-        auto get_local_exchange_state =
-                [&](PipelinePtr pipeline) -> std::shared_ptr<LocalExchangeSharedState> {
+        auto get_local_exchange_state = [&](PipelinePtr pipeline)
+                -> std::map<int, std::shared_ptr<LocalExchangeSharedState>> {
+            std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map;
             auto source_id = pipeline->operator_xs().front()->operator_id();
             if (auto iter = _op_id_to_le_state.find(source_id); iter != _op_id_to_le_state.end()) {
-                return iter->second;
+                le_state_map.insert({source_id, iter->second});
             }
             for (auto sink_to_source_id : pipeline->sink_x()->dests_id()) {
                 if (auto iter = _op_id_to_le_state.find(sink_to_source_id);
                     iter != _op_id_to_le_state.end()) {
-                    return iter->second;
+                    le_state_map.insert({sink_to_source_id, iter->second});
                 }
             }
-            return nullptr;
+            return le_state_map;
         };
         for (auto& pipeline : _pipelines) {
             auto task = std::make_unique<PipelineXTask>(
@@ -606,49 +634,100 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
     return Status::OK();
 }
 
-Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorXPtr& op,
-                                                     PipelinePtr& cur_pipe, const TPlanNode& tnode,
+Status PipelineXFragmentContext::_add_local_exchange(int idx, int node_id, ObjectPool* pool,
+                                                     PipelinePtr cur_pipe,
                                                      const std::vector<TExpr>& texprs,
-                                                     ExchangeType exchange_type) {
+                                                     ExchangeType exchange_type,
+                                                     bool* do_local_exchange) {
     if (!_runtime_state->enable_local_shuffle() || _num_instances <= 1) {
         return Status::OK();
     }
-    auto parent = op;
-    RETURN_IF_ERROR(parent->init(tnode, _runtime_state.get()));
-    auto local_exchange_id = next_operator_id();
-    op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id, parent.get()));
-    RETURN_IF_ERROR(cur_pipe->add_operator(op));
-    RETURN_IF_ERROR(parent->set_child(op));
 
-    const auto downstream_pipeline_id = cur_pipe->id();
-    if (_dag.find(downstream_pipeline_id) == _dag.end()) {
-        _dag.insert({downstream_pipeline_id, {}});
+    if (!cur_pipe->need_to_local_shuffle() && exchange_type == ExchangeType::SHUFFLE) {
+        return Status::OK();
     }
-    cur_pipe = add_pipeline();
-    _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+    *do_local_exchange = true;
+
+    auto& operator_xs = cur_pipe->operator_xs();
+    auto total_op_num = operator_xs.size();
+    const auto downstream_pipeline_id = cur_pipe->id();
+    auto local_exchange_id = next_operator_id();
+    // 1. Create a new pipeline with local exchange sink.
+    auto new_pip = add_pipeline();
 
     DataSinkOperatorXPtr sink;
     sink.reset(new LocalExchangeSinkOperatorX(next_sink_operator_id(), local_exchange_id,
                                               _num_instances, texprs));
-    RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+    RETURN_IF_ERROR(new_pip->set_sink(sink));
 
-    bool need_partitioner = false;
     auto shared_state = LocalExchangeSharedState::create_shared();
     shared_state->source_dependencies.resize(_num_instances, nullptr);
     switch (exchange_type) {
     case ExchangeType::SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(_num_instances);
-        need_partitioner = true;
+        new_pip->set_need_to_local_shuffle(false);
+        cur_pipe->set_need_to_local_shuffle(false);
         break;
     case ExchangeType::PASSTHROUGH:
         shared_state->exchanger = PassthroughExchanger::create_unique(_num_instances);
+        new_pip->set_need_to_local_shuffle(cur_pipe->need_to_local_shuffle());
+        cur_pipe->set_need_to_local_shuffle(true);
         break;
     default:
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)exchange_type));
     }
-    RETURN_IF_ERROR(cur_pipe->sink_x()->init(need_partitioner));
+    RETURN_IF_ERROR(new_pip->sink_x()->init(exchange_type));
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
+
+    // 2. Initialize operators list.
+    std::copy(operator_xs.begin(), operator_xs.begin() + idx,
+              std::inserter(new_pip->operator_xs(), new_pip->operator_xs().end()));
+
+    // 3. Erase operators in new pipeline.
+    OperatorXPtr source_op;
+    source_op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
+    RETURN_IF_ERROR(source_op->init(exchange_type));
+    operator_xs.erase(operator_xs.begin(), operator_xs.begin() + idx);
+    if (operator_xs.size() > 0) {
+        RETURN_IF_ERROR(operator_xs.front()->set_child(source_op));
+    }
+
+    operator_xs.insert(operator_xs.begin(), source_op);
+    RETURN_IF_ERROR(source_op->set_child(new_pip->operator_xs().back()));
+
+    std::vector<std::shared_ptr<Pipeline>> new_children;
+    std::vector<PipelineId> edges_with_source;
+    for (auto child : cur_pipe->children()) {
+        bool found = false;
+        for (auto op : new_pip->operator_xs()) {
+            if (child->sink_x()->node_id() == op->node_id()) {
+                new_pip->set_children(child);
+                found = true;
+            };
+        }
+        if (!found) {
+            new_children.push_back(child);
+            edges_with_source.push_back(child->id());
+        }
+    }
+    new_children.push_back(new_pip);
+    edges_with_source.push_back(new_pip->id());
+
+    if (!new_pip->children().empty()) {
+        std::vector<PipelineId> edges_with_sink;
+        for (auto child : new_pip->children()) {
+            edges_with_sink.push_back(child->id());
+        }
+        _dag.insert({new_pip->id(), edges_with_sink});
+    }
+    cur_pipe->set_children(new_children);
+    _dag[downstream_pipeline_id] = edges_with_source;
+
+    CHECK(total_op_num + 1 == cur_pipe->operator_xs().size() + new_pip->operator_xs().size())
+            << "total_op_num: " << total_op_num
+            << " cur_pipe->operator_xs().size(): " << cur_pipe->operator_xs().size()
+            << " new_pip->operator_xs().size(): " << new_pip->operator_xs().size();
     return Status::OK();
 }
 
@@ -704,7 +783,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             if (_dag.find(downstream_pipeline_id) == _dag.end()) {
                 _dag.insert({downstream_pipeline_id, {}});
             }
-            cur_pipe = add_pipeline();
+            cur_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
             DataSinkOperatorXPtr sink;
             sink.reset(new DistinctStreamingAggSinkOperatorX(pool, next_sink_operator_id(), tnode,
@@ -712,10 +791,6 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
-
-            //            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
-            //                                                tnode.agg_node.grouping_exprs,
-            //                                                ExchangeType::PASSTHROUGH));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation) {
             op.reset(new StreamingAggSourceOperatorX(pool, tnode, next_operator_id(), descs));
@@ -725,7 +800,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             if (_dag.find(downstream_pipeline_id) == _dag.end()) {
                 _dag.insert({downstream_pipeline_id, {}});
             }
-            cur_pipe = add_pipeline();
+            cur_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
             DataSinkOperatorXPtr sink;
             sink.reset(new StreamingAggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
@@ -733,9 +808,6 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
 
-            //            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
-            //                                                tnode.agg_node.grouping_exprs,
-            //                                                ExchangeType::PASSTHROUGH));
         } else {
             op.reset(new AggSourceOperatorX(pool, tnode, next_operator_id(), descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
@@ -744,7 +816,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             if (_dag.find(downstream_pipeline_id) == _dag.end()) {
                 _dag.insert({downstream_pipeline_id, {}});
             }
-            cur_pipe = add_pipeline();
+            cur_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
             DataSinkOperatorXPtr sink;
@@ -752,20 +824,6 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
-
-            //            if (tnode.agg_node.grouping_exprs.empty()) {
-            //                if (tnode.agg_node.need_finalize) {
-            //                    RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
-            //                                                        tnode.agg_node.grouping_exprs,
-            //                                                        ExchangeType::PASSTHROUGH));
-            //                } else {
-            //                    // TODO(gabriel): maybe use local shuffle
-            //                }
-            //            } else if (cur_pipe->need_to_local_shuffle()) {
-            //                RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode,
-            //                                                    tnode.agg_node.grouping_exprs,
-            //                                                    ExchangeType::SHUFFLE));
-            //            }
         }
         break;
     }
@@ -777,7 +835,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         if (_dag.find(downstream_pipeline_id) == _dag.end()) {
             _dag.insert({downstream_pipeline_id, {}});
         }
-        PipelinePtr build_side_pipe = add_pipeline();
+        PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
         DataSinkOperatorXPtr sink;
@@ -786,20 +844,6 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
 
-        std::vector<TExpr> probe_exprs;
-        const std::vector<TEqJoinCondition>& eq_join_conjuncts =
-                tnode.hash_join_node.eq_join_conjuncts;
-        for (const auto& eq_join_conjunct : eq_join_conjuncts) {
-            probe_exprs.push_back(eq_join_conjunct.left);
-        }
-        if (tnode.hash_join_node.__isset.is_broadcast_join &&
-            tnode.hash_join_node.is_broadcast_join) {
-            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode, probe_exprs,
-                                                ExchangeType::PASSTHROUGH));
-        } else if (cur_pipe->need_to_local_shuffle()) {
-            RETURN_IF_ERROR(_add_local_exchange(pool, op, cur_pipe, tnode, probe_exprs,
-                                                ExchangeType::SHUFFLE));
-        }
         _pipeline_parent_map.push(op->node_id(), cur_pipe);
         _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         break;
@@ -812,7 +856,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         if (_dag.find(downstream_pipeline_id) == _dag.end()) {
             _dag.insert({downstream_pipeline_id, {}});
         }
-        PipelinePtr build_side_pipe = add_pipeline();
+        PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
         DataSinkOperatorXPtr sink;
@@ -835,7 +879,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             _dag.insert({downstream_pipeline_id, {}});
         }
         for (int i = 0; i < child_count; i++) {
-            PipelinePtr build_side_pipe = add_pipeline();
+            PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
             DataSinkOperatorXPtr sink;
             sink.reset(new UnionSinkOperatorX(i, next_sink_operator_id(), pool, tnode, descs));
@@ -855,7 +899,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         if (_dag.find(downstream_pipeline_id) == _dag.end()) {
             _dag.insert({downstream_pipeline_id, {}});
         }
-        cur_pipe = add_pipeline();
+        cur_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
@@ -873,7 +917,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         if (_dag.find(downstream_pipeline_id) == _dag.end()) {
             _dag.insert({downstream_pipeline_id, {}});
         }
-        cur_pipe = add_pipeline();
+        cur_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
@@ -891,7 +935,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         if (_dag.find(downstream_pipeline_id) == _dag.end()) {
             _dag.insert({downstream_pipeline_id, {}});
         }
-        cur_pipe = add_pipeline();
+        cur_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
@@ -971,7 +1015,7 @@ Status PipelineXFragmentContext::_build_operators_for_set_operation_node(
     }
 
     for (int child_id = 0; child_id < tnode.num_children; child_id++) {
-        PipelinePtr probe_side_pipe = add_pipeline();
+        PipelinePtr probe_side_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(probe_side_pipe->id());
 
         DataSinkOperatorXPtr sink;

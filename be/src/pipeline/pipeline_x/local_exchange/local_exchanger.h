@@ -22,11 +22,6 @@
 
 namespace doris::pipeline {
 
-enum class ExchangeType : uint8_t {
-    SHUFFLE = 0,
-    PASSTHROUGH = 1,
-};
-
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 
@@ -92,7 +87,7 @@ public:
     ExchangeType get_type() const override { return ExchangeType::PASSTHROUGH; }
 
 private:
-    std::vector<moodycamel::ConcurrentQueue<std::unique_ptr<vectorized::Block>>> _data_queue;
+    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
 };
 
 } // namespace doris::pipeline

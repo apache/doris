@@ -136,6 +136,7 @@ public:
 
     std::vector<std::shared_ptr<Pipeline>>& children() { return _children; }
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
+    void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
 
 private:
     void _init_profile();

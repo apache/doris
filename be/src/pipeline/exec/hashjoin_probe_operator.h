@@ -163,6 +163,13 @@ public:
                 SourceState& source_state) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
+    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
+    ExchangeType get_local_exchange_type() const override {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return ExchangeType::NOOP;
+        }
+        return _is_broadcast_join ? ExchangeType::PASSTHROUGH : ExchangeType::SHUFFLE;
+    }
 
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
@@ -170,6 +177,7 @@ private:
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
 
+    const bool _is_broadcast_join;
     // other expr
     vectorized::VExprContextSPtrs _other_join_conjuncts;
     // probe expr
@@ -182,6 +190,7 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
     std::vector<std::string> _right_table_column_names;
+    std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline
