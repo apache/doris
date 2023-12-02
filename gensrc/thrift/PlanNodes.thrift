@@ -1028,6 +1028,8 @@ struct TExchangeNode {
   2: optional TSortInfo sort_info
   // This is tHe number of rows to skip before returning results
   3: optional i64 offset
+  // Shuffle partition type
+  4: optional Partitions.TPartitionType partition_type
 }
 
 struct TOlapRewriteNode {

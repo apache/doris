@@ -45,7 +45,12 @@ public:
     OlapScanLocalState(RuntimeState* state, OperatorXBase* parent)
             : ScanLocalState(state, parent) {}
 
-    TOlapScanNode& olap_scan_node();
+    TOlapScanNode& olap_scan_node() const;
+
+    std::string name_suffix() const override {
+        return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
+                           olap_scan_node().table_name);
+    }
 
 private:
     friend class vectorized::NewOlapScanner;
