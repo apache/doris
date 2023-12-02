@@ -35,7 +35,6 @@
 
 #include "util/core_local.h"
 #include "util/histogram.h"
-#include "util/std::mutex.h"
 
 namespace doris {
 
