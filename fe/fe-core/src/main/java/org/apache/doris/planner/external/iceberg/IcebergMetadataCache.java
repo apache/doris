@@ -202,8 +202,6 @@ public class IcebergMetadataCache {
         hiveCatalog.setConf(conf);
 
         if (props.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
-            // Set Iceberg FileIO implementation as `IcebergBrokerIO` when Catalog binding broker is specified.
-            props.put("io-impl", "org.apache.doris.datasource.iceberg.broker.IcebergBrokerIO");
             props.put(HMSProperties.HIVE_METASTORE_URIS, uri);
             props.put("uri", uri);
             hiveCatalog.initialize("hive", props);
