@@ -119,8 +119,8 @@ public class AuditLogHelper {
         }
 
         // build query tables
-        Planner planner = ctx.executor.planner();
-        if (planner != null) {
+        if (ctx.getState().isQuery() && ctx.executor != null && ctx.executor.planner() != null) {
+            Planner planner = ctx.executor.planner();
             List<String> queryTables = new ArrayList<>();
             List<ScanNode> scanNodes = planner.getScanNodes();
             for (ScanNode scanNode : scanNodes) {

@@ -158,7 +158,7 @@ properties(
 
 >**Notice**
 >
-> In the above table structure: stmt string, this can only be used in 0.15 and later versions, in previous versions, the field type used varchar
+> In the above table structure: stmt string, this can only be used in 0.15 and later versions, in previous versions, the field type used varchar. query_tables string, This field is added in 2.1 and is used to record the table name, rollup, or materialized view name that the query matches. If you upgrade the audit log plugin to doris 2.1 and later versions, you need to add this field to the old audit log table.
 
 ### Deployment
 
