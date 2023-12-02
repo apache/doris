@@ -91,7 +91,6 @@ struct UserFunctionCacheEntry {
     // used to lookup a symbol
     void* lib_handle = nullptr;
 
-    SpinLock map_lock;
     // from symbol_name to function pointer
     std::unordered_map<std::string, void*> fptr_map;
 

@@ -313,7 +313,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                                            std::to_string(request->filter_id()));
         }
     }
-    // iter->second = pair{CntlVal,SpinLock}
     cntVal = iter->second.first;
     {
         std::lock_guard<std::mutex> l(*iter->second.second);
