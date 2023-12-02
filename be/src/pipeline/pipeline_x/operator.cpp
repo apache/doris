@@ -391,6 +391,9 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    }
     _closed = true;
     return Status::OK();
 }
@@ -427,6 +430,9 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
     info.parent_profile->add_child(_profile, true, nullptr);
     _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
+    _memory_used_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
+    _peak_memory_usage_counter =
+            _profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
     return Status::OK();
 }
 
@@ -442,6 +448,9 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     }
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    }
     _closed = true;
     return Status::OK();
 }
