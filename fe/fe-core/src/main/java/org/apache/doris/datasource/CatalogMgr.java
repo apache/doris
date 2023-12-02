@@ -790,7 +790,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public void createExternalTableFromEvent(String dbName, String tableName,
-                                             String catalogName, boolean ignoreIfExists) throws DdlException {
+                                             String catalogName, long updateTime,
+                                             boolean ignoreIfExists) throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -823,7 +824,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.writeLock();
         try {
             ((HMSExternalDatabase) db).createTable(tableName, tblId);
-            ((HMSExternalDatabase) db).setLastUpdateTime(System.currentTimeMillis());
+            ((HMSExternalDatabase) db).setLastUpdateTime(updateTime);
         } finally {
             db.writeUnlock();
         }

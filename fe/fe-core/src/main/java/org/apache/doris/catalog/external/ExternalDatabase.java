@@ -143,7 +143,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             T table = getTableForReplay(log.getRefreshTableIds().get(i));
             // When upgrade cluster with this pr: https://github.com/apache/doris/pull/27666
             // Maybe there are some create table events will be skipped
-            // if the cluster has any hms catalog(s) and with hms event listener enabled.
+            // if the cluster has any hms catalog(s) with hms event listener enabled.
             // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
             // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
             if (table != null) {
