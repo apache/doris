@@ -374,8 +374,7 @@ Status CsvReader::init_reader(bool is_load) {
                 std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length);
 
         _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
-                _trim_tailing_spaces, _trim_double_quotes, _value_separator,
-                _value_separator_length, '\"');
+                _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
