@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.catalog.ListPartitionItem;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.CascadesContext;
