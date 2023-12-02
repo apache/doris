@@ -824,7 +824,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.writeLock();
         try {
             ((HMSExternalDatabase) db).createTable(tableName, tblId);
-            ((HMSExternalDatabase) db).setLastUpdateTime(updateTime);
+            ((HMSExternalDatabase) db).setLastUpdateTime(System.currentTimeMillis());
+            table = db.getTableNullable(tableName);
+            if (table != null) {
+                ((HMSExternalTable) table).setEventUpdateTime(updateTime);
+            }
         } finally {
             db.writeUnlock();
         }
