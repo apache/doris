@@ -23,6 +23,7 @@ import org.apache.doris.catalog.InlineView;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -146,7 +147,7 @@ public class LateralViewRef extends TableRef {
             }
 
             if (tableName.getTbl() != null) {
-                switch (Config.lower_case_table_names) {
+                switch (GlobalVariable.lowerCaseTableNames) {
                     case 0:
                         if (tableName.getTbl().equals(relatedTableName.getTbl())) {
                             // t1 lateral view explode_split(t1.k1, ",")
