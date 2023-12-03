@@ -18,10 +18,9 @@
 package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.journal.JournalCursor;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -50,8 +49,8 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
-public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use uppercase
-    private static final Logger LOG = LogManager.getLogger(BDBJEJournalTest.class);
+public class BDBDebuggerTest {
+    private static final Logger LOG = LogManager.getLogger(BDBDebuggerTest.class);
     private static List<File> tmpDirs = new ArrayList<>();
 
     public static File createTmpDir() throws Exception {
@@ -159,73 +158,23 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
             };
             journal.write(OperationType.OP_TIMESTAMP, writable);
         }
-
-        Assertions.assertEquals(10, journal.getMaxJournalId());
-        Assertions.assertEquals(10, journal.getJournalNum());
-        Assertions.assertEquals(1, journal.getMinJournalId());
-        Assertions.assertEquals(0, journal.getFinalizedJournalId());
-
-        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        Assertions.assertEquals(1, journal.getDatabaseNames().size());
-        Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
-
         JournalEntity journalEntity = journal.read(1);
         Assertions.assertEquals(OperationType.OP_TIMESTAMP, journalEntity.getOpCode());
-
-        for (int i = 10; i < 50; i++) {
-            if (i % 10 == 0) {
-                journal.rollJournal();
-            }
-            String data = "OperationType.OP_TIMESTAMP";
-            Writable writable = new Writable() {
-                @Override
-                public void write(DataOutput out) throws IOException {
-                    Text.writeString(out, data);
-                }
-            };
-            journal.write(OperationType.OP_TIMESTAMP, writable);
-        }
-
-        Assertions.assertEquals(50, journal.getMaxJournalId());
-        Assertions.assertEquals(10, journal.getJournalNum());
-        Assertions.assertEquals(1, journal.getMinJournalId());
-        Assertions.assertEquals(40, journal.getFinalizedJournalId());
-
-        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        Assertions.assertEquals(5, journal.getDatabaseNames().size());
-        Assertions.assertEquals(41, journal.getDatabaseNames().get(4));
-
-        JournalCursor cursor = journal.read(1, 51);
-        Assertions.assertNotNull(cursor);
-        for (int i = 0; i < 50; i++) {
-            Pair<Long, JournalEntity> kv = cursor.next();
-            Assertions.assertNotNull(kv);
-            JournalEntity entity = kv.second;
-            Assertions.assertEquals(OperationType.OP_TIMESTAMP, entity.getOpCode());
-        }
-
-        Assertions.assertEquals(null, cursor.next());
-
         journal.close();
-        Assertions.assertEquals(null, journal.getBDBEnvironment());
 
-        journal.open();
-        Assertions.assertTrue(journal.getBDBEnvironment() != null);
-        // BDBEnvrinment need several seconds election from unknown to master
-        for (int i = 0; i < 10; i++) {
-            if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
-                    .equals(ReplicatedEnvironment.State.MASTER)) {
-                break;
-            }
-            Thread.sleep(1000);
-        }
+        Deencapsulation.invoke(BDBDebugger.get(), "initDebugEnv", tmpDir.getAbsolutePath());
+        // BDBDebugger.BDBDebugEnv bdbDebugEnv = new BDBDebugger.BDBDebugEnv(tmpDir.getAbsolutePath());
+        // bdbDebugEnv.init();
+        BDBDebugger.BDBDebugEnv bdbDebugEnv = BDBDebugger.get().getEnv();
 
-        Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
-                journal.getBDBEnvironment().getReplicatedEnvironment().getState());
-        journal.deleteJournals(21);
-        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        Assertions.assertEquals(3, journal.getDatabaseNames().size());
-        Assertions.assertEquals(21, journal.getDatabaseNames().get(0));
-        journal.close();
+        LOG.info("{}|{}|{}", bdbDebugEnv.listDbNames(), bdbDebugEnv.getJournalIds("1"),
+                bdbDebugEnv.getJournalNumber("1"));
+        Assertions.assertEquals(2, bdbDebugEnv.listDbNames().size());
+        Assertions.assertEquals(10, bdbDebugEnv.getJournalIds("1").size());
+        Assertions.assertEquals(10, bdbDebugEnv.getJournalNumber("1"));
+        BDBDebugger.JournalEntityWrapper entityWrapper = bdbDebugEnv.getJournalEntity("1", 5L);
+        Assertions.assertEquals(5, entityWrapper.journalId);
+        Assertions.assertEquals(OperationType.OP_TIMESTAMP, entityWrapper.entity.getOpCode());
+        bdbDebugEnv.close();
     }
 }

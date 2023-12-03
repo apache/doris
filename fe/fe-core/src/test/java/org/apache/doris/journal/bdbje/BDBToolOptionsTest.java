@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.bdb;
+package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.journal.bdbje.BDBToolOptions;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -36,6 +35,7 @@ public class BDBToolOptionsTest {
         Assert.assertTrue(options.hasFromKey());
         Assert.assertTrue(options.hasEndKey());
         Assert.assertNotSame(FeConstants.meta_version, options.getMetaVersion());
+        Assert.assertTrue(options.toString().contains("12345"));
     }
 
 }
