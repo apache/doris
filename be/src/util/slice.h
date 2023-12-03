@@ -188,13 +188,12 @@ public:
     ///   Number of bytes of space that should be dropped from the beginning.
     bool trim_double_quotes() {
         int32_t begin = 0;
-        bool change = false;
         if (size > 2 && (data[begin] == '"' && data[size - 1] == '"')) {
             data += 1;
             size -= 2;
-            change = true;
+            return true;
         }
-        return change;
+        return false;
     }
 
     /// Truncate the slice to the given number of bytes.

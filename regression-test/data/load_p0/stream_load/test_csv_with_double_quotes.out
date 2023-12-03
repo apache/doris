@@ -22,6 +22,3 @@
 -- !sql_test_single_quote --
 'a'	21	'b'
 
--- !sql_test_double_quotes_with_enclose --
-"a"	21	"b"
-

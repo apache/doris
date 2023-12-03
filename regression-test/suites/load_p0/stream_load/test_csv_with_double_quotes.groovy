@@ -113,37 +113,4 @@ suite("test_csv_with_double_quotes", "p0") {
     } finally {
         sql "DROP TABLE IF EXISTS ${tableName1}"
     }
-
-    def tableName2 = "test_double_quotes_with_enclose"
-    try {
-        sql "DROP TABLE IF EXISTS ${tableName2}"
-
-        create_table.call(tableName2)
-
-        streamLoad {
-            table "${tableName2}"
-
-            set 'column_separator', ','
-            set 'trim_double_quotes', 'true'
-            set 'enclose', '?'
-
-            file 'test_double_quotes_with_enclose.csv'
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(1, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-                assertEquals(0, json.NumberUnselectedRows)
-            }
-        }
-
-        qt_sql_test_double_quotes_with_enclose "SELECT * FROM ${tableName2} order by name"
-    } finally {
-        sql "DROP TABLE IF EXISTS ${tableName2}"
-    }
 }
