@@ -473,9 +473,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     return Status::OK();
 }
 
-Status RuntimeFilterMergeController::add_entity(
-        const TExecPlanFragmentParams& params,
-        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle, RuntimeState* state) {
+Status RuntimeFilterMergeController::add_entity(const TExecPlanFragmentParams& params,
+                                                RuntimeState* state) {
     if (!params.params.__isset.runtime_filter_params ||
         params.params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
         return Status::OK();
@@ -492,21 +491,19 @@ Status RuntimeFilterMergeController::add_entity(
     auto iter = _filter_controller_map[shard].find(query_id_str);
 
     if (iter == _filter_controller_map[shard].end()) {
-        *handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
+        auto handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
                 new RuntimeFilterMergeControllerEntity(state), entity_closer);
-        _filter_controller_map[shard][query_id_str] = *handle;
+        _filter_controller_map[shard][query_id_str] = handle;
         const TRuntimeFilterParams& filter_params = params.params.runtime_filter_params;
         RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,
                                             params.query_options));
-    } else {
-        *handle = _filter_controller_map[shard][query_id_str].lock();
     }
     return Status::OK();
 }
 
-Status RuntimeFilterMergeController::add_entity(
-        const TPipelineFragmentParams& params, const TPipelineInstanceParams& local_params,
-        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle, RuntimeState* state) {
+Status RuntimeFilterMergeController::add_entity(const TPipelineFragmentParams& params,
+                                                const TPipelineInstanceParams& local_params,
+                                                RuntimeState* state) {
     if (!local_params.__isset.runtime_filter_params ||
         local_params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
         return Status::OK();
@@ -523,14 +520,12 @@ Status RuntimeFilterMergeController::add_entity(
     auto iter = _filter_controller_map[shard].find(query_id_str);
 
     if (iter == _filter_controller_map[shard].end()) {
-        *handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
+        auto handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
                 new RuntimeFilterMergeControllerEntity(state), entity_closer);
-        _filter_controller_map[shard][query_id_str] = *handle;
+        _filter_controller_map[shard][query_id_str] = handle;
         const TRuntimeFilterParams& filter_params = local_params.runtime_filter_params;
         RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,
                                             params.query_options));
-    } else {
-        *handle = _filter_controller_map[shard][query_id_str].lock();
     }
     return Status::OK();
 }
