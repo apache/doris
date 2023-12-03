@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.bdb;
+package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.journal.JournalEntity;
-import org.apache.doris.journal.bdbje.BDBTool;
-import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.ReplicaPersistInfo;
 
