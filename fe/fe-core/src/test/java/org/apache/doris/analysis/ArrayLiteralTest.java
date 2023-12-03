@@ -106,5 +106,19 @@ public class ArrayLiteralTest  {
 
         ArrayLiteral arrayLiteral9 = new ArrayLiteral();
         Assert.assertEquals("[]", arrayLiteral9.getStringValueInFe());
+
+        DecimalLiteral decimalLiteral = new DecimalLiteral("1.0");
+        DecimalLiteral decimalLiteral2 = new DecimalLiteral("2");
+        ArrayLiteral arrayLiteral10 = new ArrayLiteral(decimalLiteral, decimalLiteral2);
+        Assert.assertEquals("[1.0, 2.0]", arrayLiteral10.getStringValueInFe());
+
+        //array(1, null)
+        IntLiteral intLiteralWithNull = new IntLiteral(1);
+        ArrayLiteral arrayLiteral11 = new ArrayLiteral(intLiteralWithNull, nullLiteral);
+        Assert.assertEquals("[1, null]", arrayLiteral11.getStringValueInFe());
+        //array(null, 1)
+        ArrayLiteral arrayLiteral12 = new ArrayLiteral(nullLiteral, intLiteralWithNull);
+        Assert.assertEquals("[null, 1]", arrayLiteral12.getStringValueInFe());
+
     }
 }

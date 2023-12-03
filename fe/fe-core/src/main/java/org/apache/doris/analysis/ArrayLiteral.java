@@ -134,7 +134,9 @@ public class ArrayLiteral extends LiteralExpr {
     public String getStringValueInFe() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> {
-            if (v.getType().isScalarType() && (Type.getNumericTypes().contains((ScalarType) v.getType())
+            // we should use type to decide we output array is suitable for json format
+            if (!(v instanceof NullLiteral) && v.getType().isScalarType()
+                    && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
                     || v.getType() == Type.BOOLEAN)) {
                 list.add(v.getStringValueInFe());
             } else {
