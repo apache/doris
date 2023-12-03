@@ -604,9 +604,10 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 std::string file_str = p.filename().string();
                                 lucene::store::Directory* dir =
                                         DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
-                                auto reader = new DorisCompoundReader(dir, file_str.c_str());
+                                DorisCompoundReader reader(dir, file_str.c_str());
                                 std::vector<std::string> files;
-                                reader->list(&files);
+                                reader.list(&files);
+                                reader.close();
 
                                 // why is 3?
                                 // bkd index will write at least 3 files
