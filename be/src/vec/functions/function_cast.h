@@ -346,15 +346,15 @@ struct ConvertImpl {
                                                   IsDataTypeNumber<ToDataType>) {
                                         vec_to[i] = convert_from_decimal<FromDataType, ToDataType,
                                                                          narrow_integral>(
-                                                vec_from[i], vec_from.get_scale(), max_result,
-                                                min_result);
+                                                vec_from[i], vec_from.get_scale(), min_result,
+                                                max_result);
                                     } else if constexpr (IsDataTypeNumber<FromDataType> &&
                                                          IsDataTypeDecimal<ToDataType>) {
                                         vec_to[i] = convert_to_decimal<FromDataType, ToDataType,
                                                                        multiply_may_overflow,
                                                                        narrow_integral>(
-                                                vec_from[i], from_scale, to_scale, max_result,
-                                                min_result);
+                                                vec_from[i], from_scale, to_scale, min_result,
+                                                max_result);
                                     } else if constexpr (IsTimeType<FromDataType> &&
                                                          IsDataTypeDecimal<ToDataType>) {
                                         vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType,
@@ -363,7 +363,7 @@ struct ConvertImpl {
                                                 reinterpret_cast<const VecDateTimeValue&>(
                                                         vec_from[i])
                                                         .to_int64(),
-                                                from_scale, to_scale, max_result, min_result);
+                                                from_scale, to_scale, min_result, max_result);
                                     } else if constexpr (IsDateV2Type<FromDataType> &&
                                                          IsDataTypeDecimal<ToDataType>) {
                                         vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType,
@@ -373,7 +373,7 @@ struct ConvertImpl {
                                                         const DateV2Value<DateV2ValueType>&>(
                                                         vec_from[i])
                                                         .to_date_int_val(),
-                                                from_scale, to_scale, max_result, min_result);
+                                                from_scale, to_scale, min_result, max_result);
                                     } else if constexpr (IsDateTimeV2Type<FromDataType> &&
                                                          IsDataTypeDecimal<ToDataType>) {
                                         // TODO: should we consider the scale of datetimev2?
@@ -384,7 +384,7 @@ struct ConvertImpl {
                                                         const DateV2Value<DateTimeV2ValueType>&>(
                                                         vec_from[i])
                                                         .to_date_int_val(),
-                                                from_scale, to_scale, max_result, min_result);
+                                                from_scale, to_scale, min_result, max_result);
                                     }
                                 }
                             },
@@ -557,8 +557,8 @@ struct ConvertImplToTimeType {
                                 vec_null_map_to[i] = !date_value.from_date_int64(
                                         convert_from_decimal<FromDataType, DataTypeInt64,
                                                              narrow_integral>(
-                                                vec_from[i], vec_from.get_scale(), max_result,
-                                                min_result));
+                                                vec_from[i], vec_from.get_scale(), min_result,
+                                                max_result));
                             } else {
                                 vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
                             }

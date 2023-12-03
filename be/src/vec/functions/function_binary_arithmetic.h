@@ -333,15 +333,8 @@ private:
         if constexpr (IsDecimalV2<A> || IsDecimalV2<B>) {
             DecimalV2Value da(a);
             for (size_t i = 0; i < size; ++i) {
-                if constexpr (OpTraits::can_overflow && check_overflow) {
-                    if (Op::template apply(da, DecimalV2Value(b[i]), c[i])) {
-                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                        "Arithmetic overflow");
-                    }
-                } else {
-                    c[i] = typename ArrayC::value_type(
-                            Op::template apply(da, DecimalV2Value(b[i])).value());
-                }
+                c[i] = typename ArrayC::value_type(
+                        Op::template apply(da, DecimalV2Value(b[i])).value());
             }
         } else {
             for (size_t i = 0; i < size; ++i) {
@@ -510,15 +503,7 @@ private:
         if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
             // Now, Doris only support decimal +-*/ decimal.
             // overflow in consider in operator
-            if constexpr (OpTraits::can_overflow && check_overflow) {
-                NativeResultType res;
-                if (Op::template apply(DecimalV2Value(a), DecimalV2Value(b), res)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
-                }
-                return res;
-            } else {
-                return Op::template apply(DecimalV2Value(a), DecimalV2Value(b)).value();
-            }
+            return Op::template apply(DecimalV2Value(a), DecimalV2Value(b)).value();
         } else {
             if constexpr (OpTraits::can_overflow && check_overflow) {
                 NativeResultType res;

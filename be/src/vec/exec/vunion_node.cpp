@@ -215,9 +215,6 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     DCHECK_LT(_const_expr_list_idx, _const_expr_lists.size());
 
-    LOG(WARNING) << "_row_descriptor: " << _row_descriptor.debug_string();
-    LOG(WARNING) << "block->mem_reuse(): " << block->mem_reuse();
-
     MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
     for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() <= state->batch_size();
          ++_const_expr_list_idx) {

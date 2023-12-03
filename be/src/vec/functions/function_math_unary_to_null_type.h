@@ -102,7 +102,7 @@ private:
                         dst_data[i] =
                                 convert_from_decimal<DataTypeDecimal<T>, DataTypeNumber<ReturnType>,
                                                      narrow_integral>(src_data[i], scale,
-                                                                      max_result, min_result);
+                                                                      min_result, max_result);
                     }
                 },
                 make_bool_variant(narrow_integral));

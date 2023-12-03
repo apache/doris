@@ -246,7 +246,6 @@ public:
 
     [[nodiscard]] UInt32 get_precision() const override { return precision; }
     [[nodiscard]] UInt32 get_scale() const override { return scale; }
-    [[nodiscard]] UInt32 get_integral_digits_count() const { return precision - scale; }
     T get_scale_multiplier() const { return get_scale_multiplier(scale); }
 
     T whole_part(T x) const {
@@ -415,8 +414,8 @@ template <typename FromDataType, typename ToDataType, bool multiply_may_overflow
     requires IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>
 ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& value,
                                        UInt32 scale_from, UInt32 scale_to,
-                                       const typename ToDataType::FieldType& max_result,
-                                       const typename ToDataType::FieldType& min_result) {
+                                       const typename ToDataType::FieldType& min_result,
+                                       const typename ToDataType::FieldType& max_result) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
     using MaxFieldType =
@@ -590,8 +589,8 @@ template <typename FromDataType, typename ToDataType, bool narrow_integral>
     requires IsDataTypeDecimal<FromDataType> && IsDataTypeNumber<ToDataType>
 ToDataType::FieldType convert_from_decimal(const typename FromDataType::FieldType& value,
                                            UInt32 scale,
-                                           const typename ToDataType::FieldType& max_result,
-                                           const typename ToDataType::FieldType& min_result) {
+                                           const typename ToDataType::FieldType& min_result,
+                                           const typename ToDataType::FieldType& max_result) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
@@ -604,7 +603,7 @@ ToDataType::FieldType convert_from_decimal(const typename FromDataType::FieldTyp
         }
     } else {
         return convert_decimals<FromDataType, FromDataType, false, narrow_integral>(
-                value, scale, 0, FromFieldType(max_result), FromFieldType(min_result));
+                value, scale, 0, FromFieldType(min_result), FromFieldType(max_result));
     }
 }
 
@@ -613,8 +612,8 @@ template <typename FromDataType, typename ToDataType, bool multiply_may_overflow
     requires IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>
 ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType& value,
                                          UInt32 from_scale, UInt32 to_scale,
-                                         const typename ToDataType::FieldType& max_result,
-                                         const typename ToDataType::FieldType& min_result) {
+                                         const typename ToDataType::FieldType& min_result,
+                                         const typename ToDataType::FieldType& max_result) {
     using FromFieldType = typename FromDataType::FieldType;
 
     if constexpr (std::is_floating_point_v<FromFieldType>) {
@@ -636,23 +635,23 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
             if (value > static_cast<UInt64>(std::numeric_limits<Int64>::max())) {
                 return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType,
                                         multiply_may_overflow, narrow_integral>(
-                        value, from_scale, to_scale, max_result, min_result);
+                        value, from_scale, to_scale, min_result, max_result);
             }
         }
         if constexpr (std::is_same_v<FromFieldType, Int128>) {
             return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType, multiply_may_overflow,
-                                    narrow_integral>(value, from_scale, to_scale, max_result,
-                                                     min_result);
+                                    narrow_integral>(value, from_scale, to_scale, min_result,
+                                                     max_result);
         }
 
         if constexpr (std::is_same_v<FromFieldType, wide::Int256>) {
             return convert_decimals<DataTypeDecimal<Decimal256>, ToDataType, multiply_may_overflow,
-                                    narrow_integral>(value, from_scale, to_scale, max_result,
-                                                     min_result);
+                                    narrow_integral>(value, from_scale, to_scale, min_result,
+                                                     max_result);
         }
         return convert_decimals<DataTypeDecimal<Decimal64>, ToDataType, multiply_may_overflow,
-                                narrow_integral>(value, from_scale, to_scale, max_result,
-                                                 min_result);
+                                narrow_integral>(value, from_scale, to_scale, min_result,
+                                                 max_result);
     }
 }
 
