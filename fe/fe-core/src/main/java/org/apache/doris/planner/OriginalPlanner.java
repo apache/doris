@@ -670,7 +670,7 @@ public class OriginalPlanner extends Planner {
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
                 columns.add(new Column(columnName, expr.getType()));
-                super.handleLiteralInFe((LiteralExpr) expr, data);
+                data.add(((LiteralExpr) expr).getStringValueInFe());
             } else {
                 return Optional.empty();
             }

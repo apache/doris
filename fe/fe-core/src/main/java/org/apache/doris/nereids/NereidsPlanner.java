@@ -465,7 +465,7 @@ public class NereidsPlanner extends Planner {
             if (expr instanceof Literal) {
                 LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
                 columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                super.handleLiteralInFe(legacyExpr, data);
+                data.add(legacyExpr.getStringValueInFe());
             } else {
                 return Optional.empty();
             }

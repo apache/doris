@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -126,6 +127,22 @@ public class ArrayLiteral extends LiteralExpr {
     public String getStringValueForArray() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.getStringValueForArray()));
+        return "[" + StringUtils.join(list, ", ") + "]";
+    }
+
+    @Override
+    public String getStringValueInFe() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> {
+            // we should use type to decide we output array is suitable for json format
+            if (!(v instanceof NullLiteral) && v.getType().isScalarType()
+                    && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
+                    || v.getType() == Type.BOOLEAN)) {
+                list.add(v.getStringValueInFe());
+            } else {
+                list.add(v.getStringValueForArray());
+            }
+        });
         return "[" + StringUtils.join(list, ", ") + "]";
     }
 
