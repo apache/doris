@@ -495,8 +495,8 @@ Status RuntimeFilterMergeController::add_entity(const TExecPlanFragmentParams& p
                 new RuntimeFilterMergeControllerEntity(state), entity_closer);
         _filter_controller_map[shard][query_id_str] = handle;
         const TRuntimeFilterParams& filter_params = params.params.runtime_filter_params;
-        RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,
-                                            params.query_options));
+        RETURN_IF_ERROR(
+                handle->init(query_id, fragment_instance_id, filter_params, params.query_options));
     }
     return Status::OK();
 }
@@ -524,8 +524,8 @@ Status RuntimeFilterMergeController::add_entity(const TPipelineFragmentParams& p
                 new RuntimeFilterMergeControllerEntity(state), entity_closer);
         _filter_controller_map[shard][query_id_str] = handle;
         const TRuntimeFilterParams& filter_params = local_params.runtime_filter_params;
-        RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,
-                                            params.query_options));
+        RETURN_IF_ERROR(
+                handle->init(query_id, fragment_instance_id, filter_params, params.query_options));
     }
     return Status::OK();
 }
