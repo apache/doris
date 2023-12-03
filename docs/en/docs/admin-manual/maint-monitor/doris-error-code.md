@@ -38,7 +38,7 @@ under the License.
 | 1047       | The user entered an invalid operation instruction |
 | 1049       | The user specified an invalid database |
 | 1050       | Data table already exists                      |
-| 1051       | Invalid data table                               |
+| 1051       | The user specified an unknown table            |
 | 1052       | The specified column name is ambiguous, and the corresponding column cannot be uniquely determined |
 | 1053       | Illegal data column is specified for Semi-Join/Anti-Join query |
 | 1054       | The specified column does not exist in the table |
@@ -52,6 +52,7 @@ under the License.
 | 1102       | Incorrect database name                        |
 | 1104       | Incorrect data table name                      |
 | 1105       | Other errors                                         |
+| 1109       | The user specified an unknown table in the current database |
 | 1110       | Duplicate columns specified in the subquery |
 | 1111       | Illegal use of aggregate functions in the Where clause |
 | 1113       | The column set of the newly created table cannot be empty |
