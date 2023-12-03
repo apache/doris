@@ -1261,9 +1261,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                 map_data_column[origin_size + i] = !cvb_nulls[i];
             }
         } else {
-            for (int i = 0; i < num_values; ++i) {
-                map_data_column[origin_size + i] = false;
-            }
+            memset(map_data_column.data() + origin_size, 0, num_values);
         }
     } else {
         if (cvb->hasNulls) {
