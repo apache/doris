@@ -447,6 +447,7 @@ public:
     void to_protobuf(PStatus* status) const;
 
     std::string to_string() const;
+    std::string to_string_no_stack() const;
 
     /// @return A json representation of this status.
     std::string to_json() const;
@@ -516,6 +517,13 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
 inline std::string Status::to_string() const {
     std::stringstream ss;
     ss << *this;
+    return ss.str();
+}
+
+inline std::string Status::to_string_no_stack() const {
+    std::stringstream ss;
+    ss << '[' << code_as_string() << ']';
+    ss << msg();
     return ss.str();
 }
 
