@@ -91,11 +91,9 @@ public:
             std::map<TTableId, int64_t>* table_id_to_num_delta_rows);
     ~EnginePublishVersionTask() override = default;
 
-    Status finish() override;
+    Status execute() override;
 
     void add_error_tablet_id(int64_t tablet_id);
-
-    int64_t finish_task();
 
 private:
     void _calculate_tbl_num_delta_rows(
@@ -113,7 +111,7 @@ class AsyncTabletPublishTask {
 public:
     AsyncTabletPublishTask(TabletSharedPtr tablet, int64_t partition_id, int64_t transaction_id,
                            int64_t version)
-            : _tablet(tablet),
+            : _tablet(std::move(tablet)),
               _partition_id(partition_id),
               _transaction_id(transaction_id),
               _version(version) {
