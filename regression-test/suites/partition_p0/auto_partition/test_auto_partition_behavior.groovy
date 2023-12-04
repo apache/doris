@@ -35,11 +35,11 @@ suite("test_auto_partition_behavior") {
         """
     // special characters
     sql """ insert into unique_table values (" "), ("  "), ("Xxx"), ("xxX"), (" ! "), (" !  ") """
-    qt_sql1 """ select * from unique_table order by `str` """
+    qt_sql1 """ select *,length(str) from unique_table order by `str` """
     def result = sql "show partitions from unique_table"
     assertEquals(result.size(), 6)
     sql """ insert into unique_table values (" "), ("  "), ("Xxx"), ("xxX"), (" ! "), (" !  ") """
-    qt_sql2 """ select * from unique_table order by `str` """
+    qt_sql2 """ select *,length(str) from unique_table order by `str` """
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 6)
     sql """ insert into unique_table values ("-"), ("--"), ("- -"), (" - ") """
@@ -51,10 +51,10 @@ suite("test_auto_partition_behavior") {
     sql """ alter table unique_table drop partition ${partition1_name} """ // partition ' '
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 9)
-    qt_sql3 """ select * from unique_table order by `str` """
+    qt_sql3 """ select *,length(str) from unique_table order by `str` """
     // modify value 
     sql """ update unique_table set str = "modified" where str in (" ", "  ") """ // only "  "
-    qt_sql4 """ select * from unique_table where str = '  ' order by `str` """ // modified
+    qt_sql4 """ select *,length(str) from unique_table where str = '  ' order by `str` """ // modified
     qt_sql5 """ select count() from unique_table where str = 'modified' """
     // crop
     qt_sql6 """ select * from unique_table where ((str > ' ! ' || str = 'modified') && str != 'Xxx') order by str """
@@ -83,7 +83,7 @@ suite("test_auto_partition_behavior") {
     result = sql "show partitions from dup_table"
     assertEquals(result.size(), 6)
     sql """ insert into dup_table values (" "), ("  "), ("Xxx"), ("xxX"), (" ! "), (" !  ") """
-    qt_sql2 """ select * from dup_table order by `str` """
+    qt_sql2 """ select *,length(str) from dup_table order by `str` """
     result = sql "show partitions from dup_table"
     assertEquals(result.size(), 6)
     sql """ insert into dup_table values ("-"), ("--"), ("- -"), (" - ") """
@@ -95,9 +95,9 @@ suite("test_auto_partition_behavior") {
     sql """ alter table dup_table drop partition ${partition1_name} """
     result = sql "show partitions from dup_table"
     assertEquals(result.size(), 9)
-    qt_sql3 """ select * from dup_table order by `str` """
+    qt_sql3 """ select *,length(str) from dup_table order by `str` """
     // crop
-    qt_sql4 """ select * from dup_table where str > ' ! ' order by str """
+    qt_sql4 """ select * ,length(str) from dup_table where str > ' ! ' order by str """
 
     /// agg key table
     sql "drop table if exists agg_dt6"

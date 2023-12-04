@@ -230,4 +230,44 @@ suite("test_auto_list_partition") {
     def result10 = sql "show partitions from test_tinyint"
     logger.info("${result10}")
     assertEquals(result10.size(), 2)
+    sql "drop table if exists test_list_many_column"
+    sql """
+        CREATE TABLE test_list_many_column (
+            id int not null,
+            k largeint not null
+        )
+        AUTO PARTITION BY LIST (`id`, `k`)
+        (
+        )
+        DISTRIBUTED BY HASH(`k`) BUCKETS 16
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql " insert into test_list_many_column values (1,1), (-1,-1);"
+    sql " insert into test_list_many_column values (1,3), (-1,-7);"
+    result11 = sql "show partitions from test_list_many_column"
+    logger.info("${result11}")
+    assertEquals(result11.size(), 4)
+
+    sql "drop table if exists test_list_many_column2"
+    sql """
+        CREATE TABLE test_list_many_column2 (
+            id int not null,
+            k largeint not null,
+            str varchar not null,
+        )
+        AUTO PARTITION BY LIST (`id`, `k`, `str`)
+        (
+        )
+        DISTRIBUTED BY HASH(`k`) BUCKETS 16
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """ insert into test_list_many_column2 values (1,1,"asd"), (-1,-1,"vdf");"""
+    sql """ insert into test_list_many_column2 values (2,2,"xxx"), (-3,-3,"qwe");"""
+    result12 = sql "show partitions from test_list_many_column2"
+    logger.info("${result12}")
+    assertEquals(result12.size(), 4)
 }
