@@ -355,13 +355,14 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
             column_path_to_footer_ordinal;
     for (uint32_t ordinal = 0; ordinal < footer.columns().size(); ++ordinal) {
         auto& column_pb = footer.columns(ordinal);
+        // column path for accessing subcolumns of variant
         if (column_pb.has_column_path_info()) {
-            // column path
             vectorized::PathInData path;
             path.from_protobuf(column_pb.column_path_info());
             column_path_to_footer_ordinal.emplace(path, ordinal);
         }
-        if (column_pb.has_unique_id()) {
+        // unique_id is unsigned, -1 meaning no unique id(e.g. an extracted column from variant)
+        if (static_cast<int>(column_pb.unique_id()) >= 0) {
             // unique id
             column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
         }

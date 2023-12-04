@@ -641,7 +641,8 @@ TabletSchemaSPtr Tablet::tablet_schema_with_merged_max_schema_version(
         std::vector<TabletSchemaSPtr> schemas;
         std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
                        [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
-        target_schema = vectorized::schema_util::get_least_common_schema(schemas, nullptr);
+        static_cast<void>(
+                vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
         VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
     }
     return target_schema;

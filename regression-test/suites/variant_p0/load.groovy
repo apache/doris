@@ -75,7 +75,7 @@ suite("regression_test_variant", "variant_type"){
     }
 
     try {
-
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         def key_types = ["DUPLICATE", "UNIQUE"]
         for (int i = 0; i < key_types.size(); i++) {
             def table_name = "simple_variant_${key_types[i]}"
@@ -311,18 +311,17 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_35_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
 
         // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
-         // unique table
+        // unique table
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-        table_name = "github_events_unique"
-        sql """DROP TABLE IF EXISTS ${table_name}"""
         table_name = "github_events"
+        sql """DROP TABLE IF EXISTS ${table_name}"""
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
                 v variant
             )
             UNIQUE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 4 
+            DISTRIBUTED BY HASH(k) BUCKETS 4
             properties("replication_num" = "1", "disable_auto_compaction" = "true");
         """
         load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
@@ -399,5 +398,6 @@ suite("regression_test_variant", "variant_type"){
     } finally {
         // reset flags
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("variant_max_merged_tablet_schema_size", "2048")
     }
 }

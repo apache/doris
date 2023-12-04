@@ -1212,6 +1212,9 @@ DECLARE_mInt32(buffered_reader_read_timeout_ms);
 // whether to enable /api/snapshot api
 DECLARE_Bool(enable_snapshot_action);
 
+// The max columns size for a tablet schema
+DECLARE_mInt32(variant_max_merged_tablet_schema_size);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
