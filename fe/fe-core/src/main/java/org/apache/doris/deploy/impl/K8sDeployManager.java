@@ -117,20 +117,22 @@ public class K8sDeployManager extends DeployManager {
 
         LOG.info("use domainLTD: {}", domainLTD);
 
-        //Fill NodeTypeAttr.subAttr1 with statefulName
-        //If serviceName is configured, the corresponding statefulSetName must be configured
-        for (NodeType nodeType : NodeType.values()) {
-            NodeTypeAttr nodeTypeAttr = nodeTypeAttrMap.get(nodeType);
-            if (nodeTypeAttr.hasService()) {
-                String statefulSetEnvName = getStatefulSetEnvName(nodeType);
-                Log.info("Env name of: {} is: {}", nodeType.name(), statefulSetEnvName);
-                String statefulSetName = Strings.nullToEmpty(System.getenv(statefulSetEnvName));
-                if (Strings.isNullOrEmpty(statefulSetName)) {
-                    LOG.error("failed to init statefulSetName: {}", statefulSetEnvName);
-                    System.exit(-1);
+        if (Config.enable_fqdn_mode) {
+            //Fill NodeTypeAttr.subAttr1 with statefulName
+            //If serviceName is configured, the corresponding statefulSetName must be configured
+            for (NodeType nodeType : NodeType.values()) {
+                NodeTypeAttr nodeTypeAttr = nodeTypeAttrMap.get(nodeType);
+                if (nodeTypeAttr.hasService()) {
+                    String statefulSetEnvName = getStatefulSetEnvName(nodeType);
+                    Log.info("Env name of: {} is: {}", nodeType.name(), statefulSetEnvName);
+                    String statefulSetName = Strings.nullToEmpty(System.getenv(statefulSetEnvName));
+                    if (Strings.isNullOrEmpty(statefulSetName)) {
+                        LOG.error("failed to init statefulSetName: {}", statefulSetEnvName);
+                        System.exit(-1);
+                    }
+                    LOG.info("use statefulSetName: {}, {}", nodeType.name(), statefulSetName);
+                    nodeTypeAttr.setSubAttr(statefulSetName);
                 }
-                LOG.info("use statefulSetName: {}, {}", nodeType.name(), statefulSetName);
-                nodeTypeAttr.setSubAttr(statefulSetName);
             }
         }
 
