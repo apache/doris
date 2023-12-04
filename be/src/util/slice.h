@@ -169,7 +169,7 @@ public:
         int32_t begin = 0;
         bool change = false;
         if (size >= 2 && ((data[begin] == '"' && data[size - 1] == '"') ||
-                         (data[begin] == '\'' && data[size - 1] == '\''))) {
+                          (data[begin] == '\'' && data[size - 1] == '\''))) {
             data += 1;
             size -= 2;
             change = true;
