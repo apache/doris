@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.catalog.ListPartitionItem;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.CascadesContext;
@@ -96,15 +95,6 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                 .filter(partitionEvaluator -> !canPrune(partitionEvaluator))
                 .map(OnePartitionEvaluator::getPartitionId)
                 .collect(ImmutableList.toImmutableList());
-    }
-
-    /**
-     * prune partition with `partitionInfo` as parameter.
-     */
-    public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
-            PartitionInfo partitionInfo, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
-        return prune(partitionSlots, partitionPredicate, partitionInfo.getAllPartitions(), cascadesContext,
-                partitionTableType);
     }
 
     /**
