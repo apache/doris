@@ -53,6 +53,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
@@ -469,8 +470,8 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSharedPtr new_tablet,
                                              TabletSchemaSPtr base_tablet_schema) {
     do {
-        auto new_block =
-                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
+        auto new_block = vectorized::Block::create_unique(
+                new_tablet->tablet_schema()->copy_without_extracted_columns()->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
         auto st = rowset_reader->next_block(ref_block.get());
@@ -542,7 +543,9 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         return Status::OK();
     };
 
-    auto new_block = vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
+    TabletSchemaSPtr new_tablet_schema =
+            new_tablet->tablet_schema()->copy_without_extracted_columns();
+    auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
 
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
@@ -573,8 +576,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         _mem_tracker->consume(new_block->allocated_bytes());
 
         // move unique ptr
-        blocks.push_back(
-                vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block()));
+        blocks.push_back(vectorized::Block::create_unique(new_tablet_schema->create_block()));
         swap(blocks.back(), new_block);
     } while (true);
 
@@ -599,8 +601,8 @@ Result<std::pair<RowsetSharedPtr, PendingRowsetGuard>> VSchemaChangeWithSorting:
     context.version = version;
     context.rowset_state = VISIBLE;
     context.segments_overlap = segments_overlap;
-    context.tablet_schema = new_tablet->tablet_schema();
-    context.original_tablet_schema = new_tablet->tablet_schema();
+    context.tablet_schema = new_tablet->tablet_schema()->copy_without_extracted_columns();
+    context.original_tablet_schema = new_tablet->tablet_schema()->copy_without_extracted_columns();
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     std::unique_ptr<RowsetWriter> rowset_writer;
@@ -630,9 +632,10 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
     }
 
     Merger::Statistics stats;
-    RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
-                                           new_tablet->tablet_schema(), rs_readers, rowset_writer,
-                                           &stats));
+    RETURN_IF_ERROR(
+            Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
+                                   new_tablet->tablet_schema()->copy_without_extracted_columns(),
+                                   rs_readers, rowset_writer, &stats));
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();
@@ -1045,7 +1048,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 
     // Add filter information in change, and filter column information will be set in _parse_request
     // And filter some data every time the row block changes
-    BlockChanger changer(sc_params.new_tablet->tablet_schema(), *sc_params.desc_tbl);
+    BlockChanger changer(sc_params.new_tablet->tablet_schema()->copy_without_extracted_columns(),
+                         *sc_params.desc_tbl);
 
     bool sc_sorting = false;
     bool sc_directly = false;
@@ -1104,8 +1108,9 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         context.version = rs_reader->version();
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
-        context.tablet_schema = new_tablet->tablet_schema();
-        context.original_tablet_schema = new_tablet->tablet_schema();
+        context.tablet_schema = new_tablet->tablet_schema()->copy_without_extracted_columns();
+        context.original_tablet_schema =
+                new_tablet->tablet_schema()->copy_without_extracted_columns();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
@@ -1184,10 +1189,12 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         *sc_directly = true;
     }
 
+    TabletSchemaSPtr new_tablet_schema =
+            new_tablet->tablet_schema()->copy_without_extracted_columns();
+
     // set column mapping
-    for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
-         i < new_schema_size; ++i) {
-        const TabletColumn& new_column = new_tablet->tablet_schema()->column(i);
+    for (int i = 0, new_schema_size = new_tablet_schema->num_columns(); i < new_schema_size; ++i) {
+        const TabletColumn& new_column = new_tablet_schema->column(i);
         const std::string& column_name_lower = to_lower(new_column.name());
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
@@ -1264,7 +1271,6 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         }
     }
 
-    TabletSchemaSPtr new_tablet_schema = new_tablet->tablet_schema();
     if (base_tablet_schema->keys_type() != new_tablet_schema->keys_type()) {
         // only when base table is dup and mv is agg
         // the rollup job must be reagg.

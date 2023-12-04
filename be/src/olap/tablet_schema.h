@@ -233,6 +233,8 @@ public:
     // manually init members incorrectly, and define a new function like
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
+    TabletSchema(bool ignore_extracted_column)
+            : _ignore_extracted_column(ignore_extracted_column) {};
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
@@ -365,6 +367,8 @@ public:
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
+    std::shared_ptr<TabletSchema> copy_without_extracted_columns();
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -402,6 +406,7 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
+    bool _ignore_extracted_column = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

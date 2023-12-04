@@ -25,6 +25,7 @@
 #include <cctype>
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath> // IWYU pragma: keep
+#include <memory>
 #include <ostream>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -858,6 +859,9 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
+        if (_ignore_extracted_column && column.is_extracted_column()) {
+            continue;
+        }
         if (column.is_key()) {
             _num_key_columns++;
         }
@@ -1007,6 +1011,13 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
             append_column(new_col, TabletSchema::ColumnType::DROPPED);
         }
     }
+}
+
+TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
+    bool ignore_extracted_columns = true;
+    TabletSchemaSPtr copy = std::make_shared<TabletSchema>(ignore_extracted_columns);
+    copy->copy_from(*this);
+    return copy;
 }
 
 // Dropped column is in _field_id_to_index but not in _field_name_to_index
