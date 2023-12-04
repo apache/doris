@@ -39,6 +39,14 @@ class Http {
 
     final static Logger logger = LoggerFactory.getLogger(this.class)
 
+    static void checkHttpResult(Object result, NodeType type) {
+        if (type == NodeType.FE) {
+            assert result.code == 0 : result.toString()
+        } else if (type == NodeType.BE) {
+            assert result.status == 'OK' : result.toString()
+        }
+    }
+
     static Object http_post(url, data = null, isJson = false) {
         def conn = new URL(url).openConnection()
         conn.setRequestMethod('POST')
