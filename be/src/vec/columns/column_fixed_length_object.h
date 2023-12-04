@@ -38,9 +38,9 @@ private:
 
 public:
     using Container = PaddedPODArray<uint8_t>;
+    ColumnFixedLengthObject() = delete;
 
 private:
-    ColumnFixedLengthObject() = delete;
     ColumnFixedLengthObject(const size_t _item_size_) : _item_size(_item_size_), _item_count(0) {}
     ColumnFixedLengthObject(const ColumnFixedLengthObject& src)
             : _item_size(src._item_size),
@@ -63,7 +63,7 @@ public:
     }
 
     MutableColumnPtr clone_resized(size_t size) const override {
-        auto res = this->create(_item_size);
+        auto res = create(_item_size);
 
         if (size > 0) {
             auto& new_col = assert_cast<Self&>(*res);
@@ -110,13 +110,13 @@ public:
     void get(size_t n, Field& res) const override { LOG(FATAL) << "get not supported"; }
 
     StringRef get_data_at(size_t n) const override {
-        return StringRef(reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size);
+        return {reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size};
     }
 
     void insert(const Field& x) override { LOG(FATAL) << "insert not supported"; }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
-        const ColumnFixedLengthObject& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
         CHECK_EQ(src_col._item_size, _item_size);
 
         if (length == 0) {
@@ -137,7 +137,7 @@ public:
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-        const ColumnFixedLengthObject& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
         DCHECK(_item_size == src_col._item_size) << "dst and src should have the same _item_size  "
                                                  << _item_size << " " << src_col._item_size;
         size_t old_size = size();
@@ -146,10 +146,16 @@ public:
     }
 
     void insert_data(const char* pos, size_t length) override {
-        LOG(FATAL) << "insert_data not supported";
+        size_t old_size = size();
+        resize(old_size + 1);
+        memcpy(&_data[old_size * _item_size], pos, _item_size);
     }
 
-    void insert_default() override { LOG(FATAL) << "insert_default not supported"; }
+    void insert_default() override {
+        size_t old_size = size();
+        resize(old_size + 1);
+        memset(&_data[old_size * _item_size], 0, _item_size);
+    }
 
     void pop_back(size_t n) override { LOG(FATAL) << "pop_back not supported"; }
 
@@ -281,9 +287,9 @@ public:
 
         size_t old_count = _item_count;
         resize(old_count + num);
-        auto dst = _data.data() + old_count * _item_size;
+        auto* dst = _data.data() + old_count * _item_size;
         for (size_t i = 0; i < num; i++) {
-            auto src = data_array + start_offset_array[i];
+            auto* src = data_array + start_offset_array[i];
             uint32_t len = len_array[i];
             dst += i * _item_size;
             memcpy(dst, src, len);
