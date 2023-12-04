@@ -211,6 +211,8 @@ public:
 public:
     // If set to true, the loaded index_searcher will be saved in index_searcher, not in lru cache;
     bool owned = false;
+    // If index searcher include non-null bitmap.
+    bool has_null = true;
     IndexSearcherPtr index_searcher;
 
 private:

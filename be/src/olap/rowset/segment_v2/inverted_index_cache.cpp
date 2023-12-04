@@ -81,8 +81,7 @@ Status BKDIndexSearcherBuilder::build(DorisCompoundReader* directory,
 
 InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
         size_t capacity, uint32_t num_shards) {
-    InvertedIndexSearcherCache* res = new InvertedIndexSearcherCache(capacity, num_shards);
-    return res;
+    return new InvertedIndexSearcherCache(capacity, num_shards);
 }
 
 InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards)
@@ -139,6 +138,7 @@ Status InvertedIndexSearcherCache::get_index_searcher(
     InvertedIndexSearcherCache::CacheKey cache_key(file_path);
     if (_lookup(cache_key, cache_handle)) {
         cache_handle->owned = false;
+        has_null = cache_handle->has_null;
         return Status::OK();
     }
 
@@ -181,10 +181,12 @@ Status InvertedIndexSearcherCache::get_index_searcher(
         auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (!directory->fileExists(null_bitmap_file_name.c_str())) {
             has_null = false;
+            cache_handle->has_null = false;
         } else {
             // roaring bitmap cookie header size is 5
             if (directory->fileLength(null_bitmap_file_name.c_str()) <= 5) {
                 has_null = false;
+                cache_handle->has_null = false;
             }
         }
         OptionalIndexSearcherPtr result;
