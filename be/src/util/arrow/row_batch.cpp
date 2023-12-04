@@ -89,6 +89,12 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DECIMAL128I:
         *result = std::make_shared<arrow::Decimal128Type>(type.precision, type.scale);
         break;
+    case TYPE_IPV4:
+        *result = arrow::uint32();
+        break;
+    case TYPE_IPV6:
+        *result = arrow::utf8();
+        break;
     case TYPE_BOOLEAN:
         *result = arrow::boolean();
         break;
