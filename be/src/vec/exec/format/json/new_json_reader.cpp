@@ -952,8 +952,7 @@ std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
     return std::string(buffer.GetString());
 }
 
-Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size,
-                                        int64_t* total_length) {
+Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size) {
     switch (_params.file_type) {
     case TFileType::FILE_LOCAL:
         [[fallthrough]];
@@ -969,7 +968,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
     }
     case TFileType::FILE_STREAM: {
         RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
-                                ->read_one_message(file_buf, read_size, total_length));
+                                ->read_one_message(file_buf, read_size));
         break;
     }
     default: {
@@ -1474,7 +1473,6 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
     return Status::OK();
 }
 
-
 Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
                                            simdjson::error_code* error) {
     SCOPED_TIMER(_file_read_timer);
@@ -1488,18 +1486,6 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
         *size = length;
         if (length == 0) {
             *eof = true;
-        } else {
-            _length = length;
-        }
-
-        if (_is_json_stream_iterator_init == true && _total_buffer_length == 0) {
-            ++_json_stream_iterator;
-            if (_json_stream_iterator != _json_stream.end()) {
-                *eof = false;
-            } else {
-                *eof = true;
-                return Status::OK();
-            }
         }
     }
     if (*eof) {
