@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -39,9 +39,10 @@ import java.util.List;
 public class IntersectCount extends AggregateFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable, BitmapIntersectFunction {
 
-    public static final List<FunctionSignature> SIGNATURES = DataType.trivialTypes().stream()
-            .map(type -> FunctionSignature.ret(BigIntType.INSTANCE).varArgs(BitmapType.INSTANCE, type, type))
-            .collect(ImmutableList.toImmutableList());
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BigIntType.INSTANCE)
+                .varArgs(BitmapType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
+    );
 
     /**
      * constructor with 3 or more arguments.
