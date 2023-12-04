@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -137,6 +138,10 @@ public class CreateJobStmt extends DdlStmt {
             IntervalUnit intervalUnit = IntervalUnit.fromString(intervalTimeUnit.toUpperCase());
             if (null == intervalUnit) {
                 throw new AnalysisException("invalid interval time unit " + intervalTimeUnit);
+            }
+            if (intervalUnit.equals(IntervalUnit.SECOND)
+                    && !Config.enable_job_schedule_second_for_test) {
+                throw new AnalysisException("interval time unit can not be week");
             }
             timerDefinition.setIntervalUnit(intervalUnit);
         }

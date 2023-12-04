@@ -1592,6 +1592,12 @@ public class Config extends ConfigBase {
                     + "the value should be greater than 0, if it is <=0, default is 5."})
     public static int job_mtmv_task_consumer_thread_num = 10;
 
+    /* job test config */
+    /**
+     * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.
+     */
+    public static boolean enable_job_schedule_second_for_test = false;
+
     /*---------------------- JOB CONFIG END------------------------*/
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor

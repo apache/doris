@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 public enum IntervalUnit {
-
+    SECOND("second", 0L, TimeUnit.SECONDS::toMillis),
     MINUTE("minute", 0L, TimeUnit.MINUTES::toMillis),
     HOUR("hour", 0L, TimeUnit.HOURS::toMillis),
     DAY("day", 0L, TimeUnit.DAYS::toMillis),
