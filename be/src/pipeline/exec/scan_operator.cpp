@@ -59,10 +59,6 @@ bool ScanOperator::can_read() {
             // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
             return true;
         } else {
-            if (_node->_scanner_ctx->get_num_running_scanners() == 0 &&
-                _node->_scanner_ctx->should_be_scheduled()) {
-                _node->_scanner_ctx->reschedule_scanner_ctx();
-            }
             return _node->ready_to_read(); // there are some blocks to process
         }
     }
