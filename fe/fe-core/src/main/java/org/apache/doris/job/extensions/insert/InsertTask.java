@@ -57,15 +57,16 @@ public class InsertTask extends AbstractTask {
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("TaskId", ScalarType.createStringType()),
-            new Column("JobId", ScalarType.createStringType()),
-            new Column("JobName", ScalarType.createStringType()),
-            new Column("CreateTime", ScalarType.createStringType()),
-            new Column("StartTime", ScalarType.createStringType()),
-            new Column("EndTime", ScalarType.createStringType()),
+            new Column("Label", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
-            new Column("ExecuteSql", ScalarType.createStringType()),
-            new Column("Result", ScalarType.createStringType()),
-            new Column("ErrorMsg", ScalarType.createStringType()));
+            new Column("EtlInfo", ScalarType.createStringType()),
+            new Column("TaskInfo", ScalarType.createStringType()),
+            new Column("ErrorMsg", ScalarType.createStringType()),
+            new Column("CreateTimeMs", ScalarType.createStringType()),
+            new Column("FinishTimeMs", ScalarType.createStringType()),
+            new Column("TrackingUrl", ScalarType.createStringType()),
+            new Column("LoadStatistic", ScalarType.createStringType()),
+            new Column("User", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 

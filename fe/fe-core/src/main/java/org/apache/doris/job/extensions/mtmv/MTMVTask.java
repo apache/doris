@@ -60,6 +60,7 @@ public class MTMVTask extends AbstractTask {
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("TaskId", ScalarType.createType(PrimitiveType.BIGINT)),
             new Column("JobId", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("JobName", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
             new Column("CreateTime", ScalarType.createStringType()),
             new Column("StartTime", ScalarType.createStringType()),
@@ -162,6 +163,7 @@ public class MTMVTask extends AbstractTask {
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setLongVal(super.getTaskId()));
         trow.addToColumnValue(new TCell().setLongVal(super.getJobId()));
+        trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
         trow.addToColumnValue(new TCell().setStringVal(super.getStatus().toString()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getStartTimeMs())));
