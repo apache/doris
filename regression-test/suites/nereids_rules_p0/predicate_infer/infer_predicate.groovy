@@ -288,4 +288,19 @@ suite("infer_predicate") {
     qt_infer8 """
         explain shape plan select * from t1 join t2 on t1.id != t2.id where t1.id = 1;
     """
+
+    // 测试 infer predicate 是否能推出正确类型， 2147483648 超过了 Int32 的最大值, 但是不超过 Int64 的最大值，用这个值测试类型是否能推导正确
+    qt_infer9 """
+        explain shape plan select * from (select * from t1 where t1.id = 2147483648) t1 join t2 on t1.id = t2.id;
+    """
+
+    // 测试 cast = cast
+    qt_infer10 """
+        explain shape plan select * from (select * from t1 where t1.id = 2147483648) t1 join t2 on cast(t1.id as smallint) = cast(t2.id as smallint);
+    """
+
+      // 测试 cast = cast
+    qt_infer11 """
+        explain shape plan select * from (select * from t1 where t1.id = 2147483648) t1 join t2 on cast(t1.id as largeint) = cast(t2.id as largeint);
+    """
 }
