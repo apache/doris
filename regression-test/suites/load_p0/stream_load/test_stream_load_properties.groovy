@@ -544,7 +544,7 @@ suite("test_stream_load_properties", "p0") {
 
             String txnId
             def tableName1 =  "stream_load_" + tableName
-            // Invalid txn_id 1
+            // Invalid txn_id string with letters
             streamLoad {
                 table tableName1
                 set 'column_separator', '|'
@@ -572,7 +572,7 @@ suite("test_stream_load_properties", "p0") {
             assertEquals("internal_error", parseJson(body).status.toLowerCase())
             assertTrue(parseJson(body).msg.toLowerCase().contains("stoull"))
 
-            // Invalid txn_id 2
+            // Invalid txn_id string with digits and letters
             streamLoad {
                 table tableName1
                 set 'column_separator', '|'
@@ -725,6 +725,11 @@ suite("test_stream_load_properties", "p0") {
             } else {
                 qt_sql_2pc_commit "select * from ${tableName1} order by k00"
             }
+            
+            // Commit the same txnId again to trigger operate_txn_2pc() failure
+            body = do_streamload_2pc.call(txnId, "commit", tableName1)
+            assertEquals("analysis_error", parseJson(body).status.toLowerCase())
+            assertTrue(parseJson(body).msg.toLowerCase().contains("is already visible"))    
 
             i++
         }
