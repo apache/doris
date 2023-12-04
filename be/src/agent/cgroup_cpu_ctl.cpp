@@ -17,7 +17,6 @@
 
 #include "agent/cgroup_cpu_ctl.h"
 
-#include <dirent.h>
 #include <fmt/format.h>
 
 namespace doris {
@@ -187,20 +186,27 @@ Status CgroupV1CpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids
         return Status::InternalError<false>(
                 "cgroup cpu ctl init failed, delete can not be executed");
     }
-    // 1 get all wg id
+    // 1 get unused wg id
     std::set<std::string> unused_wg_ids;
-    DIR* query_path_dir = opendir(_cgroup_v1_cpu_query_path.c_str());
-    struct dirent* de;
-    while ((de = readdir(query_path_dir))) {
-        std::string f_name = de->d_name;
-        if (!f_name.empty() && std::all_of(f_name.begin(), f_name.end(), ::isdigit)) {
-            uint64_t id_in_path = std::stoll(f_name);
-            if (used_wg_ids.find(id_in_path) == used_wg_ids.end()) {
-                unused_wg_ids.insert(f_name);
+    for (const auto& entry : std::filesystem::directory_iterator(_cgroup_v1_cpu_query_path)) {
+        const std::string dir_name = entry.path().string();
+        struct stat st;
+        // == 0 means exists
+        if (stat(dir_name.c_str(), &st) == 0 && (st.st_mode & S_IFDIR)) {
+            int pos = dir_name.rfind("/");
+            std::string wg_dir_name = dir_name.substr(pos + 1, dir_name.length());
+            if (wg_dir_name.empty()) {
+                return Status::InternalError<false>("find an empty workload group path, path={}",
+                                                    dir_name);
+            }
+            if (std::all_of(wg_dir_name.begin(), wg_dir_name.end(), ::isdigit)) {
+                uint64_t id_in_path = std::stoll(wg_dir_name);
+                if (used_wg_ids.find(id_in_path) == used_wg_ids.end()) {
+                    unused_wg_ids.insert(wg_dir_name);
+                }
             }
         }
     }
-    closedir(query_path_dir);
 
     // 2 delete unused cgroup path
     int failed_count = 0;
