@@ -53,6 +53,11 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     return Status::OK();
 }
 
+std::string FileScanLocalState::name_suffix() const {
+    return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
+                       _parent->cast<FileScanOperatorX>()._table_name);
+}
+
 void FileScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
     int max_scanners =

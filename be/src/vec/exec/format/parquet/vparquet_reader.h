@@ -119,7 +119,7 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    void close() override;
+    Status close() override;
 
     RowRange get_whole_range() { return _whole_range; }
 

@@ -388,43 +388,6 @@ public:
 
     BloomFilterFuncBase* get_bloomfilter() const { return _context.bloom_filter_func.get(); }
 
-    void insert(const void* data) {
-        switch (_filter_type) {
-        case RuntimeFilterType::IN_FILTER: {
-            if (_is_ignored_in_filter) {
-                break;
-            }
-            _context.hybrid_set->insert(data);
-            break;
-        }
-        case RuntimeFilterType::MIN_FILTER:
-        case RuntimeFilterType::MAX_FILTER:
-        case RuntimeFilterType::MINMAX_FILTER: {
-            _context.minmax_func->insert(data);
-            break;
-        }
-        case RuntimeFilterType::BLOOM_FILTER: {
-            _context.bloom_filter_func->insert(data);
-            break;
-        }
-        case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-            if (_is_bloomfilter) {
-                _context.bloom_filter_func->insert(data);
-            } else {
-                _context.hybrid_set->insert(data);
-            }
-            break;
-        }
-        case RuntimeFilterType::BITMAP_FILTER: {
-            _context.bitmap_filter_func->insert(data);
-            break;
-        }
-        default:
-            DCHECK(false);
-            break;
-        }
-    }
-
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
@@ -454,24 +417,6 @@ public:
         }
         default:
             DCHECK(false);
-            break;
-        }
-    }
-
-    void insert(const StringRef& value) {
-        switch (_column_return_type) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
-        case TYPE_STRING: {
-            // StringRef->StringRef
-            StringRef data = StringRef(value.data, value.size);
-            insert(reinterpret_cast<const void*>(&data));
-            break;
-        }
-
-        default:
-            insert(reinterpret_cast<const void*>(value.data));
             break;
         }
     }
@@ -1048,18 +993,6 @@ void IRuntimeFilter::copy_from_other(IRuntimeFilter* other) {
     _wrapper->_filter_type = other->_wrapper->_filter_type;
     _wrapper->_is_bloomfilter = other->is_bloomfilter();
     _wrapper->_context = other->_wrapper->_context;
-}
-
-void IRuntimeFilter::insert(const void* data) {
-    DCHECK(is_producer());
-    if (!_is_ignored) {
-        _wrapper->insert(data);
-    }
-}
-
-void IRuntimeFilter::insert(const StringRef& value) {
-    DCHECK(is_producer());
-    _wrapper->insert(value);
 }
 
 void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t start) {

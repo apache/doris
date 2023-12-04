@@ -353,13 +353,9 @@ public:
         int64_t used_in_state;
     };
     MemoryRecord mem_usage_record;
-    std::unique_ptr<MemTracker> mem_tracker = std::make_unique<MemTracker>("AggregateOperator");
     bool agg_data_created_without_key = false;
 
 private:
-    void _release_tracker() {
-        mem_tracker->release(mem_usage_record.used_in_state + mem_usage_record.used_in_arena);
-    }
     void _close_with_serialized_key() {
         std::visit(
                 [&](auto&& agg_method) -> void {
@@ -379,7 +375,6 @@ private:
                     }
                 },
                 agg_data->method_variant);
-        _release_tracker();
     }
     void _close_without_key() {
         //because prepare maybe failed, and couldn't create agg data.
@@ -389,7 +384,6 @@ private:
             static_cast<void>(_destroy_agg_status(agg_data->without_key));
             agg_data_created_without_key = false;
         }
-        _release_tracker();
     }
     Status _destroy_agg_status(vectorized::AggregateDataPtr data) {
         for (int i = 0; i < aggregate_evaluators.size(); ++i) {
@@ -579,6 +573,25 @@ public:
         }
     }
 };
+
+enum class ExchangeType : uint8_t {
+    NOOP = 0,
+    SHUFFLE = 1,
+    PASSTHROUGH = 2,
+};
+
+inline std::string get_exchange_type_name(ExchangeType idx) {
+    switch (idx) {
+    case ExchangeType::NOOP:
+        return "NOOP";
+    case ExchangeType::SHUFFLE:
+        return "SHUFFLE";
+    case ExchangeType::PASSTHROUGH:
+        return "PASSTHROUGH";
+    }
+    LOG(FATAL) << "__builtin_unreachable";
+    __builtin_unreachable();
+}
 
 class Exchanger;
 

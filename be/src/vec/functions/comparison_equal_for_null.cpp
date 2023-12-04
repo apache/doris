@@ -130,7 +130,7 @@ public:
                     SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
             DCHECK(func_eq);
             temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
-            static_cast<void>(
+            RETURN_IF_ERROR(
                     func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count));
 
             if (left_nullable) {
@@ -159,7 +159,7 @@ public:
 
             Block temporary_block(eq_columns);
             temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
-            static_cast<void>(
+            RETURN_IF_ERROR(
                     func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count));
 
             auto res_nullable_column = assert_cast<ColumnNullable*>(

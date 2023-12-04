@@ -1261,9 +1261,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                 map_data_column[origin_size + i] = !cvb_nulls[i];
             }
         } else {
-            for (int i = 0; i < num_values; ++i) {
-                map_data_column[origin_size + i] = false;
-            }
+            memset(map_data_column.data() + origin_size, 0, num_values);
         }
     } else {
         if (cvb->hasNulls) {
@@ -1283,17 +1281,17 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     case TypeIndex::Int32:
         return _decode_int32_column<is_filter>(col_name, data_column, cvb, num_values);
     case TypeIndex::Decimal32:
-        return _decode_decimal_column<Int32, is_filter>(col_name, data_column, data_type, cvb,
-                                                        num_values);
+        return _decode_decimal_column<Decimal32, is_filter>(col_name, data_column, data_type, cvb,
+                                                            num_values);
     case TypeIndex::Decimal64:
-        return _decode_decimal_column<Int64, is_filter>(col_name, data_column, data_type, cvb,
-                                                        num_values);
+        return _decode_decimal_column<Decimal64, is_filter>(col_name, data_column, data_type, cvb,
+                                                            num_values);
     case TypeIndex::Decimal128:
-        return _decode_decimal_column<Int128, is_filter>(col_name, data_column, data_type, cvb,
-                                                         num_values);
+        return _decode_decimal_column<Decimal128, is_filter>(col_name, data_column, data_type, cvb,
+                                                             num_values);
     case TypeIndex::Decimal128I:
-        return _decode_decimal_column<Int128, is_filter>(col_name, data_column, data_type, cvb,
-                                                         num_values);
+        return _decode_decimal_column<Decimal128I, is_filter>(col_name, data_column, data_type, cvb,
+                                                              num_values);
     case TypeIndex::Date:
         return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch, is_filter>(
                 col_name, data_column, cvb, num_values);

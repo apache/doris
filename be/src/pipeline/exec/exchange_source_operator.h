@@ -104,15 +104,13 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
-    bool need_to_local_shuffle() const override {
-        // TODO(gabriel):
-        return false;
-    }
+    bool need_to_local_shuffle() const override { return !_is_hash_partition; }
 
 private:
     friend class ExchangeLocalState;
     const int _num_senders;
     const bool _is_merging;
+    const bool _is_hash_partition;
     RowDescriptor _input_row_desc;
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 

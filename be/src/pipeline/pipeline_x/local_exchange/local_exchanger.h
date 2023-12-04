@@ -22,11 +22,6 @@
 
 namespace doris::pipeline {
 
-enum class ExchangeType : uint8_t {
-    SHUFFLE = 0,
-    PASSTHROUGH = 1,
-};
-
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 
@@ -54,7 +49,7 @@ class LocalExchangeSinkLocalState;
 class ShuffleExchanger final : public Exchanger {
     using PartitionedBlock =
             std::pair<std::shared_ptr<vectorized::Block>,
-                      std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
+                      std::tuple<std::shared_ptr<std::vector<uint32_t>>, size_t, size_t>>;
 
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
@@ -92,7 +87,7 @@ public:
     ExchangeType get_type() const override { return ExchangeType::PASSTHROUGH; }
 
 private:
-    std::vector<moodycamel::ConcurrentQueue<std::unique_ptr<vectorized::Block>>> _data_queue;
+    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
 };
 
 } // namespace doris::pipeline

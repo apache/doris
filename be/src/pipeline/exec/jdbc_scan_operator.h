@@ -45,6 +45,8 @@ public:
             : ScanLocalState<JDBCScanLocalState>(state, parent) {}
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
+    std::string name_suffix() const override;
+
 private:
     friend class vectorized::NewJdbcScanner;
 };
