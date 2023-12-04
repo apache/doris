@@ -93,7 +93,7 @@ using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 struct Rows {
     int64_t partition_id;
     int64_t index_id;
-    std::vector<int32_t> row_idxes;
+    std::vector<uint32_t> row_idxes;
 };
 
 using RowsForTablet = std::unordered_map<int64_t, Rows>;

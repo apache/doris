@@ -76,8 +76,8 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             if (output_slot_flags[i]) {
-                mcol[i + _right_col_idx]->insert_indices_from_join(column, _build_indexs.data(),
-                                                                   _build_indexs.data() + size);
+                mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
+                                                              _build_indexs.data() + size);
             } else {
                 mcol[i + _right_col_idx]->insert_many_defaults(size);
             }
@@ -365,8 +365,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
         }
         for (size_t j = 0; j < _right_col_len; ++j) {
             const auto& column = *_build_block->safe_get_by_position(j).column;
-            mcol[j + _right_col_idx]->insert_indices_from_join(column, _build_indexs.data(),
-                                                               _build_indexs.data() + block_size);
+            mcol[j + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
+                                                          _build_indexs.data() + block_size);
         }
 
         // just resize the left table column in case with other conjunct to make block size is not zero

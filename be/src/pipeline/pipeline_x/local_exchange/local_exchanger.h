@@ -49,7 +49,7 @@ class LocalExchangeSinkLocalState;
 class ShuffleExchanger final : public Exchanger {
     using PartitionedBlock =
             std::pair<std::shared_ptr<vectorized::Block>,
-                      std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
+                      std::tuple<std::shared_ptr<std::vector<uint32_t>>, size_t, size_t>>;
 
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
