@@ -398,7 +398,15 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
             ctx->return_free_block(std::move(block));
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
-                static_cast<void>(vectorized::MutableBlock(blocks.back().get()).merge(*block));
+                auto rows = blocks.back()->rows() + block->rows();
+                vectorized::MutableBlock mutable_block(blocks.back().get());
+                status = mutable_block.merge(*block);
+                if (!status.ok()) {
+                    break;
+                }
+                if (!blocks.back().get()->is_valid(rows)) {
+                    blocks.back().get()->swap(mutable_block.to_block());
+                }
                 ctx->return_free_block(std::move(block));
             } else {
                 blocks.push_back(std::move(block));

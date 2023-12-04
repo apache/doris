@@ -364,6 +364,15 @@ size_t Block::rows() const {
     return 0;
 }
 
+bool Block::is_valid(size_t rows) const {
+    for (const auto& elem : data) {
+        if (elem.column && elem.column->size() != rows) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string Block::each_col_size() const {
     std::string ss;
     for (const auto& elem : data) {
