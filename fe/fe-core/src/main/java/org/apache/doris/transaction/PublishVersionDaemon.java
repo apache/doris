@@ -151,8 +151,32 @@ public class PublishVersionDaemon extends MasterDaemon {
                     .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
             transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
 
-            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout()
+            Set<Long> finishBes = Sets.newHashSet();
+            Set<Long> slowBes = Sets.newHashSet();
+            transactionState.getPublishVersionTasks().forEach((beId, publishTask) -> {
+                if (publishTask.isFinished()) {
+                    finishBes.add(beId);
+                } else {
+                    slowBes.add(beId);
+                }
+            });
+
+            boolean noWait = false;
+            boolean allSlowBesExceedPushlishVersionLimit = slowBes.stream()
+                    .allMatch(slowBe -> Env.getCurrentSystemInfo().isExceedPublishVersionQueuedLimit(slowBe));
+            if (finishBes.size() > transactionState.getPublishVersionTasks().keySet().size() / 2
+                    && allSlowBesExceedPushlishVersionLimit) {
+                LOG.info("finishBes {}, slowBes {}, txn publish tasks {}",
+                        finishBes, slowBes, transactionState.getPublishVersionTasks().keySet().size());
+                noWait = true;
+            }
+
+            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask
+                    || noWait || transactionState.isPublishTimeout()
                     || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
+            LOG.debug("hasBackendAliveAndUnfinishedTask {}, noWait {}, txn isPublishTimeout {}, DebugPoint enable {}",
+                    hasBackendAliveAndUnfinishedTask, noWait, transactionState.isPublishTimeout(),
+                    DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks"));
             if (shouldFinishTxn) {
                 try {
                     // one transaction exception should not affect other transaction

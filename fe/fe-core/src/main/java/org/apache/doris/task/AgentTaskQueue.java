@@ -17,6 +17,8 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
 
@@ -148,6 +150,17 @@ public class AgentTaskQueue {
         Map<Long, Map<Long, AgentTask>> taskMap = tasks.column(type);
         Map<Long, AgentTask> signatureMap = taskMap == null ? null : taskMap.get(dbId);
         return signatureMap == null ? new ArrayList<>() : new ArrayList<>(signatureMap.values());
+    }
+
+    public static synchronized void updateControlPublishVersion(long backendId,
+                                                                Map<TTaskType, Set<Long>> runningTasks) {
+        if (!tasks.containsRow(backendId) || !runningTasks.containsKey(TTaskType.PUBLISH_VERSION)) {
+            return;
+        }
+        if (runningTasks.get(TTaskType.PUBLISH_VERSION).size() > Config.publish_version_queued_limit_number) {
+            Env.getCurrentSystemInfo().updateControlMaps(backendId,
+                    Env.getCurrentSystemInfo().getControlPublishVersionExceedMap());
+        }
     }
 
     public static synchronized List<AgentTask> getDiffTasks(long backendId, Map<TTaskType, Set<Long>> runningTasks) {

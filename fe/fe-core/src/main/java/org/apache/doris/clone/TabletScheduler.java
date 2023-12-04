@@ -1694,6 +1694,8 @@ public class TabletScheduler extends MasterDaemon {
             tabletCtx.setErrMsg(e.getMessage());
             if (e.getStatus() == Status.RUNNING_FAILED) {
                 tabletCtx.increaseFailedRunningCounter();
+                Env.getCurrentSystemInfo().updateControlMaps(tabletCtx.getSrcBackendId(),
+                        Env.getCurrentSystemInfo().getControlCloneFailedMap());
                 if (!tabletCtx.isExceedFailedRunningLimit()) {
                     stat.counterCloneTaskFailed.incrementAndGet();
                     tabletCtx.releaseResource(this);
@@ -1710,6 +1712,8 @@ public class TabletScheduler extends MasterDaemon {
                 }
             } else if (e.getStatus() == Status.UNRECOVERABLE) {
                 // unrecoverable
+                Env.getCurrentSystemInfo().updateControlMaps(tabletCtx.getSrcBackendId(),
+                        Env.getCurrentSystemInfo().getControlCloneFailedMap());
                 stat.counterTabletScheduledDiscard.incrementAndGet();
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(), e.getMessage());
                 return true;
@@ -1722,6 +1726,8 @@ public class TabletScheduler extends MasterDaemon {
             LOG.warn("got unexpected exception when finish clone task. tablet: {}",
                     tabletCtx.getTabletId(), e);
             stat.counterTabletScheduledDiscard.incrementAndGet();
+            Env.getCurrentSystemInfo().updateControlMaps(tabletCtx.getSrcBackendId(),
+                    Env.getCurrentSystemInfo().getControlCloneFailedMap());
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, Status.UNRECOVERABLE, e.getMessage());
             return true;
         }

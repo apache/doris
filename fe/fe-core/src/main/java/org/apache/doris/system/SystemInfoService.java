@@ -79,6 +79,13 @@ public class SystemInfoService {
 
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
 
+    // backendId : <timestamp>
+    private volatile ImmutableMap<Long, Set<Long>> backendIdToCloneFailedTimes = ImmutableMap.of();
+
+    // backendId : <timestamp>
+    private volatile ImmutableMap<Long, Set<Long>> backendIdPublishVersionExceedTimes = ImmutableMap.of();
+
+
     public static class HostInfo implements Comparable<HostInfo> {
         public String host;
         public int port;
@@ -1009,5 +1016,66 @@ public class SystemInfoService {
 
     public long aliveBECount() {
         return idToBackendRef.values().stream().filter(Backend::isAlive).count();
+    }
+
+    public ImmutableMap<Long, Set<Long>> getControlCloneFailedMap() {
+        return backendIdToCloneFailedTimes;
+    }
+
+    public ImmutableMap<Long, Set<Long>> getControlPublishVersionExceedMap() {
+        return backendIdPublishVersionExceedTimes;
+    }
+
+    public ImmutableMap<Long, Set<Long>> updateControlMaps(Long backendId, ImmutableMap<Long, Set<Long>> map) {
+        Map<Long, Set<Long>> copiedMap = Maps.newHashMap(map);
+        copiedMap.computeIfAbsent(backendId, k -> Sets.newHashSet());
+        long currentTimeStamp = System.currentTimeMillis();
+        copiedMap.get(backendId).add(currentTimeStamp);
+        /*
+                       oldestTimeStamp            windowRight          currentTimeStamp
+                                                        ^                       ^
+                                                        |                       |
+                                                        |         window        |
+        */
+        Long oldestTimeStamp = copiedMap.get(backendId)
+                .stream().min(Comparator.comparing(Long::valueOf)).orElse(-1L);
+        Long windowRight = currentTimeStamp - Config.be_check_health_window_length * 1000L;
+        List<Long> toDel = copiedMap.get(backendId).stream()
+                .filter(k -> (k < windowRight && k > oldestTimeStamp)).collect(Collectors.toList());
+        toDel.forEach(copiedMap::remove);
+        ImmutableMap<Long, Set<Long>> newMap = ImmutableMap.copyOf(copiedMap);
+        return newMap;
+    }
+
+    public boolean isExceedCloneFailedLimit(Long backendId) {
+        if (backendIdToCloneFailedTimes.get(backendId) == null) {
+            return false;
+        }
+        long currentTimeStamp = System.currentTimeMillis();
+        long windowRight = currentTimeStamp - Config.be_check_health_window_length * 1000L;
+        List<Long> cloneFailedTimeStamp = backendIdToCloneFailedTimes.get(backendId).stream()
+                .filter(time -> time <= currentTimeStamp && time >= windowRight).collect(Collectors.toList());
+        return cloneFailedTimeStamp.size() > Config.clone_tablet_in_window_failed_limit_number;
+    }
+
+    public boolean isExceedPublishVersionQueuedLimit(Long backendId) {
+        if (backendIdPublishVersionExceedTimes.get(backendId) == null) {
+            return false;
+        }
+        Set<Long> exceedTimestamp = backendIdPublishVersionExceedTimes.get(backendId);
+        /*
+                         windowRight            maxTimeStamp          currentTimeStamp
+                              ^                                                ^
+                              |                                                |
+                              |         window                                 |
+        */
+        long currentTimeStamp = System.currentTimeMillis();
+        long windowRight = currentTimeStamp - Config.be_check_health_window_length * 1000L;
+        Long maxTimeStamp = exceedTimestamp.stream().max(Comparator.comparing(Long::valueOf)).orElse(0L);
+        boolean inWindow = exceedTimestamp.stream().filter(timeStamp -> timeStamp > windowRight).count() > 0;
+        LOG.debug("publish version queue limit currentTimeStamp {}, windowRight {}, maxTimeStamp {}, inWindow {}"
+                + " backendId {}, exceedTimestamp {}",
+                currentTimeStamp, windowRight, maxTimeStamp, inWindow, backendId, exceedTimestamp);
+        return maxTimeStamp >= windowRight && inWindow;
     }
 }
