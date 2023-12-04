@@ -2045,5 +2045,11 @@ public class Config extends ConfigBase {
     */
     @ConfField
     public static int fe_thrift_max_pkg_bytes = 20000000;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int backup_upload_task_num_per_be = 3;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int restore_download_task_num_per_be = 3;
 }
 
