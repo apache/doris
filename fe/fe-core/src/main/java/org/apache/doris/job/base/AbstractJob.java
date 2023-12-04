@@ -113,7 +113,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             throw new JobException("no running task");
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
-                .orElseThrow(() -> new JobException("no task id:" + taskId)).cancel();
+                .orElseThrow(() -> new JobException("no task id: " + taskId)).cancel();
     }
 
     public List<T> queryAllTasks() {
@@ -139,11 +139,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     public List<T> commonCreateTasks(TaskType taskType, C taskContext) {
         if (!getJobStatus().equals(JobStatus.RUNNING)) {
-            log.warn("job is not running,job id is {}", jobId);
+            log.warn("job is not running, job id is {}", jobId);
             return new ArrayList<>();
         }
         if (!isReadyForScheduling(taskContext)) {
-            log.info("job is not ready for scheduling,job id is {}", jobId);
+            log.info("job is not ready for scheduling, job id is {}", jobId);
             return new ArrayList<>();
         }
         return createTasks(taskType, taskContext);

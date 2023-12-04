@@ -56,7 +56,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         job.checkJobParams();
         checkJobNameExist(job.getJobName());
         if (jobMap.get(job.getJobId()) != null) {
-            throw new JobException("job id exist,jobId:" + job.getJobId());
+            throw new JobException("job id exist, jobId:" + job.getJobId());
         }
         Env.getCurrentEnv().getEditLog().logCreateJob(job);
         jobMap.put(job.getJobId(), job);
@@ -67,7 +67,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     private void checkJobNameExist(String jobName) throws JobException {
         if (jobMap.values().stream().anyMatch(a -> a.getJobName().equals(jobName))) {
-            throw new JobException("job name exist,jobName:" + jobName);
+            throw new JobException("job name exist, jobName:" + jobName);
         }
     }
 
@@ -85,7 +85,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 try {
                     unregisterJob(a.getJobId());
                 } catch (JobException e) {
-                    throw new JobException("unregister job error,jobName:" + jobName);
+                    throw new JobException("unregister job error, jobName:" + jobName);
                 }
             }
         }
@@ -108,7 +108,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                     }
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
-                    throw new JobException("unregister job error,jobName:" + jobName);
+                    throw new JobException("unregister job error, jobName:" + jobName);
                 }
             }
         }
@@ -116,7 +116,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     private void checkJobExist(Long jobId) throws JobException {
         if (null == jobMap.get(jobId)) {
-            throw new JobException("job not exist,jobId:" + jobId);
+            throw new JobException("job not exist, jobId:" + jobId);
         }
     }
 
@@ -203,7 +203,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 return;
             }
         }
-        throw new JobException("job not exist,jobName:" + jobName);
+        throw new JobException("job not exist, jobName:" + jobName);
     }
 
     @Override
@@ -213,7 +213,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             try {
                 job.write(out);
             } catch (IOException e) {
-                log.error("write job error,jobId:" + jobId, e);
+                log.error("write job error, jobId:" + jobId, e);
             }
         });
     }

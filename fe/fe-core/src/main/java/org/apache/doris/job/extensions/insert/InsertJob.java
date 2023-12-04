@@ -142,7 +142,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
                 task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
                 task.setCreateTimeMs(loadJob.getCreateTimestamp());
             } catch (MetaNotFoundException e) {
-                log.warn("load job not found,job id is {}", loadJob.getId());
+                log.warn("load job not found, job id is {}", loadJob.getId());
                 return;
             }
             task.setJobId(getJobId());

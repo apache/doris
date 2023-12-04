@@ -148,6 +148,8 @@ fe.conf
 
 - job_dispatch_timer_job_queue_size, 任务堆积时用于存放定时任务的队列大小,默认值 1024. 如果有大量任务同一时间触发，可以调大这个参数。否则会导致队列满，提交任务会进入阻塞状态，从而导致后续任务无法提交。
 
+- finished_job_cleanup_threshold_time_hour, 用于清理已完成的任务的时间阈值，单位为小时，默认值为24小时。
+
 - job_insert_task_consumer_thread_num = 10;用于执行 Insert 任务的线程数, 值应该大于0，否则默认为5.
 
 ### Best Practice

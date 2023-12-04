@@ -39,6 +39,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashSet;
+import java.util.Set;
 
 /**
  * syntax:
@@ -82,6 +83,13 @@ public class CreateJobStmt extends DdlStmt {
 
     private final String comment;
     private JobExecuteType executeType;
+
+    // exclude job name prefix, which is used by inner job
+    private final Set<String> excludeJobNamePrefix = new HashSet<>();
+
+    {
+        excludeJobNamePrefix.add("inner_mtmv_");
+    }
 
     private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
             = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
@@ -138,6 +146,7 @@ public class CreateJobStmt extends DdlStmt {
         if (null != endsTimeStamp) {
             timerDefinition.setEndTimeMs(TimeUtils.timeStringToLong(endsTimeStamp));
         }
+        checkJobName(labelName.getLabelName());
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
         job.setJobConfig(jobExecutionConfiguration);
 
@@ -153,6 +162,14 @@ public class CreateJobStmt extends DdlStmt {
 
         //job.checkJobParams();
         jobInstance = job;
+    }
+
+    private void checkJobName(String jobName) throws AnalysisException {
+        for (String prefix : excludeJobNamePrefix) {
+            if (jobName.startsWith(prefix)) {
+                throw new AnalysisException("job name can not start with " + prefix);
+            }
+        }
     }
 
     protected static void checkAuth() throws AnalysisException {

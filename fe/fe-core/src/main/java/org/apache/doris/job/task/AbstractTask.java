@@ -120,7 +120,7 @@ public abstract class AbstractTask implements Task {
             onSuccess();
         } catch (Exception e) {
             onFail();
-            log.warn("execute task error, job id is {},task id is {}", jobId, taskId, e);
+            log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
         }
     }
 

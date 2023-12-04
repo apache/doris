@@ -18,6 +18,7 @@
 package org.apache.doris.job.scheduler;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
@@ -72,7 +73,9 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     /**
      * Finished job will be cleared after 24 hours
      */
-    private static final long MAX_JOB_LIVE_TIME_MS = 24 * 60 * 60 * 1000L;
+    private static final long FINISHED_JOB_CLEANUP_THRESHOLD_TIME_MS =
+            (Config.finished_job_cleanup_threshold_time_hour > 0
+                    ? Config.finished_job_cleanup_threshold_time_hour : 24) * 3600 * 1000L;
 
     public void start() {
         timerTaskScheduler = new HashedWheelTimer(new CustomThreadFactory("timer-task-scheduler"), 1,
@@ -188,13 +191,13 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
     private void clearFinishedJob(T job) {
-        if (job.getFinishTimeMs() + MAX_JOB_LIVE_TIME_MS < System.currentTimeMillis()) {
+        if (job.getFinishTimeMs() + FINISHED_JOB_CLEANUP_THRESHOLD_TIME_MS < System.currentTimeMillis()) {
             return;
         }
         try {
             Env.getCurrentEnv().getJobManager().unregisterJob(job.getJobId());
         } catch (JobException e) {
-            log.error("clear finish job error,job id is {}", job.getJobId(), e);
+            log.error("clear finish job error, job id is {}", job.getJobId(), e);
         }
     }
 }

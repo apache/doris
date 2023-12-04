@@ -1578,6 +1578,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
 
+    @ConfField(description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
+            "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
+    public static int finished_job_cleanup_threshold_time_hour = 24;
+
     @ConfField(description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为5",
             "The number of threads used to consume Insert tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 5."})
