@@ -194,10 +194,13 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             st = Status::InternalError("label and group_commit can't be set at the same time");
         }
         ctx->group_commit = load_size_smaller_than_wal_limit(req);
-    } else {
-        if (ctx->label.empty()) {
-            ctx->label = generate_uuid_string();
+        if (!ctx->group_commit) {
+            LOG(WARNING) << "";
+            st = Status::InternalError("");
         }
+    }
+    if (!ctx->group_commit && ctx->label.empty()) {
+        ctx->label = generate_uuid_string();
     }
 
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
