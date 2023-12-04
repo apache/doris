@@ -1086,7 +1086,7 @@ DEFINE_Int32(group_commit_insert_threads, "10");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 
-DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
 
 DEFINE_Bool(exit_on_exception, "false");
 
@@ -1113,6 +1113,7 @@ DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 // then the new created tablet will not locate in the high use disk.
 // range: 0 ~ 100
 DEFINE_mInt32(disk_diff_usage_percentage_for_create_tablet, "20");
+DEFINE_Bool(enable_snapshot_action, "false");
 
 // clang-format off
 #ifdef BE_TEST

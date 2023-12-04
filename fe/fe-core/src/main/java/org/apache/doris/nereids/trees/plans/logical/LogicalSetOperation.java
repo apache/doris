@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -137,10 +138,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         for (int i = 0; i < child(0).getOutput().size(); ++i) {
             Slot left = child(0).getOutput().get(i);
             Slot right = child(1).getOutput().get(i);
-            DataType compatibleType = DataType.fromCatalogType(Type.getAssignmentCompatibleType(
-                    left.getDataType().toCatalogDataType(),
-                    right.getDataType().toCatalogDataType(),
-                    false));
+            DataType compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
             Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, compatibleType);
             Expression newRight = TypeCoercionUtils.castIfNotSameType(right, compatibleType);
             if (newLeft instanceof Cast) {
@@ -210,5 +208,31 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     @Override
     public int getArity() {
         return children.size();
+    }
+
+    private DataType getAssignmentCompatibleType(DataType left, DataType right) {
+        if (left.isNullType()) {
+            return right;
+        }
+        if (right.isNullType()) {
+            return left;
+        }
+        if (left.equals(right)) {
+            return left;
+        }
+        Type resultType = Type.getAssignmentCompatibleType(left.toCatalogDataType(),
+                right.toCatalogDataType(), false);
+        if (resultType.isDecimalV3()) {
+            int oldPrecision = resultType.getPrecision();
+            int oldScale = resultType.getDecimalDigits();
+            int integerPart = oldPrecision - oldScale;
+            int maxPrecision = ScalarType.MAX_DECIMAL128_PRECISION;
+            if (oldPrecision > maxPrecision) {
+                int newScale = maxPrecision - integerPart;
+                resultType =
+                        ScalarType.createDecimalType(maxPrecision, newScale < 0 ? 0 : newScale);
+            }
+        }
+        return DataType.fromCatalogType(resultType);
     }
 }
