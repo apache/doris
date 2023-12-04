@@ -627,6 +627,7 @@ public class StmtExecutor {
             if (!offerRet.waitSignal()) {
                 String retMsg = "queue success but wait too long in queue";
                 LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
+                queryQueue.deleteToken(offerRet);
                 throw new UserException(retMsg);
             }
         }

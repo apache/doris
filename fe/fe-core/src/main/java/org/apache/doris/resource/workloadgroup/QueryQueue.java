@@ -126,6 +126,7 @@ public class QueryQueue {
         }
     }
 
+    // If the token is acquired and do work success, then call this method to release it.
     public void releaseToken(QueueOfferToken token) throws InterruptedException {
         queueLock.lock();
         try {
@@ -139,6 +140,24 @@ public class QueryQueue {
                     nextToken.signal();
                 }
             }
+        } finally {
+            if (LOG.isDebugEnabled()) {
+                LOG.info(this.debugString());
+            }
+            queueLock.unlock();
+        }
+    }
+
+    // If the token is wait timeout, then should delete the token to release the queue space
+    public void deleteToken(QueueOfferToken token) {
+        queueLock.lock();
+        try {
+            if (token.isReadyToRun()) {
+                currentRunningQueryNum--;
+                Preconditions.checkArgument(currentRunningQueryNum >= 0);
+                return;
+            }
+            this.priorityTokenQueue.remove(token);
         } finally {
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());

@@ -17,6 +17,8 @@
 
 package org.apache.doris.resource.workloadgroup;
 
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -24,6 +26,10 @@ import java.util.concurrent.locks.ReentrantLock;
 // if offer failed, then need to cancel query
 // and return failed reason to user client
 public class QueueOfferToken {
+
+    static AtomicLong tokenIdGenerator = new AtomicLong(0);
+
+    private long tokenId = 0;
 
     private boolean offerResult = false;
 
@@ -44,6 +50,7 @@ public class QueueOfferToken {
 
     public QueueOfferToken(Boolean addToQueueSuccess, Boolean isReadyToRun, long waitTimeout,
             String offerResultDetail) {
+        this.tokenId = tokenIdGenerator.addAndGet(1);
         this.offerResult = addToQueueSuccess;
         this.isReadyToRun = isReadyToRun;
         this.waitTimeout = waitTimeout;
@@ -85,6 +92,25 @@ public class QueueOfferToken {
 
     public String getOfferResultDetail() {
         return offerResultDetail;
+    }
+
+    public boolean isReadyToRun() {
+        return isReadyToRun;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        QueueOfferToken other = (QueueOfferToken) obj;
+        return enqueueTime == other.enqueueTime && isReadyToRun == other.isReadyToRun
+                && offerResult == other.offerResult && Objects.equals(offerResultDetail, other.offerResultDetail)
+                && Objects.equals(tokenCond, other.tokenCond) && tokenId == other.tokenId
+                && Objects.equals(tokenLock, other.tokenLock) && waitTimeout == other.waitTimeout;
     }
 
 }
