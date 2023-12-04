@@ -30,7 +30,7 @@ suite ("no_await") {
                 assertTrue(false)
             }
             log.info("result: ${result}")
-            Thread.sleep(1100)
+            Thread.sleep(3000)
             try_times -= 1
             assertTrue(try_times > 0)
         }
