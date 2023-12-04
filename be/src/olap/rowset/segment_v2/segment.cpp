@@ -424,7 +424,7 @@ static Status new_default_iterator(const TabletColumn& tablet_column,
 
 Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                                               std::unique_ptr<ColumnIterator>* iter,
-                                              StorageReadOptions* opt) {
+                                              const StorageReadOptions* opt) {
     vectorized::PathInData root_path;
     if (tablet_column.path_info().empty()) {
         // Missing path info, but need read the whole variant column
@@ -434,7 +434,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     }
     auto root = _sub_column_tree.find_leaf(root_path);
     auto node = _sub_column_tree.find_exact(tablet_column.path_info());
-    if (opt->io_ctx.reader_type == ReaderType::READER_ALTER_TABLE) {
+    if (opt != nullptr && opt->io_ctx.reader_type == ReaderType::READER_ALTER_TABLE) {
         CHECK(tablet_column.is_variant_type());
         if (node == nullptr) {
             // No such variant column in this segment, get a default one
@@ -449,7 +449,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         return Status::OK();
     }
 
-    if (opt->io_ctx.reader_type != ReaderType::READER_QUERY) {
+    if (opt == nullptr || opt->io_ctx.reader_type != ReaderType::READER_QUERY) {
         // Could be compaction ..etc and read flat leaves nodes data
         auto node = _sub_column_tree.find_leaf(tablet_column.path_info());
         if (!node) {
@@ -504,7 +504,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
 // but they are not the same column
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
-                                    StorageReadOptions* opt) {
+                                    const StorageReadOptions* opt) {
     // init column iterator by path info
     if (!tablet_column.path_info().empty() || tablet_column.is_variant_type()) {
         return new_column_iterator_with_path(tablet_column, iter, opt);
