@@ -113,7 +113,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _split_block_hash_compute_timer = ADD_TIMER(_profile, "SplitBlockHashComputeTime");
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
-    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksSent", TUnit::UNIT, 1);
+    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
+    _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
     _overall_throughput = _profile->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -122,9 +123,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
     _local_bytes_send_counter = ADD_COUNTER(_profile, "LocalBytesSent", TUnit::BYTES);
     _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
-    _peak_memory_usage_counter =
-            _profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
-
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER(_profile, timer_name);
     _wait_queue_timer = ADD_CHILD_TIMER(_profile, "WaitForRpcBufferQueue", timer_name);
@@ -173,13 +171,16 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     register_channels(_sink_buffer.get());
 
-    _exchange_sink_dependency = AndDependency::create_shared(_parent->operator_id());
-    _queue_dependency = ExchangeSinkQueueDependency::create_shared(_parent->operator_id());
+    _exchange_sink_dependency = AndDependency::create_shared(
+            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
+    _queue_dependency = ExchangeSinkQueueDependency::create_shared(
+            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     _exchange_sink_dependency->add_child(_queue_dependency);
     if ((p._part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
-        _broadcast_dependency = BroadcastDependency::create_shared(_parent->operator_id());
+        _broadcast_dependency = BroadcastDependency::create_shared(
+                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
         _broadcast_dependency->set_available_block(config::num_broadcast_buffer);
         _broadcast_pb_blocks.reserve(config::num_broadcast_buffer);
         for (size_t i = 0; i < config::num_broadcast_buffer; i++) {
@@ -194,7 +195,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         size_t dep_id = 0;
         _local_channels_dependency.resize(local_size);
         _wait_channel_timer.resize(local_size);
-        auto deps_for_channels = AndDependency::create_shared(_parent->operator_id());
+        auto deps_for_channels = AndDependency::create_shared(
+                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
         for (auto channel : channels) {
             if (channel->is_local()) {
                 _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
@@ -225,6 +227,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     }
 
+    _finish_dependency->block();
+
     return Status::OK();
 }
 
@@ -238,7 +242,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-std::string ExchangeSinkLocalState::id_name() {
+std::string ExchangeSinkLocalState::name_suffix() {
     std::string name = " (id=" + std::to_string(_parent->node_id());
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
     name += ",dest_id=" + std::to_string(p._dest_node_id);
@@ -303,8 +307,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                    SourceState source_state) {
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
+    COUNTER_UPDATE(local_state.rows_sent_counter(), (int64_t)block->rows());
     SCOPED_TIMER(local_state.exec_time_counter());
-    local_state._peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    local_state._peak_memory_usage_counter->set(local_state._mem_tracker->peak_consumption());
     bool all_receiver_eof = true;
     for (auto channel : local_state.channels) {
         if (!channel->is_receiver_eof()) {
@@ -350,7 +355,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     }
                     local_state._broadcast_dependency->take_available_block();
                     block_holder->ref(local_state.channels.size());
-                    Status status;
                     for (auto channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
@@ -368,7 +372,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         }
                     }
                     cur_block.clear_column_data();
-                    local_state._serializer.get_block()->set_muatable_columns(
+                    local_state._serializer.get_block()->set_mutable_columns(
                             cur_block.mutate_columns());
                 }
             }
@@ -460,7 +464,8 @@ Status ExchangeSinkLocalState::get_next_available_buffer(
     return Status::InternalError("No broadcast buffer left! Available blocks: " +
                                  std::to_string(_broadcast_dependency->available_blocks()) +
                                  " and number of buffer is " +
-                                 std::to_string(_broadcast_pb_blocks.size()));
+                                 std::to_string(_broadcast_pb_blocks.size()) +
+                                 " Dependency: " + _broadcast_dependency->debug_string());
 }
 
 template <typename Channels, typename HashValueType>
@@ -506,7 +511,17 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status)
             final_st = st;
         }
     }
+    local_state._sink_buffer->set_should_stop();
     return final_st;
+}
+
+std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}",
+                   PipelineXSinkLocalState<>::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", Sink Buffer: (_should_stop = {}, _busy_channels = {})",
+                   _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load());
+    return fmt::to_string(debug_string_buffer);
 }
 
 Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
@@ -515,14 +530,13 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
-    COUNTER_UPDATE(_wait_queue_timer, _queue_dependency->write_watcher_elapse_time());
+    COUNTER_UPDATE(_wait_queue_timer, _queue_dependency->watcher_elapse_time());
     if (_broadcast_dependency) {
-        COUNTER_UPDATE(_wait_broadcast_buffer_timer,
-                       _broadcast_dependency->write_watcher_elapse_time());
+        COUNTER_UPDATE(_wait_broadcast_buffer_timer, _broadcast_dependency->watcher_elapse_time());
     }
     for (size_t i = 0; i < _local_channels_dependency.size(); i++) {
         COUNTER_UPDATE(_wait_channel_timer[i],
-                       _local_channels_dependency[i]->write_watcher_elapse_time());
+                       _local_channels_dependency[i]->watcher_elapse_time());
     }
     _sink_buffer->update_profile(profile());
     _sink_buffer->close();

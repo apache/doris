@@ -593,7 +593,8 @@ public class SystemInfoService {
             if (!failedEntries.isEmpty()) {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
-                        + "replication tag and storage medium.\n" + "Create failed replications:\n" + failedMsg);
+                        + "replication tag and storage medium and avail capacity of backends.\n"
+                        + "Create failed replications:\n" + failedMsg);
             }
         }
 

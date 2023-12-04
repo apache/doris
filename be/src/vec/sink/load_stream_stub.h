@@ -17,6 +17,8 @@
 
 #pragma once
 #include <brpc/controller.h>
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <bthread/types.h>
 #include <butil/errno.h>
 #include <fmt/format.h>
@@ -97,17 +99,13 @@ private:
         bool is_closed() { return _is_closed.load(); }
 
         Status close_wait(int64_t timeout_ms) {
+            DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
             std::unique_lock<bthread::Mutex> lock(_mutex);
             if (_is_closed) {
                 return Status::OK();
             }
-            if (timeout_ms > 0) {
-                int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-                return ret == 0 ? Status::OK()
-                                : Status::Error<true>(ret, "stream close_wait timeout");
-            }
-            _close_cv.wait(lock);
-            return Status::OK();
+            int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
+            return ret == 0 ? Status::OK() : Status::Error<true>(ret, "stream close_wait timeout");
         };
 
         std::vector<int64_t> success_tablets() {
@@ -121,8 +119,10 @@ private:
         }
 
         void set_dst_id(int64_t dst_id) { _dst_id = dst_id; }
+        void set_load_id(PUniqueId load_id) { _load_id = UniqueId(load_id); }
 
     private:
+        UniqueId _load_id;    // for logging
         int64_t _dst_id = -1; // for logging
         std::atomic<bool> _is_closed;
         bthread::Mutex _mutex;
@@ -133,7 +133,7 @@ private:
         std::vector<int64_t> _success_tablets;
         std::vector<int64_t> _failed_tablets;
 
-        LoadStreamStub* _stub;
+        LoadStreamStub* _stub = nullptr;
     };
 
 public:
@@ -174,11 +174,18 @@ public:
     // GET_SCHEMA
     Status get_schema(const std::vector<PTabletID>& tablets);
 
+    // close stream, usually close is initiated by the remote.
+    // in case of remote failure, we should be able to close stream locally.
+    Status close_stream();
+
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
     Status close_wait(int64_t timeout_ms = 0) {
         if (!_is_init.load() || _handler.is_closed()) {
             return Status::OK();
+        }
+        if (timeout_ms <= 0) {
+            timeout_ms = config::close_load_stream_timeout_ms;
         }
         return _handler.close_wait(timeout_ms);
     }

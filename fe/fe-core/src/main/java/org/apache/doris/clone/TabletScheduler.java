@@ -62,7 +62,6 @@ import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
@@ -172,6 +171,7 @@ public class TabletScheduler extends MasterDaemon {
         return stat;
     }
 
+    // just return be or partition rebalancer
     public Rebalancer getRebalancer() {
         return rebalancer;
     }
@@ -274,6 +274,8 @@ public class TabletScheduler extends MasterDaemon {
 
         return AddResult.ADDED;
     }
+
+
 
     public synchronized boolean containsTablet(long tabletId) {
         return allTabletTypes.containsKey(tabletId);
@@ -388,16 +390,6 @@ public class TabletScheduler extends MasterDaemon {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TabletSchedCtx tabletCtx : currentBatch) {
             try {
-                if (Config.disable_tablet_scheduler) {
-                    // do not schedule more tablet is tablet scheduler is disabled.
-                    throw new SchedException(Status.FINISHED, "tablet scheduler is disabled");
-                }
-                if (Config.disable_balance && tabletCtx.getType() == Type.BALANCE) {
-                    tabletCtx.setSchedFailedCode(SubCode.DIAGNOSE_IGNORE);
-                    finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
-                            "config disable balance");
-                    continue;
-                }
                 scheduleTablet(tabletCtx, batchTask);
             } catch (SchedException e) {
                 tabletCtx.setErrMsg(e.getMessage());
@@ -430,6 +422,7 @@ public class TabletScheduler extends MasterDaemon {
                         tabletCtx.getTabletId(), e);
                 stat.counterTabletScheduledFailed.incrementAndGet();
                 tabletCtx.setSchedFailedCode(SubCode.NONE);
+                tabletCtx.setErrMsg(e.getMessage());
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, Status.UNRECOVERABLE, e.getMessage());
                 continue;
             }
@@ -471,6 +464,14 @@ public class TabletScheduler extends MasterDaemon {
      * Try to schedule a single tablet.
      */
     private void scheduleTablet(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
+        if (Config.disable_tablet_scheduler) {
+            // do not schedule more tablet is tablet scheduler is disabled.
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "tablet scheduler is disabled");
+        }
+        if (Config.disable_balance && tabletCtx.getType() == Type.BALANCE) {
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "balance is disabled");
+        }
+
         long currentTime = System.currentTimeMillis();
         tabletCtx.setLastSchedTime(currentTime);
         tabletCtx.setLastVisitedTime(currentTime);
@@ -557,9 +558,8 @@ public class TabletScheduler extends MasterDaemon {
                 }
 
                 try {
-                    DatabaseTransactionMgr dbTransactionMgr
-                            = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId());
-                    for (TransactionState transactionState : dbTransactionMgr.getPreCommittedTxnList()) {
+                    for (TransactionState transactionState :
+                            Env.getCurrentGlobalTransactionMgr().getPreCommittedTxnList(db.getId())) {
                         if (transactionState.getTableIdList().contains(tbl.getId())) {
                             // If table releate to transaction with precommitted status, do not allow to do balance.
                             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
@@ -568,6 +568,7 @@ public class TabletScheduler extends MasterDaemon {
                     }
                 } catch (AnalysisException e) {
                     // CHECKSTYLE IGNORE THIS LINE
+                    LOG.warn("Exception:", e);
                 }
             }
 
@@ -1459,7 +1460,7 @@ public class TabletScheduler extends MasterDaemon {
 
         if (hasBePath) {
             throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                    "waiting for dest replica slot");
+                    "scheduler waiting for dest backend slot");
         } else {
             throw new SchedException(Status.UNRECOVERABLE,
                     "unable to find dest path which can be fit in");
@@ -1664,8 +1665,9 @@ public class TabletScheduler extends MasterDaemon {
             updateDestPathHash(tabletCtx);
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
         } else {
-            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
-                    request.getTaskStatus().getErrorMsgs().get(0));
+            String errMsg = request.getTaskStatus().getErrorMsgs().get(0);
+            tabletCtx.setErrMsg(errMsg);
+            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, errMsg);
         }
 
         return true;
@@ -1793,6 +1795,7 @@ public class TabletScheduler extends MasterDaemon {
             // Set "resetReplicaState" to true because
             // the timeout task should also be considered as UNRECOVERABLE,
             // so need to reset replica state.
+            t.setErrMsg("timeout");
             finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, "timeout");
             stat.counterCloneTaskTimeout.incrementAndGet();
         });
@@ -1972,7 +1975,7 @@ public class TabletScheduler extends MasterDaemon {
                     LOG.debug("path hash is not set.", new Exception());
                 }
                 throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                        "path hash is not set");
+                        "backend " + beId + " path hash is not set");
             }
 
             Slot slot = pathSlots.get(pathHash);

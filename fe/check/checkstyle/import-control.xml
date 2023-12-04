@@ -39,6 +39,7 @@ under the License.
     <subpackage name="nereids">
         <allow pkg="org.junit.jupiter"/>
         <disallow pkg="org.junit"/>
+        <disallow pkg="lombok"/>
     </subpackage>
 </import-control>
 

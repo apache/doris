@@ -66,6 +66,8 @@ public abstract class TableValuedFunctionIf {
                 return new WorkloadGroupsTableValuedFunction(params);
             case CatalogsTableValuedFunction.NAME:
                 return new CatalogsTableValuedFunction(params);
+            case MaterializedViewsTableValuedFunction.NAME:
+                return new MaterializedViewsTableValuedFunction(params);
             case GroupCommitTableValuedFunction.NAME:
                 return new GroupCommitTableValuedFunction(params);
             case QueriesTableValuedFunction.NAME:

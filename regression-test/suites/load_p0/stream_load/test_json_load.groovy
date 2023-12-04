@@ -129,7 +129,7 @@ suite("test_json_load", "p0") {
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
     }
 
-    def create_iterate_read_json = { testTablex ->
+    def create_json_test_table = { testTablex ->
                     sql """
                         CREATE TABLE `${testTablex}` (
                             `name` varchar(48) NULL,
@@ -727,17 +727,86 @@ suite("test_json_load", "p0") {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
-    // case20: iterate read json when read_json_by_line = false
+    // test jsonpaths error
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
-        create_iterate_read_json.call(testTable)
+        create_json_test_table.call(testTable)
+        streamLoad {
+            table "${testTable}"
+            set 'jsonpaths', '[\"Name\", \"Age\", \"Agent_id\"]'
+            set 'format', 'json'
+            file 'test_json_error.json' // import json file
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                def url = json.ErrorURL.toString();
+                assertEquals("fail", json.Status.toLowerCase())
+
+                def command = "curl ${url}"
+                log.info("command: ${command}".toString())
+                def process = command.execute()
+                def code = process.waitFor()
+                def out = process.text
+                log.info("result: ${out}".toString())
+                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[name, age, agent_id, ], jsonpaths:[\"Name\", \"Age\", \"Agent_id\"], please check columns and jsonpaths. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
+                assertEquals("${reason}", "${out}")
+            }
+        }
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // test colunms error
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_json_test_table.call(testTable)
+        streamLoad {
+            table "${testTable}"
+            set 'columns', 'Name, Age, Agent_id'
+            set 'format', 'json'
+            file 'test_json_error.json' // import json file
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                def url = json.ErrorURL.toString();
+                assertEquals("fail", json.Status.toLowerCase())
+
+                def command = "curl ${url}"
+                log.info("command: ${command}".toString())
+                def process = command.execute()
+                def code = process.waitFor()
+                def out = process.text
+                log.info("result: ${out}".toString())
+                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[Name, Age, Agent_id, ], jsonpaths:, please check columns and jsonpaths. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
+                assertEquals("${reason}", "${out}")
+            }
+        }
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+      
+    // iterate read json when read_json_by_line = false
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_json_test_table.call(testTable)
         def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
         load_json_data.call("${testTable}", test_load_label, 'false', 'false', 'json', '', '', '', '', '', 'iterate_read_json.json')
 
         sql "sync" 
         qt_iterate_read_json "select * from ${testTable} order by name"
-
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

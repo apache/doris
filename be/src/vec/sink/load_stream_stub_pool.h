@@ -87,7 +87,7 @@ private:
     UniqueId _load_id;
     int64_t _dst_id;
     std::atomic<int> _use_cnt;
-    LoadStreamStubPool* _pool;
+    LoadStreamStubPool* _pool = nullptr;
 };
 
 class LoadStreamStubPool {

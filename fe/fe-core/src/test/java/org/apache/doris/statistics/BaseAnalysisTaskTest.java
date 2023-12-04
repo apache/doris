@@ -42,21 +42,21 @@ public class BaseAnalysisTaskTest {
         Assertions.assertEquals("SUM(t1.count) * 4", dataSizeFunction);
 
         String minFunction = olapAnalysisTask.getMinFunction();
-        Assertions.assertEquals("to_base64(CAST(MIN(`${colName}`) as ${type})) ", minFunction);
+        Assertions.assertEquals("CAST(MIN(`${colName}`) as ${type}) ", minFunction);
         olapAnalysisTask.tableSample = new TableSample(true, 20L);
         minFunction = olapAnalysisTask.getMinFunction();
         Assertions.assertEquals("NULL", minFunction);
 
         olapAnalysisTask.tableSample = null;
         String maxFunction = olapAnalysisTask.getMaxFunction();
-        Assertions.assertEquals("to_base64(CAST(MAX(`${colName}`) as ${type})) ", maxFunction);
+        Assertions.assertEquals("CAST(MAX(`${colName}`) as ${type}) ", maxFunction);
         olapAnalysisTask.tableSample = new TableSample(true, 20L);
         maxFunction = olapAnalysisTask.getMaxFunction();
         Assertions.assertEquals("NULL", maxFunction);
 
         String ndvFunction = olapAnalysisTask.getNdvFunction(String.valueOf(100));
-        Assertions.assertEquals("SUM(t1.count) * COUNT(1) / (SUM(t1.count) - SUM(IF(t1.count = 1, 1, 0)) "
-                + "+ SUM(IF(t1.count = 1, 1, 0)) * SUM(t1.count) / 100)", ndvFunction);
+        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(1) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1, 1, 0)) "
+                + "+ SUM(IF(`t1`.`count` = 1, 1, 0)) * SUM(`t1`.`count`) / 100)", ndvFunction);
         System.out.println(ndvFunction);
     }
 

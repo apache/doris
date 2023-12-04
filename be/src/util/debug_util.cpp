@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "common/version_internal.h"
+#include "fmt/core.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -129,9 +130,7 @@ std::string PrintFrontendInfo(const TFrontendInfo& fe_info) {
 }
 
 std::string PrintInstanceStandardInfo(const TUniqueId& qid, const TUniqueId& iid) {
-    std::stringstream ss;
-    ss << print_id(iid) << '|' << print_id(qid);
-    return ss.str();
+    return fmt::format("{}|{}", print_id(iid), print_id(qid));
 }
 
 } // namespace doris

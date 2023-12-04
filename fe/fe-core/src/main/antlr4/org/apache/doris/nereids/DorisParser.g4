@@ -96,6 +96,19 @@ statement
        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
+    | ALTER TABLE table=relation
+        ADD CONSTRAINT constraintName=errorCapturingIdentifier
+        constraint                                                        #addConstraint
+    | ALTER TABLE table=relation
+        DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
+    ;
+
+constraint
+    : PRIMARY KEY LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
+    | UNIQUE LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
+    | FOREIGN KEY LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
+        REFERENCES referenceTable=multipartIdentifier
+        LEFT_PAREN referenceSlots+=errorCapturingIdentifier (COMMA referenceSlots+=errorCapturingIdentifier)* RIGHT_PAREN
     ;
 
 dataDesc
@@ -462,7 +475,8 @@ columnDef
     : colName=identifier type=dataType
         KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
         (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL
-            | CURRENT_TIMESTAMP (LEFT_PAREN precision=number RIGHT_PAREN)?))?
+            | CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+        (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
     

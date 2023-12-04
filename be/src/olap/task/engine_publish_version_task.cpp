@@ -274,13 +274,15 @@ Status EnginePublishVersionTask::finish() {
                         (*_succ_tablets)[tablet_id] = 0;
                     } else {
                         add_error_tablet_id(tablet_id);
-                        LOG(WARNING)
-                                << "publish version failed on transaction, tablet version not "
-                                   "exists. "
-                                << "transaction_id=" << transaction_id
-                                << ", tablet_id=" << tablet_id
-                                << ", tablet_state=" << tablet_state_name(tablet->tablet_state())
-                                << ", version=" << par_ver_info.version;
+                        if (!res.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+                            LOG(WARNING)
+                                    << "publish version failed on transaction, tablet version not "
+                                       "exists. "
+                                    << "transaction_id=" << transaction_id
+                                    << ", tablet_id=" << tablet_id << ", tablet_state="
+                                    << tablet_state_name(tablet->tablet_state())
+                                    << ", version=" << par_ver_info.version;
+                        }
                     }
                 }
             }

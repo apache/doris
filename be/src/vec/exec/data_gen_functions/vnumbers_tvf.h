@@ -47,7 +47,7 @@ protected:
     int64_t _total_numbers;
     // Number of returned columns, actually only 1 column
     int _slot_num = 1;
-    int64_t _cur_offset = 0;
+    int64_t _next_number = 0;
 };
 
 } // namespace vectorized

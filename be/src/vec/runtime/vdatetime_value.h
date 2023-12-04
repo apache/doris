@@ -31,6 +31,7 @@
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -964,6 +965,7 @@ public:
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
     bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
+    //the first arg is result of fixed point
     bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const std::string& timezone) const;
     bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
 

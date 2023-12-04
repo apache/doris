@@ -58,6 +58,10 @@ public class BDBDebugger {
     private static final Logger LOG = LogManager.getLogger(BDBDebugger.class);
     private BDBDebugEnv debugEnv;
 
+    private static class SingletonHolder {
+        private static final BDBDebugger INSTANCE = new BDBDebugger();
+    }
+
     public static BDBDebugger get() {
         return SingletonHolder.INSTANCE;
     }
@@ -65,10 +69,10 @@ public class BDBDebugger {
     /**
      * Start in BDB Debug mode.
      */
-    public void startDebugMode(String dorisHomeDir) {
+    public void startDebugMode(String bdbHome) {
         try {
-            initDebugEnv();
-            startService(dorisHomeDir);
+            initDebugEnv(bdbHome);
+            startService();
             while (true) {
                 Thread.sleep(2000);
             }
@@ -78,8 +82,13 @@ public class BDBDebugger {
         }
     }
 
+    private void initDebugEnv(String bdbHome) throws BDBDebugException {
+        debugEnv = new BDBDebugEnv(bdbHome);
+        debugEnv.init();
+    }
+
     // Only start MySQL and HttpServer
-    private void startService(String dorisHomeDir) throws Exception {
+    private void startService() throws Exception {
         // HTTP server
 
         HttpServer httpServer = new HttpServer();
@@ -94,17 +103,8 @@ public class BDBDebugger {
         ThreadPoolManager.registerAllThreadPoolMetric();
     }
 
-    private void initDebugEnv() throws BDBDebugException {
-        debugEnv = new BDBDebugEnv(Config.meta_dir + "/bdb/");
-        debugEnv.init();
-    }
-
     public BDBDebugEnv getEnv() {
         return debugEnv;
-    }
-
-    private static class SingletonHolder {
-        private static final BDBDebugger INSTANCE = new BDBDebugger();
     }
 
     /**
@@ -144,7 +144,9 @@ public class BDBDebugger {
             dbConfig.setAllowCreate(false);
             dbConfig.setReadOnly(true);
             Database db = env.openDatabase(null, dbName, dbConfig);
-            return db.count();
+            long journalNumber = db.count();
+            db.close();
+            return journalNumber;
         }
 
         /**
@@ -172,6 +174,8 @@ public class BDBDebugger {
                     Long id = idBinding.entryToObject(key);
                     journalIds.add(id);
                 }
+                cursor.close();
+                db.close();
             } catch (Exception e) {
                 LOG.warn("failed to get journal ids of {}", dbName, e);
                 throw new BDBDebugException("failed to get journal ids of database " + dbName, e);
@@ -205,6 +209,7 @@ public class BDBDebugger {
 
             // get the journal
             OperationStatus status = db.get(null, key, value, LockMode.READ_COMMITTED);
+            db.close();
             if (status == OperationStatus.SUCCESS) {
                 byte[] retData = value.getData();
                 DataInputStream in = new DataInputStream(new ByteArrayInputStream(retData));
@@ -222,6 +227,14 @@ public class BDBDebugger {
             }
             MetaContext.remove();
             return entityWrapper;
+        }
+
+        public void close() {
+            try {
+                env.close();
+            } catch (Exception e) {
+                LOG.warn("exception:", e);
+            }
         }
     }
 

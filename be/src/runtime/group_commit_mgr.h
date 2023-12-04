@@ -23,7 +23,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "util/lock.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
 #include "vec/core/future_block.h"
@@ -38,14 +37,15 @@ public:
     LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
                    int64_t schema_version,
                    std::shared_ptr<std::atomic_size_t> all_block_queues_bytes,
-                   bool wait_internal_group_commit_finish)
+                   bool wait_internal_group_commit_finish, int64_t group_commit_interval_ms)
             : load_instance_id(load_instance_id),
               label(label),
               txn_id(txn_id),
               schema_version(schema_version),
               wait_internal_group_commit_finish(wait_internal_group_commit_finish),
               _start_time(std::chrono::steady_clock::now()),
-              _all_block_queues_bytes(all_block_queues_bytes) {
+              _all_block_queues_bytes(all_block_queues_bytes),
+              _group_commit_interval_ms(group_commit_interval_ms) {
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
@@ -62,14 +62,14 @@ public:
     int64_t schema_version;
     bool need_commit = false;
     bool wait_internal_group_commit_finish = false;
-    doris::Mutex mutex;
-    doris::ConditionVariable internal_group_commit_finish_cv;
+    std::mutex mutex;
+    std::condition_variable internal_group_commit_finish_cv;
 
 private:
     std::chrono::steady_clock::time_point _start_time;
 
-    doris::ConditionVariable _put_cond;
-    doris::ConditionVariable _get_cond;
+    std::condition_variable _put_cond;
+    std::condition_variable _get_cond;
     // the set of load ids of all blocks in this queue
     std::set<UniqueId> _load_ids;
     std::list<std::shared_ptr<vectorized::FutureBlock>> _block_queue;
@@ -79,6 +79,8 @@ private:
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
     // memory consumption of one load block queue, used for correctness check.
     std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes;
+    // group commit interval in ms, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
+    int64_t _group_commit_interval_ms;
 };
 
 class GroupCommitTable {
@@ -106,12 +108,12 @@ private:
                                      int64_t txn_id, const TUniqueId& instance_id, Status& status,
                                      bool prepare_failed, RuntimeState* state);
 
-    ExecEnv* _exec_env;
-    ThreadPool* _thread_pool;
+    ExecEnv* _exec_env = nullptr;
+    ThreadPool* _thread_pool = nullptr;
     int64_t _db_id;
     int64_t _table_id;
-    doris::Mutex _lock;
-    doris::ConditionVariable _cv;
+    std::mutex _lock;
+    std::condition_variable _cv;
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _need_plan_fragment = false;
@@ -134,9 +136,9 @@ public:
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
-    doris::Mutex _lock;
+    std::mutex _lock;
     // TODO remove table when unused
     std::unordered_map<int64_t, std::shared_ptr<GroupCommitTable>> _table_map;
     std::unique_ptr<doris::ThreadPool> _thread_pool;

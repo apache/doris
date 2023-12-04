@@ -143,6 +143,8 @@ public:
         return _query_ctx_map.size();
     }
 
+    std::string dump_pipeline_tasks();
+
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
@@ -169,7 +171,7 @@ private:
                           std::shared_ptr<QueryContext>& query_ctx);
 
     // This is input params
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     // The lock should only be used to protect the structures in fragment manager. Has to be
     // used in a very small scope because it may dead lock. For example, if the _lock is used
@@ -194,11 +196,12 @@ private:
     // every job is a pool
     std::unique_ptr<ThreadPool> _thread_pool;
 
-    std::shared_ptr<MetricEntity> _entity = nullptr;
+    std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
-    std::unique_ptr<ThreadPool> _async_report_thread_pool; // used for pipeliine context report
+    std::unique_ptr<ThreadPool> _async_report_thread_pool =
+            nullptr; // used for pipeliine context report
 };
 
 } // namespace doris

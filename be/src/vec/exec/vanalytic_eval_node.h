@@ -74,7 +74,7 @@ public:
     ~VAnalyticEvalNode() override = default;
     VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -165,6 +165,7 @@ private:
     int64_t _rows_end_offset = 0;
     size_t _agg_functions_size = 0;
     bool _agg_functions_created = false;
+    bool _current_window_empty = false;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;

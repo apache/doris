@@ -53,28 +53,9 @@ public:
 struct ExchangeDataDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
-    ExchangeDataDependency(int id, vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
-            : Dependency(id, "DataDependency"), _always_done(false) {}
-    void* shared_state() override { return nullptr; }
-
-    void set_always_done() {
-        _always_done = true;
-        if (_ready_for_read) {
-            return;
-        }
-        _read_dependency_watcher.stop();
-        _ready_for_read = true;
-    }
-
-    void block_reading() override {
-        if (_always_done) {
-            return;
-        }
-        _ready_for_read = false;
-    }
-
-private:
-    std::atomic<bool> _always_done;
+    ExchangeDataDependency(int id, int node_id, QueryContext* query_ctx,
+                           vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
+            : Dependency(id, node_id, "DataDependency", query_ctx) {}
 };
 
 class ExchangeSourceOperatorX;
@@ -86,6 +67,7 @@ class ExchangeLocalState final : public PipelineXLocalState<> {
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Dependency* dependency() override { return source_dependency.get(); }
+    std::string debug_string(int indentation_level) const override;
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
@@ -108,6 +90,8 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
 
+    std::string debug_string(int indentation_level = 0) const override;
+
     Status close(RuntimeState* state) override;
     [[nodiscard]] bool is_source() const override { return true; }
 
@@ -120,10 +104,13 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
+    bool need_to_local_shuffle() const override { return !_is_hash_partition; }
+
 private:
     friend class ExchangeLocalState;
     const int _num_senders;
     const bool _is_merging;
+    const bool _is_hash_partition;
     RowDescriptor _input_row_desc;
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 

@@ -217,6 +217,14 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
 
     DCHECK(req.runtime_state != nullptr);
+
+    if (req.query_statistics) {
+        TQueryStatistics queryStatistics;
+        DCHECK(req.query_statistics->collect_dml_statistics());
+        req.query_statistics->to_thrift(&queryStatistics);
+        params.__set_query_statistics(queryStatistics);
+    }
+
     if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
@@ -426,9 +434,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif
 
-    LOG_INFO("Instance {} executing",
-             PrintInstanceStandardInfo(fragment_executor->query_id(),
-                                       fragment_executor->fragment_instance_id()));
+    VLOG_DEBUG << fmt::format("Instance {}|{} executing", print_id(fragment_executor->query_id()),
+                              print_id(fragment_executor->fragment_instance_id()));
 
     Status st = fragment_executor->execute();
     if (!st.ok()) {
@@ -448,9 +455,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
 
-        LOG_INFO("Instance {} finished",
-                 PrintInstanceStandardInfo(fragment_executor->query_id(),
-                                           fragment_executor->fragment_instance_id()));
+        LOG_INFO("Instance {} finished", print_id(fragment_executor->fragment_instance_id()));
+
         if (all_done && query_ctx) {
             _query_ctx_map.erase(query_ctx->query_id());
             LOG_INFO("Query {} finished", print_id(query_ctx->query_id()));
@@ -560,6 +566,12 @@ void FragmentMgr::remove_pipeline_context(
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
     for (const auto& ins_id : ins_ids) {
+        {
+            std::lock_guard<std::mutex> plock(q_context->pipeline_lock);
+            if (q_context->fragment_id_to_pipeline_ctx.contains(f_context->get_fragment_id())) {
+                q_context->fragment_id_to_pipeline_ctx.erase(f_context->get_fragment_id());
+            }
+        }
         LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
                  print_id(ins_id), all_done);
         _pipeline_map.erase(ins_id);
@@ -654,44 +666,33 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
             if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                taskgroup::TaskGroupInfo task_group_info;
-                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
-                                                                         &task_group_info);
-                if (status.ok()) {
-                    auto tg = _exec_env->task_group_manager()->get_or_create_task_group(
-                            task_group_info);
-                    tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    uint64_t tg_id = tg->id();
-                    std::string tg_name = tg->name();
-                    LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                              << " use task group: " << tg->debug_string()
-                              << " cpu_hard_limit: " << task_group_info.cpu_hard_limit
-                              << " cpu_share:" << task_group_info.cpu_share
-                              << " enable cgroup soft cpu:" << config::enable_cgroup_cpu_soft_limit;
-                    if (task_group_info.cpu_hard_limit > 0) {
-                        Status ret = _exec_env->task_group_manager()->create_and_get_task_scheduler(
-                                tg_id, tg_name, task_group_info.cpu_hard_limit,
-                                task_group_info.cpu_share, _exec_env, query_ctx.get());
-                        if (!ret.ok()) {
-                            LOG(INFO) << "workload group init failed "
-                                      << ", name=" << tg_name << ", id=" << tg_id
-                                      << ", reason=" << ret.to_string();
+                uint64_t tg_id = params.workload_groups[0].id;
+                auto* tg_mgr = _exec_env->task_group_manager();
+                if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
+                    task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
+                    // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
+                    query_ctx->set_task_group(task_group_ptr);
+                    stringstream ss;
+                    ss << "Query/load id: " << print_id(query_ctx->query_id())
+                       << ", use task group:" << task_group_ptr->debug_string()
+                       << ", enable cpu hard limit:"
+                       << (tg_mgr->enable_cpu_hard_limit() ? "true" : "false");
+                    bool ret = false;
+                    if (tg_mgr->enable_cgroup()) {
+                        ret = tg_mgr->set_cg_task_sche_for_query_ctx(tg_id, query_ctx.get());
+                        if (ret) {
+                            ss << ", use cgroup for cpu limit.";
+                        } else {
+                            ss << ", not found cgroup sche, no limit for cpu.";
                         }
                     } else {
-                        if (!config::enable_cgroup_cpu_soft_limit) {
-                            query_ctx->set_task_group(tg);
-                        } else {
-                            Status ret =
-                                    _exec_env->task_group_manager()->create_and_get_task_scheduler(
-                                            tg_id, tg_name, task_group_info.cpu_hard_limit,
-                                            task_group_info.cpu_share, _exec_env, query_ctx.get());
-                            if (!ret.ok()) {
-                                LOG(INFO) << "workload group cpu soft limit init failed "
-                                          << ", name=" << tg_name << ", id=" << tg_id
-                                          << ", reason=" << ret.to_string();
-                            }
-                        }
+                        ss << ", use doris sche for cpu limit.";
+                        query_ctx->use_task_group_for_cpu_limit.store(true);
                     }
+                    LOG(INFO) << ss.str();
+                } else {
+                    VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
+                               << " no task group found, does not use task group.";
                 }
             } else {
                 VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
@@ -797,6 +798,24 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     return Status::OK();
 }
 
+std::string FragmentMgr::dump_pipeline_tasks() {
+    fmt::memory_buffer debug_string_buffer;
+    auto t = MonotonicNanos();
+    size_t i = 0;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
+                       _pipeline_map.size());
+        for (auto& it : _pipeline_map) {
+            fmt::format_to(
+                    debug_string_buffer, "No.{} (elapse time = {}ns, InstanceId = {}) : {}\n", i,
+                    t - it.second->create_time(), print_id(it.first), it.second->debug_string());
+            i++;
+        }
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const FinishCallback& cb) {
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
@@ -825,6 +844,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);
             if (!prepare_st.ok()) {
+                LOG(WARNING) << "Prepare failed: " << prepare_st.to_string();
                 context->close_if_prepare_failed();
                 return prepare_st;
             }
@@ -865,6 +885,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             _cv.notify_all();
         }
+        {
+            std::lock_guard<std::mutex> lock(query_ctx->pipeline_lock);
+            query_ctx->fragment_id_to_pipeline_ctx.insert({params.fragment_id, context});
+        }
 
         RETURN_IF_ERROR(context->submit());
         return Status::OK();
@@ -900,6 +924,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 SCOPED_RAW_TIMER(&duration_ns);
                 auto prepare_st = context->prepare(params, i);
                 if (!prepare_st.ok()) {
+                    LOG(WARNING) << "Prepare failed: " << prepare_st.to_string();
                     context->close_if_prepare_failed();
                     static_cast<void>(context->update_status(prepare_st));
                     return prepare_st;
@@ -1070,7 +1095,7 @@ void FragmentMgr::cancel_worker() {
             }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
-                    LOG_INFO("Query {} is timeout", print_id(it->first));
+                    LOG_WARNING("Query {} is timeout", print_id(it->first));
                     it = _query_ctx_map.erase(it);
                 } else {
                     ++it;

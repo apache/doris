@@ -253,7 +253,7 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTable olapTable = (OlapTable) table;
             tblName.setDb(olapTable.getDatabase().getFullName());
             tblName.setTbl(olapTable.getName());
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS || olapTable.getTableProperty().storeRowColumn()) {
                 List<Column> columns = Lists.newArrayList(olapTable.getBaseSchema(true));
                 targetColumnNames = columns.stream().map(c -> c.getName()).collect(Collectors.toList());
             }
@@ -441,16 +441,43 @@ public class NativeInsertStmt extends InsertStmt {
                 }
             }
 
-            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null && targetColumnNames != null) {
-                Optional<String> foundCol = targetColumnNames.stream()
-                            .filter(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
-                Optional<Column> seqCol = olapTable.getFullSchema().stream()
-                                .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
-                                .findFirst();
-                if (seqCol.isPresent() && !foundCol.isPresent() && !isPartialUpdate && !isFromDeleteOrUpdateStmt
+            // For Unique Key table with sequence column (which default value is not CURRENT_TIMESTAMP),
+            // user MUST specify the sequence column while inserting data
+            //
+            // case1: create table by `function_column.sequence_col`
+            //        a) insert with column list, must include the sequence map column
+            //        b) insert without column list, already contains the column, don't need to check
+            // case2: create table by `function_column.sequence_type`
+            //        a) insert with column list, must include the hidden column __DORIS_SEQUENCE_COL__
+            //        b) insert without column list, don't include the hidden column __DORIS_SEQUENCE_COL__
+            //           by default, will fail.
+            if (olapTable.hasSequenceCol()) {
+                boolean haveInputSeqCol = false;
+                Optional<Column> seqColInTable = Optional.empty();
+                if (olapTable.getSequenceMapCol() != null) {
+                    if (targetColumnNames != null) {
+                        if (targetColumnNames.stream()
+                                .anyMatch(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol()))) {
+                            haveInputSeqCol = true; // case1.a
+                        }
+                    } else {
+                        haveInputSeqCol = true; // case1.b
+                    }
+                    seqColInTable = olapTable.getFullSchema().stream()
+                            .filter(col -> col.getName().equals(olapTable.getSequenceMapCol())).findFirst();
+                } else {
+                    if (targetColumnNames != null) {
+                        if (targetColumnNames.stream()
+                                .anyMatch(c -> c.equalsIgnoreCase(Column.SEQUENCE_COL))) {
+                            haveInputSeqCol = true; // case2.a
+                        } // else case2.b
+                    }
+                }
+
+                if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
                         && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
-                    if (seqCol.get().getDefaultValue() == null
-                                    || !seqCol.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                    if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
+                            || !seqColInTable.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
                         throw new AnalysisException("Table " + olapTable.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }
@@ -641,25 +668,6 @@ public class NativeInsertStmt extends InsertStmt {
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
         realTargetColumnNames = targetColumns.stream().map(Column::getName).collect(Collectors.toList());
-        Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (int i = 0; i < queryStmt.getResultExprs().size(); i++) {
-            Expr expr = queryStmt.getResultExprs().get(i);
-            if (!(expr instanceof StringLiteral && ((StringLiteral) expr).getValue()
-                    .equals(SelectStmt.DEFAULT_VALUE))) {
-                slotToIndex.put(realTargetColumnNames.get(i), queryStmt.getResultExprs().get(i)
-                        .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
-            }
-        }
-
-        for (Column column : targetTable.getBaseSchema()) {
-            if (!slotToIndex.containsKey(column.getName())) {
-                if (column.getDefaultValue() == null) {
-                    slotToIndex.put(column.getName(), new NullLiteral());
-                } else {
-                    slotToIndex.put(column.getName(), new StringLiteral(column.getDefaultValue()));
-                }
-            }
-        }
 
         // handle VALUES() or SELECT constant list
         if (isValuesOrConstantSelect) {
@@ -668,7 +676,8 @@ public class NativeInsertStmt extends InsertStmt {
                 // INSERT INTO VALUES(...)
                 List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
                 for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
-                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForExtendCols, slotToIndex, skipCheck);
+                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForExtendCols, realTargetColumnNames,
+                            skipCheck);
                 }
 
                 // clear these 2 structures, rebuild them using VALUES exprs
@@ -686,7 +695,8 @@ public class NativeInsertStmt extends InsertStmt {
                 // `selectStmt.getResultExprs().clear();` will clear the `rows` too, causing
                 // error.
                 rows.add(Lists.newArrayList(selectStmt.getResultExprs()));
-                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols, slotToIndex, skipCheck);
+                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols, realTargetColumnNames,
+                        skipCheck);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
                 for (Expr expr : rows.get(0)) {
@@ -697,6 +707,8 @@ public class NativeInsertStmt extends InsertStmt {
             // INSERT INTO SELECT ... FROM tbl
             if (!origColIdxsForExtendCols.isEmpty()) {
                 // extend the result expr by duplicating the related exprs
+                Map<String, Expr> slotToIndex = buildSlotToIndex(queryStmt.getResultExprs(), realTargetColumnNames,
+                        analyzer);
                 for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
                     if (entry.second == null) {
                         queryStmt.getResultExprs().add(queryStmt.getResultExprs().get(entry.first));
@@ -726,6 +738,8 @@ public class NativeInsertStmt extends InsertStmt {
         // expand colLabels in QueryStmt
         if (!origColIdxsForExtendCols.isEmpty()) {
             if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
+                Map<String, Expr> slotToIndex = buildSlotToIndex(queryStmt.getBaseTblResultExprs(),
+                        realTargetColumnNames, analyzer);
                 for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
                     if (entry.second == null) {
                         queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(entry.first));
@@ -764,9 +778,35 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
-    private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows,
-            int rowIdx, List<Pair<Integer, Column>> origColIdxsForExtendCols, Map<String, Expr> slotToIndex,
-            boolean skipCheck) throws AnalysisException {
+    private Map<String, Expr> buildSlotToIndex(ArrayList<Expr> row, List<String> realTargetColumnNames,
+            Analyzer analyzer) throws AnalysisException {
+        Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < row.size(); i++) {
+            Expr expr = row.get(i);
+            expr.analyze(analyzer);
+            if (expr instanceof DefaultValueExpr || expr instanceof StringLiteral
+                    && ((StringLiteral) expr).getValue().equals(SelectStmt.DEFAULT_VALUE)) {
+                continue;
+            }
+            expr.analyze(analyzer);
+            slotToIndex.put(realTargetColumnNames.get(i),
+                    expr.checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
+        }
+        for (Column column : targetTable.getBaseSchema()) {
+            if (!slotToIndex.containsKey(column.getName())) {
+                if (column.getDefaultValue() == null) {
+                    slotToIndex.put(column.getName(), new NullLiteral());
+                } else {
+                    slotToIndex.put(column.getName(), new StringLiteral(column.getDefaultValue()));
+                }
+            }
+        }
+        return slotToIndex;
+    }
+
+    private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows, int rowIdx,
+            List<Pair<Integer, Column>> origColIdxsForExtendCols, List<String> realTargetColumnNames, boolean skipCheck)
+            throws AnalysisException {
         // 1. check number of fields if equal with first row
         // targetColumns contains some shadow columns, which is added by system,
         // so we should minus this
@@ -778,6 +818,8 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         ArrayList<Expr> row = rows.get(rowIdx);
+        Map<String, Expr> slotToIndex = buildSlotToIndex(row, realTargetColumnNames, analyzer);
+
         if (!origColIdxsForExtendCols.isEmpty()) {
             /**
              * we should extend the row for shadow columns.
@@ -956,12 +998,18 @@ public class NativeInsertStmt extends InsertStmt {
                     brokerDesc);
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof JdbcTable) {
-            //for JdbcTable,we need to pass the currently written column to `JdbcTableSink`
-            //to generate the prepare insert statment
-            List<String> insertCols = Lists.newArrayList();
-            for (Column column : targetColumns) {
-                insertCols.add(column.getName());
+            // For JdbcTable, reorder targetColumns to match the order in targetTable.getFullSchema()
+            List<String> insertCols = new ArrayList<>();
+            Set<String> targetColumnNames = targetColumns.stream()
+                    .map(Column::getName)
+                    .collect(Collectors.toSet());
+
+            for (Column column : targetTable.getFullSchema()) {
+                if (targetColumnNames.contains(column.getName())) {
+                    insertCols.add(column.getName());
+                }
             }
+
             dataSink = new JdbcTableSink((JdbcTable) targetTable, insertCols);
             dataPartition = DataPartition.UNPARTITIONED;
         } else {
@@ -1156,7 +1204,7 @@ public class NativeInsertStmt extends InsertStmt {
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
             for (Column insertCol : targetColumns) {
-                if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
+                if (insertCol.getName() != null && insertCol.getName().equalsIgnoreCase(col.getName())) {
                     if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
                         throw new UserException("Partial update should not include invisible column except"
                                     + " delete sign column: " + col.getName());
@@ -1171,7 +1219,11 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         isPartialUpdate = true;
-        partialUpdateCols.addAll(targetColumnNames);
+        for (String name : targetColumnNames) {
+            Column column = olapTable.getFullSchema().stream()
+                    .filter(col -> col.getName().equalsIgnoreCase(name)).findFirst().get();
+            partialUpdateCols.add(column.getName());
+        }
         if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
                 && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
             partialUpdateCols.add(Column.SEQUENCE_COL);

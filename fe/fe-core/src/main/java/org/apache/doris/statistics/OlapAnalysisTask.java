@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -30,10 +31,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.text.StringSubstitutor;
 
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -60,7 +59,13 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
-
+        Set<String> partitionNames = info.colToPartitions.get(info.colName);
+        if (partitionNames.isEmpty()) {
+            LOG.debug("Skip empty empty partition task for column {} in {}.{}.{}",
+                    info.catalogId, info.dbId, info.tblId, info.colName);
+            job.appendBuf(this, Collections.emptyList());
+            return;
+        }
         if (tableSample != null) {
             doSample();
         } else {
@@ -93,8 +98,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             // Get basic stats, including min and max.
             ResultRow basicStats = collectBasicStat(r);
             long rowCount = tbl.getRowCount();
-            String min = Base64.getEncoder().encodeToString(basicStats.get(0).getBytes(StandardCharsets.UTF_8));
-            String max = Base64.getEncoder().encodeToString(basicStats.get(1).getBytes(StandardCharsets.UTF_8));
+            String min = StatisticsUtil.escapeSQL(basicStats.get(0));
+            String max = StatisticsUtil.escapeSQL(basicStats.get(1));
 
             boolean limitFlag = false;
             long rowsToSample = pair.second;
@@ -114,37 +119,43 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("scaleFactor", String.valueOf(scaleFactor));
             params.put("sampleHints", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
             params.put("ndvFunction", getNdvFunction(String.valueOf(rowCount)));
-            params.put("min", min);
-            params.put("max", max);
+            params.put("min", StatisticsUtil.quote(min));
+            params.put("max", StatisticsUtil.quote(max));
             params.put("rowCount", String.valueOf(rowCount));
             params.put("type", col.getType().toString());
             params.put("limit", "");
             if (needLimit()) {
                 // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
                 // the scaleFactor.
-                limitFlag = true;
                 rowsToSample = Math.min(getSampleRows(), pair.second);
-                params.put("limit", "limit " + rowsToSample);
-                params.put("scaleFactor", String.valueOf(scaleFactor * (double) pair.second / rowsToSample));
+                // Empty table doesn't need to limit.
+                if (rowsToSample > 0) {
+                    limitFlag = true;
+                    params.put("limit", "limit " + rowsToSample);
+                    params.put("scaleFactor", String.valueOf(scaleFactor * (double) pair.second / rowsToSample));
+                }
             }
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql;
-            // Single distribution column is not fit for DUJ1 estimator, use linear estimator.
-            Set<String> distributionColumns = tbl.getDistributionColumnNames();
-            if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
-                params.put("min", StatisticsUtil.quote(min));
-                params.put("max", StatisticsUtil.quote(max));
+            if (useLinearAnalyzeTemplate()) {
+                // For single unique key, use count as ndv.
+                if (isSingleUniqueKey()) {
+                    params.put("ndvFunction", String.valueOf(rowCount));
+                } else {
+                    params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+                }
                 sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
             } else {
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
                 sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
             }
             LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
-                    + "limited [{}], distribute column [{}], partition column [{}], key column [{}]",
+                    + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "
+                    + "is single unique key [{}]",
                     col.getName(), params.get("rowCount"), rowsToSample, params.get("scaleFactor"),
                     limitFlag, tbl.isDistributionColumn(col.getName()),
-                    tbl.isPartitionColumn(col.getName()), col.isKey());
-            runQuery(sql, false);
+                    tbl.isPartitionColumn(col.getName()), col.isKey(), isSingleUniqueKey());
+            runQuery(sql);
         }
     }
 
@@ -165,11 +176,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      */
     protected void doFull() throws Exception {
         LOG.debug("Will do full collection for column {}", col.getName());
-        Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if (partitionNames.isEmpty()) {
-            job.appendBuf(this, Collections.emptyList());
-            return;
-        }
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
@@ -185,7 +191,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("tblName", String.valueOf(tbl.getName()));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String collectColStats = stringSubstitutor.replace(COLLECT_COL_STATISTICS);
-        runQuery(collectColStats, true);
+        runQuery(collectColStats);
     }
 
     // Get sample tablets id and scale up scaleFactor
@@ -277,5 +283,29 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             sampleRows = Math.max(tableSample.getSampleValue(), 1);
         }
         return sampleRows;
+    }
+
+    /**
+     * Check if the task should use linear analyze template.
+     * @return True for single unique key column and single distribution column.
+     */
+    protected boolean useLinearAnalyzeTemplate() {
+        if (isSingleUniqueKey()) {
+            return true;
+        }
+        Set<String> distributionColumns = tbl.getDistributionColumnNames();
+        return distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase());
+    }
+
+    /**
+     * Check if the olap table has a single unique key.
+     * @return True if the table has a single unique/agg key. False otherwise.
+     */
+    protected boolean isSingleUniqueKey() {
+        int keysNum = ((OlapTable) tbl).getKeysNum();
+        KeysType keysType = ((OlapTable) tbl).getKeysType();
+        return col.isKey()
+            && keysNum == 1
+            && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.AGG_KEYS));
     }
 }

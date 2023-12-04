@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -32,6 +33,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public class ArrayLiteral extends LiteralExpr {
 
@@ -129,9 +131,42 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueInFe() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> {
+            // we should use type to decide we output array is suitable for json format
+            if (!(v instanceof NullLiteral) && v.getType().isScalarType()
+                    && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
+                    || v.getType() == Type.BOOLEAN)) {
+                list.add(v.getStringValueInFe());
+            } else {
+                list.add(v.getStringValueForArray());
+            }
+        });
+        return "[" + StringUtils.join(list, ", ") + "]";
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARRAY_LITERAL;
         msg.setChildType(((ArrayType) type).getItemType().getPrimitiveType().toThrift());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(children);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof ArrayLiteral)) {
+            return false;
+        }
+        if (this == o) {
+            return true;
+        }
+        ArrayLiteral that = (ArrayLiteral) o;
+        return Objects.equals(children, that.children);
     }
 
     @Override

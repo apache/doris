@@ -18,25 +18,29 @@
 package org.apache.doris.job.base;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
-import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.job.task.Task;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.RandomUtils;
 
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 @Data
@@ -72,16 +76,30 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     private List<T> runningTasks = new ArrayList<>();
 
     @Override
-    public void cancel() throws JobException {
+    public void cancelAllTasks() throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             return;
         }
-        runningTasks.forEach(Task::cancel);
-
+        for (T task : runningTasks) {
+            task.cancel();
+        }
     }
 
+    private static final ImmutableList<String> TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+                    .add("Id")
+                    .add("Name")
+                    .add("Definer")
+                    .add("ExecuteType")
+                    .add("RecurringStrategy")
+                    .add("Status")
+                    .add("ExecuteSql")
+                    .add("CreateTime")
+                    .add("Comment")
+                    .build();
+
     @Override
-    public void cancel(long taskId) throws JobException {
+    public void cancelTaskById(long taskId) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             throw new JobException("no running task");
         }
@@ -89,13 +107,17 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
                 .orElseThrow(() -> new JobException("no task id:" + taskId)).cancel();
     }
 
-    public void initTasks(List<T> tasks) {
+    public void initTasks(List<? extends AbstractTask> tasks) {
         tasks.forEach(task -> {
             task.setJobId(jobId);
-            task.setTaskId(Env.getCurrentEnv().getNextId());
+            task.setTaskId(getNextId());
             task.setCreateTimeMs(System.currentTimeMillis());
             task.setStatus(TaskStatus.PENDING);
         });
+        if (CollectionUtils.isEmpty(getRunningTasks())) {
+            setRunningTasks(new ArrayList<>());
+        }
+        getRunningTasks().addAll((Collection<? extends T>) tasks);
     }
 
     public void checkJobParams() {
@@ -105,7 +127,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         if (null == jobConfig) {
             throw new IllegalArgumentException("jobConfig cannot be null");
         }
-        jobConfig.checkParams(createTimeMs);
+        jobConfig.checkParams();
         checkJobParamsInternal();
     }
 
@@ -132,23 +154,16 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     protected abstract void checkJobParamsInternal();
 
     public static AbstractJob readFields(DataInput in) throws IOException {
-        // todo use RuntimeTypeAdapterFactory of Gson to do the serde
-        JobType jobType = JobType.valueOf(Text.readString(in));
-        switch (jobType) {
-            case INSERT:
-                return InsertJob.readFields(in);
-            case MTMV:
-                // return MTMVJob.readFields(in);
-                break;
-            default:
-                throw new IllegalArgumentException("unknown job type");
-        }
-        throw new IllegalArgumentException("unknown job type");
+        String jsonJob = Text.readString(in);
+        AbstractJob<?> job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
+        job.setRunningTasks(new ArrayList<>());
+        return job;
     }
 
     @Override
     public void onTaskFail(T task) {
         updateJobStatusIfEnd();
+        runningTasks.remove(task);
     }
 
     @Override
@@ -166,16 +181,14 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         switch (executeType) {
             case ONE_TIME:
             case INSTANT:
-                jobStatus = JobStatus.FINISHED;
-                Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(jobStatus);
+                Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
                 break;
             case RECURRING:
                 TimerDefinition timerDefinition = getJobConfig().getTimerDefinition();
                 if (null != timerDefinition.getEndTimeMs()
                         && timerDefinition.getEndTimeMs() < System.currentTimeMillis()
                         + timerDefinition.getIntervalUnit().getIntervalMs(timerDefinition.getInterval())) {
-                    jobStatus = JobStatus.FINISHED;
-                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(jobStatus);
+                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
                 }
                 break;
             default:
@@ -201,5 +214,24 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         commonShowInfo.add(TimeUtils.longToTimeString(createTimeMs));
         commonShowInfo.add(comment);
         return commonShowInfo;
+    }
+
+    @Override
+    public List<String> getShowInfo() {
+        return getCommonShowInfo();
+    }
+
+    @Override
+    public ShowResultSetMetaData getJobMetaData() {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+
+        for (String title : TITLE_NAMES) {
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+        }
+        return builder.build();
+    }
+
+    private static long getNextId() {
+        return System.nanoTime() + RandomUtils.nextInt();
     }
 }
