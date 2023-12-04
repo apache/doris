@@ -77,23 +77,23 @@ public:
             *block = std::move(_blocks_queues[id].front());
             _blocks_queues[id].pop_front();
 
+            auto rows = (*block)->rows();
+            while (!_blocks_queues[id].empty()) {
+                const auto add_rows = (*_blocks_queues[id].front()).rows();
+                if (rows + add_rows < state->batch_size()) {
+                    rows += add_rows;
+                    merge_blocks.emplace_back(std::move(_blocks_queues[id].front()));
+                    _blocks_queues[id].pop_front();
+                } else {
+                    break;
+                }
+            }
+
             if (_blocks_queues[id].empty()) {
                 this->reschedule_scanner_ctx();
                 if (_dependency) {
                     _dependency->block();
                 }
-            } else {
-                auto rows = (*block)->rows();
-                do {
-                    const auto add_rows = (*_blocks_queues[id].front()).rows();
-                    if (rows + add_rows < state->batch_size()) {
-                        rows += add_rows;
-                        merge_blocks.emplace_back(std::move(_blocks_queues[id].front()));
-                        _blocks_queues[id].pop_front();
-                    } else {
-                        break;
-                    }
-                } while (!_blocks_queues[id].empty());
             }
         }
 
