@@ -35,8 +35,8 @@ public class QueueOfferToken {
 
     private String offerResultDetail;
 
-    private final ReentrantLock queueLock = new ReentrantLock();
-    private final Condition queueLockCond = queueLock.newCondition();
+    private final ReentrantLock tokenLock = new ReentrantLock();
+    private final Condition tokenCond = tokenLock.newCondition();
 
     public QueueOfferToken(Boolean offerResult) {
         this.offerResult = offerResult;
@@ -51,21 +51,31 @@ public class QueueOfferToken {
     }
 
     public boolean waitSignal() throws InterruptedException {
-        if (isReadyToRun) {
-            return true;
-        }
-        queueLockCond.wait(waitTimeout);
-        // If wait timeout and is steal not ready to run, then return false
-        if (!isReadyToRun) {
-            return false;
-        } else {
-            return true;
+        this.tokenLock.lock();
+        try {
+            if (isReadyToRun) {
+                return true;
+            }
+            tokenCond.wait(waitTimeout);
+            // If wait timeout and is steal not ready to run, then return false
+            if (!isReadyToRun) {
+                return false;
+            } else {
+                return true;
+            }
+        } finally {
+            this.tokenLock.unlock();
         }
     }
 
     public void signal() {
-        isReadyToRun = true;
-        queueLockCond.signal();
+        this.tokenLock.lock();
+        try {
+            isReadyToRun = true;
+            tokenCond.signal();
+        } finally {
+            this.tokenLock.unlock();
+        }
     }
 
     public Boolean isOfferSuccess() {

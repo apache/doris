@@ -22,7 +22,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.PriorityQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -112,11 +111,13 @@ public class QueryQueue {
             // currentRunningQueryNum may bigger than maxRunningQueryNum
             // because maxRunningQueryNum can be altered
             if (currentWaitingQueryNum >= maxQueueSize) {
-                return new QueueOfferToken(false, false, queueTimeout, "query waiting queue is full, queue length=" + maxQueueSize);
+                return new QueueOfferToken(false, false, queueTimeout,
+                        "query waiting queue is full, queue length=" + maxQueueSize);
             }
 
             currentWaitingQueryNum++;
-            QueueOfferToken newQueryToken = new QueueOfferToken(true, false, queueTimeout, "query wait timeout " + queueTimeout + " ms");
+            QueueOfferToken newQueryToken = new QueueOfferToken(true, false, queueTimeout,
+                    "query wait timeout " + queueTimeout + " ms");
             this.priorityTokenQueue.offer(newQueryToken);
             return newQueryToken;
         } finally {
