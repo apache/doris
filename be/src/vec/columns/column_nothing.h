@@ -39,11 +39,6 @@ public:
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnNothing);
     }
-
-    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
-                                  const uint32_t* indices_end) override {
-        LOG(FATAL) << "insert_indices_from_join not supported in ColumnNothing";
-    }
 };
 
 } // namespace doris::vectorized
