@@ -625,7 +625,7 @@ public class StmtExecutor {
                 throw new UserException(retMsg);
             }
             if (!offerRet.waitSignal()) {
-                String retMsg = "queue success and wait timeout";
+                String retMsg = "queue success but wait too long in queue";
                 LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
                 throw new UserException(retMsg);
             }
