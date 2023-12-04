@@ -45,6 +45,13 @@ suite("test_auto_partition_behavior") {
     sql """ insert into unique_table values ("-"), ("--"), ("- -"), (" - ") """
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 10)
+    // add partition
+    try {
+        sql """ alter table unique_table add partition padd values in ("Xxx") """
+        fail()
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("is conflict with current partitionKeys"))
+    }
     // drop partition
     def partitions = sql "show partitions from unique_table order by PartitionName"
     def partition1_name = partitions[0][1]
@@ -89,6 +96,13 @@ suite("test_auto_partition_behavior") {
     sql """ insert into dup_table values ("-"), ("--"), ("- -"), (" - ") """
     result = sql "show partitions from dup_table"
     assertEquals(result.size(), 10)
+    // add partition
+    try {
+        sql """ alter table dup_table add partition padd values in ("Xxx") """
+        fail()
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("is conflict with current partitionKeys"))
+    }
     // drop partition
     partitions = sql "show partitions from dup_table order by PartitionName"
     partition1_name = partitions[0][1]
@@ -125,6 +139,13 @@ suite("test_auto_partition_behavior") {
     // crop
     qt_sql2 """ select * from agg_dt6 where k1 <= '2020-12-12 12:12:12.123456' order by k0, k1 """
     qt_sql3 """ select * from agg_dt6 partition (p2010) order by k0, k1 """
+    // add partition
+    try {
+        sql """ alter table agg_dt6 add partition padd values [("2013-05-05"), ("2014-05-05")) """
+        fail()
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("is intersected with range: [types: [DATETIMEV2]; keys: [2013-01-01 00:00:00]; ..types: [DATETIMEV2]; keys: [2014-01-01 00:00:00];"))
+    }
     // modify partition
     sql """ alter table agg_dt6 drop partition p2010 """
     qt_sql4 """ select * from agg_dt6 order by k0, k1 """
