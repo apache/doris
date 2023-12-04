@@ -36,7 +36,7 @@ struct IOContext;
 
 namespace vectorized {
 
-class ARROW_EXPORT ArrowPipInputStream : public arrow::io::InputStream {
+class ArrowPipInputStream : public arrow::io::InputStream {
     ENABLE_FACTORY_CREATOR(ArrowPipInputStream);
 
 public:
