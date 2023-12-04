@@ -236,6 +236,36 @@ public interface TableIf {
         }
     }
 
+    default void dropConstraint(String name) {
+        writeLock();
+        try {
+            Map<String, Constraint> constraintMap = getConstraintsMap();
+            if (!constraintMap.containsKey(name)) {
+                throw new AnalysisException(
+                        String.format("Unknown constraint %s on table %s.", name, this.getName()));
+            }
+            Constraint constraint = constraintMap.get(name);
+            constraintMap.remove(name);
+            if (constraint instanceof PrimaryKeyConstraint) {
+                ((PrimaryKeyConstraint) constraint).getForeignTables()
+                        .forEach(t -> t.dropFKReferringPK(this, (PrimaryKeyConstraint) constraint));
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    default void dropFKReferringPK(TableIf table, PrimaryKeyConstraint constraint) {
+        writeLock();
+        try {
+            Map<String, Constraint> constraintMap = getConstraintsMap();
+            constraintMap.entrySet().removeIf(e -> e.getValue() instanceof ForeignKeyConstraint
+                    && ((ForeignKeyConstraint) e.getValue()).isReferringPK(table, constraint));
+        } finally {
+            writeUnlock();
+        }
+    }
+
     /**
      * return true if this kind of table need read lock when doing query plan.
      *
