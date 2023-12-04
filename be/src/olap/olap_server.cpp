@@ -829,9 +829,6 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                             << "Tablet " << tablet->tablet_id()
                             << " will be ignored by automatic compaction tasks since it's "
                             << "set to disabled automatic compaction.";
-                    LOG(INFO) << "Tablet " << tablet->tablet_id()
-                            << " will be ignored by automatic compaction tasks since it's "
-                            << "set to disabled automatic compaction.";
                 }
             }
         }
