@@ -242,6 +242,7 @@ set(VEC_FILES
   sink/vtablet_sink.cpp
   sink/vmysql_table_writer.cpp
   sink/vmysql_table_sink.cpp
+  sink/vmemory_scratch_sink.cpp
   sink/vodbc_table_sink.cpp
   sink/vresult_file_sink.cpp
   sink/vjdbc_table_sink.cpp

@@ -28,7 +28,6 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/data_stream_sender.h"
 #include "runtime/export_sink.h"
-#include "runtime/memory_scratch_sink.h"
 #include "runtime/mysql_table_sink.h"
 #include "runtime/odbc_table_sink.h"
 #include "runtime/result_file_sink.h"
@@ -36,6 +35,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vjdbc_table_sink.h"
+#include "vec/sink/vmemory_scratch_sink.h"
 #include "vec/sink/vmysql_table_sink.h"
 #include "vec/sink/vodbc_table_sink.h"
 #include "vec/sink/vresult_file_sink.h"
@@ -130,8 +130,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        tmp_sink = new MemoryScratchSink(row_desc, output_exprs, thrift_sink.memory_scratch_sink);
-        sink->reset(tmp_sink);
+        //tmp_sink = new MemoryScratchSink(row_desc, output_exprs, thrift_sink.memory_scratch_sink);
+        //sink->reset(tmp_sink);
+        sink->reset(new vectorized::MemoryScratchSink(row_desc, output_exprs, thrift_sink.memory_scratch_sink, pool));
         break;
     }
     case TDataSinkType::MYSQL_TABLE_SINK: {
