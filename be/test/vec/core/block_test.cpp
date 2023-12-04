@@ -420,7 +420,7 @@ TEST(BlockTest, merge_with_shared_columns) {
         int32_data_temp.push_back(i);
     }
 
-    vectorized::ColumnWithTypeAndName test_k1_temp(vec->get_ptr(), int32_type, "k1");
+    vectorized::ColumnWithTypeAndName test_k1_temp(vec_temp->get_ptr(), int32_type, "k1");
 
     auto strcol_temp = vectorized::ColumnString::create();
     for (int i = 0; i < 10; ++i) {
@@ -431,11 +431,11 @@ TEST(BlockTest, merge_with_shared_columns) {
     vectorized::ColumnWithTypeAndName test_v1_temp(strcol_temp->get_ptr(), string_type, "v1");
     vectorized::ColumnWithTypeAndName test_v2_temp(strcol_temp->get_ptr(), string_type, "v2");
 
-    vectorized::Block temp_block({test_k1, test_v1, test_v2});
+    vectorized::Block temp_block({test_k1_temp, test_v1_temp, test_v2_temp});
 
     vectorized::MutableBlock mutable_block(&src_block);
-    mutable_block.merge(temp_block);
-
+    auto status = mutable_block.merge(temp_block);
+    ASSERT_TRUE(status.ok());
     ASSERT_FALSE(src_block.is_valid(1034));
 
     src_block.swap(mutable_block.to_block());
