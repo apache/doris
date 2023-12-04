@@ -774,8 +774,21 @@ public class OlapScanNode extends ScanNode {
                 // sort by replica id
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
-                replicas.clear();
-                replicas.add(replica);
+                if (ConnectContext.get().getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+                    // If the fixed replica is bad, then not clear the replicas using random replica
+                    if (backend == null || !backend.isAlive()) {
+                        LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
+                                replica.getId());
+                        Collections.shuffle(replicas);
+                    } else {
+                        replicas.clear();
+                        replicas.add(replica);
+                    }
+                } else {
+                    replicas.clear();
+                    replicas.add(replica);
+                }
             }
 
             final long coolDownReplicaId = tablet.getCooldownReplicaId();
