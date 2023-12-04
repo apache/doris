@@ -157,10 +157,8 @@ public class AgentTaskQueue {
         if (!tasks.containsRow(backendId) || !runningTasks.containsKey(TTaskType.PUBLISH_VERSION)) {
             return;
         }
-        if (runningTasks.get(TTaskType.PUBLISH_VERSION).size() > Config.publish_version_queued_limit_number) {
-            Env.getCurrentSystemInfo().updateControlMaps(backendId,
-                    Env.getCurrentSystemInfo().getControlPublishVersionExceedMap());
-        }
+        Env.getCurrentSystemInfo().updateLastPublishVersionFailedMap(backendId,
+                runningTasks.get(TTaskType.PUBLISH_VERSION).size() > Config.publish_version_queued_limit_number);
     }
 
     public static synchronized List<AgentTask> getDiffTasks(long backendId, Map<TTaskType, Set<Long>> runningTasks) {

@@ -970,7 +970,7 @@ public class Config extends ConfigBase {
      * failed times, default 100
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int publish_version_queued_limit_number = 100;
+    public static int publish_version_queued_limit_number = 1000;
 
     /**
      * the default slot number per path for hdd in tablet scheduler

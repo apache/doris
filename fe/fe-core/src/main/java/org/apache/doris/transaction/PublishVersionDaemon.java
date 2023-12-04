@@ -40,7 +40,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PublishVersionDaemon extends MasterDaemon {
 
@@ -132,38 +132,31 @@ public class PublishVersionDaemon extends MasterDaemon {
         Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
-            Stream<PublishVersionTask> publishVersionTaskStream = transactionState
-                    .getPublishVersionTasks()
-                    .values()
-                    .stream()
-                    .peek(task -> {
-                        if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
-                            Map<Long, Long> tableIdToDeltaNumRows =
-                                    task.getTableIdToDeltaNumRows();
-                            tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
-                                tableIdToTotalDeltaNumRows
-                                        .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
-                                tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
-                            });
-                        }
-                    });
-            boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
-                    .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
-            transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
-
             Set<Long> finishBes = Sets.newHashSet();
             Set<Long> slowBes = Sets.newHashSet();
-            transactionState.getPublishVersionTasks().forEach((beId, publishTask) -> {
-                if (publishTask.isFinished()) {
+            AtomicBoolean hasBackendAliveAndUnfinishedTask = new AtomicBoolean(false);
+            transactionState.getPublishVersionTasks().forEach((beId, task) -> {
+                if (task.isFinished()) {
                     finishBes.add(beId);
                 } else {
                     slowBes.add(beId);
                 }
+                if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
+                    Map<Long, Long> tableIdToDeltaNumRows = task.getTableIdToDeltaNumRows();
+                    tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
+                        tableIdToTotalDeltaNumRows
+                            .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
+                        tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
+                    });
+                }
+                if (!task.isFinished() && infoService.checkBackendAlive(task.getBackendId())) {
+                    hasBackendAliveAndUnfinishedTask.set(true);
+                }
             });
-
+            transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
             boolean noWait = false;
             boolean allSlowBesExceedPushlishVersionLimit = slowBes.stream()
-                    .allMatch(slowBe -> Env.getCurrentSystemInfo().isExceedPublishVersionQueuedLimit(slowBe));
+                    .allMatch(slowBe -> Env.getCurrentSystemInfo().isLastPublishVersionAccumulated(slowBe));
             if (finishBes.size() > transactionState.getPublishVersionTasks().keySet().size() / 2
                     && allSlowBesExceedPushlishVersionLimit) {
                 LOG.info("finishBes {}, slowBes {}, txn publish tasks {}",
@@ -171,7 +164,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                 noWait = true;
             }
 
-            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask
+            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask.get()
                     || noWait || transactionState.isPublishTimeout()
                     || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
             LOG.debug("hasBackendAliveAndUnfinishedTask {}, noWait {}, txn isPublishTimeout {}, DebugPoint enable {}",
