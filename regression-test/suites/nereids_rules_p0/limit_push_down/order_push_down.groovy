@@ -21,6 +21,8 @@ suite("order_push_down") {
     sql "use regression_test_nereids_rules_p0"
     sql """ SET inline_cte_referenced_threshold=0 """
     sql "set disable_join_reorder=true"
+    sql 'set be_number_for_test=3'
+    
     //`limit 1 offset 1 + sort, project`:
     qt_limit_offset_sort_project """ explain shape plan SELECT t1.id FROM t1 ORDER BY id LIMIT 1 OFFSET 1; """
     //`limit 1 + sort, join`:
