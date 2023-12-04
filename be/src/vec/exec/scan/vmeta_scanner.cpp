@@ -405,12 +405,11 @@ Status VMetaScanner::_build_materialized_views_metadata_request(
     return Status::OK();
 }
 
-Status VMetaScanner::_build_jobs_metadata_request(
-        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+Status VMetaScanner::_build_jobs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                  TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "VMetaScanner::_build_jobs_metadata_request";
     if (!meta_scan_range.__isset.jobs_params) {
-        return Status::InternalError(
-                "Can not find TJobsMetadataParams from meta_scan_range.");
+        return Status::InternalError("Can not find TJobsMetadataParams from meta_scan_range.");
     }
 
     // create request
@@ -419,19 +418,17 @@ Status VMetaScanner::_build_jobs_metadata_request(
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::JOBS);
-    metadata_table_params.__set_jobs_metadata_params(
-            meta_scan_range.jobs_params);
+    metadata_table_params.__set_jobs_metadata_params(meta_scan_range.jobs_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
 }
 
-Status VMetaScanner::_build_tasks_metadata_request(
-        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+Status VMetaScanner::_build_tasks_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                   TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "VMetaScanner::_build_tasks_metadata_request";
     if (!meta_scan_range.__isset.tasks_params) {
-        return Status::InternalError(
-                "Can not find TTasksMetadataParams from meta_scan_range.");
+        return Status::InternalError("Can not find TTasksMetadataParams from meta_scan_range.");
     }
 
     // create request
@@ -440,8 +437,7 @@ Status VMetaScanner::_build_tasks_metadata_request(
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::TASKS);
-    metadata_table_params.__set_tasks_metadata_params(
-            meta_scan_range.tasks_params);
+    metadata_table_params.__set_tasks_metadata_params(meta_scan_range.tasks_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
