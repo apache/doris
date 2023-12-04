@@ -79,7 +79,7 @@ public:
     using Base = DataSinkOperatorX<LocalExchangeSinkLocalState>;
     LocalExchangeSinkOperatorX(int sink_id, int dest_id, int num_partitions,
                                const std::vector<TExpr>& texprs)
-            : Base(sink_id, -1, dest_id), _num_partitions(num_partitions), _texprs(texprs) {}
+            : Base(sink_id, dest_id, dest_id), _num_partitions(num_partitions), _texprs(texprs) {}
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override {
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);

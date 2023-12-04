@@ -2941,6 +2941,14 @@ public class SessionVariable implements Serializable, Writable {
                 || connectContext.getSessionVariable().enablePipelineXEngine;
     }
 
+    public static boolean enablePipelineEngineX() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        return connectContext.getSessionVariable().enablePipelineXEngine;
+    }
+
     public static boolean enableAggState() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
