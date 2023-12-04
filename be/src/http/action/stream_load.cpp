@@ -195,8 +195,12 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         }
         ctx->group_commit = load_size_smaller_than_wal_limit(req);
         if (!ctx->group_commit) {
-            LOG(WARNING) << "";
-            st = Status::InternalError("");
+            LOG(WARNING) << "The data size for this stream load("
+                         << std::stol(req->header(HttpHeaders::CONTENT_LENGTH))
+                         << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                         << config::wal_max_disk_size * 0.8
+                         << " Bytes). Please set this load to \"group commit\"=false.";
+            st = Status::InternalError("Stream load size too large.");
         }
     }
     if (!ctx->group_commit && ctx->label.empty()) {
