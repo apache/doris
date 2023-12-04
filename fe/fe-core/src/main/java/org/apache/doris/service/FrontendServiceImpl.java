@@ -42,6 +42,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -3152,15 +3153,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         OlapTable olapTable = (OlapTable) table;
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        ArrayList<TStringLiteral> partitionValues = new ArrayList<TStringLiteral>();
+        ArrayList<List<TStringLiteral>> partitionValues = new ArrayList<>();
         for (int i = 0; i < request.partitionValues.size(); i++) {
-            if (request.partitionValues.get(i).size() != 1) {
+            if (partitionInfo.getType() == PartitionType.RANGE && request.partitionValues.get(i).size() != 1) {
                 errorStatus.setErrorMsgs(
-                        Lists.newArrayList("Only support single partition, partitionValues size should equal 1."));
+                        Lists.newArrayList(
+                                "Only support single partition of RANGE, partitionValues size should equal 1."));
                 result.setStatus(errorStatus);
                 return result;
             }
-            partitionValues.add(request.partitionValues.get(i).get(0));
+            partitionValues.add(request.partitionValues.get(i));
         }
         Map<String, AddPartitionClause> addPartitionClauseMap;
         try {
