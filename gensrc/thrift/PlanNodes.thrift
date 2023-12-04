@@ -477,10 +477,20 @@ struct TMaterializedViewsMetadataParams {
   1: optional string database
 }
 
+struct TJobsMetadataParams {
+  1: optional string type
+}
+
+struct TTasksMetadataParams {
+  1: optional string type
+}
+
 struct TQueriesMetadataParams {
   1: optional string cluster_name
   2: optional bool   relay_to_other_fe
   3: optional TMaterializedViewsMetadataParams materialized_views_params
+  4: optional TJobsMetadataParams jobs_params
+  5: optional TTasksMetadataParams tasks_params
 }
 
 struct TMetaScanRange {
@@ -490,6 +500,8 @@ struct TMetaScanRange {
   4: optional TFrontendsMetadataParams frontends_params
   5: optional TQueriesMetadataParams queries_params
   6: optional TMaterializedViewsMetadataParams materialized_views_params
+  7: optional TJobsMetadataParams jobs_params
+  8: optional TTasksMetadataParams tasks_params
 }
 
 // Specification of an individual data range which is held in its entirety
