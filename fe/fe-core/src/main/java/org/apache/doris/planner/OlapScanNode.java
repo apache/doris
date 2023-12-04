@@ -774,7 +774,7 @@ public class OlapScanNode extends ScanNode {
                 // sort by replica id
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
-                if (ConnectContext.get().getSessionVariable().useHealthReplicaWhenFixedCorrupt) {
+                if (ConnectContext.get().getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
                     // If the fixed replica is bad, then not clear the replicas using random replica
                     if (backend == null || !backend.isAlive()) {

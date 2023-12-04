@@ -464,7 +464,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
     // this session variable is set to true.
-    public static final String USE_HEALTH_REPLICA_WHEN_FIXED_CORRUPT = "use_health_replica_when_fixed_corrupt";
+    public static final String FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT = "fallback_other_replica_when_fixed_corrupt";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -1446,10 +1446,10 @@ public class SessionVariable implements Serializable, Writable {
             "Set to true to enable Decimal256 type" })
     public boolean enableDecimal256 = false;
 
-    @VariableMgr.VarAttr(name = USE_HEALTH_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
+    @VariableMgr.VarAttr(name = FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
             description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
                 "use other health replica when the use_fix_replica meet error" })
-    public boolean useHealthReplicaWhenFixedCorrupt = false;
+    public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
