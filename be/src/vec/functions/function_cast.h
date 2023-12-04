@@ -1291,8 +1291,6 @@ public:
         }
     }
 
-    bool has_information_about_monotonicity() const override { return Monotonic::has(); }
-
     Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                             const Field& right) const override {
         return Monotonic::get(type, left, right);
@@ -1698,10 +1696,6 @@ public:
 
     bool is_deterministic() const override { return true; }
     bool is_deterministic_in_scope_of_query() const override { return true; }
-
-    bool has_information_about_monotonicity() const override {
-        return static_cast<bool>(monotonicity_for_range);
-    }
 
     Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                             const Field& right) const override {

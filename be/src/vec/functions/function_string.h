@@ -1562,8 +1562,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return true; }
 
-    bool use_default_implementation_for_constants() const override { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
@@ -1576,9 +1574,10 @@ public:
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
-
-        ColumnPtr content_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr content_column;
+        bool content_const = false;
+        std::tie(content_column, content_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
 
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
             // Danger: Here must dispose the null map data first! Because
@@ -1588,25 +1587,16 @@ public:
             content_column = nullable->get_nested_column_ptr();
         }
 
-        for (size_t i = 1; i <= 2; i++) {
-            ColumnPtr columnPtr = remove_nullable(block.get_by_position(arguments[i]).column);
-
-            if (!is_column_const(*columnPtr)) {
-                return Status::RuntimeError("Argument at index {} for function {} must be constant",
-                                            i + 1, get_name());
-            }
-        }
-
         auto str_col = assert_cast<const ColumnString*>(content_column.get());
 
-        const IColumn& delimiter_col = *block.get_by_position(arguments[1]).column;
-        const auto* delimiter_const = typeid_cast<const ColumnConst*>(&delimiter_col);
-        auto delimiter = delimiter_const->get_field().get<String>();
-        int32_t delimiter_size = delimiter.size();
+        [[maybe_unused]] const auto& [delimiter_col, delimiter_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        auto delimiter = delimiter_col->get_data_at(0);
+        int32_t delimiter_size = delimiter.size;
 
-        const IColumn& part_num_col = *block.get_by_position(arguments[2]).column;
-        const auto* part_num_col_const = typeid_cast<const ColumnConst*>(&part_num_col);
-        auto part_number = part_num_col_const->get_field().get<Int32>();
+        [[maybe_unused]] const auto& [part_num_col, part_const] =
+                unpack_if_const(block.get_by_position(arguments[2]).column);
+        auto part_number = *((int*)part_num_col->get_data_at(0).data);
 
         if (part_number == 0 || delimiter_size == 0) {
             for (size_t i = 0; i < input_rows_count; ++i) {
@@ -1622,7 +1612,7 @@ public:
                     while (num < part_number) {
                         size_t n = str.size - offset - 1;
                         const char* pos = reinterpret_cast<const char*>(
-                                memchr(str.data + offset + 1, delimiter[0], n));
+                                memchr(str.data + offset + 1, delimiter.data[0], n));
                         if (pos != nullptr) {
                             offset = pos - str.data;
                             num++;
