@@ -1422,20 +1422,9 @@ void ColumnObject::append_data_by_selector(MutableColumnPtr& res,
     return append_data_by_selector_impl<ColumnObject>(res, selector);
 }
 
-void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                       const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnObject::insert_default();
-        } else {
-            ColumnObject::insert_from(src, *x);
-        }
-    }
-}
-
-void ColumnObject::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
-                                            const uint32_t* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
+void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                       const uint32_t* indices_end) {
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
         ColumnObject::insert_from(src, *x);
     }
 }

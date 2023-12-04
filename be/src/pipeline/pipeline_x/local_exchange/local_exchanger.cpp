@@ -82,7 +82,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
                                      LocalExchangeSinkLocalState& local_state) {
     auto& data_queue = _data_queue;
     const auto rows = block->rows();
-    auto row_idx = std::make_shared<std::vector<int>>(rows);
+    auto row_idx = std::make_shared<std::vector<uint32_t>>(rows);
     {
         local_state._partition_rows_histogram.assign(_num_instances + 1, 0);
         for (size_t i = 0; i < rows; ++i) {

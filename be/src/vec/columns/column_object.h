@@ -369,11 +369,8 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
-
-    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
-                                  const uint32_t* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     // May throw execption
     void try_insert(const Field& field);

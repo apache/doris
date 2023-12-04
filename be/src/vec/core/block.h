@@ -563,7 +563,7 @@ public:
     void swap(MutableBlock&& other) noexcept;
 
     void add_row(const Block* block, int row);
-    void add_rows(const Block* block, const int* row_begin, const int* row_end);
+    void add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
     void add_rows(const Block* block, std::vector<int64_t> rows);
 
